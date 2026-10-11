@@ -7,8 +7,9 @@
 mod thread;
 
 use super::files::{Stat, errno, io_errno};
-use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, Tid, page_ceil};
+use super::{FrameAllocator, Permissions, Process, SpaceError, Tid, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
+use crate::common::VirtAddr;
 use crate::isa::extension::{Extension, Isa};
 use crate::isa::reg::{self, RegIdx};
 use crate::sim::memory::GlobalMemory;
@@ -215,41 +216,42 @@ const fn fault(error: SpaceError) -> i64 {
 
 impl Sys<'_> {
     fn dispatch(&mut self, number: u64, a: [u64; 6]) -> Result {
+        let at = |i: usize| VirtAddr::new(a[i]);
         match number {
             SYS_EXIT | SYS_EXIT_GROUP => Ok(Reply::Exit(a[0] & 0xff)),
             SYS_KILL | SYS_TKILL | SYS_TGKILL => {
                 let signal = if number == SYS_KILL { a[1] } else { a[2] };
                 Ok(Reply::Exit(128 + (signal & 0x7f)))
             }
-            SYS_WRITE => self.write(a[0] as i64, a[1], a[2]),
-            SYS_READ => self.read(a[0] as i64, a[1], a[2]),
-            SYS_WRITEV => self.writev(a[0] as i64, a[1], a[2]),
-            SYS_READV => self.readv(a[0] as i64, a[1], a[2]),
-            SYS_PREAD64 => self.pread(a[0] as i64, a[1], a[2], a[3]),
-            SYS_PWRITE64 => self.pwrite(a[0] as i64, a[1], a[2], a[3]),
-            SYS_OPENAT => self.openat(a[0] as i64, a[1], a[2], a[3]),
+            SYS_WRITE => self.write(a[0] as i64, at(1), a[2]),
+            SYS_READ => self.read(a[0] as i64, at(1), a[2]),
+            SYS_WRITEV => self.writev(a[0] as i64, at(1), a[2]),
+            SYS_READV => self.readv(a[0] as i64, at(1), a[2]),
+            SYS_PREAD64 => self.pread(a[0] as i64, at(1), a[2], a[3]),
+            SYS_PWRITE64 => self.pwrite(a[0] as i64, at(1), a[2], a[3]),
+            SYS_OPENAT => self.openat(a[0] as i64, at(1), a[2], a[3]),
             SYS_CLOSE => self.process.files.close(a[0] as i64).map(|()| Reply::Value(0)),
             SYS_LSEEK => self.process.files.seek(a[0] as i64, a[1] as i64, a[2]).and_then(ok),
-            SYS_FSTAT => self.fstat(a[0] as i64, a[1]),
-            SYS_NEWFSTATAT => self.fstatat(a[0] as i64, a[1], a[2], a[3]),
-            SYS_FACCESSAT | SYS_FACCESSAT2 => self.faccessat(a[0] as i64, a[1]),
-            SYS_READLINKAT => self.readlinkat(a[0] as i64, a[1], a[2], a[3]),
-            SYS_MKDIRAT => self.mkdirat(a[0] as i64, a[1]),
-            SYS_UNLINKAT => self.unlinkat(a[0] as i64, a[1], a[2]),
-            SYS_RENAMEAT | SYS_RENAMEAT2 => self.renameat(a[0] as i64, a[1], a[2] as i64, a[3]),
-            SYS_GETCWD => self.getcwd(a[0], a[1]),
-            SYS_IOCTL => self.ioctl(a[0] as i64, a[1], a[2]),
+            SYS_FSTAT => self.fstat(a[0] as i64, at(1)),
+            SYS_NEWFSTATAT => self.fstatat(a[0] as i64, at(1), at(2), a[3]),
+            SYS_FACCESSAT | SYS_FACCESSAT2 => self.faccessat(a[0] as i64, at(1)),
+            SYS_READLINKAT => self.readlinkat(a[0] as i64, at(1), at(2), a[3]),
+            SYS_MKDIRAT => self.mkdirat(a[0] as i64, at(1)),
+            SYS_UNLINKAT => self.unlinkat(a[0] as i64, at(1), a[2]),
+            SYS_RENAMEAT | SYS_RENAMEAT2 => self.renameat(a[0] as i64, at(1), a[2] as i64, at(3)),
+            SYS_GETCWD => self.getcwd(at(0), a[1]),
+            SYS_IOCTL => self.ioctl(a[0] as i64, a[1], at(2)),
             SYS_BRK => {
-                let brk = self.process.set_brk(self.memory, self.frames, a[0]);
-                ok(brk)
+                let brk = self.process.set_brk(self.memory, self.frames, at(0));
+                ok(brk.val())
             }
-            SYS_MMAP => self.mmap(a[0], a[1], a[2], a[3], a[4] as i64, a[5]),
+            SYS_MMAP => self.mmap(user_pointer(a[0]), a[1], a[2], a[3], a[4] as i64, a[5]),
             SYS_MUNMAP => {
-                self.process.unmap(self.memory, a[0], a[1]);
+                self.process.unmap(self.memory, at(0), a[1]);
                 ok(0)
             }
-            SYS_MREMAP => self.mremap(a[0], a[1], a[2], a[3]),
-            SYS_MPROTECT => self.mprotect(a[0], a[1], a[2]),
+            SYS_MREMAP => self.mremap(at(0), a[1], a[2], a[3]),
+            SYS_MPROTECT => self.mprotect(at(0), a[1], a[2]),
             SYS_FCNTL
             | SYS_GETPPID
             | SYS_GETUID
@@ -267,18 +269,18 @@ impl Sys<'_> {
                 // value changed; a wake wakes nobody.
                 if a[1] & FUTEX_CMD_MASK == FUTEX_WAIT { Err(-EAGAIN) } else { ok(0) }
             }
-            SYS_RT_SIGACTION => self.zero_if_given(a[2], 24),
-            SYS_RT_SIGPROCMASK => self.zero_if_given(a[2], a[3] as usize),
-            SYS_CLOCK_GETTIME => self.clock_gettime(a[0], a[1]),
-            SYS_CLOCK_GETRES => self.write_timespec(a[1], 0, 1),
-            SYS_GETTIMEOFDAY => self.gettimeofday(a[0]),
-            SYS_TIMES => self.times(a[0]),
-            SYS_GETRUSAGE => self.getrusage(a[1]),
-            SYS_UNAME => self.uname(a[0]),
-            SYS_SYSINFO => self.sysinfo(a[0]),
-            SYS_PRLIMIT64 => self.prlimit(a[1], a[3]),
-            SYS_GETRANDOM => self.getrandom(a[0], a[1]),
-            SYS_RISCV_HWPROBE => self.hwprobe(a[0], a[1], a[4]),
+            SYS_RT_SIGACTION => self.zero_if_given(user_pointer(a[2]), 24),
+            SYS_RT_SIGPROCMASK => self.zero_if_given(user_pointer(a[2]), a[3] as usize),
+            SYS_CLOCK_GETTIME => self.clock_gettime(a[0], at(1)),
+            SYS_CLOCK_GETRES => self.write_timespec(at(1), 0, 1),
+            SYS_GETTIMEOFDAY => self.gettimeofday(user_pointer(a[0])),
+            SYS_TIMES => self.times(user_pointer(a[0])),
+            SYS_GETRUSAGE => self.getrusage(at(1)),
+            SYS_UNAME => self.uname(at(0)),
+            SYS_SYSINFO => self.sysinfo(at(0)),
+            SYS_PRLIMIT64 => self.prlimit(a[1], user_pointer(a[3])),
+            SYS_GETRANDOM => self.getrandom(at(0), a[1]),
+            SYS_RISCV_HWPROBE => self.hwprobe(at(0), a[1], a[4]),
             // What a kernel without them answers; glibc falls back.
             SYS_CLONE | SYS_CLONE3 | SYS_EXECVE | SYS_STATX | SYS_RSEQ => Err(-errno::ENOSYS),
             _ => {
@@ -288,50 +290,54 @@ impl Sys<'_> {
         }
     }
 
-    fn read_user(&self, vaddr: u64, len: u64) -> std::result::Result<Vec<u8>, i64> {
+    fn read_user(&self, vaddr: VirtAddr, len: u64) -> std::result::Result<Vec<u8>, i64> {
         let len = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
         self.process.space.read(self.memory, vaddr, len).map_err(fault)
     }
 
-    fn write_user(&mut self, vaddr: u64, bytes: &[u8]) -> std::result::Result<(), i64> {
+    fn write_user(&mut self, vaddr: VirtAddr, bytes: &[u8]) -> std::result::Result<(), i64> {
         self.process.space.write(self.memory, vaddr, bytes).map_err(fault)
     }
 
-    fn read_path(&self, vaddr: u64) -> std::result::Result<Vec<u8>, i64> {
+    fn read_path(&self, vaddr: VirtAddr) -> std::result::Result<Vec<u8>, i64> {
         self.process.space.read_cstr(self.memory, vaddr, PATH_MAX).map_err(fault)
     }
 
-    fn resolve(&mut self, dirfd: i64, path: u64) -> std::result::Result<std::path::PathBuf, i64> {
+    fn resolve(
+        &mut self,
+        dirfd: i64,
+        path: VirtAddr,
+    ) -> std::result::Result<std::path::PathBuf, i64> {
         let path = self.read_path(path)?;
         self.process.files.resolve(dirfd, &path)
     }
 
-    fn write(&mut self, fd: i64, buf: u64, len: u64) -> Result {
+    fn write(&mut self, fd: i64, buf: VirtAddr, len: u64) -> Result {
         let bytes = self.read_user(buf, len)?;
         self.process.files.write(fd, &bytes).and_then(|n| ok(n as u64))
     }
 
-    fn read(&mut self, fd: i64, buf: u64, len: u64) -> Result {
+    fn read(&mut self, fd: i64, buf: VirtAddr, len: u64) -> Result {
         let len = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
         let bytes = self.process.files.read(fd, len)?;
         self.write_user(buf, &bytes)?;
         ok(bytes.len() as u64)
     }
 
-    fn pread(&mut self, fd: i64, buf: u64, len: u64, offset: u64) -> Result {
+    fn pread(&mut self, fd: i64, buf: VirtAddr, len: u64, offset: u64) -> Result {
         let len = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
         let bytes = self.process.files.pread(fd, len, offset)?;
         self.write_user(buf, &bytes)?;
         ok(bytes.len() as u64)
     }
 
-    fn pwrite(&mut self, fd: i64, buf: u64, len: u64, offset: u64) -> Result {
+    fn pwrite(&mut self, fd: i64, buf: VirtAddr, len: u64, offset: u64) -> Result {
         let bytes = self.read_user(buf, len)?;
         self.process.files.pwrite(fd, &bytes, offset).and_then(|n| ok(n as u64))
     }
 
     /// The `(base, len)` pairs of an `iovec` array.
-    fn iovecs(&self, iov: u64, count: u64) -> std::result::Result<Vec<(u64, u64)>, i64> {
+    fn iovecs(&self, iov: VirtAddr, count: u64) -> std::result::Result<Vec<(VirtAddr, u64)>, i64> {
         let count = usize::try_from(count).map_err(|_| -errno::EINVAL)?;
         let bytes = self.read_user(iov, (count * 16) as u64)?;
         Ok(bytes
@@ -343,12 +349,12 @@ impl Sys<'_> {
                 let mut len = [0u8; 8];
                 base.copy_from_slice(&pair[..8]);
                 len.copy_from_slice(&pair[8..]);
-                (u64::from_le_bytes(base), u64::from_le_bytes(len))
+                (VirtAddr::new(u64::from_le_bytes(base)), u64::from_le_bytes(len))
             })
             .collect())
     }
 
-    fn writev(&mut self, fd: i64, iov: u64, count: u64) -> Result {
+    fn writev(&mut self, fd: i64, iov: VirtAddr, count: u64) -> Result {
         let mut total = 0u64;
         for (base, len) in self.iovecs(iov, count)? {
             let bytes = self.read_user(base, len)?;
@@ -357,7 +363,7 @@ impl Sys<'_> {
         ok(total)
     }
 
-    fn readv(&mut self, fd: i64, iov: u64, count: u64) -> Result {
+    fn readv(&mut self, fd: i64, iov: VirtAddr, count: u64) -> Result {
         let mut total = 0u64;
         for (base, len) in self.iovecs(iov, count)? {
             let want = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
@@ -371,18 +377,18 @@ impl Sys<'_> {
         ok(total)
     }
 
-    fn openat(&mut self, dirfd: i64, path: u64, flags: u64, mode: u64) -> Result {
+    fn openat(&mut self, dirfd: i64, path: VirtAddr, flags: u64, mode: u64) -> Result {
         let path = self.resolve(dirfd, path)?;
         self.process.files.open(path, flags, mode).and_then(ok_i64)
     }
 
-    fn fstat(&mut self, fd: i64, buf: u64) -> Result {
+    fn fstat(&mut self, fd: i64, buf: VirtAddr) -> Result {
         let stat = self.process.files.stat(fd)?;
         self.write_user(buf, &stat.to_bytes())?;
         ok(0)
     }
 
-    fn fstatat(&mut self, dirfd: i64, path: u64, buf: u64, flags: u64) -> Result {
+    fn fstatat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, flags: u64) -> Result {
         let path_bytes = self.read_path(path)?;
         let stat = if path_bytes.is_empty() && flags & AT_EMPTY_PATH != 0 {
             self.process.files.stat(dirfd)?
@@ -396,13 +402,13 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn faccessat(&mut self, dirfd: i64, path: u64) -> Result {
+    fn faccessat(&mut self, dirfd: i64, path: VirtAddr) -> Result {
         let host = self.resolve(dirfd, path)?;
         std::fs::metadata(&host).map(drop).map_err(|e| io_errno(&e))?;
         ok(0)
     }
 
-    fn readlinkat(&mut self, dirfd: i64, path: u64, buf: u64, size: u64) -> Result {
+    fn readlinkat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, size: u64) -> Result {
         let path_bytes = self.read_path(path)?;
         let target: Vec<u8> = if path_bytes == b"/proc/self/exe" {
             std::env::current_exe()
@@ -419,13 +425,13 @@ impl Sys<'_> {
         ok(len as u64)
     }
 
-    fn mkdirat(&mut self, dirfd: i64, path: u64) -> Result {
+    fn mkdirat(&mut self, dirfd: i64, path: VirtAddr) -> Result {
         let host = self.resolve(dirfd, path)?;
         std::fs::create_dir(&host).map_err(|e| io_errno(&e))?;
         ok(0)
     }
 
-    fn unlinkat(&mut self, dirfd: i64, path: u64, flags: u64) -> Result {
+    fn unlinkat(&mut self, dirfd: i64, path: VirtAddr, flags: u64) -> Result {
         let host = self.resolve(dirfd, path)?;
         let removed = if flags & AT_REMOVEDIR != 0 {
             std::fs::remove_dir(&host)
@@ -436,14 +442,14 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn renameat(&mut self, old_dirfd: i64, old: u64, new_dirfd: i64, new: u64) -> Result {
+    fn renameat(&mut self, old_dirfd: i64, old: VirtAddr, new_dirfd: i64, new: VirtAddr) -> Result {
         let from = self.resolve(old_dirfd, old)?;
         let to = self.resolve(new_dirfd, new)?;
         std::fs::rename(&from, &to).map_err(|e| io_errno(&e))?;
         ok(0)
     }
 
-    fn getcwd(&mut self, buf: u64, size: u64) -> Result {
+    fn getcwd(&mut self, buf: VirtAddr, size: u64) -> Result {
         let mut cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned().into_bytes())
             .map_err(|e| io_errno(&e))?;
@@ -455,7 +461,7 @@ impl Sys<'_> {
         ok(cwd.len() as u64)
     }
 
-    fn ioctl(&mut self, fd: i64, request: u64, arg: u64) -> Result {
+    fn ioctl(&mut self, fd: i64, request: u64, arg: VirtAddr) -> Result {
         if !self.process.files.is_console(fd) {
             return Err(-errno::ENOTTY);
         }
@@ -482,23 +488,32 @@ impl Sys<'_> {
         }
     }
 
-    fn mmap(&mut self, addr: u64, len: u64, prot: u64, flags: u64, fd: i64, offset: u64) -> Result {
+    fn mmap(
+        &mut self,
+        hint: Option<VirtAddr>,
+        len: u64,
+        prot: u64,
+        flags: u64,
+        fd: i64,
+        offset: u64,
+    ) -> Result {
         if len == 0 {
             return Err(-errno::EINVAL);
         }
-        let hint = (addr != 0).then_some(addr);
-        if flags & MAP_FIXED != 0 && (addr & (PAGE_SIZE - 1) != 0 || addr == 0) {
-            return Err(-errno::EINVAL);
-        }
+        let fixed = if flags & MAP_FIXED == 0 {
+            None
+        } else {
+            Some(hint.filter(|addr| addr.is_page_aligned()).ok_or(-errno::EINVAL)?)
+        };
         let permissions = Permissions::from_prot(prot);
-        if flags & MAP_FIXED != 0 {
+        if let Some(addr) = fixed {
             self.process.unmap(self.memory, addr, page_ceil(len));
         }
         let start = self
             .process
             .map_anonymous(self.memory, self.frames, hint, len, permissions)
             .map_err(fault)?;
-        if flags & MAP_FIXED != 0 && start != addr {
+        if fixed.is_some_and(|addr| addr != start) {
             return Err(-errno::ENOMEM);
         }
         if flags & MAP_ANONYMOUS == 0 {
@@ -518,10 +533,10 @@ impl Sys<'_> {
                 .map_err(fault)?;
             self.process.note_file_map(start, page_ceil(len));
         }
-        ok(start)
+        ok(start.val())
     }
 
-    fn mremap(&mut self, old_addr: u64, old_len: u64, new_len: u64, flags: u64) -> Result {
+    fn mremap(&mut self, old_addr: VirtAddr, old_len: u64, new_len: u64, flags: u64) -> Result {
         if flags & MREMAP_MAYMOVE == 0 {
             return Err(-errno::ENOMEM);
         }
@@ -534,11 +549,11 @@ impl Sys<'_> {
             .map_err(fault)?;
         self.write_user(start, &bytes)?;
         self.process.unmap(self.memory, old_addr, old_len);
-        ok(start)
+        ok(start.val())
     }
 
-    fn mprotect(&mut self, addr: u64, len: u64, prot: u64) -> Result {
-        if addr & (PAGE_SIZE - 1) != 0 {
+    fn mprotect(&mut self, addr: VirtAddr, len: u64, prot: u64) -> Result {
+        if !addr.is_page_aligned() {
             return Err(-errno::EINVAL);
         }
         if !self.process.space.is_mapped(addr, len) {
@@ -551,8 +566,8 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn zero_if_given(&mut self, addr: u64, len: usize) -> Result {
-        if addr != 0 {
+    fn zero_if_given(&mut self, addr: Option<VirtAddr>, len: usize) -> Result {
+        if let Some(addr) = addr {
             self.write_user(addr, &vec![0u8; len])?;
         }
         ok(0)
@@ -563,7 +578,7 @@ impl Sys<'_> {
         u128::from(self.cycle) * 1_000_000_000 / u128::from(self.process.clock_hz.max(1))
     }
 
-    fn write_timespec(&mut self, addr: u64, seconds: u64, nanos: u64) -> Result {
+    fn write_timespec(&mut self, addr: VirtAddr, seconds: u64, nanos: u64) -> Result {
         let mut bytes = [0u8; 16];
         bytes[..8].copy_from_slice(&seconds.to_le_bytes());
         bytes[8..].copy_from_slice(&nanos.to_le_bytes());
@@ -571,16 +586,14 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn clock_gettime(&mut self, clock: u64, addr: u64) -> Result {
+    fn clock_gettime(&mut self, clock: u64, addr: VirtAddr) -> Result {
         let ns = self.elapsed_ns();
         let epoch = if clock == 0 { REALTIME_EPOCH_SECONDS } else { 0 };
         self.write_timespec(addr, epoch + (ns / 1_000_000_000) as u64, (ns % 1_000_000_000) as u64)
     }
 
-    fn gettimeofday(&mut self, addr: u64) -> Result {
-        if addr == 0 {
-            return ok(0);
-        }
+    fn gettimeofday(&mut self, addr: Option<VirtAddr>) -> Result {
+        let Some(addr) = addr else { return ok(0) };
         let us = self.elapsed_ns() / 1000;
         let mut bytes = [0u8; 16];
         bytes[..8]
@@ -595,9 +608,9 @@ impl Sys<'_> {
         (self.elapsed_ns() / 10_000_000) as u64
     }
 
-    fn times(&mut self, addr: u64) -> Result {
+    fn times(&mut self, addr: Option<VirtAddr>) -> Result {
         let ticks = self.ticks();
-        if addr != 0 {
+        if let Some(addr) = addr {
             let mut bytes = [0u8; 32];
             bytes[..8].copy_from_slice(&ticks.to_le_bytes());
             self.write_user(addr, &bytes)?;
@@ -605,7 +618,7 @@ impl Sys<'_> {
         ok(ticks)
     }
 
-    fn getrusage(&mut self, addr: u64) -> Result {
+    fn getrusage(&mut self, addr: VirtAddr) -> Result {
         let us = self.elapsed_ns() / 1000;
         let mut bytes = [0u8; 144];
         bytes[..8].copy_from_slice(&((us / 1_000_000) as u64).to_le_bytes());
@@ -619,7 +632,7 @@ impl Sys<'_> {
     /// string) and whether misaligned accesses are fast. The CPU set
     /// arguments are accepted as given, the system having one hart. A key
     /// the kernel does not know comes back as -1.
-    fn hwprobe(&mut self, pairs: u64, count: u64, flags: u64) -> Result {
+    fn hwprobe(&mut self, pairs: VirtAddr, count: u64, flags: u64) -> Result {
         if flags != 0 {
             return Err(-errno::EINVAL);
         }
@@ -671,7 +684,7 @@ impl Sys<'_> {
             .fold(0, |bits, (_, bit)| bits | bit)
     }
 
-    fn uname(&mut self, addr: u64) -> Result {
+    fn uname(&mut self, addr: VirtAddr) -> Result {
         let mut bytes = [0u8; 6 * 65];
         for (i, field) in
             ["Linux", "rvsim", "6.6.0", "#1 SMP rvsim", "riscv64", ""].iter().enumerate()
@@ -683,7 +696,7 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn sysinfo(&mut self, addr: u64) -> Result {
+    fn sysinfo(&mut self, addr: VirtAddr) -> Result {
         let mut bytes = [0u8; 112];
         bytes[..8].copy_from_slice(&((self.elapsed_ns() / 1_000_000_000) as u64).to_le_bytes());
         bytes[32..40].copy_from_slice(&self.ram_bytes.to_le_bytes());
@@ -694,8 +707,8 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn prlimit(&mut self, resource: u64, old: u64) -> Result {
-        if old != 0 {
+    fn prlimit(&mut self, resource: u64, old: Option<VirtAddr>) -> Result {
+        if let Some(old) = old {
             let (cur, max) = match resource {
                 RLIMIT_STACK => (self.process.stack_bytes(), RLIM_INFINITY),
                 RLIMIT_NOFILE => (1024, 1024),
@@ -709,7 +722,7 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn getrandom(&mut self, buf: u64, len: u64) -> Result {
+    fn getrandom(&mut self, buf: VirtAddr, len: u64) -> Result {
         let len = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
         let mut bytes = Vec::with_capacity(len);
         while bytes.len() < len {
@@ -719,6 +732,11 @@ impl Sys<'_> {
         self.write_user(buf, &bytes)?;
         ok(len as u64)
     }
+}
+
+/// A pointer argument: `None` for null.
+const fn user_pointer(raw: u64) -> Option<VirtAddr> {
+    if raw == 0 { None } else { Some(VirtAddr::new(raw)) }
 }
 
 #[allow(clippy::unnecessary_wraps, reason = "the handlers' common result type")]

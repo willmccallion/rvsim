@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::common::VirtAddr;
 use crate::isa::privileged::PagingMode;
 use crate::sim::memory::GlobalMemory;
 use crate::soc::terminal::SharedTerminal;
@@ -37,17 +38,17 @@ pub struct Process {
     /// Its descriptors.
     pub(crate) files: FileTable,
     /// Where `brk` started: the end of the loaded image, page-aligned.
-    brk_start: u64,
+    brk_start: VirtAddr,
     /// The current program break.
-    brk: u64,
+    brk: VirtAddr,
     /// Where the next anonymous `mmap` without an address goes.
-    mmap_next: u64,
+    mmap_next: VirtAddr,
     /// The core clock the time syscalls divide cycles by.
     pub clock_hz: u64,
     /// Deterministic state for `getrandom`.
     random: u64,
     /// `mmap`ed file ranges, so `munmap` can forget them: start to length.
-    file_maps: BTreeMap<u64, u64>,
+    file_maps: BTreeMap<VirtAddr, u64>,
     /// How many syscalls were served, by number.
     pub syscall_counts: BTreeMap<u64, u64>,
 }
@@ -57,20 +58,20 @@ pub struct Process {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessState {
     space: AddressSpace,
-    brk_start: u64,
-    brk: u64,
-    mmap_next: u64,
+    brk_start: VirtAddr,
+    brk: VirtAddr,
+    mmap_next: VirtAddr,
     clock_hz: u64,
     random: u64,
-    file_maps: BTreeMap<u64, u64>,
+    file_maps: BTreeMap<VirtAddr, u64>,
     syscall_counts: BTreeMap<u64, u64>,
 }
 
 /// Where a process's regions start, relative to the address space's top.
 struct Layout {
-    stack_top: u64,
+    stack_top: VirtAddr,
     stack_bytes: u64,
-    mmap_base: u64,
+    mmap_base: VirtAddr,
 }
 
 impl Layout {
@@ -80,7 +81,8 @@ impl Layout {
     /// anonymous mappings from the middle up, the heap after the image.
     const fn for_space(space: &AddressSpace) -> Self {
         let top = space.user_top();
-        Self { stack_top: top, stack_bytes: Self::STACK_BYTES, mmap_base: top / 2 }
+        let mmap_base = VirtAddr::new(top.val() / 2);
+        Self { stack_top: top, stack_bytes: Self::STACK_BYTES, mmap_base }
     }
 }
 
@@ -89,7 +91,7 @@ impl Process {
     #[must_use]
     pub fn new(
         space: AddressSpace,
-        brk_start: u64,
+        brk_start: VirtAddr,
         clock_hz: u64,
         terminal: SharedTerminal,
     ) -> Self {
@@ -146,7 +148,7 @@ impl Process {
 
     /// The current program break.
     #[must_use]
-    pub const fn brk(&self) -> u64 {
+    pub const fn brk(&self) -> VirtAddr {
         self.brk
     }
 
@@ -157,23 +159,20 @@ impl Process {
         &mut self,
         memory: &mut GlobalMemory,
         frames: &mut FrameAllocator,
-        new_brk: u64,
-    ) -> u64 {
+        new_brk: VirtAddr,
+    ) -> VirtAddr {
         if new_brk < self.brk_start || !self.space.in_range(new_brk) {
             return self.brk;
         }
-        let old_end = page_ceil(self.brk);
-        let new_end = page_ceil(new_brk);
+        let old_end = self.brk.page_ceil();
+        let new_end = new_brk.page_ceil();
         if new_end > old_end {
-            if self
-                .space
-                .map_range(memory, frames, old_end, new_end - old_end, Permissions::RW)
-                .is_err()
-            {
+            let grown = new_end.val() - old_end.val();
+            if self.space.map_range(memory, frames, old_end, grown, Permissions::RW).is_err() {
                 return self.brk;
             }
         } else if new_end < old_end {
-            self.space.unmap_range(memory, new_end, old_end - new_end);
+            self.space.unmap_range(memory, new_end, old_end.val() - new_end.val());
         }
         self.brk = new_brk;
         self.brk
@@ -189,15 +188,13 @@ impl Process {
         &mut self,
         memory: &mut GlobalMemory,
         frames: &mut FrameAllocator,
-        hint: Option<u64>,
+        hint: Option<VirtAddr>,
         len: u64,
         permissions: Permissions,
-    ) -> Result<u64, SpaceError> {
+    ) -> Result<VirtAddr, SpaceError> {
         let len = page_ceil(len);
         let start = match hint {
-            Some(address)
-                if address & (PAGE_SIZE - 1) == 0 && !self.space.is_mapped(address, len) =>
-            {
+            Some(address) if address.is_page_aligned() && !self.space.is_mapped(address, len) => {
                 address
             }
             _ => {
@@ -211,13 +208,13 @@ impl Process {
     }
 
     /// Unmaps `[start, start + len)`.
-    pub fn unmap(&mut self, memory: &mut GlobalMemory, start: u64, len: u64) {
+    pub fn unmap(&mut self, memory: &mut GlobalMemory, start: VirtAddr, len: u64) {
         self.space.unmap_range(memory, start, len);
         let _ = self.file_maps.remove(&start);
     }
 
     /// Records a file-backed mapping so `munmap` can forget it.
-    pub fn note_file_map(&mut self, start: u64, len: u64) {
+    pub fn note_file_map(&mut self, start: VirtAddr, len: u64) {
         let _ = self.file_maps.insert(start, len);
     }
 
@@ -233,7 +230,7 @@ impl Process {
 
     /// Where the stack's top page is, for the loader.
     #[must_use]
-    pub const fn stack_top(&self) -> u64 {
+    pub const fn stack_top(&self) -> VirtAddr {
         Layout::for_space(&self.space).stack_top
     }
 
@@ -244,7 +241,7 @@ impl Process {
     }
 }
 
-/// `value` rounded up to a page boundary.
+/// A length rounded up to a whole number of pages.
 #[must_use]
 pub const fn page_ceil(value: u64) -> u64 {
     (value + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)

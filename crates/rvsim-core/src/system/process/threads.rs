@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::{FrameAllocator, Process, ProcessState};
-use crate::common::HartId;
+use crate::common::{HartId, VirtAddr};
 use crate::soc::terminal::SharedTerminal;
 
 /// A thread's id, as `gettid` returns it; a process's id is its first
@@ -47,7 +47,7 @@ struct Thread {
     tid: Tid,
     hart: HartId,
     /// The address `set_tid_address` gave, for the thread exit protocol.
-    clear_child_tid: u64,
+    clear_child_tid: Option<VirtAddr>,
 }
 
 /// What a hart does in SE mode.
@@ -129,7 +129,7 @@ impl Processes {
     /// id: 1 for the first program, then up.
     pub fn add_program(&mut self, process: Process, hart: HartId) -> Tid {
         let tgid = self.allocate_tid();
-        let thread = Thread { tid: tgid, hart, clear_child_tid: 0 };
+        let thread = Thread { tid: tgid, hart, clear_child_tid: None };
         let group = ThreadGroup { process, threads: vec![thread], exit_code: None };
         let _ = self.groups.insert(tgid, group);
         self.harts[hart.as_index()] = HartUse::Thread(ThreadRef { tgid, tid: tgid });
@@ -165,7 +165,7 @@ impl Processes {
     }
 
     /// Records `thread`'s `set_tid_address` pointer.
-    pub fn set_clear_child_tid(&mut self, thread: ThreadRef, addr: u64) {
+    pub fn set_clear_child_tid(&mut self, thread: ThreadRef, addr: Option<VirtAddr>) {
         if let Some(record) =
             self.groups.get_mut(&thread.tgid).and_then(|group| group.thread_mut(thread.tid))
         {

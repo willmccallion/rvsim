@@ -1,5 +1,7 @@
 //! Strong newtypes for physical and virtual addresses, ASID, IRQ id, and page numbers.
 
+use serde::{Deserialize, Serialize};
+
 /// Number of bits to shift to convert between bytes and pages.
 pub const PAGE_SHIFT: u64 = 12;
 
@@ -80,7 +82,8 @@ impl IrqId {
 ///
 /// Represents the upper 27 bits of a 39-bit virtual address (bits 38:12),
 /// used as a TLB tag and page table index.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Vpn(u64);
 
 /// A Physical Page Number in the RISC-V address space.
@@ -108,6 +111,12 @@ impl Vpn {
     pub const fn to_addr(self) -> u64 {
         self.0 << 12
     }
+
+    /// The virtual address the page starts at.
+    #[must_use]
+    pub const fn start(self) -> VirtAddr {
+        VirtAddr(self.0 << PAGE_SHIFT)
+    }
 }
 
 impl Ppn {
@@ -134,14 +143,20 @@ impl Ppn {
 ///
 /// Virtual addresses are used by software and must be translated to physical addresses
 /// through the Memory Management Unit (MMU) before accessing memory.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(transparent)]
 pub struct VirtAddr(pub u64);
 
 /// A physical address in the RISC-V address space.
 ///
 /// Physical addresses represent actual hardware memory locations and are used
 /// after virtual-to-physical address translation has completed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(transparent)]
 pub struct PhysAddr(pub u64);
 
 impl VirtAddr {
@@ -160,6 +175,52 @@ impl VirtAddr {
     /// Returns the page offset (lower 12 bits) of the address.
     pub const fn page_offset(&self) -> u64 {
         self.0 & 0xFFF
+    }
+
+    /// The number of the 4 KiB page the address lies in.
+    #[must_use]
+    pub const fn page_number(self) -> Vpn {
+        Vpn(self.0 >> PAGE_SHIFT)
+    }
+
+    /// The start of the page the address lies in.
+    #[must_use]
+    pub const fn page_floor(self) -> Self {
+        Self(self.0 & !PAGE_OFFSET_MASK)
+    }
+
+    /// The address rounded up to the next page boundary, wrapping at the
+    /// top.
+    #[must_use]
+    pub const fn page_ceil(self) -> Self {
+        Self(self.0.wrapping_add(PAGE_OFFSET_MASK) & !PAGE_OFFSET_MASK)
+    }
+
+    /// Whether the address starts a page.
+    #[must_use]
+    pub const fn is_page_aligned(self) -> bool {
+        self.0 & PAGE_OFFSET_MASK == 0
+    }
+
+    /// The address `bytes` further on, unless that passes the top.
+    #[must_use]
+    pub const fn checked_add(self, bytes: u64) -> Option<Self> {
+        match self.0.checked_add(bytes) {
+            Some(addr) => Some(Self(addr)),
+            None => None,
+        }
+    }
+
+    /// The address `bytes` further on, wrapping at the top.
+    #[must_use]
+    pub const fn wrapping_add(self, bytes: u64) -> Self {
+        Self(self.0.wrapping_add(bytes))
+    }
+
+    /// The address `bytes` lower, wrapping at zero.
+    #[must_use]
+    pub const fn wrapping_sub(self, bytes: u64) -> Self {
+        Self(self.0.wrapping_sub(bytes))
     }
 }
 
