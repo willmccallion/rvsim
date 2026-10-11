@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- SE mode runs threads, as gem5's SE mode does: `clone` starts a thread
+  on the lowest-numbered free hart, where it stays, one thread per hart
+  with no time-slicing, and fails with `EAGAIN` when no hart is free, so
+  a static pthreads program runs with `--harts N` or
+  `Config(hart_count=N)`. Threads share their process's memory, heap,
+  mappings and descriptors; `futex` waits park a hart until a wake or a
+  timeout in simulated time; `exit` ends one thread and wakes its joiner,
+  `exit_group` and faults end the process; `gettid`, `set_tid_address`
+  and `sched_getaffinity` are served; unmapping memory makes the other
+  threads drop their translations, as a TLB shootdown does. `kill`,
+  `tkill` and `tgkill` reach the process they name, signal 0 only checks
+  that it exists, and signals ignored by default do nothing. Checkpoints
+  carry the threads.
 - SE mode's `madvise` refuses advice Linux 6.6 does not know, as that
   kernel does, so glibc 2.42 guards a thread's stack with `mprotect`
   rather than taking a guard it never got.

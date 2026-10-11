@@ -6,8 +6,10 @@
 
 mod thread;
 
+use thread::ThreadCall;
+
 use super::files::{Stat, errno, io_errno};
-use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, Tid, page_ceil};
+use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, ThreadRef, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
 use crate::common::VirtAddr;
 use crate::isa::extension::{Extension, Isa};
@@ -23,8 +25,14 @@ pub enum Outcome {
         /// The syscall's return value, or its negated `errno`.
         a0: u64,
     },
-    /// The program ended with this exit code.
-    Exit(u64),
+    /// The thread waits on a futex: its hart parks until another thread
+    /// or a timeout resumes it with the call's result.
+    Wait,
+    /// The thread has ended: its hart parks.
+    Ended {
+        /// The run's exit code, when this ended the last process.
+        run_exit: Option<u64>,
+    },
 }
 
 const SYS_GETCWD: u64 = 17;
@@ -55,6 +63,7 @@ const SYS_NANOSLEEP: u64 = 101;
 const SYS_CLOCK_GETTIME: u64 = 113;
 const SYS_CLOCK_GETRES: u64 = 114;
 const SYS_CLOCK_NANOSLEEP: u64 = 115;
+const SYS_SCHED_GETAFFINITY: u64 = 123;
 const SYS_SCHED_YIELD: u64 = 124;
 const SYS_KILL: u64 = 129;
 const SYS_TKILL: u64 = 130;
@@ -106,8 +115,6 @@ const RLIM_INFINITY: u64 = u64::MAX;
 /// The `madvise` advice a 6.6 kernel without KSM, transparent huge pages
 /// or memory-failure handling accepts.
 const MADVISE_ADVICE: [u64; 18] = [0, 1, 2, 3, 4, 8, 9, 10, 11, 16, 17, 18, 19, 20, 21, 22, 23, 24];
-const FUTEX_WAIT: u64 = 0;
-const FUTEX_CMD_MASK: u64 = 0x7f;
 /// `riscv_hwprobe` keys and values as Linux 6.6 defines them
 /// (`asm/hwprobe.h`), the kernel SE mode's `uname` claims to be.
 const HWPROBE_KEY_MVENDORID: i64 = 0;
@@ -128,7 +135,6 @@ const HWPROBE_MISALIGNED_UNSUPPORTED: u64 = 4;
 /// The key the kernel writes back for one it does not know.
 const HWPROBE_KEY_UNKNOWN: i64 = -1;
 const HWPROBE_PAIR_BYTES: u64 = 16;
-const EAGAIN: i64 = 11;
 /// The epoch `CLOCK_REALTIME` starts from: 2023-11-14, so dates are sane
 /// and every run sees the same clock.
 const REALTIME_EPOCH_SECONDS: u64 = 1_700_000_000;
@@ -136,17 +142,27 @@ const PATH_MAX: usize = 4096;
 
 /// Serves the `ecall` that retired at `pc` on `state`'s hart: performs
 /// the syscall in `a7` with the arguments in `a0` to `a5`, leaves the
-/// result in `a0`, and says whether the program goes on.
+/// result in `a0`, and says whether the thread goes on. A thread whose
+/// process another hart ended this cycle ends here instead.
 pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: u64) -> Outcome {
     let number = state.hart.regs.read(reg::REG_A7);
     let args: [u64; 6] = std::array::from_fn(|i| state.hart.regs.read(RegIdx::new(10 + i as u8)));
-    let processes = &mut state.uncore.processes;
-    let Some(caller) = processes.thread_on(state.hart.hart_id) else {
-        return Outcome::Exit(1);
+    let hart = state.hart.hart_id;
+    let Some(caller) = state.uncore.processes.thread_on(hart) else {
+        state.uncore.processes.release_stopping(hart);
+        return Outcome::Ended { run_exit: None };
     };
-    processes.count_syscall(caller.tgid, number);
-    let result = thread::dispatch(processes, caller, number, args)
-        .unwrap_or_else(|| process_call(state, caller.tgid, number, args));
+    state.uncore.processes.count_syscall(caller.tgid, number);
+    let mut call = ThreadCall {
+        processes: &mut state.uncore.processes,
+        memory: &mut state.uncore.memory,
+        caller,
+        hart: state.hart,
+        pc: VirtAddr::new(pc),
+        cycle: state.uncore.cycle,
+    };
+    let result =
+        call.dispatch(number, args).unwrap_or_else(|| process_call(state, caller, number, args));
     tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc), tid = caller.tid.as_u64(),
         number, name = name_of(number),
         a0 = %crate::common::trace::Hex(args[0]), a1 = %crate::common::trace::Hex(args[1]),
@@ -154,39 +170,53 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: u64) -> Outcome {
         result = ?result, "syscall");
     match result {
         Ok(Reply::Value(value)) => Outcome::Continue { a0: value as u64 },
-        Ok(Reply::Exit(code)) => Outcome::Exit(code),
+        Ok(Reply::Wait) => Outcome::Wait,
+        Ok(Reply::Ended(run_exit)) => Outcome::Ended { run_exit },
         Err(negated_errno) => Outcome::Continue { a0: negated_errno as u64 },
     }
 }
 
-/// Serves syscall `number` against process `tgid`'s memory, files and
-/// clock.
-fn process_call(state: &mut CoreCtx<'_>, tgid: Tid, number: u64, args: [u64; 6]) -> Result {
+/// Serves syscall `number` against `caller`'s process's memory, files and
+/// clock. A call that removed a mapping or changed its rights leaves the
+/// process's other threads to drop their translations, as a kernel's TLB
+/// shootdown makes them.
+fn process_call(state: &mut CoreCtx<'_>, caller: ThreadRef, number: u64, args: [u64; 6]) -> Result {
     let cycle = state.uncore.cycle;
     let ram_bytes = state.uncore.config.memory.ram_size as u64;
     let isa = state.core.isa;
     let misaligned_traps = state.uncore.config.memory.misaligned_access_trap;
     let uncore = &mut *state.uncore;
-    let Some((process, frames)) = uncore.processes.process_and_frames(tgid) else {
-        return Ok(Reply::Exit(1));
+    let threads_alive = uncore.processes.live_threads() as u64;
+    let Some((process, frames)) = uncore.processes.process_and_frames(caller.tgid) else {
+        return Err(-errno::ESRCH);
     };
+    let revocations = process.space.revocations();
     let mut sys = Sys {
         process,
         frames,
         memory: &mut uncore.memory,
         cycle,
         ram_bytes,
+        threads_alive,
         isa,
         misaligned_traps,
     };
-    sys.dispatch(number, args)
+    let result = sys.dispatch(number, args);
+    if sys.process.space.revocations() != revocations {
+        uncore.processes.mark_translations_stale(caller);
+    }
+    result
 }
 
 /// What a handler produces.
 #[derive(Debug, Clone, Copy)]
 enum Reply {
     Value(i64),
-    Exit(u64),
+    /// The thread waits on a futex.
+    Wait,
+    /// The thread has ended; with the run's exit code when it was the
+    /// last process.
+    Ended(Option<u64>),
 }
 
 type Result = std::result::Result<Reply, i64>;
@@ -199,6 +229,8 @@ struct Sys<'a> {
     memory: &'a mut GlobalMemory,
     cycle: u64,
     ram_bytes: u64,
+    /// How many threads every process has between them, for `sysinfo`.
+    threads_alive: u64,
     /// What the hart implements, for `riscv_hwprobe`.
     isa: Isa,
     /// Whether a misaligned access traps instead of being performed.
@@ -221,11 +253,6 @@ impl Sys<'_> {
     fn dispatch(&mut self, number: u64, a: [u64; 6]) -> Result {
         let at = |i: usize| VirtAddr::new(a[i]);
         match number {
-            SYS_EXIT | SYS_EXIT_GROUP => Ok(Reply::Exit(a[0] & 0xff)),
-            SYS_KILL | SYS_TKILL | SYS_TGKILL => {
-                let signal = if number == SYS_KILL { a[1] } else { a[2] };
-                Ok(Reply::Exit(128 + (signal & 0x7f)))
-            }
             SYS_WRITE => self.write(a[0] as i64, at(1), a[2]),
             SYS_READ => self.read(a[0] as i64, at(1), a[2]),
             SYS_WRITEV => self.writev(a[0] as i64, at(1), a[2]),
@@ -266,11 +293,6 @@ impl Sys<'_> {
             | SYS_NANOSLEEP
             | SYS_CLOCK_NANOSLEEP
             | SYS_SET_ROBUST_LIST => ok(0),
-            SYS_FUTEX => {
-                // One thread: a wait would never be woken, so it reports the
-                // value changed; a wake wakes nobody.
-                if a[1] & FUTEX_CMD_MASK == FUTEX_WAIT { Err(-EAGAIN) } else { ok(0) }
-            }
             SYS_MADVISE => self.madvise(at(0), a[1], a[2]),
             SYS_RT_SIGACTION => self.zero_if_given(user_pointer(a[2]), 24),
             SYS_RT_SIGPROCMASK => self.zero_if_given(user_pointer(a[2]), a[3] as usize),
@@ -285,7 +307,7 @@ impl Sys<'_> {
             SYS_GETRANDOM => self.getrandom(at(0), a[1]),
             SYS_RISCV_HWPROBE => self.hwprobe(at(0), a[1], a[4]),
             // What a kernel without them answers; glibc falls back.
-            SYS_CLONE | SYS_CLONE3 | SYS_EXECVE | SYS_STATX | SYS_RSEQ => Err(-errno::ENOSYS),
+            SYS_CLONE3 | SYS_EXECVE | SYS_STATX | SYS_RSEQ => Err(-errno::ENOSYS),
             _ => {
                 tracing::warn!(target: "rvsim::syscall", number, "unimplemented syscall; returning ENOSYS");
                 Err(-errno::ENOSYS)
@@ -583,7 +605,7 @@ impl Sys<'_> {
 
     /// Simulated nanoseconds since the run began.
     fn elapsed_ns(&self) -> u128 {
-        u128::from(self.cycle) * 1_000_000_000 / u128::from(self.process.clock_hz.max(1))
+        self.process.nanoseconds_at(self.cycle)
     }
 
     fn write_timespec(&mut self, addr: VirtAddr, seconds: u64, nanos: u64) -> Result {
@@ -638,8 +660,8 @@ impl Sys<'_> {
     /// Answers `riscv_hwprobe` as Linux 6.6 does for this hart: the base
     /// behaviour, the extension bits that kernel knows (from the ISA
     /// string) and whether misaligned accesses are fast. The CPU set
-    /// arguments are accepted as given, the system having one hart. A key
-    /// the kernel does not know comes back as -1.
+    /// arguments are accepted as given, every hart being alike. A key the
+    /// kernel does not know comes back as -1.
     fn hwprobe(&mut self, pairs: VirtAddr, count: u64, flags: u64) -> Result {
         if flags != 0 {
             return Err(-errno::EINVAL);
@@ -709,7 +731,8 @@ impl Sys<'_> {
         bytes[..8].copy_from_slice(&((self.elapsed_ns() / 1_000_000_000) as u64).to_le_bytes());
         bytes[32..40].copy_from_slice(&self.ram_bytes.to_le_bytes());
         bytes[40..48].copy_from_slice(&(self.ram_bytes / 2).to_le_bytes());
-        bytes[80..82].copy_from_slice(&1u16.to_le_bytes());
+        let procs = u16::try_from(self.threads_alive).unwrap_or(u16::MAX);
+        bytes[80..82].copy_from_slice(&procs.to_le_bytes());
         bytes[104..108].copy_from_slice(&1u32.to_le_bytes());
         self.write_user(addr, &bytes)?;
         ok(0)
@@ -791,6 +814,7 @@ pub const fn name_of(number: u64) -> &'static str {
         SYS_CLOCK_GETTIME => "clock_gettime",
         SYS_CLOCK_GETRES => "clock_getres",
         SYS_CLOCK_NANOSLEEP => "clock_nanosleep",
+        SYS_SCHED_GETAFFINITY => "sched_getaffinity",
         SYS_SCHED_YIELD => "sched_yield",
         SYS_KILL => "kill",
         SYS_TKILL => "tkill",

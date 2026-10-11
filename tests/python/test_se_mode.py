@@ -31,17 +31,49 @@ def auipc(rd: int, imm: int) -> int:
     return ((imm & 0xFFFFF) << 12) | (rd << 7) | 0x17
 
 
-def blt(rs1: int, rs2: int, imm: int) -> int:
+def branch(funct3: int, rs1: int, rs2: int, imm: int) -> int:
     imm &= 0x1FFF
     return (
         (((imm >> 12) & 1) << 31)
         | (((imm >> 5) & 0x3F) << 25)
         | (rs2 << 20)
         | (rs1 << 15)
-        | (4 << 12)
+        | (funct3 << 12)
         | (((imm >> 1) & 0xF) << 8)
         | (((imm >> 11) & 1) << 7)
         | 0x63
+    )
+
+
+def blt(rs1: int, rs2: int, imm: int) -> int:
+    return branch(4, rs1, rs2, imm)
+
+
+def beq(rs1: int, rs2: int, imm: int) -> int:
+    return branch(0, rs1, rs2, imm)
+
+
+def lui(rd: int, imm20: int) -> int:
+    return ((imm20 & 0xFFFFF) << 12) | (rd << 7) | 0x37
+
+
+def sub(rd: int, rs1: int, rs2: int) -> int:
+    return (0x20 << 25) | (rs2 << 20) | (rs1 << 15) | (rd << 7) | 0x33
+
+
+def lw(rd: int, rs1: int, imm: int) -> int:
+    return ((imm & 0xFFF) << 20) | (rs1 << 15) | (2 << 12) | (rd << 7) | 0x03
+
+
+def sw(rs2: int, rs1: int, imm: int) -> int:
+    imm &= 0xFFF
+    return (
+        ((imm >> 5) << 25)
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (2 << 12)
+        | ((imm & 0x1F) << 7)
+        | 0x23
     )
 
 
@@ -78,6 +110,40 @@ WRITE_HI = [
 ]
 # gem5's m5_fail(0, 7): the pseudo-instruction ends the run with code 7.
 M5_FAIL_7 = [addi(11, 0, 7), 0x7B | (M5_FAIL << 25)]
+SYS_CLONE = 220
+SYS_EXIT_GROUP = 94
+S0, T0, T1, A0, A1, A7, SP = 8, 5, 6, 10, 11, 17, 2
+# clone(CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD,
+# sp - 64 KiB): a0 = 0x10f00, a1 = sp - 0x10000.
+CLONE_A_THREAD = [
+    lui(A0, 0x11),
+    addi(A0, A0, -0x100),
+    lui(T0, 0x10),
+    sub(A1, SP, T0),
+    addi(A7, 0, SYS_CLONE),
+    ECALL,
+]
+# The thread stores 42 in a word of the program; the first thread waits
+# for it and ends the process with it.
+THREAD_SHARES_MEMORY = [
+    auipc(S0, 0),
+    addi(S0, S0, 18 * 4),
+    *CLONE_A_THREAD,
+    beq(A0, 0, 5 * 4),
+    lw(A0, S0, 0),
+    beq(A0, 0, -4),
+    addi(A7, 0, SYS_EXIT_GROUP),
+    ECALL,
+    addi(T1, 0, 42),
+    sw(T1, S0, 0),
+    addi(A0, 0, 0),
+    addi(A7, 0, SYS_EXIT),
+    ECALL,
+    0,
+]
+# clone with no free hart, then exit(-a0).
+CLONE_WITHOUT_A_HART = [*CLONE_A_THREAD, sub(A0, 0, A0), addi(A7, 0, SYS_EXIT), ECALL]
+EAGAIN = 11
 # Counts to 300 in t0, then exit(9).
 COUNT_THEN_EXIT = [
     addi(5, 0, 0),
@@ -185,6 +251,25 @@ def file_exchange() -> list[int]:
     name = b"out.txt\0"
     code += [int.from_bytes(name[i : i + 4], "little") for i in range(0, 8, 4)]
     return code
+
+
+class Threads(unittest.TestCase):
+    """A program's threads run on the harts its first thread leaves free,
+    one thread per hart, sharing its memory."""
+
+    def test_a_thread_runs_on_a_second_hart_and_shares_memory(self):
+        cpu = Simulator(Config(hart_count=2), elf_data=user_elf(THREAD_SHARES_MEMORY))
+
+        exit_code = cpu.run(limit=200_000)
+
+        self.assertEqual(exit_code, 42)
+        self.assertEqual(cpu.exit_codes, [42])
+        self.assertGreater(cpu.harts[1].instructions_retired, 0)
+
+    def test_clone_fails_with_eagain_when_no_hart_is_free(self):
+        cpu = Simulator(Config(), elf_data=user_elf(CLONE_WITHOUT_A_HART))
+
+        self.assertEqual(cpu.run(limit=200_000), EAGAIN)
 
 
 class SeveralPrograms(unittest.TestCase):

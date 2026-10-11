@@ -9,6 +9,9 @@ use crate::exec::retire;
 use crate::isa::fence::Fence;
 use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::privileged::Trap;
+use crate::system::process::ThreadNotice;
+use crate::system::process::loader::park;
+use crate::system::process::syscall::flush_all;
 use crate::trace_trap;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, PendingTrap, TrapProgress};
@@ -20,8 +23,9 @@ use crate::uarch::pipeline::rob::{Rob, RobEntry, RobState};
 use super::writes::send_data_cache_flush;
 use super::{CommitEvent, CommitFlow, CommitRegisters, ReExecuteCause};
 
-/// Takes a parked trap once its latency has elapsed, or an interrupt once
-/// the pipeline has drained for it, and holds commit while a WFI waits.
+/// Takes a parked trap once its latency has elapsed, what another hart's
+/// syscall left for this one, or an interrupt once the pipeline has drained
+/// for it, and holds commit while a WFI waits.
 pub(super) fn trap_or_interrupt(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
@@ -35,6 +39,13 @@ pub(super) fn trap_or_interrupt(
         let pending = pending.clone();
         common.trap = TrapProgress::None;
         return CommitFlow::Stop(take_pending_trap(state, pending));
+    }
+
+    if !state.hart.wfi_waiting
+        && let Some(notice) = state.uncore.processes.take_notice(state.hart.hart_id)
+    {
+        state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+        return CommitFlow::Stop(Some(take_thread_notice(state, notice)));
     }
 
     // Checked even with an empty ROB: a timer can fire during a stall.
@@ -161,6 +172,18 @@ pub(super) fn gate_head(
     }
 
     CommitFlow::Continue
+}
+
+/// Acts on what another hart's syscall left for this one, as a kernel's
+/// interrupt would: the thread's process ended, so the hart parks, or its
+/// translations went stale, so it drops them. Nothing in flight retires;
+/// what was fetched is dropped and refetched once the hart runs again.
+fn take_thread_notice(state: &mut CoreCtx<'_>, notice: ThreadNotice) -> CommitEvent {
+    match notice {
+        ThreadNotice::Stop => park(state.hart),
+        ThreadNotice::FlushTranslations => state.core.mmu.sfence_vma(&flush_all()),
+    }
+    CommitEvent::SquashAfter(state.hart.pc)
 }
 
 /// Pops the faulted ROB head, commits the vector elements it produced

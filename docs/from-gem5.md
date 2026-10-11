@@ -20,6 +20,7 @@ This page maps what you do in gem5 to what you do here.
 | `Process(cmd=[...], env=[...])` in a script | `Environment(binary="./prog", args=["./prog", "a", "b"], env=["K=V"]).run()` |
 | `fs.py --kernel ... --disk-image ...` | `make run-linux`, or `Simulator(presets.linux(), kernel="...")` |
 | `--num-cpus=N` | `Config(hart_count=N)` |
+| `se.py -n 4 --cmd ./threaded` | `python -m rvsim ./threaded --harts 4`, or `Simulator(Config(hart_count=4), binary="./threaded")`; each thread takes a free hart and keeps it, and `clone` fails with `EAGAIN` when none is left, as in gem5 ([SE mode](se-mode.md#threads)) |
 | `se.py -n 4 --cmd "a;b;c;d" --options "x;y"` | `Simulator(Config(hart_count=4), programs=[Program("a", ["x"]), Program("b", ["y"]), ...])`, or `python -m rvsim a x --program "b y"`; the run ends when the last program exits ([SE mode](se-mode.md#several-programs-at-once)) |
 
 SE mode takes a static Linux binary, position-independent or not, as
@@ -34,8 +35,8 @@ matter:
 - A syscall costs the pipeline a serialising instruction, not a kernel's
   worth of work. OS-heavy workloads belong in full-system mode on both
   simulators.
-- Threads are not served yet: `clone` returns `ENOSYS`. gem5's SE mode
-  places threads on CPUs; this is on the list.
+- Threads run as in gem5's SE mode, one per hart with no time-slicing,
+  but `clone` makes threads only: `fork` returns `ENOSYS`.
 
 The program's stdin, stdout and stderr are the simulator's console, as
 they would be for a kernel's serial port: `Config(console="quiet")`

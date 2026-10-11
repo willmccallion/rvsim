@@ -86,15 +86,13 @@ pub(super) fn perform_deferred_csr(state: &mut CoreCtx<'_>, entry: &mut RobEntry
 /// that every older instruction has retired and every older store has
 /// been written; the result becomes the entry's, destined for `a0`.
 pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> Option<Outcome> {
-    if entry.ctrl.system_op != SystemOp::Ecall
-        || state.uncore.processes.thread_on(state.hart.hart_id).is_none()
-    {
+    if entry.ctrl.system_op != SystemOp::Ecall || !state.uncore.processes.is_se() {
         return None;
     }
     let outcome = syscall::serve_ecall(state, entry.pc);
     entry.result = Some(match outcome {
         Outcome::Continue { a0 } => a0,
-        Outcome::Exit(code) => code,
+        Outcome::Wait | Outcome::Ended { .. } => 0,
     });
     Some(outcome)
 }
@@ -376,23 +374,21 @@ fn retire_system(
         ),
         // The instructions fetched behind a served ecall read registers and
         // mappings it changed, so they are refetched, as after a CSR write.
-        // A program's exit parks its hart; what was fetched behind the
-        // ecall is dropped, and nothing is fetched while it waits.
-        SystemOp::Ecall => match syscall {
-            Some(Outcome::Exit(code)) => {
-                state.exit_process(code);
-                CommitFlow::Stop(Some(CommitEvent::SquashAfter(
-                    entry.pc.wrapping_add(entry.inst_size.as_u64()),
-                )))
+        // A thread that ended or waits parks its hart; what was fetched
+        // behind the ecall is dropped, and nothing is fetched while parked.
+        SystemOp::Ecall => {
+            match syscall {
+                Some(Outcome::Continue { .. }) => {
+                    state.core.mmu.sfence_vma(&syscall::flush_all());
+                }
+                Some(Outcome::Wait) => state.park_thread(None),
+                Some(Outcome::Ended { run_exit }) => state.park_thread(run_exit),
+                None => return CommitFlow::Continue,
             }
-            Some(Outcome::Continue { .. }) => {
-                state.core.mmu.sfence_vma(&syscall::flush_all());
-                CommitFlow::Stop(Some(CommitEvent::SquashAfter(
-                    entry.pc.wrapping_add(entry.inst_size.as_u64()),
-                )))
-            }
-            None => CommitFlow::Continue,
-        },
+            CommitFlow::Stop(Some(CommitEvent::SquashAfter(
+                entry.pc.wrapping_add(entry.inst_size.as_u64()),
+            )))
+        }
         SystemOp::Pseudo => retire_pseudo_op(state, entry),
         _ => CommitFlow::Continue,
     }

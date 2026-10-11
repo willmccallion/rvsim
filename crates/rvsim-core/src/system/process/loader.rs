@@ -1,22 +1,28 @@
-//! Loads a static Linux ELF as a user process.
+//! Loads a static Linux ELF as a user process, and starts threads.
 //!
 //! Its segments go into pages behind page tables the loader builds, the
 //! initial stack is what Linux's ELF loader builds (argc, argv, envp and
-//! the auxiliary vector), and hart 0 starts at the entry in user mode.
+//! the auxiliary vector), and its first thread starts at the entry in
+//! user mode. A cloned thread enters user mode the same way, with a copy
+//! of its parent's registers.
 
 use object::Endianness;
 use object::elf::{EM_RISCV, ET_DYN, ET_EXEC, PF_R, PF_W, PF_X, PT_INTERP, PT_LOAD, PT_PHDR};
 use object::read::elf::{ElfFile64, FileHeader, ProgramHeader};
 
-use super::{AddressSpace, FrameAllocator, PAGE_SIZE, Permissions, Process, Processes, SpaceError};
+use super::{
+    AddressSpace, FrameAllocator, PAGE_SIZE, Permissions, Process, Processes, SpaceError, Wakeup,
+    WakeupKind, syscall,
+};
 use crate::arch::Hart;
 use crate::common::{CoreId, HartId, PhysAddr, SimError, VirtAddr};
 use crate::isa::csr;
 use crate::isa::privileged::{PagingMode, PrivilegeMode};
-use crate::isa::reg;
+use crate::isa::reg::{self, RegIdx};
 use crate::sim::memory::GlobalMemory;
 use crate::soc::terminal::{InputReader, SharedTerminal};
 use crate::system::state::SystemState;
+use crate::uarch::ctx::CoreCtx;
 
 const AT_NULL: u64 = 0;
 const AT_PHDR: u64 = 3;
@@ -169,15 +175,20 @@ fn place(
     Ok((process, sp))
 }
 
-/// Points `hart_id` at `entry` in user mode with `sp` and `satp`, the
-/// whole address space open to it, the counters readable, and the FPU
-/// and vector unit on, as Linux leaves them for a process.
+/// Points `hart_id` at `entry` in user mode with `sp` and `satp`.
 fn start_hart(state: &mut SystemState, hart_id: HartId, entry: VirtAddr, sp: VirtAddr, satp: u64) {
     let core = state.topology.core_of_hart(hart_id).map_or(hart_id.as_index(), CoreId::as_index);
     let mut ctx = state.core_ctx(core);
-    ctx.hart.pc = entry.val();
-    ctx.hart.privilege = PrivilegeMode::User;
+    enter_user_mode(&mut ctx, entry, satp);
     ctx.hart.regs.write(reg::REG_SP, sp.val());
+}
+
+/// Points `ctx`'s hart at `pc` in user mode under `satp`, with the whole
+/// address space open to it, the counters readable, and the FPU and
+/// vector unit on, as Linux leaves them for a process.
+fn enter_user_mode(ctx: &mut CoreCtx<'_>, pc: VirtAddr, satp: u64) {
+    ctx.hart.pc = pc.val();
+    ctx.hart.privilege = PrivilegeMode::User;
     // A user-mode access no PMP entry matches is denied, so the firmware
     // that is not here would have opened the whole address space.
     ctx.csr_write(csr::PMPADDR0, PMP_NAPOT_EVERYTHING);
@@ -192,10 +203,89 @@ fn start_hart(state: &mut SystemState, hart_id: HartId, entry: VirtAddr, sp: Vir
 }
 
 /// Leaves `hart` waiting as after a `wfi` nothing can wake: it has no
-/// program.
+/// thread, or its thread waits until another hart wakes it.
 pub const fn park(hart: &mut Hart) {
     hart.wfi_waiting = true;
     hart.csrs.mie = 0;
+}
+
+/// The user-mode registers a thread starts with: a copy of the thread
+/// that cloned it, as Linux's `clone` gives the child.
+#[derive(Debug, Clone)]
+pub struct UserContext {
+    pc: VirtAddr,
+    satp: u64,
+    gprs: [u64; 32],
+    fprs: [u64; 32],
+    vprs: Vec<u8>,
+    fflags: u64,
+    frm: u64,
+    vxrm: u64,
+    vxsat: u64,
+    vl: u64,
+    vtype: u64,
+}
+
+impl UserContext {
+    /// `hart`'s user registers and translation, to continue at `pc`.
+    #[must_use]
+    pub fn of(hart: &Hart, pc: VirtAddr) -> Self {
+        let csrs = &hart.csrs;
+        Self {
+            pc,
+            satp: csrs.satp,
+            gprs: std::array::from_fn(|i| hart.regs.read(RegIdx::new(i as u8))),
+            fprs: std::array::from_fn(|i| hart.regs.read_f(RegIdx::new(i as u8))),
+            vprs: hart.regs.vpr().bytes().to_vec(),
+            fflags: csrs.fflags,
+            frm: csrs.frm,
+            vxrm: csrs.vxrm,
+            vxsat: csrs.vxsat,
+            vl: csrs.vl,
+            vtype: csrs.vtype,
+        }
+    }
+
+    /// Sets integer register `reg` to `value`.
+    pub const fn set(&mut self, reg: RegIdx, value: u64) {
+        self.gprs[reg.as_usize()] = value;
+    }
+}
+
+/// Starts a thread with `context` on `ctx`'s hart: user mode at its PC
+/// under its translation, with its registers.
+fn start_thread(ctx: &mut CoreCtx<'_>, context: &UserContext) {
+    enter_user_mode(ctx, context.pc, context.satp);
+    for (i, (&gpr, &fpr)) in (0u8..).zip(context.gprs.iter().zip(&context.fprs)) {
+        ctx.hart.regs.write(RegIdx::new(i), gpr);
+        ctx.hart.regs.write_f(RegIdx::new(i), fpr);
+    }
+    ctx.hart.regs.vpr_mut().set_bytes(&context.vprs);
+    let csrs = &mut ctx.hart.csrs;
+    csrs.fflags = context.fflags;
+    csrs.frm = context.frm;
+    csrs.vxrm = context.vxrm;
+    csrs.vxsat = context.vxsat;
+    csrs.vl = context.vl;
+    csrs.vtype = context.vtype;
+    csrs.vstart = 0;
+}
+
+/// Sets `ctx`'s parked hart going with what `wakeup` brings.
+///
+/// That is a new thread, or a waiting thread's syscall result; the hart
+/// runs from its next cycle. The caller points fetch at the hart's PC and
+/// syncs its pipeline's registers.
+pub fn wake(ctx: &mut CoreCtx<'_>, wakeup: &Wakeup) {
+    match &wakeup.kind {
+        WakeupKind::Start(context) => start_thread(ctx, context),
+        WakeupKind::Resume { a0 } => ctx.hart.regs.write(reg::REG_A0, *a0),
+    }
+    if wakeup.flush_translations {
+        ctx.core.mmu.sfence_vma(&syscall::flush_all());
+    }
+    ctx.clear_reservation();
+    ctx.hart.wfi_waiting = false;
 }
 
 const fn space_error(error: SpaceError) -> SimError {

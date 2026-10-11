@@ -25,7 +25,7 @@ use crate::sim::memory::GlobalMemory;
 use crate::soc::terminal::SharedTerminal;
 
 pub use page_table::{AddressSpace, FrameAllocator, PAGE_SIZE, Permissions, SpaceError};
-pub use threads::{Processes, ProcessesState, ThreadRef, Tid};
+pub use threads::{Processes, ProcessesState, ThreadNotice, ThreadRef, Tid, Wakeup, WakeupKind};
 
 use files::FileTable;
 
@@ -66,6 +66,8 @@ pub struct ProcessState {
     file_maps: BTreeMap<VirtAddr, u64>,
     syscall_counts: BTreeMap<u64, u64>,
 }
+
+const NANOS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Where a process's regions start, relative to the address space's top.
 struct Layout {
@@ -138,6 +140,20 @@ impl Process {
             file_maps: state.file_maps,
             syscall_counts: state.syscall_counts,
         }
+    }
+
+    /// Simulated nanoseconds from the start of the run to `cycle`, by the
+    /// process's clock.
+    #[must_use]
+    pub fn nanoseconds_at(&self, cycle: u64) -> u128 {
+        u128::from(cycle) * NANOS_PER_SECOND / u128::from(self.clock_hz.max(1))
+    }
+
+    /// The first cycle at which [`Self::nanoseconds_at`] reaches `ns`.
+    #[must_use]
+    pub fn cycle_at_nanoseconds(&self, ns: u128) -> u64 {
+        let cycles = (ns * u128::from(self.clock_hz.max(1))).div_ceil(NANOS_PER_SECOND);
+        u64::try_from(cycles).unwrap_or(u64::MAX)
     }
 
     /// The paging mode the program runs under.

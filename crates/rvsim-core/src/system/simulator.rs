@@ -760,9 +760,10 @@ impl Simulator {
     }
 
     /// How many cycles from here would change nothing but time: every core
-    /// idle in WFI, nothing in flight, and no device, timer comparator or
-    /// memory controller due to act. Stops `stop` would take after one more
-    /// cycle end the skip too, so a run stops where ticking would stop it.
+    /// idle in WFI, nothing in flight, and no device, timer comparator,
+    /// memory controller or futex timeout due to act. Stops `stop` would
+    /// take after one more cycle end the skip too, so a run stops where
+    /// ticking would stop it.
     fn quiet_cycles(&mut self, stop: &StopAt) -> u64 {
         let state = &mut self.state;
         let now = state.cycle;
@@ -787,7 +788,8 @@ impl Simulator {
         let memory = state.mem_controller.quiet_until(now + 1).map(|at| at - (now + 1));
         let devices = state.bus.quiet_ticks();
         let stimecmp = timers.min().map(|ticks| ticks - 1);
-        [devices, stimecmp, memory].into_iter().flatten().min().unwrap_or(u64::MAX)
+        let futex_timeout = state.processes.next_deadline().map(|at| at.saturating_sub(now + 1));
+        [devices, stimecmp, memory, futex_timeout].into_iter().flatten().min().unwrap_or(u64::MAX)
     }
 
     /// Advances `cycles` quiet cycles at once, leaving the system exactly as
@@ -916,7 +918,25 @@ impl Simulator {
         for op in std::mem::take(&mut self.state.uncore.pending_sim_ops) {
             self.state.apply_sim_op(op);
         }
+        let cycle = self.state.cycle;
+        self.state.uncore.processes.expire_waits(cycle);
+        self.wake_threads();
         self.broken_invariant.take().map_or(Ok(()), Err)
+    }
+
+    /// Sets going the parked harts whose threads were started or woken
+    /// this cycle: from the next cycle they fetch from the thread's PC with
+    /// its registers.
+    fn wake_threads(&mut self) {
+        for wakeup in self.state.uncore.processes.take_wakeups() {
+            let Some(core) = self.state.topology.core_of_hart(wakeup.hart) else { continue };
+            let (pipeline, mut ctx) = self.state.pipeline_ctx(core.as_index());
+            process::loader::wake(&mut ctx, &wakeup);
+            pipeline.restart_fetch_at(ctx.hart.pc);
+            if let PipelineDispatch::OutOfOrder(p) = pipeline {
+                p.engine.sync_arch_regs(&ctx);
+            }
+        }
     }
 
     fn core_is_idle(&self, core: usize) -> bool {

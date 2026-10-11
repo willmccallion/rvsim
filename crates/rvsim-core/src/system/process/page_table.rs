@@ -125,6 +125,10 @@ pub struct AddressSpace {
     mode: PagingMode,
     root: PhysAddr,
     pages: BTreeMap<Vpn, Mapping>,
+    /// How many times a mapping was removed or had its rights changed,
+    /// which a TLB may still hold the old form of.
+    #[serde(skip)]
+    revocations: u64,
 }
 
 impl AddressSpace {
@@ -139,7 +143,7 @@ impl AddressSpace {
         frames: &mut FrameAllocator,
     ) -> Result<Self, SpaceError> {
         let root = frames.alloc_zeroed(memory)?;
-        Ok(Self { mode, root, pages: BTreeMap::new() })
+        Ok(Self { mode, root, pages: BTreeMap::new(), revocations: 0 })
     }
 
     /// The paging mode the tables are built for.
@@ -209,7 +213,12 @@ impl AddressSpace {
         }
         let vpn = vaddr.page_number();
         let frame = match self.pages.get(&vpn) {
-            Some(mapping) => mapping.frame,
+            Some(mapping) => {
+                if mapping.permissions != permissions {
+                    self.revocations += 1;
+                }
+                mapping.frame
+            }
             None => frames.alloc_zeroed(memory)?,
         };
         self.write_leaf(memory, frames, vpn, frame, permissions)?;
@@ -245,8 +254,16 @@ impl AddressSpace {
         for vpn in Self::pages_of(start, len) {
             if self.pages.remove(&vpn).is_some() {
                 self.clear_pte(memory, vpn);
+                self.revocations += 1;
             }
         }
+    }
+
+    /// How many times a mapping has been removed or had its rights
+    /// changed: when it moves, other harts' TLBs may hold stale entries.
+    #[must_use]
+    pub const fn revocations(&self) -> u64 {
+        self.revocations
     }
 
     /// Whether every page of `[start, start + len)` is mapped.

@@ -556,7 +556,16 @@ fn simulator_with_programs_on(
     programs: &[&[u32]],
     hart_count: usize,
 ) -> Simulator {
-    let mut config = config(backend);
+    simulator_with_programs_in(config(backend), programs, hart_count)
+}
+
+/// A simulator on `config` with `hart_count` harts running `programs`, one
+/// per hart from hart 0.
+fn simulator_with_programs_in(
+    mut config: Config,
+    programs: &[&[u32]],
+    hart_count: usize,
+) -> Simulator {
     config.system.hart_count = hart_count;
     let mut sim = Simulator::build(&config, "");
     let args = ProcessArgs { argv: vec!["prog".to_string()], envp: vec![] };
@@ -737,4 +746,588 @@ fn a_checkpoint_resumes_two_programs() {
     assert_eq!(resumed, expected);
     assert_eq!(second.exit_codes(), whole.exit_codes());
     assert_eq!(second.state.instructions_retired(), whole.state.instructions_retired());
+}
+
+const S0: u32 = 8;
+const S1: u32 = 9;
+const S2: u32 = 18;
+const SYS_CLONE: i32 = 220;
+const SYS_FUTEX: i32 = 98;
+const SYS_EXIT_GROUP: i32 = 94;
+const SYS_SCHED_GETAFFINITY: i32 = 123;
+const SYS_TGKILL: i32 = 131;
+const SYS_MMAP: i32 = 222;
+/// `CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD`.
+const CLONE_THREAD_FLAGS: i32 = 0x1_0F00;
+/// A thread's flags with `CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID`, as
+/// `pthread_create` passes them for `pthread_join` to wait on.
+const CLONE_JOINABLE_FLAGS: i32 = CLONE_THREAD_FLAGS | 0x30_0000;
+const FUTEX_WAIT: i32 = 0;
+const ETIMEDOUT: u64 = 110;
+const EAGAIN: u64 = 11;
+
+/// A branch or jump to a label of a test program.
+#[derive(Clone, Copy)]
+enum Jump {
+    Beq(u32, u32),
+    Bne(u32, u32),
+    Blt(u32, u32),
+    Jal,
+}
+
+/// A line of a test program: an instruction, a label, a jump to a label,
+/// or `rd` set to a label's address.
+#[derive(Clone, Copy)]
+enum Line {
+    Inst(u32),
+    Label(&'static str),
+    To(Jump, &'static str),
+    AddressOf(u32, &'static str),
+}
+
+/// The instructions of `lines`, with each jump's and address's offset to
+/// its label resolved.
+fn assemble(lines: &[Line]) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut labels = std::collections::HashMap::new();
+    let mut index = 0;
+    for line in lines {
+        match line {
+            Line::Label(name) => assert!(labels.insert(*name, index).is_none(), "{name} twice"),
+            Line::AddressOf(..) => index += 2,
+            Line::Inst(_) | Line::To(..) => index += 1,
+        }
+    }
+    let mut code = Vec::new();
+    for line in lines {
+        let offset_to = |name: &str, at: usize| (labels[name] - at as i32) * 4;
+        match *line {
+            Line::Inst(word) => code.push(word),
+            Line::Label(_) => {}
+            Line::To(jump, name) => {
+                let offset = offset_to(name, code.len());
+                code.push(match jump {
+                    Jump::Beq(a, b) => i().beq(a, b, offset).build(),
+                    Jump::Bne(a, b) => i().bne(a, b, offset).build(),
+                    Jump::Blt(a, b) => i().blt(a, b, offset).build(),
+                    Jump::Jal => i().jal(0, offset).build(),
+                });
+            }
+            Line::AddressOf(rd, name) => {
+                let offset = offset_to(name, code.len());
+                code.push(i().auipc(rd, 0).build());
+                code.push(i().addi(rd, rd, offset).build());
+            }
+        }
+    }
+    code
+}
+
+fn inst(word: u32) -> Line {
+    Line::Inst(word)
+}
+
+/// `rd = value`, for a value `lui` and `addi` can build.
+fn load_immediate(rd: u32, value: i32) -> [Line; 2] {
+    let i = InstructionBuilder::new;
+    let upper = (value + 0x800) >> 12;
+    [inst(i().lui(rd, upper).build()), inst(i().addi(rd, rd, value - (upper << 12)).build())]
+}
+
+/// `syscall(number)` with the arguments already in place.
+fn syscall(number: i32) -> [Line; 2] {
+    [inst(InstructionBuilder::new().addi(A7, 0, number).build()), inst(ECALL)]
+}
+
+/// `clone(flags, sp - 64 KiB, s0, 0, s0)`: a thread on a stack below the
+/// caller's, with `s0` as its parent and child id word.
+fn clone_thread(flags: i32) -> Vec<Line> {
+    let i = InstructionBuilder::new;
+    let mut lines = load_immediate(A0, flags).to_vec();
+    lines.extend(load_immediate(T0, 0x1_0000));
+    lines.extend([
+        inst(i().sub(A1, SP, T0).build()),
+        inst(i().addi(A2, S0, 0).build()),
+        inst(i().addi(A3, 0, 0).build()),
+        inst(i().addi(A4, S0, 0).build()),
+    ]);
+    lines.extend(syscall(SYS_CLONE));
+    lines
+}
+
+/// Waits, as `pthread_join` does, until the word at `s0` is zero, on a
+/// futex while it holds the thread's id.
+fn join(wait: &'static str, joined: &'static str) -> Vec<Line> {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![
+        Line::Label(wait),
+        inst(i().lw(A2, S0, 0).build()),
+        Line::To(Jump::Beq(A2, 0), joined),
+        inst(i().addi(A0, S0, 0).build()),
+        inst(i().addi(A1, 0, FUTEX_WAIT).build()),
+        inst(i().addi(A3, 0, 0).build()),
+    ];
+    lines.extend(syscall(SYS_FUTEX));
+    lines.extend([Line::To(Jump::Jal, wait), Line::Label(joined)]);
+    lines
+}
+
+/// Counts `t0` up to `count`.
+fn spin(count: i32, label: &'static str) -> Vec<Line> {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![inst(i().addi(T0, 0, 0).build())];
+    lines.extend(load_immediate(T1, count));
+    lines.extend([
+        Line::Label(label),
+        inst(i().addi(T0, T0, 1).build()),
+        Line::To(Jump::Blt(T0, T1), label),
+    ]);
+    lines
+}
+
+/// `exit(code)` or `exit_group(code)` with `code` an immediate.
+fn exit_lines(number: i32, code: i32) -> Vec<Line> {
+    let mut lines = vec![inst(InstructionBuilder::new().addi(A0, 0, code).build())];
+    lines.extend(syscall(number));
+    lines
+}
+
+/// A machine the thread tests run on: a backend, with or without private
+/// L1 caches and an L2 per core, which the coherence fabric keeps coherent
+/// between harts.
+#[derive(Clone, Copy, Debug)]
+struct Machine {
+    backend: BackendKind,
+    caches: bool,
+}
+
+const MACHINES: [Machine; 4] = [
+    Machine { backend: BackendKind::InOrder, caches: false },
+    Machine { backend: BackendKind::InOrder, caches: true },
+    Machine { backend: BackendKind::OutOfOrder, caches: false },
+    Machine { backend: BackendKind::OutOfOrder, caches: true },
+];
+
+impl Machine {
+    fn config(self) -> Config {
+        let mut config = config(self.backend);
+        config.cache.l1_i.enabled = self.caches;
+        config.cache.l1_d.enabled = self.caches;
+        config.cache.l2.enabled = self.caches;
+        config
+    }
+}
+
+/// A simulator with `hart_count` harts of `machine` running `code` as one
+/// program.
+fn threaded(machine: Machine, code: &[u32], hart_count: usize) -> Simulator {
+    simulator_with_programs_in(machine.config(), &[code], hart_count)
+}
+
+/// A cloned thread starts on the free hart and sees its parent's memory:
+/// it stores 42 where the parent waits for it.
+#[test]
+fn a_cloned_thread_runs_on_a_free_hart_and_shares_its_memory() {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![Line::AddressOf(S0, "word")];
+    lines.extend(clone_thread(CLONE_THREAD_FLAGS));
+    lines.extend([
+        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::Label("wait"),
+        inst(i().lw(A0, S0, 0).build()),
+        Line::To(Jump::Beq(A0, 0), "wait"),
+    ]);
+    lines.extend(syscall(SYS_EXIT_GROUP));
+    lines.extend([
+        Line::Label("child"),
+        inst(i().addi(T1, 0, 42).build()),
+        inst(i().sw(S0, T1, 0).build()),
+    ]);
+    lines.extend(exit_lines(SYS_EXIT, 0));
+    lines.extend([Line::Label("word"), inst(0)]);
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let mut sim = threaded(machine, &code, 2);
+
+        let stop = run_for(&mut sim, 100_000);
+
+        assert_eq!(stop, StopReason::Exited(42), "{machine:?}");
+        assert_eq!(sim.exit_codes(), vec![Some(42)], "{machine:?}");
+        assert!(sim.hart(1).instructions_retired > 0, "{machine:?}: the thread ran on hart 1");
+    }
+}
+
+/// The `pthread_join` protocol: `CLONE_PARENT_SETTID` stores the child's
+/// id in the word, the joiner waits on the word, and the child's exit
+/// zeroes it and wakes the joiner. The run exits with the id twice. The
+/// child spins long enough, on the uncached test configuration, for the
+/// joiner to be waiting by the time it exits.
+fn join_a_slow_thread() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![Line::AddressOf(S0, "word")];
+    lines.extend(clone_thread(CLONE_JOINABLE_FLAGS));
+    lines.extend([
+        Line::To(Jump::Beq(A0, 0), "child"),
+        inst(i().addi(S1, A0, 0).build()),
+        inst(i().lw(S2, S0, 0).build()),
+    ]);
+    lines.extend(join("join", "joined"));
+    lines.push(inst(i().add(A0, S1, S2).build()));
+    lines.extend(syscall(SYS_EXIT_GROUP));
+    lines.push(Line::Label("child"));
+    lines.extend(spin(300, "spin"));
+    lines.extend(exit_lines(SYS_EXIT, 0));
+    lines.extend([Line::Label("word"), inst(0)]);
+    assemble(&lines)
+}
+
+#[test]
+fn a_joiner_waits_on_the_thread_id_word_until_the_thread_exits() {
+    let code = join_a_slow_thread();
+    for machine in MACHINES {
+        let mut sim = threaded(machine, &code, 2);
+
+        let stop = run_for(&mut sim, 400_000);
+
+        assert_eq!(stop, StopReason::Exited(2 + 2), "{machine:?}");
+    }
+}
+
+/// SE mode runs one thread per hart, as gem5 does: with every hart taken,
+/// `clone` fails with `EAGAIN`.
+#[test]
+fn clone_fails_with_eagain_when_every_hart_is_taken() {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![Line::AddressOf(S0, "word")];
+    lines.extend(clone_thread(CLONE_THREAD_FLAGS));
+    lines.push(inst(i().sub(A0, 0, A0).build()));
+    lines.extend(syscall(SYS_EXIT));
+    lines.extend([Line::Label("word"), inst(0)]);
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 1), 100_000);
+
+        assert_eq!(stop, StopReason::Exited(EAGAIN), "{machine:?}");
+    }
+}
+
+/// A thread's `gettid` is its own id and its `getpid` its process's; its
+/// `exit_group` ends the process though the first thread still runs.
+#[test]
+fn a_thread_has_its_own_id_and_its_process_id() {
+    let i = InstructionBuilder::new;
+    let mut lines = clone_thread(CLONE_THREAD_FLAGS);
+    lines.extend([
+        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::Label("forever"),
+        Line::To(Jump::Jal, "forever"),
+        Line::Label("child"),
+    ]);
+    lines.extend(syscall(SYS_GETTID));
+    lines.push(inst(i().addi(S1, A0, 0).build()));
+    lines.extend(syscall(SYS_GETPID));
+    lines.extend([
+        inst(i().addi(T1, 0, 16).build()),
+        inst(i().mul(S1, S1, T1).build()),
+        inst(i().add(A0, A0, S1).build()),
+    ]);
+    lines.extend(syscall(SYS_EXIT_GROUP));
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 2), 100_000);
+
+        assert_eq!(stop, StopReason::Exited(2 * 16 + 1), "{machine:?}");
+    }
+}
+
+/// `exit` ends one thread: the process lives on in its other thread, and
+/// when that one exits too the process ends with its first thread's code,
+/// as Linux reports it.
+#[test]
+fn exit_ends_one_thread_and_the_last_ends_the_process_with_the_first_ones_code() {
+    let mut lines = clone_thread(CLONE_THREAD_FLAGS);
+    lines.push(Line::To(Jump::Beq(A0, 0), "child"));
+    lines.extend(exit_lines(SYS_EXIT, 3));
+    lines.push(Line::Label("child"));
+    lines.extend(spin(2000, "spin"));
+    lines.extend(exit_lines(SYS_EXIT, 7));
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let mut sim = threaded(machine, &code, 2);
+
+        let stop = run_for(&mut sim, 100_000);
+
+        assert_eq!(stop, StopReason::Exited(3), "{machine:?}");
+        assert!(sim.hart(1).instructions_retired > 2000, "{machine:?}: the thread ran on");
+    }
+}
+
+/// `exit_group` stops the other threads of its process at once and leaves
+/// other programs running.
+#[test]
+fn exit_group_stops_its_processes_other_threads_only() {
+    let mut lines = clone_thread(CLONE_THREAD_FLAGS);
+    lines.extend([Line::To(Jump::Beq(A0, 0), "child")]);
+    lines.extend(spin(200, "settle"));
+    lines.extend(exit_lines(SYS_EXIT_GROUP, 5));
+    lines.extend([Line::Label("child"), Line::Label("forever"), Line::To(Jump::Jal, "forever")]);
+    let threaded_program = assemble(&lines);
+    let counter = count_then_exit(2000, 0);
+    for machine in MACHINES {
+        let mut sim =
+            simulator_with_programs_in(machine.config(), &[&threaded_program, &counter], 3);
+
+        let stop = run_for(&mut sim, 200_000);
+
+        assert_eq!(stop, StopReason::Exited(5), "{machine:?}");
+        assert_eq!(sim.exit_codes(), vec![Some(5), Some(0)], "{machine:?}");
+        assert!(sim.hart(2).instructions_retired > 0, "{machine:?}: the thread took hart 2");
+        assert!(sim.hart(2).wfi_waiting, "{machine:?}: the thread's hart parked");
+        assert!(sim.hart(1).instructions_retired > 2000, "{machine:?}: the other program ran on");
+    }
+}
+
+/// A fault in any thread ends the whole process, as its signal would.
+#[test]
+fn a_fault_in_a_thread_ends_its_whole_process() {
+    let mut lines = clone_thread(CLONE_THREAD_FLAGS);
+    lines.extend([
+        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::Label("forever"),
+        Line::To(Jump::Jal, "forever"),
+        Line::Label("child"),
+        inst(0xffff_ffff),
+    ]);
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 2), 100_000);
+
+        assert_eq!(stop, StopReason::Exited(128 + 4), "{machine:?}");
+    }
+}
+
+/// A futex wait on the stack word with the `timespec` `{0, nanos}` beside
+/// it, its result negated as the exit code.
+fn wait_on_a_stack_word(word: i32, nanos: i32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![
+        inst(i().sd(SP, 0, -16).build()),
+        inst(i().addi(T0, 0, nanos).build()),
+        inst(i().sd(SP, T0, -8).build()),
+        inst(i().addi(T0, 0, word).build()),
+        inst(i().sw(SP, T0, -24).build()),
+        inst(i().addi(A0, SP, -24).build()),
+        inst(i().addi(A1, 0, FUTEX_WAIT).build()),
+        inst(i().addi(A2, 0, 0).build()),
+        inst(i().addi(A3, SP, -16).build()),
+    ];
+    lines.extend(syscall(SYS_FUTEX));
+    lines.push(inst(i().sub(A0, 0, A0).build()));
+    lines.extend(syscall(SYS_EXIT));
+    assemble(&lines)
+}
+
+/// A wait nobody wakes ends with `ETIMEDOUT` once its timeout has passed
+/// in simulated time: 2 µs, 2000 cycles at 1 GHz.
+#[test]
+fn a_futex_wait_times_out_after_its_timeout() {
+    let code = wait_on_a_stack_word(0, 2000);
+    for machine in MACHINES {
+        let mut sim = threaded(machine, &code, 1);
+
+        let stop = run_for(&mut sim, 100_000);
+
+        assert_eq!(stop, StopReason::Exited(ETIMEDOUT), "{machine:?}");
+        assert!(sim.cycle() >= 2000, "{machine:?}: the wait lasted {} cycles", sim.cycle());
+    }
+}
+
+#[test]
+fn a_futex_wait_on_a_word_that_changed_returns_eagain() {
+    let code = wait_on_a_stack_word(1, 2000);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 1), 100_000);
+
+        assert_eq!(stop, StopReason::Exited(EAGAIN), "{machine:?}");
+    }
+}
+
+/// A hart is free again once its thread has exited: a second thread
+/// started after joining the first takes it, with the next id.
+#[test]
+fn a_freed_hart_takes_the_next_thread() {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![Line::AddressOf(S0, "word")];
+    lines.extend(clone_thread(CLONE_JOINABLE_FLAGS));
+    lines.push(Line::To(Jump::Beq(A0, 0), "child"));
+    lines.extend(join("join_first", "joined_first"));
+    lines.extend(clone_thread(CLONE_JOINABLE_FLAGS));
+    lines.extend([Line::To(Jump::Beq(A0, 0), "child"), inst(i().addi(S1, A0, 0).build())]);
+    lines.extend(join("join_second", "joined_second"));
+    lines.push(inst(i().addi(A0, S1, 0).build()));
+    lines.extend(syscall(SYS_EXIT_GROUP));
+    lines.push(Line::Label("child"));
+    lines.extend(exit_lines(SYS_EXIT, 0));
+    lines.extend([Line::Label("word"), inst(0)]);
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 2), 200_000);
+
+        assert_eq!(stop, StopReason::Exited(3), "{machine:?}");
+    }
+}
+
+/// `sched_getaffinity` returns the 8 bytes of a 64-CPU kernel's mask with
+/// a bit for every hart a thread may start on.
+#[test]
+fn sched_getaffinity_reports_every_hart() {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![
+        inst(i().addi(A0, 0, 0).build()),
+        inst(i().addi(A1, 0, 128).build()),
+        inst(i().addi(A2, SP, -128).build()),
+    ];
+    lines.extend(syscall(SYS_SCHED_GETAFFINITY));
+    lines.extend([
+        inst(i().lbu(T0, SP, -128).build()),
+        inst(i().addi(T1, 0, 16).build()),
+        inst(i().mul(A0, A0, T1).build()),
+        inst(i().add(A0, A0, T0).build()),
+    ]);
+    lines.extend(syscall(SYS_EXIT));
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 3), 100_000);
+
+        assert_eq!(stop, StopReason::Exited(8 * 16 + 0b111), "{machine:?}");
+    }
+}
+
+/// `tgkill(tgid, tid, signal)` from the first thread to `tid`.
+fn tgkill_self(tid: i32, signal: i32) -> [Line; 5] {
+    let i = InstructionBuilder::new;
+    let [set, call] = syscall(SYS_TGKILL);
+    [
+        inst(i().addi(A0, 0, 1).build()),
+        inst(i().addi(A1, 0, tid).build()),
+        inst(i().addi(A2, 0, signal).build()),
+        set,
+        call,
+    ]
+}
+
+/// Signal 0 checks that the thread exists and a signal ignored by default
+/// does nothing; the exit code is what the missing thread's probe returned.
+#[test]
+fn tgkill_with_signal_zero_checks_that_the_thread_exists() {
+    let i = InstructionBuilder::new;
+    let mut lines = tgkill_self(1, 0).to_vec();
+    lines.push(inst(i().addi(S1, A0, 0).build()));
+    lines.extend(tgkill_self(1, 17));
+    lines.push(inst(i().add(S1, S1, A0).build()));
+    lines.extend(tgkill_self(99, 0));
+    lines.push(inst(i().sub(A0, S1, A0).build()));
+    lines.extend(syscall(SYS_EXIT));
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 1), 100_000);
+
+        assert_eq!(stop, StopReason::Exited(3), "{machine:?}: ESRCH, and nothing else");
+    }
+}
+
+#[test]
+fn a_fatal_signal_to_a_thread_ends_its_process() {
+    let mut lines = tgkill_self(1, 6).to_vec();
+    lines.extend(exit_lines(SYS_EXIT, 0));
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 1), 100_000);
+
+        assert_eq!(stop, StopReason::Exited(128 + 6), "{machine:?}");
+    }
+}
+
+/// `mmap(addr, 4096, PROT_READ | PROT_WRITE, flags, -1, 0)` with `addr`
+/// in `a0`.
+fn map_a_page(flags: i32) -> Vec<Line> {
+    let i = InstructionBuilder::new;
+    let mut lines = vec![inst(i().lui(A1, 1).build())];
+    lines.extend([
+        inst(i().addi(A2, 0, 3).build()),
+        inst(i().addi(A3, 0, flags).build()),
+        inst(i().addi(A4, 0, -1).build()),
+        inst(i().addi(A5, 0, 0).build()),
+    ]);
+    lines.extend(syscall(SYS_MMAP));
+    lines
+}
+
+/// When one thread replaces a page another has been reading, the reader's
+/// hart drops its translations as a kernel's shootdown would make it, and
+/// reads the new page's zeros; with its stale TLB entry it would read the
+/// old page's 5 for ever.
+#[test]
+fn replacing_a_mapping_drops_the_other_threads_translations() {
+    const MAP_PRIVATE_ANONYMOUS: i32 = 0x22;
+    const MAP_FIXED: i32 = 0x10;
+    let i = InstructionBuilder::new;
+    let mut lines = vec![inst(i().addi(A0, 0, 0).build())];
+    lines.extend(map_a_page(MAP_PRIVATE_ANONYMOUS));
+    lines.extend([
+        inst(i().addi(S0, A0, 0).build()),
+        inst(i().addi(T0, 0, 5).build()),
+        inst(i().sw(S0, T0, 0).build()),
+    ]);
+    lines.extend(clone_thread(CLONE_THREAD_FLAGS));
+    lines.push(Line::To(Jump::Beq(A0, 0), "child"));
+    lines.extend(spin(500, "settle"));
+    lines.push(inst(i().addi(A0, S0, 0).build()));
+    lines.extend(map_a_page(MAP_PRIVATE_ANONYMOUS | MAP_FIXED));
+    lines.extend([
+        Line::Label("forever"),
+        Line::To(Jump::Jal, "forever"),
+        Line::Label("child"),
+        Line::Label("poll"),
+        inst(i().lw(T0, S0, 0).build()),
+        Line::To(Jump::Bne(T0, 0), "poll"),
+    ]);
+    lines.extend(exit_lines(SYS_EXIT_GROUP, 1));
+    let code = assemble(&lines);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 2), 200_000);
+
+        assert_eq!(stop, StopReason::Exited(1), "{machine:?}");
+    }
+}
+
+/// A checkpoint taken while the first thread waits for the second
+/// restores both, the wait included: the run ends as the uninterrupted
+/// one does, with the same instructions retired.
+#[test]
+fn a_checkpoint_resumes_a_thread_waiting_on_a_futex() {
+    let code = join_a_slow_thread();
+    for machine in MACHINES {
+        let mut whole = threaded(machine, &code, 2);
+        let expected = run_for(&mut whole, 400_000);
+        let mut first = threaded(machine, &code, 2);
+        while !first.hart(0).wfi_waiting {
+            assert_eq!(
+                run_for(&mut first, 10),
+                StopReason::Cycles,
+                "{machine:?}: the joiner waits"
+            );
+        }
+        assert!(first.exit_codes()[0].is_none(), "{machine:?}: the thread still runs");
+        let mut saved = Vec::new();
+        first.save_checkpoint(&mut saved).expect("the checkpoint saves");
+        let mut second = threaded(machine, &code, 2);
+        second.restore_checkpoint(&mut saved.as_slice()).expect("the checkpoint restores");
+
+        let resumed = run_for(&mut second, 400_000);
+
+        assert_eq!(expected, StopReason::Exited(4), "{machine:?}");
+        assert_eq!(resumed, expected, "{machine:?}");
+        assert_eq!(second.instructions_retired(), whole.instructions_retired(), "{machine:?}");
+    }
 }
