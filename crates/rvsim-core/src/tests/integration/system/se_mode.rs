@@ -14,6 +14,7 @@ const SYS_EXIT: i32 = 93;
 const SYS_BRK: i32 = 214;
 const SYS_OPENAT: i32 = 56;
 const SYS_READ: i32 = 63;
+const SYS_IOCTL: i32 = 29;
 const M5_FAIL: u32 = 0x22;
 const M5_DUMP_STATS: u32 = 0x41;
 const SYS_WRITE: i32 = 64;
@@ -245,6 +246,29 @@ fn a_user_program_exits_with_its_code() {
         let stop = run(backend, &exit_with(42), &["prog"]);
 
         assert_eq!(stop, StopReason::Exited(42), "{backend:?}");
+    }
+}
+
+/// The console answers `TCGETS2`, the `tcgetattr` of glibc 2.42, so
+/// `isatty` holds and stdio line-buffers what the program prints.
+#[test]
+fn the_console_is_a_terminal_to_tcgets2() {
+    let i = InstructionBuilder::new;
+    let code = vec![
+        i().addi(A0, 0, 1).build(),
+        i().lui(A1, 0x802c5).build(),
+        i().addi(A1, A1, 0x42a).build(),
+        i().addi(A2, SP, -64).build(),
+        i().addi(A7, 0, SYS_IOCTL).build(),
+        ECALL,
+        i().addi(A0, A0, 1).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ];
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &code, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(1), "{backend:?}");
     }
 }
 
