@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- SE mode answers `riscv_hwprobe` as the 6.6 kernel its `uname` reports
+  would, from the hart's ISA string: F/D, C, V, Zba, Zbb and Zbs, and
+  whether misaligned accesses are fast. A static glibc program under SE
+  now selects the same routines it would under Linux on rvsim, and the
+  unimplemented-syscall warning every such program logged at start-up is
+  gone.
 - The Session API's fast-forward cache keys checkpoints on the simulator
   build as well, so a boot cached under one build is never restored under
   a later one whose guest would have seen a different device tree or ISA.

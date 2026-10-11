@@ -15,6 +15,8 @@ const SYS_BRK: i32 = 214;
 const SYS_OPENAT: i32 = 56;
 const SYS_READ: i32 = 63;
 const SYS_IOCTL: i32 = 29;
+const SYS_RISCV_HWPROBE: i32 = 258;
+const A4: u32 = 14;
 const M5_FAIL: u32 = 0x22;
 const M5_DUMP_STATS: u32 = 0x41;
 const SYS_WRITE: i32 = 64;
@@ -404,4 +406,59 @@ fn a_user_program_is_told_from_a_bare_metal_image_by_its_entry() {
 
     assert_eq!(ProgramKind::of(&user, RAM_BASE).unwrap(), ProgramKind::Process);
     assert_eq!(ProgramKind::of(&user, LOAD_ADDRESS).unwrap(), ProgramKind::BareMetal);
+}
+
+/// One `riscv_hwprobe` pair with `key` on the stack, probed, then its
+/// value (or its key, with `exit_with_key`) as the exit code.
+fn hwprobe_program(key: i32, exit_with_key: bool) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(T0, 0, key).build(),
+        i().sd(SP, T0, -16).build(),
+        i().sd(SP, 0, -8).build(),
+        i().addi(A0, SP, -16).build(),
+        i().addi(A1, 0, 1).build(),
+        i().addi(A2, 0, 0).build(),
+        i().addi(A3, 0, 0).build(),
+        i().addi(A4, 0, 0).build(),
+        i().addi(A7, 0, SYS_RISCV_HWPROBE).build(),
+        ECALL,
+        i().ld(A0, SP, if exit_with_key { -16 } else { -8 }).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ]
+}
+
+/// `riscv_hwprobe` reports the extensions a 6.6 kernel knows from the
+/// hart's ISA string: all six with the default ISA, C alone for `rv64imac`.
+#[test]
+fn hwprobe_reports_the_extensions_the_isa_string_names() {
+    const FD_C_V_ZBA_ZBB_ZBS: u64 = 0b11_1111;
+    const C: u64 = 0b10;
+    let mut imac = config(BackendKind::InOrder);
+    imac.isa.string = Some("rv64imac".to_owned());
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let full = run(backend, &hwprobe_program(4, false), &["prog"]);
+        let mut sim = simulator_on(&imac, &hwprobe_program(4, false), &["prog"]);
+        let narrow = run_for(&mut sim, 50_000);
+
+        assert_eq!(full, StopReason::Exited(FD_C_V_ZBA_ZBB_ZBS), "{backend:?}");
+        assert_eq!(narrow, StopReason::Exited(C), "{backend:?}");
+    }
+}
+
+/// Misaligned accesses are fast unless the hart traps on them, and a key
+/// the kernel does not know comes back as -1.
+#[test]
+fn hwprobe_reports_misaligned_access_speed_and_unknown_keys() {
+    const FAST: u64 = 3;
+    const UNSUPPORTED: u64 = 4;
+    let mut trapping = config(BackendKind::OutOfOrder);
+    trapping.memory.misaligned_access_trap = true;
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        assert_eq!(run(backend, &hwprobe_program(5, false), &["prog"]), StopReason::Exited(FAST));
+        assert_eq!(run(backend, &hwprobe_program(99, true), &["prog"]), StopReason::Exited(0xff));
+    }
+    let mut sim = simulator_on(&trapping, &hwprobe_program(5, false), &["prog"]);
+    assert_eq!(run_for(&mut sim, 50_000), StopReason::Exited(UNSUPPORTED));
 }
