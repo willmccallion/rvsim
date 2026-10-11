@@ -15,6 +15,7 @@ use crate::common::{InstSeq, PhysAddr, VirtAddr};
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
+use crate::isa::op::AtomicOp;
 use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::{ElemIdx, Sew};
@@ -540,6 +541,9 @@ pub struct Mem2WbEntry {
     pub vec_mem: Option<VecMemAccess>,
     /// Write-log position when the load value was read (see `Mem1Mem2Entry`).
     pub observed: Option<WriteSeq>,
+    /// The address a load, store or atomic touched, for stops on a watched
+    /// range.
+    pub mem_access: Option<MemAccess>,
     /// The access a load, LR, SC or AMO performed, for the commit log.
     #[cfg(feature = "commit-log")]
     pub mem_effect: Option<crate::uarch::pipeline::commit_log::MemEffect>,
@@ -552,12 +556,14 @@ impl Mem2WbEntry {
     /// Carries `mem`, its trap included, into writeback with its final
     /// register value and the reservation record it leaves for commit.
     pub fn from_memory2(mem: Mem1Mem2Entry, load_data: u64, lr_sc: Option<LrScRecord>) -> Self {
+        let mem_access = MemAccess::of_memory2(&mem);
         #[cfg(feature = "commit-log")]
         let mem_effect = crate::uarch::pipeline::commit_log::MemEffect::of_memory2(&mem);
         #[cfg(feature = "commit-log")]
         let vec_mem_effects =
             crate::uarch::pipeline::commit_log::VectorElementAccess::of_memory2(&mem);
         Self {
+            mem_access,
             rob_tag: mem.rob_tag,
             pc: mem.pc,
             inst: mem.inst,
@@ -637,5 +643,39 @@ mod latch_tests {
         assert!(latch.take(1).is_empty());
         assert_eq!(latch.len(), 1);
         assert_eq!(latch.take(2), vec![9]);
+    }
+}
+
+/// The address a load, store or atomic touched, for stops on a watched
+/// range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MemAccess {
+    /// Where the access began.
+    pub vaddr: VirtAddr,
+    /// How many bytes it covered.
+    pub bytes: u64,
+    /// Whether it read memory.
+    pub read: bool,
+    /// Whether it wrote memory.
+    pub write: bool,
+}
+
+impl MemAccess {
+    /// The scalar access leaving memory2, if it performed one.
+    #[must_use]
+    pub const fn of_memory2(mem: &Mem1Mem2Entry) -> Option<Self> {
+        if mem.trap.is_some() || mem.vec_mem.is_some() || mem.ctrl.system_op.is_cbo() {
+            return None;
+        }
+        let (read, write) = match mem.ctrl.atomic_op {
+            Some(AtomicOp::Lr) => (true, false),
+            Some(AtomicOp::Sc) => (false, mem.load_data == 0),
+            Some(_) => (true, true),
+            None => (mem.ctrl.mem_read, mem.ctrl.mem_write),
+        };
+        if !read && !write {
+            return None;
+        }
+        Some(Self { vaddr: mem.vaddr, bytes: mem.ctrl.width.bytes(), read, write })
     }
 }

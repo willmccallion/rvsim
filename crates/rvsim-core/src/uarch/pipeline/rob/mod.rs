@@ -214,6 +214,9 @@ pub struct RobEntry {
     /// Write-log position when a load, LR or AMO read its value from RAM;
     /// commit re-validates LR and AMO against it.
     pub observed: Option<WriteSeq>,
+    /// The address a load, store or atomic touched, for stops on a watched
+    /// range.
+    pub mem_access: Option<crate::uarch::pipeline::latches::MemAccess>,
     /// Checkpoint table slot allocated for this branch/jump (O3 backend).
     pub checkpoint_id: Option<CheckpointId>,
     /// Physical vector registers allocated for destination LMUL group (O3 backend).
@@ -373,6 +376,7 @@ impl Rob {
             sfence_vma: None,
             lr_sc: None,
             observed: None,
+            mem_access: None,
             checkpoint_id: None,
             vec_phys_dst: [VecPhysReg::ZERO; 8],
             vec_old_phys_dst: [VecPhysReg::ZERO; 8],
@@ -552,6 +556,17 @@ impl Rob {
     pub fn set_lr_sc(&mut self, tag: RobTag, record: LrScRecord) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.lr_sc = Some(record);
+        }
+    }
+
+    /// Records the address a load, store or atomic touched.
+    pub fn set_mem_access(
+        &mut self,
+        tag: RobTag,
+        access: crate::uarch::pipeline::latches::MemAccess,
+    ) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.mem_access = Some(access);
         }
     }
 

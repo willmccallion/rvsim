@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- GDB watchpoints: `watch`, `rwatch` and `awatch` stop once a load or
+  store to the range has retired, as a hardware trigger with "after"
+  timing does, and GDB shows the old and new values.
 - A GDB remote stub: `python -m rvsim prog.elf --gdb 1234` waits for GDB
   and `Simulator.gdb(port)` serves it from wherever a run is. Breakpoints
   are stops at a PC, so no guest code is patched; a step retires one

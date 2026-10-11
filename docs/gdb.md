@@ -76,6 +76,7 @@ $2 = 0x8000000000080000
 |---|---|
 | `break`, `hbreak`, `tbreak` | a stop when the hart's next instruction to retire is at the address. No guest code is patched, so breakpoints work in ROM, in a kernel before paging is on, and across address spaces, and cost nothing while the run goes on. |
 | `stepi`, `nexti`, `step`, `next`, `finish`, `until` | one retired instruction, or one trap taken, on the selected hart; the other harts run for the same cycles |
+| `watch`, `rwatch`, `awatch` | a stop once a load or store to the range has retired, with the PC at the next instruction, so GDB shows the old and new values; scalar accesses only |
 | `continue`, Ctrl-C | the run at full speed until a breakpoint, the guest's exit, an `m5_debug_break` in the program, or Ctrl-C |
 | `info registers`, `p $sp`, `set $a0 = 1` | the hart's integer registers and `pc` |
 | `p $f0`, `p $fcsr` | the floating-point registers, `fflags`, `frm` and `fcsr` |
@@ -102,8 +103,8 @@ instruction. Take the numbers to report from a run without a debugger.
 
 ## Not covered
 
-- Watchpoints: the stub declines hardware watchpoints, so GDB falls back
-  to software watchpoints, which single-step the program and are slow.
+- Watchpoints on vector loads and stores: only scalar accesses are
+  watched.
 - The vector registers.
 - Running one hart alone (`set scheduler-locking on`): every resume runs
   every hart.

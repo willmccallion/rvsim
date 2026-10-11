@@ -67,6 +67,9 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
         if let Some(seq) = wb.observed {
             rob.set_observed(wb.rob_tag, seq);
         }
+        if let Some(access) = wb.mem_access {
+            rob.set_mem_access(wb.rob_tag, access);
+        }
         #[cfg(feature = "commit-log")]
         if let Some(effect) = wb.mem_effect {
             rob.set_mem_effect(wb.rob_tag, effect);

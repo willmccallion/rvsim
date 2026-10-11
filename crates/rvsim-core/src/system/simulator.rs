@@ -35,10 +35,12 @@ pub use crate::system::process::loader::{ProcessArgs, ProgramImage};
 use crate::system::snapshot::PipelineSnapshot;
 use crate::system::state::SystemState;
 use crate::system::{StatsDump, StatsEpoch, TraceControl, cache_audit, coherence_audit, loader};
+use crate::uarch::WatchHit;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::pipeline::trace::PipelineTrace;
 pub use crate::uarch::pipeline::trace::PipelineTraceFormat;
 use crate::uarch::pipeline::trace::kanata::KanataWriter;
+pub use crate::uarch::{Watch, WatchKind};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
@@ -58,11 +60,23 @@ pub struct StopAt {
     pub guest_breaks: bool,
     /// When a captured console holds output the host has not taken.
     pub console_output: bool,
+    /// After a load or store touches one of these ranges.
+    pub watches: Vec<Watch>,
 }
 
 /// Why [`Simulator::run_to`] returned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopReason {
+    /// A hart retired an access to a watched range; its PC is now the
+    /// instruction after it.
+    Watch {
+        /// The hart.
+        hart: usize,
+        /// The first watched byte the access touched.
+        addr: u64,
+        /// The range's kind.
+        kind: WatchKind,
+    },
     /// The simulation ended with this exit code.
     Exited(u64),
     /// The cycle count was reached.
@@ -697,10 +711,14 @@ impl Simulator {
     ) -> Result<StopReason, SimError> {
         for core in &mut self.state.cores {
             core.units.stop_pcs.clone_from(&stop.pcs);
+            core.units.watches.clone_from(&stop.watches);
+            core.units.watch_hit = None;
         }
         let reason = self.run_to_armed(stop, keep_going);
         for core in &mut self.state.cores {
             core.units.stop_pcs.clear();
+            core.units.watches.clear();
+            core.units.watch_hit = None;
         }
         reason
     }
@@ -792,6 +810,15 @@ impl Simulator {
         uncore.mem_controller.skip_quiet(&mut ctx);
     }
 
+    /// The access to a watched range a core retired this cycle, and its
+    /// hart.
+    fn take_watch_hit(&mut self) -> Option<(usize, WatchHit)> {
+        let core = self.state.cores.iter().position(|core| core.units.watch_hit.is_some())?;
+        let hit = self.state.cores[core].units.watch_hit.take()?;
+        let hart = self.state.topology.cores[core].hart_ids[0].as_index();
+        Some((hart, hit))
+    }
+
     fn stop_reason(
         &mut self,
         stop: &StopAt,
@@ -808,6 +835,9 @@ impl Simulator {
         }
         if stop.console_output && self.state.uncore.console_has_output() {
             return Some(StopReason::ConsoleOutput);
+        }
+        if let Some((hart, hit)) = self.take_watch_hit() {
+            return Some(StopReason::Watch { hart, addr: hit.addr, kind: hit.kind });
         }
         if !stop.pcs.is_empty()
             && let Some(hart) = self.state.harts.iter().position(|hart| stop.pcs.contains(&hart.pc))
