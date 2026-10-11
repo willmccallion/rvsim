@@ -7,9 +7,10 @@ set -euo pipefail
 
 target_dir=$1
 guest_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+include_dir=$(cd "$guest_dir/../include" && pwd)
 cc=$(ls "$HOST_DIR"/bin/riscv64-buildroot-linux-*-gcc | head -n1)
 
-"$cc" -static -O2 -Wall -Wextra -o "$target_dir/usr/bin/rvsim" "$guest_dir/rvsim.c"
+"$cc" -static -O2 -Wall -Wextra -I"$include_dir" -o "$target_dir/usr/bin/rvsim" "$guest_dir/rvsim.c"
 
 # STREAM's arrays (3 x 32 MB) exceed the showcase's 36 MB L3, so it measures
 # memory bandwidth; two passes keep a detailed run to minutes.

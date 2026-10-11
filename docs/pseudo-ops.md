@@ -132,6 +132,8 @@ registers:
 | `0x08` | `ARG` | read/write: the argument of the next command |
 
 A guest writes `ARG`, then `COMMAND`, and the command takes effect at the
-end of the cycle the write reaches the device. The Linux image's `rvsim`
-tool (`rvsim dump-stats LABEL`, `rvsim break LABEL`,
-`rvsim run START END CMD`) drives it through `/dev/mem`.
+end of the cycle the write reaches the device. Nothing in the repository
+uses it any more: the Linux image's `rvsim` tool (`rvsim dump-stats
+LABEL`, `rvsim break LABEL`, `rvsim run START END CMD`, `rvsim readfile`,
+`rvsim writefile FILE`) issues the pseudo-instruction, so it needs
+neither `/dev/mem` nor root.

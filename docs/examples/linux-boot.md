@@ -25,6 +25,41 @@ cache. Outside the Nix development shell, `make linux` runs the build in
 the repository's FHS environment. `rvsim tools/boot_linux.py --rebuild`
 rebuilds the image after a change to its package list.
 
+### The guest tool
+
+The image's `rvsim` command talks to the simulator with the
+[pseudo-instruction](../pseudo-ops.md), as gem5's `m5` tool does:
+
+| Command | What it does |
+|---|---|
+| `rvsim dump-stats LABEL` | Keeps a snapshot of the stats labelled `LABEL` |
+| `rvsim reset-stats` | Zeroes the stats |
+| `rvsim break LABEL` | Stops the host's `run_to` here, labelled `LABEL` |
+| `rvsim exit [CODE]` | Ends the simulation |
+| `rvsim run START END CMD [ARG...]` | Dumps `START`, runs `CMD`, dumps `END`: what `Session.measure` uses |
+| `rvsim readfile` | Copies the host's script file (`Simulator(script=...)`) to stdout |
+| `rvsim writefile FILE [NAME]` | Copies `FILE` to `NAME` in the host's output directory (`Simulator(outdir=...)`) |
+
+A boot with a script and an output directory runs the script and
+collects its results without a shell session:
+
+```python
+cpu = Simulator(
+    presets.linux(harts=1),
+    kernel="software/linux/output/Image",
+    disk="software/linux/output/disk.img",
+    script="bench.sh",
+    outdir="m5out",
+)
+```
+
+```sh
+# bench.sh, run in the guest as: rvsim readfile > /tmp/bench.sh; sh /tmp/bench.sh
+rvsim run 1 2 coremark 0x0 0x0 0x66 200 7 1 2000 > coremark.log
+rvsim writefile coremark.log
+rvsim exit
+```
+
 ## Booting from the command line
 
 ```bash
