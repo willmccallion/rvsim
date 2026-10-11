@@ -78,7 +78,7 @@ fn program() -> Vec<u32> {
 }
 
 fn config() -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.hart_count = 2;
     config.system.console = Console::Quiet;
     config.system.clint_divider = CLINT_DIVIDER;

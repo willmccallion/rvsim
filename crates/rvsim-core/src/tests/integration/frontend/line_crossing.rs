@@ -27,7 +27,7 @@ fn program(offset: i32) -> Vec<u32> {
 
 /// Runs the program and returns the loaded value and the L1D accesses.
 fn run(backend: BackendKind, offset: i32) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
     config.system.console = crate::config::Console::Quiet;

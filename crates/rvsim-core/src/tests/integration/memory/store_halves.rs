@@ -34,7 +34,7 @@ fn program() -> Vec<u32> {
 }
 
 fn run(predictor: MemDepPredictorKind) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.width = 4;
     config.pipeline.mem_dep_predictor = predictor;

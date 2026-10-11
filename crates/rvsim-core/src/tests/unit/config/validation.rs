@@ -4,12 +4,12 @@ use crate::config::{BackendKind, BhtConfigError, CacheConfig, Config, ConfigErro
 
 #[test]
 fn default_config_validates() {
-    assert!(Config::default().validate().is_ok());
+    assert!(Config::minimal().validate().is_ok());
 }
 
 #[test]
 fn btb_with_a_power_of_two_set_count_validates() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.btb_size = 16384;
     config.pipeline.btb_ways = 8;
 
@@ -18,7 +18,7 @@ fn btb_with_a_power_of_two_set_count_validates() {
 
 #[test]
 fn btb_whose_set_count_is_not_a_power_of_two_is_rejected() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.btb_size = 12288;
     config.pipeline.btb_ways = 8;
 
@@ -29,7 +29,7 @@ fn btb_whose_set_count_is_not_a_power_of_two_is_rejected() {
 
 #[test]
 fn a_simple_controller_bandwidth_that_is_not_positive_is_rejected() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.memory.simple_bandwidth_gib_s = 0.0;
 
     let err = config.validate().unwrap_err();
@@ -59,7 +59,7 @@ fn an_omitted_cache_resource_count_takes_its_default() {
 
 #[test]
 fn an_inorder_core_that_never_squashes_after_a_csr_is_rejected() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.csr_squash = Some(CsrSquash::Never);
 
@@ -70,7 +70,7 @@ fn an_inorder_core_that_never_squashes_after_a_csr_is_rejected() {
 
 #[test]
 fn an_out_of_order_core_may_never_squash_after_a_csr() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.csr_squash = Some(CsrSquash::Never);
 
@@ -79,7 +79,7 @@ fn an_out_of_order_core_may_never_squash_after_a_csr() {
 
 #[test]
 fn a_bht_whose_hashed_history_is_wider_than_its_index_is_rejected() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.bht.entries = 16;
     config.pipeline.bht.history_bits = 5;
 
@@ -96,7 +96,7 @@ fn a_bht_whose_hashed_history_is_wider_than_its_index_is_rejected() {
 
 #[test]
 fn a_bht_with_three_bit_counters_is_rejected() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.bht.counter_bits = 3;
 
     let err = config.validate().unwrap_err();

@@ -42,7 +42,7 @@ fn fence_i_loop(iterations: i32) -> Vec<u32> {
 
 /// Cycles until `program` leaves `marker` in x31, and the L1I misses it took.
 fn run_until(backend: BackendKind, program: &[u32], marker: u64) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = WIDTH;
     config.cache.l1_i.enabled = true;

@@ -82,7 +82,7 @@ fn parse(dtb: &[u8]) -> Node {
 }
 
 fn tree_for(hart_count: usize) -> Node {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.hart_count = hart_count;
     parse(&generate_dtb(&config))
 }
@@ -186,11 +186,11 @@ fn string_list_prop(node: &Node, name: &str) -> Vec<String> {
 /// implements; what the letters leave out takes its extensions with it.
 #[test]
 fn the_isa_string_names_every_implemented_extension() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.isa.string = Some("rv64imac".to_owned());
 
     let (default_isa, without_fdv) = (
-        string_prop(&cpu0(&Config::default()), "riscv,isa"),
+        string_prop(&cpu0(&Config::minimal()), "riscv,isa"),
         string_prop(&cpu0(&config), "riscv,isa"),
     );
 
@@ -200,7 +200,7 @@ fn the_isa_string_names_every_implemented_extension() {
 
 #[test]
 fn a_svadu_hart_advertises_svadu() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.isa.svadu = true;
 
     let isa = string_prop(&cpu0(&config), "riscv,isa");
@@ -210,7 +210,7 @@ fn a_svadu_hart_advertises_svadu() {
 
 #[test]
 fn a_hart_without_zvfh_leaves_it_out() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.isa.vector.zvfh = false;
 
     let isa = string_prop(&cpu0(&config), "riscv,isa");
@@ -222,7 +222,7 @@ fn a_hart_without_zvfh_leaves_it_out() {
 /// entry, for kernels that prefer it.
 #[test]
 fn the_isa_extensions_list_matches_the_isa_string() {
-    let cpu = cpu0(&Config::default());
+    let cpu = cpu0(&Config::minimal());
 
     let listed = string_list_prop(&cpu, "riscv,isa-extensions");
 
@@ -238,7 +238,7 @@ fn the_isa_extensions_list_matches_the_isa_string() {
 /// Linux uses Zicbom and Zicboz only when told their block size.
 #[test]
 fn the_cache_block_sizes_are_the_block_the_operations_act_on() {
-    let cpu = cpu0(&Config::default());
+    let cpu = cpu0(&Config::minimal());
 
     assert_eq!(cpu.u32_prop("riscv,cbom-block-size"), 64);
     assert_eq!(cpu.u32_prop("riscv,cboz-block-size"), 64);
@@ -246,11 +246,11 @@ fn the_cache_block_sizes_are_the_block_the_operations_act_on() {
 
 #[test]
 fn the_mmu_type_is_the_strongest_paging_mode() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.memory.paging_mode_max = crate::isa::privileged::PagingMode::Sv39;
 
     let (default_mmu, sv39) = (
-        string_prop(&cpu0(&Config::default()), "mmu-type"),
+        string_prop(&cpu0(&Config::minimal()), "mmu-type"),
         string_prop(&cpu0(&config), "mmu-type"),
     );
 

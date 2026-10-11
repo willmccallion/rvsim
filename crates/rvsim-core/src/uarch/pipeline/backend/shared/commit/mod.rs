@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_commit_stage_normal() {
-        let config = Config::default();
+        let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config, "");
         let mut state = sys.core_ctx(0);
 

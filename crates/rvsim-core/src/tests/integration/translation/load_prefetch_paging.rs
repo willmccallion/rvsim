@@ -226,7 +226,7 @@ pub fn run_system(
     page_boundary: PageBoundary,
     data: Data,
 ) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     // Large enough that the two pages' lines do not evict each other.
     config.cache.l1_d.enabled = true;

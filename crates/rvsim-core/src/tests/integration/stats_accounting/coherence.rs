@@ -23,7 +23,7 @@ const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrde
 
 /// Two harts with private L1Ds and L2s, coherent through the home agent.
 fn two_cached_harts(backend: BackendKind) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.hart_count = 2;
     config.system.console = crate::config::Console::Quiet;
     config.pipeline.backend = backend;

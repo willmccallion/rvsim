@@ -26,7 +26,7 @@ fn program() -> Vec<u32> {
 }
 
 fn cycles_to_finish(configure: impl Fn(&mut Config)) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
     config.system.cpu_clock_mhz = CLOCK_MHZ;
     configure(&mut config);

@@ -58,7 +58,7 @@ fn marked_program(before: Before) -> Vec<u32> {
 }
 
 fn run(program: &[u32]) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     ctx.run(20_000);
@@ -100,7 +100,7 @@ fn a_guest_reset_starts_the_dumped_window_at_the_region() {
 
 /// Runs `program` on `backend` until it exits and returns the exit code.
 fn exit_code_on(backend: crate::config::BackendKind, program: &[u32]) -> Option<u64> {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
@@ -163,7 +163,7 @@ fn debug_break_stops_the_hosts_run_and_panic_ends_it() {
         PseudoOp::encode(M5_PANIC),
         i().jal(0, 0).build(),
     ];
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
     let everything = StopAt { cycles: Some(20_000), guest_breaks: true, ..StopAt::default() };

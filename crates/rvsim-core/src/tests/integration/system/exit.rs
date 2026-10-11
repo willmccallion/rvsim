@@ -36,7 +36,7 @@ fn printing_then_exiting() -> Vec<u32> {
 /// stores to it are still in flight at the exit. Built without the test
 /// harness, which makes the bus latency zero.
 fn system(backend: BackendKind) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Captured;
     config.system.bus_latency = DEVICE_LATENCY;

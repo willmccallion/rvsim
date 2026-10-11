@@ -8,7 +8,7 @@ use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 
 fn create_test_sim() -> Simulator {
-    let config = Config::default();
+    let config = Config::minimal();
     Simulator::build(&config, "")
 }
 

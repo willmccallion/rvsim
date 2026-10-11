@@ -35,7 +35,7 @@ fn straight_line_program() -> Vec<u32> {
 }
 
 fn assert_fetch_bounded(backend: BackendKind) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     let width = config.pipeline.width;

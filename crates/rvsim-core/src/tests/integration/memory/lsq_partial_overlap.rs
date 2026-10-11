@@ -73,7 +73,7 @@ fn run_program(config: &Config) -> TestContext {
 
 #[test]
 fn out_of_order_backend_completes_partially_overlapping_store_load_pairs() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.width = 4;
 
@@ -84,7 +84,7 @@ fn out_of_order_backend_completes_partially_overlapping_store_load_pairs() {
 
 #[test]
 fn in_order_backend_completes_partially_overlapping_store_load_pairs() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 4;
 

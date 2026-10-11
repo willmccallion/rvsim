@@ -29,7 +29,7 @@ struct Outcome {
 
 /// Runs `program` (then `j .`) in machine mode on a hart without C.
 fn run(backend: BackendKind, program: &[u32]) -> Outcome {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.isa.string = Some("rv64imafd".to_owned());
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);

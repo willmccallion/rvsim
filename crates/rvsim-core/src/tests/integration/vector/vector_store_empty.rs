@@ -51,7 +51,7 @@ fn program() -> Vec<u32> {
 }
 
 fn run(backend: BackendKind) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.pipeline.vec_store_buffer_size = VSB_ENTRIES;

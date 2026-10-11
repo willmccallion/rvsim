@@ -38,7 +38,7 @@ fn trap_cause(backend: BackendKind) -> Option<u64> {
         HINTS.chunks(2).map(|pair| u32::from(pair[0]) | u32::from(pair[1]) << 16).collect();
     program.extend([i().addi(S4, 0, 1).build(), i().jal(0, 0).build()]);
     let handler = [i().csrrs(A2, MCAUSE, 0).build(), i().jal(0, 0).build()];
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);

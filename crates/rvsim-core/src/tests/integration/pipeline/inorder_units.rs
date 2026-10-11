@@ -23,7 +23,7 @@ const DIVIDES: u64 = 4;
 
 /// Cycles until `retired` instructions have retired on a one-wide in-order core.
 fn cycles_to_retire(program: &[u32], retired: u64) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 1;
     config.pipeline.fu_config.int_mul_latency = MUL_LATENCY;

@@ -38,7 +38,7 @@ fn program() -> Vec<u32> {
 }
 
 fn check(backend: BackendKind, width: usize) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;

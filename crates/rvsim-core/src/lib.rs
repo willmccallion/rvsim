@@ -73,7 +73,7 @@ pub use crate::common::Asid;
 pub use crate::common::IrqId;
 /// Simulator-level error type; returned by `Simulator::tick` and the binary loader.
 pub use crate::common::SimError;
-/// Root configuration type; use `Config::default()` or deserialize from Python/JSON.
+/// Root configuration type: `Config::default()`, `Config::minimal()`, or deserialized from the Python API's JSON.
 pub use crate::config::Config;
 /// 12-bit CSR address newtype; prevents mixing raw `u32` constants with address values.
 pub use crate::isa::csr::CsrAddr;

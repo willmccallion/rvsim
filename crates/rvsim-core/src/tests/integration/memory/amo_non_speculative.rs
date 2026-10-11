@@ -35,7 +35,7 @@ fn program() -> Vec<u32> {
 #[test]
 fn an_amo_on_a_mispredicted_path_never_reaches_memory() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let mut config = Config::default();
+        let mut config = Config::minimal();
         config.pipeline.backend = backend;
         config.pipeline.width = 4;
         config.cache.l1_d.enabled = true;
@@ -84,7 +84,7 @@ fn amo_behind_a_trap() -> Vec<u32> {
 #[test]
 fn an_amo_behind_a_trap_takes_effect_once() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let mut config = Config::default();
+        let mut config = Config::minimal();
         config.pipeline.backend = backend;
         config.pipeline.width = 4;
         config.pipeline.trap_latency = 13;

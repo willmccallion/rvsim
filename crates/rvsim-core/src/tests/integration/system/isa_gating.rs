@@ -28,7 +28,7 @@ fn exit_code_of(backend: BackendKind, isa: Option<&str>, instruction: u32) -> Op
     let i = InstructionBuilder::new;
     let program = [instruction, i().addi(A1, 0, RAN).build(), M5_FAIL, JAL_SELF];
     let handler = [i().csrrs(A1, MCAUSE, 0).build(), M5_FAIL, JAL_SELF];
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
     config.isa.string = isa.map(str::to_owned);

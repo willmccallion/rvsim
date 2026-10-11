@@ -20,7 +20,7 @@ const ETIMEDOUT: u64 = 110;
 /// A system of `harts` harts and a thread table whose one program's first
 /// thread runs on hart 0.
 fn table(harts: usize) -> (SystemState, Processes, ThreadRef) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.hart_count = harts;
     let mut sys = SystemState::build(&config, "");
     let split = PhysAddr::new(RAM_BASE + (1 << 20));

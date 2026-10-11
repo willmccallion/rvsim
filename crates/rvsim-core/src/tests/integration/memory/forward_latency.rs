@@ -12,7 +12,7 @@ const DONE_REG: usize = 2;
 const DONE_VALUE: u64 = 7;
 
 fn config(backend: BackendKind) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.store_forward_latency = Some(0);
     config.cache.l1_d.enabled = true;

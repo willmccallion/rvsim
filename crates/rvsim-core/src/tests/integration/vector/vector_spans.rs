@@ -56,7 +56,7 @@ fn copy(with_load: bool) -> Vec<u32> {
 }
 
 fn config(backend: BackendKind, vector_mem_width: Option<usize>) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.vector_mem_width = vector_mem_width;
     config.cache.l1_d.enabled = true;

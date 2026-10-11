@@ -29,7 +29,7 @@ fn independent_adds() -> Vec<u32> {
 }
 
 fn cycles_with_writeback_width(writeback_width: usize) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.width = 4;
     config.pipeline.writeback_width = Some(writeback_width);

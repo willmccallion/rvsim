@@ -30,7 +30,7 @@ fn program() -> Vec<u32> {
 
 /// The cycle MRET retired and the cycle fetch first issued its target.
 fn retire_and_refetch_cycles(backend: BackendKind) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;

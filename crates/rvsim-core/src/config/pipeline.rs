@@ -711,7 +711,7 @@ const fn write_affects_execution(addr: u32) -> bool {
 }
 
 /// Forwarding policy. Selects how `forward_load` reacts to in-flight vec stores.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VecStoreForwarding {
     /// Per-line byte-mask forwarding (BOOM/Apple/Intel/AMD/ARM pattern). Default.

@@ -11,7 +11,7 @@ use crate::uarch::bpred::BranchPredictor;
 const PROGRAM_BASE: u64 = 0x8000_0000;
 
 fn history_after_a_jump_loop(backend: BackendKind) -> bool {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.branch_predictor = crate::config::BranchPredictorKind::GShare;
     config.system.console = crate::config::Console::Quiet;

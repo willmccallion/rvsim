@@ -18,7 +18,7 @@ const SUPERVISOR_TIMER: u64 = 5;
 /// A supervisor software interrupt delegated to S and a supervisor timer
 /// interrupt left with M, both pending and enabled, on a hart in S-mode.
 fn run(backend: BackendKind) -> (PrivilegeMode, u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     let spin = [InstructionBuilder::new().jal(0, 0).build()];
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &spin);

@@ -113,7 +113,7 @@ impl Harness {
             queue: EventQueue::new(),
             stats: Stats::new(),
             memory: GlobalMemory::new(None, 1, 64),
-            config: Config::default(),
+            config: Config::minimal(),
             next_req_id: 0,
             next_tick: 0,
         }

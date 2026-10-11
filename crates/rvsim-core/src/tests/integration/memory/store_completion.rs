@@ -19,7 +19,7 @@ const DONE: u64 = 7;
 const FENCE_RW_RW: u32 = 0x0330_000F;
 
 fn config(backend: BackendKind, store_buffer_size: usize) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.store_buffer_size = store_buffer_size;
     config.cache.l1_i.enabled = true;

@@ -29,7 +29,7 @@ fn program() -> Vec<u32> {
 
 /// Cycles until every load has retired; every load misses the L1D.
 fn cycles_to_finish(l1d_latency: u64, l1d_response_latency: u64) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 1;
     config.cache.l1_d.enabled = true;

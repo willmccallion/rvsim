@@ -37,7 +37,7 @@ fn program() -> Vec<u32> {
 }
 
 fn system() -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.console = Console::Quiet;
     TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program())
 }
@@ -111,7 +111,7 @@ fn printing_program() -> Vec<u32> {
 
 #[test]
 fn console_output_stops_the_run_once_the_guest_prints() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.console = Console::Captured;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &printing_program());
@@ -138,7 +138,7 @@ fn independent_adds() -> Vec<u32> {
 
 #[test]
 fn a_pc_stop_lands_before_its_instruction_inside_a_commit_group() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = Console::Quiet;
     let mut ctx =

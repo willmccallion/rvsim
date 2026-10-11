@@ -1,7 +1,8 @@
 //! Configuration system for the RISC-V simulator.
 //!
-//! Configuration is supplied via JSON from the Python API (`SimConfig`) or
-//! use `Config::default()` for the CLI.
+//! Configuration is supplied as JSON by the Python API, or built in Rust
+//! from [`Config::default`], the Python API's default machine, or
+//! [`Config::minimal`].
 
 mod bpred;
 mod cache;
@@ -9,6 +10,7 @@ mod coherence;
 pub mod ddr5;
 mod defaults;
 mod general;
+mod machine;
 mod memory;
 mod pipeline;
 mod prefetch;
@@ -42,19 +44,21 @@ use serde::Deserialize;
 
 /// Root configuration structure containing all simulator settings.
 ///
-/// Configuration is supplied by the Python API (`SimConfig.to_dict()` → JSON) or
-/// use `Config::default()` for the CLI. No TOML files.
+/// The Python API supplies it as JSON (`Config.to_dict()`); in Rust,
+/// [`Config::default`] is the same machine as the Python API's `Config()`
+/// and [`Config::minimal`] the simplest one.
 ///
 /// # Examples
 ///
-/// Creating a default configuration:
+/// The default machine:
 ///
 /// ```
 /// use rvsim_core::config::Config;
 ///
 /// let config = Config::default();
 /// assert_eq!(config.general.trace_instructions, false);
-/// assert_eq!(config.cache.l1_d.size_bytes, 4096);
+/// assert_eq!(config.cache.l1_d.size_bytes, 32 * 1024);
+/// assert!(!Config::minimal().cache.l1_d.enabled);
 /// ```
 ///
 /// Deserializing from JSON (typical Python API usage):
@@ -128,7 +132,7 @@ use serde::Deserialize;
 /// assert_eq!(config.cache.l1_d.prefetcher, PrefetcherKind::Stride);
 /// assert_eq!(config.pipeline.branch_predictor, BranchPredictorKind::GShare);
 /// ```
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// General simulation settings

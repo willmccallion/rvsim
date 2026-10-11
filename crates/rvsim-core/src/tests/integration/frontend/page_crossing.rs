@@ -74,7 +74,7 @@ struct Outcome {
 /// page at `FIRST_PA` and its second page at `second_pa` (unmapped when
 /// `None`).
 fn run(backend: BackendKind, second_pa: Option<u64>) -> Outcome {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;

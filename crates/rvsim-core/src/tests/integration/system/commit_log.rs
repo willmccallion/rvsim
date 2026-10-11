@@ -71,7 +71,7 @@ fn logged_lines_until(
     backend: BackendKind,
     width: usize,
 ) -> Vec<String> {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     let log = tempfile::NamedTempFile::new().expect("temp file");

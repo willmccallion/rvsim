@@ -45,7 +45,7 @@ struct Outcome {
 }
 
 fn run(backend: BackendKind, maintenance: u32) -> Outcome {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.cache.l1_i.enabled = true;
     config.cache.l1_d.enabled = true;

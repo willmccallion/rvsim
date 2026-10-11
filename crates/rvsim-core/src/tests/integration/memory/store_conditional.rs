@@ -40,7 +40,7 @@ struct Outcome {
 }
 
 fn run(backend: BackendKind, load: u32, between: u32) -> Outcome {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program(load, between));

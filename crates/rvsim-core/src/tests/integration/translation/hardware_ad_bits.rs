@@ -54,7 +54,7 @@ fn run_with(
     code_flags: u64,
     data_flags: u64,
 ) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.isa.svadu = true;
     config.system.console = crate::config::Console::Quiet;

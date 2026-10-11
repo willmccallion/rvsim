@@ -20,7 +20,7 @@ impl Default for TestContext {
 
 impl TestContext {
     pub fn new() -> Self {
-        Self::new_with_config(&Config::default())
+        Self::new_with_config(&Config::minimal())
     }
 
     /// Construct a TestContext with a caller-supplied `Config` (e.g. to vary

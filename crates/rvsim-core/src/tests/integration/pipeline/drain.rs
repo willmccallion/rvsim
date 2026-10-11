@@ -36,7 +36,7 @@ fn slot(ctx: &mut TestContext, index: u64) -> u64 {
 /// Runs `cycles`, drains, and returns how many committed stores the drain
 /// still had to publish.
 fn drain_after(backend: BackendKind, cycles: u64) -> u64 {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
@@ -66,7 +66,7 @@ fn drain_after(backend: BackendKind, cycles: u64) -> u64 {
 }
 
 fn keeps_running_after_a_drain(backend: BackendKind, cycles: u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;

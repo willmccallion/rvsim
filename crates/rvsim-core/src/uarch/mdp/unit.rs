@@ -223,13 +223,13 @@ mod tests {
     use crate::config::{Config, MemDepPredictorKind, StoreSetConfig};
 
     fn blind_config() -> Config {
-        let mut c = Config::default();
+        let mut c = Config::minimal();
         c.pipeline.mem_dep_predictor = MemDepPredictorKind::Blind;
         c
     }
 
     fn store_set_config() -> Config {
-        let mut c = Config::default();
+        let mut c = Config::minimal();
         c.pipeline.mem_dep_predictor = MemDepPredictorKind::StoreSet;
         c.pipeline.store_set = StoreSetConfig { ssit_size: 64, lfst_size: 16, clear_period: 0 };
         c

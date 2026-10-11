@@ -35,7 +35,7 @@ fn violating_program() -> Vec<u32> {
 
 #[test]
 fn flushes_by_cause_add_up_to_all_flushes() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx =
@@ -68,7 +68,7 @@ fn divide_bound_program() -> Vec<u32> {
 
 #[test]
 fn fu_structural_stalls_are_counted_in_cycles() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx =

@@ -15,7 +15,7 @@ use tempfile::NamedTempFile;
 
 /// Helper function to create a test CPU instance.
 fn create_test_cpu() -> SystemState {
-    let config = Config::default();
+    let config = Config::minimal();
     SystemState::build(&config, "")
 }
 
@@ -67,7 +67,7 @@ fn test_load_binary_missing_file() {
 #[test]
 fn test_setup_kernel_load_without_opensbi() {
     let mut state = create_test_cpu();
-    let config = Config::default();
+    let config = Config::minimal();
 
     // Setup without OpenSBI (default case when fw_jump.bin doesn't exist)
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
@@ -90,7 +90,7 @@ fn test_setup_kernel_load_without_opensbi() {
 #[test]
 fn test_setup_kernel_load_dtb_address() {
     let mut state = create_test_cpu();
-    let config = Config::default();
+    let config = Config::minimal();
 
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
@@ -102,7 +102,7 @@ fn test_setup_kernel_load_dtb_address() {
 #[test]
 fn test_setup_kernel_load_with_dtb_file() {
     let mut state = create_test_cpu();
-    let config = Config::default();
+    let config = Config::minimal();
 
     // Create a temporary DTB file
     let dtb_data = vec![0xd0, 0x0d, 0xfe, 0xed]; // DTB magic number
@@ -121,7 +121,7 @@ fn test_setup_kernel_load_with_dtb_file() {
 #[test]
 fn an_explicit_firmware_is_loaded_at_ram_base_and_entered_in_machine_mode() {
     let mut state = create_test_cpu();
-    let config = Config::default();
+    let config = Config::minimal();
     let firmware = create_temp_binary(&[0x73, 0x00, 0x20, 0x30]);
     let boot = loader::KernelBoot {
         firmware: Some(firmware.path().to_str().unwrap().to_string()),
@@ -140,7 +140,7 @@ fn an_explicit_firmware_is_loaded_at_ram_base_and_entered_in_machine_mode() {
 #[test]
 fn a_missing_explicit_firmware_is_an_error() {
     let mut state = create_test_cpu();
-    let config = Config::default();
+    let config = Config::minimal();
     let boot = loader::KernelBoot {
         firmware: Some("/nonexistent/fw_jump.bin".to_string()),
         ..loader::KernelBoot::default()
@@ -154,7 +154,7 @@ fn a_missing_explicit_firmware_is_an_error() {
 #[test]
 fn test_setup_kernel_load_register_a2_is_zero() {
     let mut state = create_test_cpu();
-    let config = Config::default();
+    let config = Config::minimal();
 
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
@@ -164,7 +164,7 @@ fn test_setup_kernel_load_register_a2_is_zero() {
 
 #[test]
 fn test_setup_kernel_load_preserves_config() {
-    let config = Config::default();
+    let config = Config::minimal();
     let ram_base_before = config.system.ram_base;
     let kernel_offset_before = config.system.kernel_offset;
 
@@ -179,7 +179,7 @@ fn test_setup_kernel_load_preserves_config() {
 #[test]
 fn test_setup_kernel_load_mret_instruction_at_ram_base() {
     let mut state = create_test_cpu();
-    let config = Config::default();
+    let config = Config::minimal();
 
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
@@ -191,7 +191,7 @@ fn test_setup_kernel_load_mret_instruction_at_ram_base() {
 #[test]
 fn test_setup_kernel_load_multiple_calls() {
     let mut state = create_test_cpu();
-    let config = Config::default();
+    let config = Config::minimal();
 
     // First setup
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
@@ -208,10 +208,10 @@ fn test_setup_kernel_load_multiple_calls() {
 #[test]
 fn test_setup_kernel_load_different_ram_bases() {
     // Test with different RAM base addresses
-    let mut config1 = Config::default();
+    let mut config1 = Config::minimal();
     config1.system.ram_base = 0x80000000;
 
-    let mut config2 = Config::default();
+    let mut config2 = Config::minimal();
     config2.system.ram_base = 0x90000000;
 
     let mut cpu1 = SystemState::build(&config1, "");

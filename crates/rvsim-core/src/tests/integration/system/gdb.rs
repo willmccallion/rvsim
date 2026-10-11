@@ -86,7 +86,7 @@ impl Debugger {
 }
 
 fn context(backend: BackendKind, harts: usize) -> TestContext {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
     config.system.hart_count = harts;
@@ -200,7 +200,7 @@ fn independent_adds() -> Vec<u32> {
 
 #[test]
 fn a_breakpoint_inside_a_commit_group_stops_before_its_instruction() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = Console::Quiet;
     let mut ctx =
@@ -251,7 +251,7 @@ fn store_then_load() -> Vec<u32> {
 #[test]
 fn a_write_watchpoint_stops_after_the_store_and_a_read_one_after_the_load() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let mut config = Config::default();
+        let mut config = Config::minimal();
         config.pipeline.backend = backend;
         config.system.console = Console::Quiet;
         let mut ctx =

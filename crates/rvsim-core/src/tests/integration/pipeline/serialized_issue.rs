@@ -27,7 +27,7 @@ fn program() -> Vec<u32> {
 /// The cycle the last add retired, if it had when the CSR read left the
 /// issue queue, and the cycle the read left it.
 fn retire_and_issue_cycles(backend: BackendKind) -> (Option<u64>, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;

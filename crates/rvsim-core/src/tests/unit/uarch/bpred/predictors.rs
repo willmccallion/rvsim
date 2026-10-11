@@ -267,7 +267,7 @@ fn tournament_learns_an_alternating_branch() {
 
 #[test]
 fn sc_l_tage_learns_an_indirect_jump_target_from_its_commits() {
-    let pipeline = Config::default().pipeline;
+    let pipeline = Config::minimal().pipeline;
     let mut bp = Driver::new(ScLTagePredictor::new(
         &pipeline.tage,
         &pipeline.sc,

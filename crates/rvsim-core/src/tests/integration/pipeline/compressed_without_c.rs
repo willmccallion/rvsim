@@ -27,7 +27,7 @@ fn handler() -> Vec<u32> {
 /// `mcause` and `mtval` after running the two `c.nop`s under `isa`, or
 /// zeros when nothing trapped.
 fn trap_seen(backend: BackendKind, isa: &str) -> (u64, u64) {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.isa.string = Some(isa.to_owned());
     config.system.console = crate::config::Console::Quiet;

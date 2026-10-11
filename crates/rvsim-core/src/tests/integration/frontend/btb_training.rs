@@ -39,7 +39,7 @@ fn program() -> Vec<u32> {
 
 #[test]
 fn a_wrong_path_indirect_jump_leaves_the_btb_alone() {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.branch_predictor = BranchPredictorKind::Static;
     config.system.console = crate::config::Console::Quiet;

@@ -25,7 +25,7 @@ fn every_check() -> impl Iterator<Item = &'static fn(&mut Recorder)> {
 /// A system with every component that has stats: every cache level and a
 /// DDR5 controller, on `harts` cores.
 fn every_component(harts: usize) -> Config {
-    let mut config = Config::default();
+    let mut config = Config::minimal();
     config.system.hart_count = harts;
     config.system.console = crate::config::Console::Quiet;
     for cache in
