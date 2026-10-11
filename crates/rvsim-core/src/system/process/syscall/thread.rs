@@ -2,7 +2,7 @@
 //! than the process's memory, files and clock: its ids and its exit
 //! protocol's pointer.
 
-use super::{Result, SYS_GETPID, SYS_GETTID, SYS_SET_TID_ADDRESS, ok};
+use super::{Result, SYS_GETPID, SYS_GETTID, SYS_SET_TID_ADDRESS, ok, user_pointer};
 use crate::system::process::{Processes, ThreadRef};
 
 /// Serves syscall `number` for `caller` when it is one of these; `None`
@@ -17,7 +17,7 @@ pub(super) fn dispatch(
         SYS_GETPID => ok(caller.tgid.as_u64()),
         SYS_GETTID => ok(caller.tid.as_u64()),
         SYS_SET_TID_ADDRESS => {
-            processes.set_clear_child_tid(caller, a[0]);
+            processes.set_clear_child_tid(caller, user_pointer(a[0]));
             ok(caller.tid.as_u64())
         }
         _ => return None,

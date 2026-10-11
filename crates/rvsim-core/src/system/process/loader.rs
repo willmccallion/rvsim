@@ -8,11 +8,9 @@ use object::Endianness;
 use object::elf::{EM_RISCV, ET_DYN, ET_EXEC, PF_R, PF_W, PF_X, PT_INTERP, PT_LOAD, PT_PHDR};
 use object::read::elf::{ElfFile64, FileHeader, ProgramHeader};
 
-use super::{
-    AddressSpace, FrameAllocator, PAGE_SIZE, Permissions, Process, Processes, SpaceError, page_ceil,
-};
+use super::{AddressSpace, FrameAllocator, PAGE_SIZE, Permissions, Process, Processes, SpaceError};
 use crate::arch::Hart;
-use crate::common::{CoreId, HartId, SimError};
+use crate::common::{CoreId, HartId, PhysAddr, SimError, VirtAddr};
 use crate::isa::csr;
 use crate::isa::privileged::{PagingMode, PrivilegeMode};
 use crate::isa::reg;
@@ -48,7 +46,7 @@ const PMP_NAPOT_EVERYTHING: u64 = (1 << 54) - 1;
 const PMP_RWX_NAPOT: u64 = 0x1F;
 /// Where a static position-independent executable is loaded: the address
 /// static executables are linked at.
-pub const PIE_BASE: u64 = 0x1_0000;
+pub const PIE_BASE: VirtAddr = VirtAddr::new(0x1_0000);
 /// Every counter readable from user mode, as under gem5 and qemu.
 const COUNTERS_ALL: u64 = 0xFFFF_FFFF;
 
@@ -107,7 +105,7 @@ pub fn load_processes(
 
     let ram_base = state.config.system.ram_base;
     let ram_end = ram_base + state.config.memory.ram_size as u64;
-    let mut frames = FrameAllocator::new(ram_base, ram_end);
+    let mut frames = FrameAllocator::new(PhysAddr::new(ram_base), PhysAddr::new(ram_end));
     let mut loaded = Vec::with_capacity(programs.len());
     for (program, image) in programs.iter().zip(&images) {
         let terminal = state.uncore.terminal.clone();
@@ -142,30 +140,30 @@ fn place(
     terminal: SharedTerminal,
     memory: &mut GlobalMemory,
     frames: &mut FrameAllocator,
-) -> Result<(Process, u64), SimError> {
+) -> Result<(Process, VirtAddr), SimError> {
     let mut space = AddressSpace::new(mode, memory, frames).map_err(space_error)?;
-    let mut image_end = 0;
+    let mut image_end = VirtAddr::new(0);
     for segment in &image.segments {
         let perms = segment.permissions;
-        let mut page = segment.vaddr & !(PAGE_SIZE - 1);
+        let mut page = segment.vaddr.page_floor();
         let end = segment.vaddr.checked_add(segment.memsz).ok_or_else(|| {
             SimError::UnsupportedProgram { reason: "a segment wraps the address space".to_string() }
         })?;
         while page < end {
             let merged = space.permissions(page).map_or(perms, |existing| existing.union(perms));
             space.map(memory, frames, page, merged).map_err(space_error)?;
-            page += PAGE_SIZE;
+            page = page.wrapping_add(PAGE_SIZE);
         }
         space.write(memory, segment.vaddr, segment.data).map_err(space_error)?;
         image_end = image_end.max(end);
     }
 
-    let mut process = Process::new(space, page_ceil(image_end), clock_hz, terminal);
-    let stack_top = process.stack_top();
+    let mut process = Process::new(space, image_end.page_ceil(), clock_hz, terminal);
     let stack_bytes = process.stack_bytes();
+    let stack_bottom = process.stack_top().wrapping_sub(stack_bytes);
     process
         .space
-        .map_range(memory, frames, stack_top - stack_bytes, stack_bytes, Permissions::RW)
+        .map_range(memory, frames, stack_bottom, stack_bytes, Permissions::RW)
         .map_err(space_error)?;
     let sp = build_stack(&mut process, memory, image, args).map_err(space_error)?;
     Ok((process, sp))
@@ -174,12 +172,12 @@ fn place(
 /// Points `hart_id` at `entry` in user mode with `sp` and `satp`, the
 /// whole address space open to it, the counters readable, and the FPU
 /// and vector unit on, as Linux leaves them for a process.
-fn start_hart(state: &mut SystemState, hart_id: HartId, entry: u64, sp: u64, satp: u64) {
+fn start_hart(state: &mut SystemState, hart_id: HartId, entry: VirtAddr, sp: VirtAddr, satp: u64) {
     let core = state.topology.core_of_hart(hart_id).map_or(hart_id.as_index(), CoreId::as_index);
     let mut ctx = state.core_ctx(core);
-    ctx.hart.pc = entry;
+    ctx.hart.pc = entry.val();
     ctx.hart.privilege = PrivilegeMode::User;
-    ctx.hart.regs.write(reg::REG_SP, sp);
+    ctx.hart.regs.write(reg::REG_SP, sp.val());
     // A user-mode access no PMP entry matches is denied, so the firmware
     // that is not here would have opened the whole address space.
     ctx.csr_write(csr::PMPADDR0, PMP_NAPOT_EVERYTHING);
@@ -206,7 +204,7 @@ const fn space_error(error: SpaceError) -> SimError {
 
 /// One `PT_LOAD` segment.
 struct Segment<'a> {
-    vaddr: u64,
+    vaddr: VirtAddr,
     memsz: u64,
     data: &'a [u8],
     permissions: Permissions,
@@ -214,9 +212,9 @@ struct Segment<'a> {
 
 /// What the loader needs from the ELF.
 struct Image<'a> {
-    entry: u64,
+    entry: VirtAddr,
     segments: Vec<Segment<'a>>,
-    phdr_vaddr: u64,
+    phdr_vaddr: VirtAddr,
     phent: u64,
     phnum: u64,
 }
@@ -236,7 +234,7 @@ impl<'a> Image<'a> {
         // layout.
         let bias = match header.e_type(endian) {
             ET_EXEC => 0,
-            ET_DYN => PIE_BASE,
+            ET_DYN => PIE_BASE.val(),
             _ => return Err(unsupported("not an executable: link with -static or -static-pie")),
         };
         let phdrs = header.program_headers(endian, data).map_err(|_| SimError::NotAnElf)?;
@@ -250,13 +248,13 @@ impl<'a> Image<'a> {
                         "a dynamically linked program: link with -static or -static-pie",
                     ));
                 }
-                PT_PHDR => phdr_vaddr = Some(phdr.p_vaddr(endian) + bias),
+                PT_PHDR => phdr_vaddr = Some(VirtAddr::new(phdr.p_vaddr(endian) + bias)),
                 PT_LOAD => {
                     let offset = phdr.p_offset(endian);
                     let filesz = phdr.p_filesz(endian);
-                    let vaddr = phdr.p_vaddr(endian) + bias;
+                    let vaddr = VirtAddr::new(phdr.p_vaddr(endian) + bias);
                     if phdr_vaddr.is_none() && offset <= e_phoff && e_phoff < offset + filesz {
-                        phdr_vaddr = Some(vaddr + (e_phoff - offset));
+                        phdr_vaddr = Some(vaddr.wrapping_add(e_phoff - offset));
                     }
                     let bytes = phdr.data(endian, data).map_err(|()| SimError::NotAnElf)?;
                     let flags = phdr.p_flags(endian);
@@ -278,9 +276,9 @@ impl<'a> Image<'a> {
             return Err(unsupported("no loadable segment"));
         }
         Ok(Self {
-            entry: header.e_entry(endian) + bias,
+            entry: VirtAddr::new(header.e_entry(endian) + bias),
             segments,
-            phdr_vaddr: phdr_vaddr.unwrap_or(0),
+            phdr_vaddr: phdr_vaddr.unwrap_or_default(),
             phent: u64::from(header.e_phentsize(endian)),
             phnum: u64::from(header.e_phnum(endian)),
         })
@@ -295,14 +293,14 @@ fn build_stack(
     memory: &mut GlobalMemory,
     image: &Image<'_>,
     args: &ProcessArgs,
-) -> Result<u64, SpaceError> {
+) -> Result<VirtAddr, SpaceError> {
     let mut random_bytes = [0u8; 16];
     random_bytes[..8].copy_from_slice(&process.next_random().to_le_bytes());
     random_bytes[8..].copy_from_slice(&process.next_random().to_le_bytes());
     let space = &process.space;
     let mut sp = process.stack_top();
-    let mut push_bytes = |sp: &mut u64, bytes: &[u8]| -> Result<u64, SpaceError> {
-        *sp -= bytes.len() as u64;
+    let mut push_bytes = |sp: &mut VirtAddr, bytes: &[u8]| -> Result<VirtAddr, SpaceError> {
+        *sp = sp.wrapping_sub(bytes.len() as u64);
         space.write(memory, *sp, bytes)?;
         Ok(*sp)
     };
@@ -319,46 +317,46 @@ fn build_stack(
         bytes.push(0);
         envp_ptrs.push(push_bytes(&mut sp, &bytes)?);
     }
-    let execfn = argv_ptrs.first().copied().unwrap_or(0);
+    let execfn = argv_ptrs.first().copied().unwrap_or_default();
     let platform = push_bytes(&mut sp, b"riscv\0")?;
     let random = push_bytes(&mut sp, &random_bytes)?;
 
     let auxv = [
-        (AT_PHDR, image.phdr_vaddr),
+        (AT_PHDR, image.phdr_vaddr.val()),
         (AT_PHENT, image.phent),
         (AT_PHNUM, image.phnum),
         (AT_PAGESZ, PAGE_SIZE),
         (AT_BASE, 0),
         (AT_FLAGS, 0),
-        (AT_ENTRY, image.entry),
+        (AT_ENTRY, image.entry.val()),
         (AT_UID, 0),
         (AT_EUID, 0),
         (AT_GID, 0),
         (AT_EGID, 0),
-        (AT_PLATFORM, platform),
+        (AT_PLATFORM, platform.val()),
         (AT_HWCAP, HWCAP_IMAFDC),
         (AT_CLKTCK, CLOCK_TICKS_PER_SECOND),
         (AT_SECURE, 0),
-        (AT_RANDOM, random),
-        (AT_EXECFN, execfn),
+        (AT_RANDOM, random.val()),
+        (AT_EXECFN, execfn.val()),
         (AT_NULL, 0),
     ];
 
     let words = 1 + (argv_ptrs.len() + 1) + (envp_ptrs.len() + 1) + auxv.len() * 2;
-    sp = (sp - (words as u64) * 8) & !0xF;
+    sp = VirtAddr::new(sp.wrapping_sub((words as u64) * 8).val() & !0xF);
     let mut cursor = sp;
-    let mut put = |cursor: &mut u64, value: u64| -> Result<(), SpaceError> {
+    let mut put = |cursor: &mut VirtAddr, value: u64| -> Result<(), SpaceError> {
         space.write_u64(memory, *cursor, value)?;
-        *cursor += 8;
+        *cursor = cursor.wrapping_add(8);
         Ok(())
     };
     put(&mut cursor, args.argv.len() as u64)?;
     for ptr in &argv_ptrs {
-        put(&mut cursor, *ptr)?;
+        put(&mut cursor, ptr.val())?;
     }
     put(&mut cursor, 0)?;
     for ptr in &envp_ptrs {
-        put(&mut cursor, *ptr)?;
+        put(&mut cursor, ptr.val())?;
     }
     put(&mut cursor, 0)?;
     for (key, value) in auxv {

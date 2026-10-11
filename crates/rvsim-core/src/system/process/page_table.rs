@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{PAGE_SHIFT, PhysAddr};
+use crate::common::{PAGE_SHIFT, PhysAddr, VirtAddr, Vpn};
 use crate::isa::csr;
 use crate::isa::privileged::PagingMode;
 use crate::sim::memory::GlobalMemory;
@@ -79,33 +79,34 @@ pub enum SpaceError {
     /// No RAM left for a page or a page table.
     OutOfFrames,
     /// The virtual address is above what the paging mode can name.
-    OutOfRange(u64),
+    OutOfRange(VirtAddr),
     /// The address is not mapped.
-    Unmapped(u64),
+    Unmapped(VirtAddr),
 }
 
 /// Hands out 4 KiB frames of RAM, never reusing one; every process's
 /// pages and tables come from the one allocator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameAllocator {
-    next: u64,
-    end: u64,
+    next: PhysAddr,
+    end: PhysAddr,
 }
 
 impl FrameAllocator {
     /// Frames from `first_free`, rounded up to a page, to `end`.
     #[must_use]
-    pub const fn new(first_free: u64, end: u64) -> Self {
-        Self { next: (first_free + PAGE_SIZE - 1) & !(PAGE_SIZE - 1), end }
+    pub const fn new(first_free: PhysAddr, end: PhysAddr) -> Self {
+        let next = (first_free.val() + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
+        Self { next: PhysAddr::new(next), end }
     }
 
-    fn alloc_zeroed(&mut self, memory: &mut GlobalMemory) -> Result<u64, SpaceError> {
-        if self.next + PAGE_SIZE > self.end {
+    fn alloc_zeroed(&mut self, memory: &mut GlobalMemory) -> Result<PhysAddr, SpaceError> {
+        if self.next.val() + PAGE_SIZE > self.end.val() {
             return Err(SpaceError::OutOfFrames);
         }
         let frame = self.next;
-        self.next += PAGE_SIZE;
-        memory.load(PhysAddr::new(frame), &[0u8; PAGE_SIZE as usize]);
+        self.next = PhysAddr::new(frame.val() + PAGE_SIZE);
+        memory.load(frame, &[0u8; PAGE_SIZE as usize]);
         Ok(frame)
     }
 }
@@ -113,7 +114,7 @@ impl FrameAllocator {
 /// A page the process has mapped.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct Mapping {
-    frame: u64,
+    frame: PhysAddr,
     permissions: Permissions,
 }
 
@@ -122,9 +123,8 @@ struct Mapping {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddressSpace {
     mode: PagingMode,
-    root: u64,
-    /// Virtual page number to its frame.
-    pages: BTreeMap<u64, Mapping>,
+    root: PhysAddr,
+    pages: BTreeMap<Vpn, Mapping>,
 }
 
 impl AddressSpace {
@@ -157,14 +157,14 @@ impl AddressSpace {
             PagingMode::Sv48 => csr::SATP_MODE_SV48,
             PagingMode::Sv57 => csr::SATP_MODE_SV57,
         };
-        (mode << csr::SATP_MODE_SHIFT) | (self.root >> PAGE_SHIFT)
+        (mode << csr::SATP_MODE_SHIFT) | (self.root.val() >> PAGE_SHIFT)
     }
 
     /// One past the highest virtual address a user program may use: the
     /// lower half of the mode's address space, as Linux lays it out.
     #[must_use]
-    pub const fn user_top(&self) -> u64 {
-        1 << (self.va_bits() - 1)
+    pub const fn user_top(&self) -> VirtAddr {
+        VirtAddr::new(1 << (self.va_bits() - 1))
     }
 
     const fn va_bits(&self) -> u32 {
@@ -187,8 +187,8 @@ impl AddressSpace {
 
     /// Whether `vaddr` is one a user program may use.
     #[must_use]
-    pub const fn in_range(&self, vaddr: u64) -> bool {
-        vaddr < self.user_top()
+    pub const fn in_range(&self, vaddr: VirtAddr) -> bool {
+        vaddr.val() < self.user_top().val()
     }
 
     /// Maps the page holding `vaddr` to a fresh zeroed frame, or changes
@@ -201,13 +201,13 @@ impl AddressSpace {
         &mut self,
         memory: &mut GlobalMemory,
         frames: &mut FrameAllocator,
-        vaddr: u64,
+        vaddr: VirtAddr,
         permissions: Permissions,
     ) -> Result<(), SpaceError> {
         if !self.in_range(vaddr) {
             return Err(SpaceError::OutOfRange(vaddr));
         }
-        let vpn = vaddr >> PAGE_SHIFT;
+        let vpn = vaddr.page_number();
         let frame = match self.pages.get(&vpn) {
             Some(mapping) => mapping.frame,
             None => frames.alloc_zeroed(memory)?,
@@ -226,61 +226,55 @@ impl AddressSpace {
         &mut self,
         memory: &mut GlobalMemory,
         frames: &mut FrameAllocator,
-        start: u64,
+        start: VirtAddr,
         len: u64,
         permissions: Permissions,
     ) -> Result<(), SpaceError> {
-        let first = start & !(PAGE_SIZE - 1);
         let end = start.checked_add(len).ok_or(SpaceError::OutOfRange(start))?;
-        let mut page = first;
+        let mut page = start.page_floor();
         while page < end {
             self.map(memory, frames, page, permissions)?;
-            page += PAGE_SIZE;
+            page = page.wrapping_add(PAGE_SIZE);
         }
         Ok(())
     }
 
     /// Drops the mappings of the pages of `[start, start + len)`; the
     /// frames are not reused.
-    pub fn unmap_range(&mut self, memory: &mut GlobalMemory, start: u64, len: u64) {
-        let first = start & !(PAGE_SIZE - 1);
-        let end = start.saturating_add(len);
-        let mut page = first;
-        while page < end {
-            let vpn = page >> PAGE_SHIFT;
+    pub fn unmap_range(&mut self, memory: &mut GlobalMemory, start: VirtAddr, len: u64) {
+        for vpn in Self::pages_of(start, len) {
             if self.pages.remove(&vpn).is_some() {
                 self.clear_pte(memory, vpn);
             }
-            page += PAGE_SIZE;
         }
     }
 
     /// Whether every page of `[start, start + len)` is mapped.
     #[must_use]
-    pub fn is_mapped(&self, start: u64, len: u64) -> bool {
-        let first = start & !(PAGE_SIZE - 1);
-        let end = start.saturating_add(len);
-        let mut page = first;
-        while page < end {
-            if !self.pages.contains_key(&(page >> PAGE_SHIFT)) {
-                return false;
-            }
-            page += PAGE_SIZE;
-        }
-        true
+    pub fn is_mapped(&self, start: VirtAddr, len: u64) -> bool {
+        Self::pages_of(start, len).all(|vpn| self.pages.contains_key(&vpn))
+    }
+
+    /// The numbers of the pages `[start, start + len)` touches, stopping at
+    /// the top of the address space.
+    fn pages_of(start: VirtAddr, len: u64) -> impl Iterator<Item = Vpn> {
+        let first = start.page_number().val();
+        let end = start.val().saturating_add(len);
+        let last = end.div_ceil(PAGE_SIZE);
+        (first..last).map(Vpn::new)
     }
 
     /// The rights of the page holding `vaddr`, when it is mapped.
     #[must_use]
-    pub fn permissions(&self, vaddr: u64) -> Option<Permissions> {
-        self.pages.get(&(vaddr >> PAGE_SHIFT)).map(|mapping| mapping.permissions)
+    pub fn permissions(&self, vaddr: VirtAddr) -> Option<Permissions> {
+        self.pages.get(&vaddr.page_number()).map(|mapping| mapping.permissions)
     }
 
     /// The physical address `vaddr` maps to.
     #[must_use]
-    pub fn translate(&self, vaddr: u64) -> Option<PhysAddr> {
-        let mapping = self.pages.get(&(vaddr >> PAGE_SHIFT))?;
-        Some(PhysAddr::new(mapping.frame | (vaddr & (PAGE_SIZE - 1))))
+    pub fn translate(&self, vaddr: VirtAddr) -> Option<PhysAddr> {
+        let mapping = self.pages.get(&vaddr.page_number())?;
+        Some(PhysAddr::new(mapping.frame.val() | vaddr.page_offset()))
     }
 
     /// Reads `len` bytes of user memory at `vaddr`.
@@ -291,7 +285,7 @@ impl AddressSpace {
     pub fn read(
         &self,
         memory: &GlobalMemory,
-        vaddr: u64,
+        vaddr: VirtAddr,
         len: usize,
     ) -> Result<Vec<u8>, SpaceError> {
         let mut out = Vec::with_capacity(len);
@@ -299,11 +293,11 @@ impl AddressSpace {
         let mut left = len;
         while left > 0 {
             let paddr = self.translate(cursor).ok_or(SpaceError::Unmapped(cursor))?;
-            let in_page = (PAGE_SIZE - (cursor & (PAGE_SIZE - 1))) as usize;
+            let in_page = (PAGE_SIZE - cursor.page_offset()) as usize;
             let chunk = left.min(in_page);
             let bytes = memory.read_bytes(paddr, chunk).ok_or(SpaceError::Unmapped(cursor))?;
             out.extend_from_slice(&bytes);
-            cursor += chunk as u64;
+            cursor = cursor.wrapping_add(chunk as u64);
             left -= chunk;
         }
         Ok(out)
@@ -317,7 +311,7 @@ impl AddressSpace {
     pub fn read_cstr(
         &self,
         memory: &GlobalMemory,
-        vaddr: u64,
+        vaddr: VirtAddr,
         limit: usize,
     ) -> Result<Vec<u8>, SpaceError> {
         let mut out = Vec::new();
@@ -329,12 +323,13 @@ impl AddressSpace {
                 break;
             }
             out.push(byte);
-            cursor += 1;
+            cursor = cursor.wrapping_add(1);
         }
         Ok(out)
     }
 
-    /// Writes `bytes` to user memory at `vaddr`.
+    /// Writes `bytes` to user memory at `vaddr`, whatever the pages'
+    /// rights: the kernel's view, not the program's.
     ///
     /// # Errors
     ///
@@ -342,17 +337,17 @@ impl AddressSpace {
     pub fn write(
         &self,
         memory: &mut GlobalMemory,
-        vaddr: u64,
+        vaddr: VirtAddr,
         bytes: &[u8],
     ) -> Result<(), SpaceError> {
         let mut cursor = vaddr;
         let mut rest = bytes;
         while !rest.is_empty() {
             let paddr = self.translate(cursor).ok_or(SpaceError::Unmapped(cursor))?;
-            let in_page = (PAGE_SIZE - (cursor & (PAGE_SIZE - 1))) as usize;
+            let in_page = (PAGE_SIZE - cursor.page_offset()) as usize;
             let (chunk, tail) = rest.split_at(rest.len().min(in_page));
             memory.write_bytes(Writer::External, paddr, chunk);
-            cursor += chunk.len() as u64;
+            cursor = cursor.wrapping_add(chunk.len() as u64);
             rest = tail;
         }
         Ok(())
@@ -366,7 +361,7 @@ impl AddressSpace {
     pub fn write_u64(
         &self,
         memory: &mut GlobalMemory,
-        vaddr: u64,
+        vaddr: VirtAddr,
         value: u64,
     ) -> Result<(), SpaceError> {
         self.write(memory, vaddr, &value.to_le_bytes())
@@ -377,7 +372,7 @@ impl AddressSpace {
     /// # Errors
     ///
     /// [`SpaceError`] when the address is unmapped or out of range, or RAM is full.
-    pub fn read_u64(&self, memory: &GlobalMemory, vaddr: u64) -> Result<u64, SpaceError> {
+    pub fn read_u64(&self, memory: &GlobalMemory, vaddr: VirtAddr) -> Result<u64, SpaceError> {
         let bytes = self.read(memory, vaddr, 8)?;
         let mut word = [0u8; 8];
         word.copy_from_slice(&bytes);
@@ -388,21 +383,20 @@ impl AddressSpace {
         &self,
         memory: &mut GlobalMemory,
         frames: &mut FrameAllocator,
-        vpn: u64,
-        frame: u64,
+        vpn: Vpn,
+        frame: PhysAddr,
         permissions: Permissions,
     ) -> Result<(), SpaceError> {
-        let pte = (frame >> PAGE_SHIFT) << PTE_PPN_SHIFT | permissions.pte_bits();
+        let pte = Self::pointer_to(frame) | permissions.pte_bits();
         let mut table = self.root;
         for level in (1..self.levels()).rev() {
             let slot = Self::table_slot(table, vpn, level);
             let entry = memory.read(slot, 8).unwrap_or(0);
             table = if entry & PTE_VALID != 0 {
-                (entry >> PTE_PPN_SHIFT) << PAGE_SHIFT
+                Self::target_of(entry)
             } else {
                 let next = frames.alloc_zeroed(memory)?;
-                let pointer = (next >> PAGE_SHIFT) << PTE_PPN_SHIFT | PTE_VALID;
-                memory.write(Writer::External, slot, pointer, 8);
+                memory.write(Writer::External, slot, Self::pointer_to(next) | PTE_VALID, 8);
                 next
             };
         }
@@ -411,21 +405,31 @@ impl AddressSpace {
     }
 
     /// Clears the leaf PTE for `vpn`, if its tables exist.
-    fn clear_pte(&self, memory: &mut GlobalMemory, vpn: u64) {
+    fn clear_pte(&self, memory: &mut GlobalMemory, vpn: Vpn) {
         let mut table = self.root;
         for level in (1..self.levels()).rev() {
             let entry = memory.read(Self::table_slot(table, vpn, level), 8).unwrap_or(0);
             if entry & PTE_VALID == 0 {
                 return;
             }
-            table = (entry >> PTE_PPN_SHIFT) << PAGE_SHIFT;
+            table = Self::target_of(entry);
         }
         memory.write(Writer::External, Self::table_slot(table, vpn, 0), 0, 8);
     }
 
+    /// The PPN field of a PTE naming `frame`.
+    const fn pointer_to(frame: PhysAddr) -> u64 {
+        (frame.val() >> PAGE_SHIFT) << PTE_PPN_SHIFT
+    }
+
+    /// The frame a PTE names.
+    const fn target_of(entry: u64) -> PhysAddr {
+        PhysAddr::new((entry >> PTE_PPN_SHIFT) << PAGE_SHIFT)
+    }
+
     /// The address of `vpn`'s entry in the table at `table` for `level`.
-    const fn table_slot(table: u64, vpn: u64, level: u32) -> PhysAddr {
-        let index = (vpn >> (9 * level)) & (ENTRIES_PER_TABLE - 1);
-        PhysAddr::new(table + index * PTE_SIZE)
+    const fn table_slot(table: PhysAddr, vpn: Vpn, level: u32) -> PhysAddr {
+        let index = (vpn.val() >> (9 * level)) & (ENTRIES_PER_TABLE - 1);
+        PhysAddr::new(table.val() + index * PTE_SIZE)
     }
 }

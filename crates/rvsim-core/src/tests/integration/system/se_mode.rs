@@ -398,7 +398,11 @@ fn a_static_position_independent_executable_loads_and_runs() {
         sim.load_process(&user_elf(&exit_with(3), ET_DYN), &ProcessArgs::default())
             .expect("a static PIE loads");
 
-        assert_eq!(sim.state.harts[0].pc, PIE_BASE + LOAD_ADDRESS + CODE_OFFSET, "{backend:?}");
+        assert_eq!(
+            sim.state.harts[0].pc,
+            PIE_BASE.val() + LOAD_ADDRESS + CODE_OFFSET,
+            "{backend:?}"
+        );
         assert_eq!(run_for(&mut sim, 50_000), StopReason::Exited(3), "{backend:?}");
     }
 }
