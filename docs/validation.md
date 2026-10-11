@@ -19,7 +19,7 @@ test-all-smoke` runs the same set locally.
 | [riscv-tests](https://github.com/riscv-software-src/riscv-tests) | Every ISA test (`rv64ui`, `um`, `ua`, `uf`, `ud`, `uc`, `mi`, `si`) ends with its pass code | 134 of 134, on 6 pipeline configurations |
 | [riscv-vector-tests](https://github.com/chipsalliance/riscv-vector-tests) | A sample of every vector instruction class, cross-checked element by element against spike | the sample on 2 configurations; the full set below |
 | Multi-core programs | The bundled self-checking programs (spinlocks, AMO counters, barriers, false sharing, litmus tests) on 2 and 4 harts | every program on the smoke configurations, 4 harts on 4 of them |
-| SE mode against qemu-riscv64 | The same static Linux program, run on both, prints the same output and exits with the same code | 6 check programs (one runs pthreads on five harts), 19 Embench-IoT benchmarks and 43 bundled programs; the two that take minutes join with `SLOW=1` |
+| SE mode against qemu-riscv64 | The same static Linux program, run on both, prints the same output and exits with the same code | 6 check programs (one runs pthreads on five harts), 19 Embench-IoT benchmarks and 44 bundled programs, `raytracer_mt` on four threads; the two that take minutes join with `SLOW=1` |
 | Lint and format | `clippy` at its pedantic and nursery levels, `rustfmt`, `ruff` | the whole tree |
 
 ## On demand and before a release
