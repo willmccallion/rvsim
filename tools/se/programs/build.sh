@@ -14,4 +14,7 @@ for src in "$here"/*.c; do
     name="$(basename "$src" .c)"
     "$cc" -std=gnu17 -O2 -static -march=rv64gc -mabi=lp64d -Wall "$src" -o "$out/$name.elf"
 done
+# hello again as a static position-independent executable, which the
+# loader places at its own base.
+"$cc" -std=gnu17 -O2 -static-pie -march=rv64gc -mabi=lp64d -Wall "$here/hello.c" -o "$out/hello_pie.elf"
 echo "Built $(ls "$out"/*.elf | wc -l) SE check programs in $out"
