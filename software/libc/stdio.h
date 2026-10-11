@@ -1,21 +1,21 @@
 #ifndef STDIO_H
 #define STDIO_H
 
-#include <stdarg.h>
+/* The part of C's stdio the bare-metal programs use, over HTIF or the UART. */
 
-#define UART_BASE 0x10000000UL
+#include <stddef.h>
 
-void putchar(char c);
-/* Writes buffered output to the host (a no-op on the UART). */
-void stdio_flush(void);
-void puts(const char *s);
-void printf(const char *fmt, ...);
+#define EOF (-1)
 
-char getchar(void);
-void putchar(char c);
+typedef struct FILE FILE;
+extern FILE *stdin;
+extern FILE *stdout;
 
-int gets(char *buf, int max_len);
-int strcmp(const char *s1, const char *s2);
-int atoi(const char *str);
+int putchar(int c);
+int puts(const char *s);
+int printf(const char *fmt, ...);
+int getchar(void);
+char *fgets(char *s, int size, FILE *stream);
+int fflush(FILE *stream);
 
 #endif

@@ -5,8 +5,8 @@
 # PUTCHAR Macro
 #------------------------------------------------------------------------------
 .macro PUTCHAR reg
-    li   t0, 0x10000000                       # UART Base Address
-    sb   \reg, 0(t0)
+    mv   a0, \reg
+    jal  ra, putchar
 .endm
 
 #------------------------------------------------------------------------------
@@ -18,8 +18,6 @@
 # _start
 #------------------------------------------------------------------------------
 _start:
-    li    sp, 0x801FF000                      # Initialize Stack Pointer
-
     # 1. Generate Random Data
     jal ra, generate_random_data
 
@@ -207,6 +205,24 @@ pd_print_loop:
 pd_done:
     ld   ra, 0(sp)
     addi sp, sp, 32
+    ret
+
+#------------------------------------------------------------------------------
+# putchar
+#
+# Description:
+#   Writes the byte in a0 to standard output with the write syscall.
+#   Clobbers a0-a2 and a7.
+#------------------------------------------------------------------------------
+putchar:
+    addi sp, sp, -16
+    sb   a0, 0(sp)
+    li   a0, 1                                # fd: stdout
+    mv   a1, sp
+    li   a2, 1
+    li   a7, 64                               # write
+    ecall
+    addi sp, sp, 16
     ret
 
     .section .data

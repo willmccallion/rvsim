@@ -17,6 +17,13 @@ All notable changes to this project are documented here. The format is based on 
   the uninterrupted run does. A checkpoint is refused while the program
   has a host file open, since the descriptor would not come back. The
   HTIF device's `fromhost` is saved too.
+- The bundled programs and benchmarks are static Linux user binaries
+  built with the glibc toolchain and run under SE mode, as a gem5 user
+  would run them; `software/bin-htif` keeps the bare-metal build. The
+  bare-metal libc now implements a subset of C's stdio and stdlib
+  (`fgets`, `fflush`, `exit`, `int printf`) instead of its own API, and
+  a user program reads the cycle and instruction counters without
+  trapping. `bench.h` and `rvsim.h` moved to `software/include`.
 - SE mode runs a static Linux user program without a kernel: the
   simulator loads the ELF, builds its page tables (Sv39 by default,
   `page_mode` selects Sv48 or Sv57) and stack, runs it in user mode and
@@ -27,8 +34,7 @@ All notable changes to this project are documented here. The format is based on 
   nothing else; `clock_hz` sets the clock the time calls read. `make
   se-verify` checks the output and exit code of a set of programs, and
   Embench-IoT with `EMBENCH=1`, against `qemu-riscv64`. One hart, static
-  non-PIE executables, no threads, no checkpoints yet (see
-  [SE mode](se-mode.md)).
+  non-PIE executables, no threads yet (see [SE mode](se-mode.md)).
 - `make rtl-build` builds Chipyard 1.14.0's Rocket and Medium BOOM V4 as
   Verilator simulators and `make rtl-compare RTL_CORE=rocket|boom` lines
   rvsim's retire timing up with theirs instruction by instruction;

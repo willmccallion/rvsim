@@ -1,74 +1,118 @@
 #include "stdio.h"
 
+#include <stdarg.h>
+
 #ifdef RVSIM_IO_HTIF
 #include "htif.h"
+#endif
 
+struct FILE {
+  int fd;
+};
+
+static struct FILE console[] = {{0}, {1}};
+FILE *stdin = &console[0];
+FILE *stdout = &console[1];
+
+#ifdef RVSIM_IO_HTIF
 /* Output goes to the host through HTIF write syscalls, a line at a time. */
 static char out_buf[256];
 static unsigned out_len;
 
-void stdio_flush(void) {
+int fflush(FILE *stream) {
+  (void)stream;
   if (out_len) {
     htif_syscall(HTIF_SYS_WRITE, 1, (uint64_t)(uintptr_t)out_buf, out_len);
     out_len = 0;
   }
+  return 0;
 }
 
-void putchar(char c) {
-  out_buf[out_len++] = c;
+int putchar(int c) {
+  out_buf[out_len++] = (char)c;
   if (c == '\n' || out_len == sizeof out_buf) {
-    stdio_flush();
+    fflush(stdout);
   }
+  return (unsigned char)c;
 }
 
-char getchar(void) {
+int getchar(void) {
   char c;
-  stdio_flush();
+  fflush(stdout);
   if (htif_syscall(HTIF_SYS_READ, 0, (uint64_t)(uintptr_t)&c, 1) != 1) {
-    return 0;
+    return EOF;
   }
-  return c;
+  return (unsigned char)c;
 }
 #else
-void stdio_flush(void) {}
+#define UART_BASE 0x10000000UL
+#define UART_LSR_DATA_READY 0x01
 
-// Low-level Output
-void putchar(char c) {
-  *(volatile unsigned char *)UART_BASE = (unsigned char)c;
+int fflush(FILE *stream) {
+  (void)stream;
+  return 0;
 }
 
-char getchar(void) {
-  // Poll LSR (Line Status Register) at offset 5 until data is ready
-  // LSR bit 0 (0x01) = Data Ready (DR)
+int putchar(int c) {
+  *(volatile unsigned char *)UART_BASE = (unsigned char)c;
+  return (unsigned char)c;
+}
+
+int getchar(void) {
   volatile unsigned char *lsr = (volatile unsigned char *)(UART_BASE + 5);
-  while ((*lsr & 0x01) == 0) {
-    // Wait for data to be available (blocking)
+  while ((*lsr & UART_LSR_DATA_READY) == 0) {
   }
-  // Read from RBR (Receiver Buffer Register) at offset 0
-  return *(volatile char *)UART_BASE;
+  return *(volatile unsigned char *)UART_BASE;
 }
 #endif
 
-void puts(const char *s) {
+char *fgets(char *s, int size, FILE *stream) {
+  (void)stream;
+  int n = 0;
+  while (n < size - 1) {
+    int c = getchar();
+    if (c == EOF) {
+      break;
+    }
+    s[n++] = (char)c;
+    if (c == '\n') {
+      break;
+    }
+  }
+  if (n == 0) {
+    return NULL;
+  }
+  s[n] = '\0';
+  return s;
+}
+
+int puts(const char *s) {
   while (*s) {
     putchar(*s++);
   }
   putchar('\n');
+  return 0;
 }
 
-// Helper for numbers
+static int printed;
+
+static void emit(int c) {
+  putchar(c);
+  printed++;
+}
+
 static void print_num(long long n, int base, int sign) {
   char buf[32];
   int i = 0;
   unsigned long long u = n;
 
   if (sign && (n < 0)) {
-    putchar('-');
+    emit('-');
     u = -n;
   }
 
   if (u == 0) {
-    putchar('0');
+    emit('0');
     return;
   }
 
@@ -79,51 +123,48 @@ static void print_num(long long n, int base, int sign) {
   }
 
   while (i-- > 0) {
-    putchar(buf[i]);
+    emit(buf[i]);
   }
 }
 
 static void print_double(double v, int precision) {
   if (v < 0) {
-    putchar('-');
+    emit('-');
     v = -v;
   }
 
   long int_part = (long)v;
   double remainder = v - int_part;
 
-  // Print Integer part
   print_num(int_part, 10, 0);
-  putchar('.');
+  emit('.');
 
-  // Print Fractional part
   while (precision-- > 0) {
     remainder *= 10.0;
     int digit = (int)remainder;
-    putchar(digit + '0');
+    emit(digit + '0');
     remainder -= digit;
   }
 }
 
-// The printf logic
-void printf(const char *fmt, ...) {
+/* %c %s %d %u %x %f with an optional l or ll; anything else is printed as is. */
+int printf(const char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
+  printed = 0;
 
   for (const char *p = fmt; *p; p++) {
     if (*p != '%') {
-      putchar(*p);
+      emit(*p);
       continue;
     }
 
-    p++; // Skip '%'
+    p++;
 
-    // Check for length modifier 'l' (long)
     int is_long = 0;
     if (*p == 'l') {
       is_long = 1;
       p++;
-      // Handle 'll' (long long) - treat same as long for 64-bit
       if (*p == 'l') {
         p++;
       }
@@ -132,7 +173,7 @@ void printf(const char *fmt, ...) {
     switch (*p) {
     case 'c': {
       int c = va_arg(args, int);
-      putchar(c);
+      emit(c);
       break;
     }
     case 's': {
@@ -140,7 +181,7 @@ void printf(const char *fmt, ...) {
       if (!s)
         s = "(null)";
       while (*s)
-        putchar(*s++);
+        emit(*s++);
       break;
     }
     case 'd': {
@@ -174,56 +215,24 @@ void printf(const char *fmt, ...) {
       break;
     }
     case 'f': {
-      double f = va_arg(args, double); // float is promoted to double in varargs
-      print_double(f, 6);              // Default to 6 decimal places
+      double f = va_arg(args, double);
+      print_double(f, 6);
       break;
     }
     case '%': {
-      putchar('%');
+      emit('%');
       break;
     }
     default: {
-      putchar('%');
+      emit('%');
       if (is_long)
-        putchar('l');
-      putchar(*p);
+        emit('l');
+      emit(*p);
       break;
     }
     }
   }
 
   va_end(args);
-}
-
-int gets(char *buf, int max_len) {
-  int i = 0;
-  char c;
-  while (i < max_len - 1) {
-    c = getchar();
-
-    if (c == '\n' || c == '\r') {
-      break;
-    }
-
-    buf[i++] = c;
-  }
-  buf[i] = '\0'; // Null terminate
-  return i;
-}
-
-int strcmp(const char *s1, const char *s2) {
-  while (*s1 && (*s1 == *s2)) {
-    s1++;
-    s2++;
-  }
-  return *(const unsigned char *)s1 - *(const unsigned char *)s2;
-}
-
-int atoi(const char *str) {
-  int res = 0;
-  while (*str >= '0' && *str <= '9') {
-    res = (res << 3) + (res << 1) + (*str - '0');
-    str++;
-  }
-  return res;
+  return printed;
 }

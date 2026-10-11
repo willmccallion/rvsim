@@ -59,7 +59,7 @@ not in the device tree, with two 64-bit registers:
 A guest writes `ARG`, then `COMMAND`. Under Linux, map the page through
 `/dev/mem`, or use the image's `rvsim` tool (`rvsim dump-stats LABEL`,
 `rvsim break LABEL`, `rvsim run START END CMD`); bare-metal programs
-include `software/libc/rvsim.h` (`rvsim_dump_stats`, `rvsim_break`,
+include `software/include/rvsim.h` (`rvsim_dump_stats`, `rvsim_break`,
 `rvsim_reset_stats`, `rvsim_exit`). The command takes effect at the end of
 the cycle the write reaches the device.
 

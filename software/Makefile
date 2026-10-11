@@ -1,194 +1,157 @@
-# RISC-V Software Build System
-# Builds libc and example programs for the simulator
-# Supports RV64GC (IMAFD + C) with double-precision hard-float ABI
+# Builds the bundled programs:
+#   bin/programs, bin/benchmarks   static Linux user binaries, run under SE mode
+#   bin/multicore                  bare-metal; every hart runs smp_main
+#   bin-htif/programs, benchmarks  bare-metal builds that print and exit through
+#                                  HTIF, for spike and the RTL simulators
+# The Linux toolchain is $(SE_TARGET)-gcc, the bare-metal one $(TARGET)-gcc.
 
 TARGET ?= riscv64-elf
+SE_TARGET ?= riscv64-linux-gnu
 CC = $(TARGET)-gcc
-LD = $(TARGET)-ld
+SE_CC = $(SE_TARGET)-gcc
 
-# Directories
-BUILD_DIR ?= build
-BIN ?= bin
-# IO=uart prints through the UART and exits with an ecall; IO=htif prints
-# and exits through HTIF, as on spike and the RTL harness.
-IO ?= uart
-LIB_DIR   = libc
-EXAM_DIR  = ../examples
+BUILD_DIR = build
+BIN = bin
+BARE_BIN = bin-htif
+LIB_DIR = libc
+INC_DIR = include
 LINUX_DIR = linux
+PROG_DIR = ../examples/programs
+BENCH_DIR = ../examples/benchmarks
 
-# Base Flags
-# -march=rv64gcv: RV64I + M (multiply) + A (atomics) + F (single-float) + D (double-float) + C (compressed) + V (vector)
-# -mabi=lp64d: LP64 with double-precision hard-float calling convention
-CFLAGS = -march=rv64gcv -mabi=lp64d -mcmodel=medany -ffreestanding -nostdlib -g
-INCLUDES = -I$(LIB_DIR)
-
-# Specific Optimization Levels
-ifeq ($(IO),htif)
-CFLAGS += -DRVSIM_IO_HTIF
-endif
-USER_CFLAGS  = $(CFLAGS) $(INCLUDES) -O3
-MICRO_CFLAGS = $(CFLAGS) $(INCLUDES) -O0
-APP_CFLAGS   = $(CFLAGS) $(INCLUDES) -O3
-
-# Objects
-CRT0_OBJ   = $(BUILD_DIR)/libc/crt0.o
-HTIF_OBJ   = $(BUILD_DIR)/libc/htif.o
-LIBC_IO_OBJS =
-CRT0_SMP_OBJ = $(BUILD_DIR)/libc/crt0_smp.o
-STDIO_OBJ  = $(BUILD_DIR)/libc/stdio.o
-STDLIB_OBJ = $(BUILD_DIR)/libc/stdlib.o
-LINKER_SCR = $(LIB_DIR)/user.ld
-ifeq ($(IO),htif)
-CRT0_OBJ = $(BUILD_DIR)/libc/crt0_htif.o
-LIBC_IO_OBJS = $(HTIF_OBJ)
-endif
-
-# --- Sources from ../examples ---
-PROG_DIR = $(EXAM_DIR)/programs
-BENCH_DIR = $(EXAM_DIR)/benchmarks
+ARCH_FLAGS = -march=rv64gcv -mabi=lp64d
+SE_CFLAGS = $(ARCH_FLAGS) -std=gnu17 -static -g -I$(INC_DIR)
+BARE_CFLAGS = $(ARCH_FLAGS) -mcmodel=medany -ffreestanding -nostdlib -g -I$(LIB_DIR) -I$(INC_DIR)
+HTIF_CFLAGS = $(BARE_CFLAGS) -DRVSIM_IO_HTIF
+# One RWX segment is the shape of these images; the linker need not say so.
+BARE_LDFLAGS = -T $(LIB_DIR)/user.ld -Wl,--no-warn-rwx-segments
 
 PROG_C_SRCS = $(wildcard $(PROG_DIR)/*.c)
-PROG_C_ELFS = $(patsubst $(PROG_DIR)/%.c, $(BIN)/programs/%.elf, $(PROG_C_SRCS))
 PROG_S_SRCS = $(wildcard $(PROG_DIR)/*.s)
-PROG_S_ELFS = $(patsubst $(PROG_DIR)/%.s, $(BIN)/programs/%.elf, $(PROG_S_SRCS))
-
-BENCH_MICRO_SRCS = $(wildcard $(BENCH_DIR)/microbenchmarks/*.c)
-BENCH_SYNTH_SRCS = $(wildcard $(BENCH_DIR)/synthetic/*.c)
-BENCH_KERN_SRCS  = $(wildcard $(BENCH_DIR)/kernels/*.c)
-BENCH_PROG_SRCS  = $(wildcard $(BENCH_DIR)/complete_prog/*.c)
-
+MICRO_SRCS = $(wildcard $(BENCH_DIR)/microbenchmarks/*.c)
+SYNTH_SRCS = $(wildcard $(BENCH_DIR)/synthetic/*.c)
+KERN_SRCS = $(wildcard $(BENCH_DIR)/kernels/*.c)
+COMPLETE_SRCS = $(wildcard $(BENCH_DIR)/complete_prog/*.c)
+BENCH_SRCS = $(MICRO_SRCS) $(SYNTH_SRCS) $(KERN_SRCS) $(COMPLETE_SRCS)
 MULTICORE_SRCS = $(wildcard $(BENCH_DIR)/multicore/*.c)
+
+# regions.c drives the sim-control device at its physical address, which a
+# user program cannot reach, so it stays bare-metal: on the UART here, as
+# the Session API's console stops expect, and over HTIF in bin-htif.
+UART_PROG_SRCS = $(PROG_DIR)/regions.c
+SE_PROG_C_SRCS = $(filter-out $(UART_PROG_SRCS), $(PROG_C_SRCS))
+
+UART_PROG_ELFS = $(patsubst $(PROG_DIR)/%.c, $(BIN)/programs/%.elf, $(UART_PROG_SRCS))
+SE_ELFS = \
+	$(patsubst $(PROG_DIR)/%.c, $(BIN)/programs/%.elf, $(SE_PROG_C_SRCS)) \
+	$(patsubst $(PROG_DIR)/%.s, $(BIN)/programs/%.elf, $(PROG_S_SRCS)) \
+	$(patsubst %.c, $(BIN)/benchmarks/%.elf, $(notdir $(BENCH_SRCS)))
 MULTICORE_ELFS = $(patsubst $(BENCH_DIR)/multicore/%.c, $(BIN)/multicore/%.elf, $(MULTICORE_SRCS))
+HTIF_ELFS = \
+	$(patsubst $(PROG_DIR)/%.c, $(BARE_BIN)/programs/%.elf, $(PROG_C_SRCS)) \
+	$(patsubst %.c, $(BARE_BIN)/benchmarks/%.elf, $(notdir $(BENCH_SRCS)))
 
-BENCH_ELFS = \
-	$(patsubst $(BENCH_DIR)/microbenchmarks/%.c, $(BIN)/benchmarks/%.elf, $(BENCH_MICRO_SRCS)) \
-	$(patsubst $(BENCH_DIR)/synthetic/%.c, $(BIN)/benchmarks/%.elf, $(BENCH_SYNTH_SRCS)) \
-	$(patsubst $(BENCH_DIR)/kernels/%.c, $(BIN)/benchmarks/%.elf, $(BENCH_KERN_SRCS)) \
-	$(patsubst $(BENCH_DIR)/complete_prog/%.c, $(BIN)/benchmarks/%.elf, $(BENCH_PROG_SRCS))
+UART_LIB_DIR = $(BUILD_DIR)/libc-uart
+HTIF_LIB_DIR = $(BUILD_DIR)/libc-htif
+LIBC_HEADERS = $(LIB_DIR)/stdio.h $(LIB_DIR)/stdlib.h $(LIB_DIR)/htif.h
+UART_CRT0 = $(UART_LIB_DIR)/crt0.o
+UART_CRT0_SMP = $(UART_LIB_DIR)/crt0_smp.o
+UART_LIBC = $(UART_LIB_DIR)/stdio.o $(UART_LIB_DIR)/stdlib.o
+HTIF_LIBC = $(HTIF_LIB_DIR)/crt0_htif.o $(HTIF_LIB_DIR)/stdio.o $(HTIF_LIB_DIR)/stdlib.o $(HTIF_LIB_DIR)/htif.o
 
-.PHONY: all clean clean-no-linux dirs disk linux
+.PHONY: all dirs linux clean clean-no-linux
 
-all: dirs disk
+all: $(SE_ELFS) $(UART_PROG_ELFS) $(MULTICORE_ELFS) $(HTIF_ELFS)
+	@echo "  Built $(words $(SE_ELFS) $(UART_PROG_ELFS) $(MULTICORE_ELFS) $(HTIF_ELFS)) ELFs"
+	@echo "  SE mode:    $(BIN)/programs/ $(BIN)/benchmarks/"
+	@echo "  Bare-metal: $(BIN)/multicore/ $(BARE_BIN)/programs/ $(BARE_BIN)/benchmarks/"
 
 dirs:
-	@mkdir -p $(BUILD_DIR)/libc $(BUILD_DIR)/programs \
-	          $(BUILD_DIR)/benchmarks $(BUILD_DIR)/multicore \
-	          $(BIN)/programs $(BIN)/benchmarks $(BIN)/multicore
+	@mkdir -p $(UART_LIB_DIR) $(HTIF_LIB_DIR) \
+	          $(BIN)/programs $(BIN)/benchmarks $(BIN)/multicore \
+	          $(BARE_BIN)/programs $(BARE_BIN)/benchmarks
 
-# --- Libc ---
-$(BUILD_DIR)/libc/crt0.o: $(LIB_DIR)/crt0.s
-	@echo "  AS (Lib) $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $@
+# --- Linux user binaries ---
+$(BIN)/programs/%.elf: $(PROG_DIR)/%.c | dirs
+	@echo "  CC (SE) $<"
+	@$(SE_CC) $(SE_CFLAGS) -O3 $< -o $@
 
-$(BUILD_DIR)/libc/crt0_htif.o: $(LIB_DIR)/crt0_htif.s
-	@echo "  AS (Lib) $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BIN)/programs/%.elf: $(PROG_DIR)/%.s | dirs
+	@echo "  AS (SE) $<"
+	@$(SE_CC) $(SE_CFLAGS) -nostdlib -nostartfiles $< -o $@
 
-$(HTIF_OBJ): $(LIB_DIR)/htif.c $(LIB_DIR)/htif.h
-	@echo "  CC (Lib) $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BIN)/benchmarks/%.elf: $(BENCH_DIR)/microbenchmarks/%.c | dirs
+	@echo "  CC (SE) $<"
+	@$(SE_CC) $(SE_CFLAGS) -O0 $< -o $@
 
-$(CRT0_SMP_OBJ): $(LIB_DIR)/crt0_smp.s
-	@echo "  AS (Lib) $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BIN)/benchmarks/%.elf: $(BENCH_DIR)/synthetic/%.c | dirs
+	@echo "  CC (SE) $<"
+	@$(SE_CC) $(SE_CFLAGS) -O3 $< -o $@
 
-$(STDIO_OBJ): $(LIB_DIR)/stdio.c $(LIB_DIR)/htif.h
-	@echo "  CC (Lib) $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BIN)/benchmarks/%.elf: $(BENCH_DIR)/kernels/%.c | dirs
+	@echo "  CC (SE) $<"
+	@$(SE_CC) $(SE_CFLAGS) -O3 $< -o $@
 
-$(STDLIB_OBJ): $(LIB_DIR)/stdlib.c
-	@echo "  CC (Lib) $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $@
+$(BIN)/benchmarks/%.elf: $(BENCH_DIR)/complete_prog/%.c | dirs
+	@echo "  CC (SE) $<"
+	@$(SE_CC) $(SE_CFLAGS) -O3 $< -o $@
 
-# --- Programs ---
-$(BIN)/programs/%.elf: $(PROG_DIR)/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS)
-	@echo "  CC (Prog) $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/programs/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS) $(BUILD_DIR)/programs/$*.o -o $@
+# --- Bare-metal libc, once printing through the UART and once through HTIF ---
+$(UART_LIB_DIR)/%.o: $(LIB_DIR)/%.c $(LIBC_HEADERS) | dirs
+	@echo "  CC (libc) $<"
+	@$(CC) $(BARE_CFLAGS) -O3 -c $< -o $@
 
-$(BIN)/programs/%.elf: $(PROG_DIR)/%.s
-	@echo "  AS (Prog) $<"
-	@$(CC) $(USER_CFLAGS) -c $< -o $(BUILD_DIR)/programs/$*.o
-	@$(LD) -T $(LINKER_SCR) $(BUILD_DIR)/programs/$*.o -o $@
+$(UART_LIB_DIR)/%.o: $(LIB_DIR)/%.s | dirs
+	@echo "  AS (libc) $<"
+	@$(CC) $(BARE_CFLAGS) -c $< -o $@
 
-# --- Benchmarks ---
-$(BIN)/benchmarks/%.elf: $(BENCH_DIR)/microbenchmarks/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS)
-	@echo "  CC (Bench/Micro) $<"
-	@$(CC) $(MICRO_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS) $(BUILD_DIR)/benchmarks/$*.o -o $@
+$(HTIF_LIB_DIR)/%.o: $(LIB_DIR)/%.c $(LIBC_HEADERS) | dirs
+	@echo "  CC (libc, HTIF) $<"
+	@$(CC) $(HTIF_CFLAGS) -O3 -c $< -o $@
 
-$(BIN)/benchmarks/%.elf: $(BENCH_DIR)/synthetic/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS)
-	@echo "  CC (Bench/Synth) $<"
-	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS) $(BUILD_DIR)/benchmarks/$*.o -o $@
+$(HTIF_LIB_DIR)/%.o: $(LIB_DIR)/%.s | dirs
+	@echo "  AS (libc, HTIF) $<"
+	@$(CC) $(HTIF_CFLAGS) -c $< -o $@
 
-$(BIN)/benchmarks/%.elf: $(BENCH_DIR)/kernels/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS)
-	@echo "  CC (Bench/Kern) $<"
-	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS) $(BUILD_DIR)/benchmarks/$*.o -o $@
-
-$(BIN)/benchmarks/%.elf: $(BENCH_DIR)/complete_prog/%.c $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS)
-	@echo "  CC (Bench/Prog) $<"
-	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/benchmarks/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS) $(BUILD_DIR)/benchmarks/$*.o -o $@
+# --- Bare-metal programs on the UART ---
+$(UART_PROG_ELFS): $(BIN)/programs/%.elf: $(PROG_DIR)/%.c $(UART_CRT0) $(UART_LIBC) | dirs
+	@echo "  CC (UART) $<"
+	@$(CC) $(BARE_CFLAGS) -O3 $(BARE_LDFLAGS) $(UART_CRT0) $(UART_LIBC) $< -o $@
 
 # --- Multi-core programs (every hart runs smp_main) ---
-$(BIN)/multicore/%.elf: $(BENCH_DIR)/multicore/%.c $(LIB_DIR)/smp.h $(CRT0_SMP_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS)
+$(BIN)/multicore/%.elf: $(BENCH_DIR)/multicore/%.c $(LIB_DIR)/smp.h $(UART_CRT0_SMP) $(UART_LIBC) | dirs
 	@echo "  CC (Multicore) $<"
-	@$(CC) $(APP_CFLAGS) -c $< -o $(BUILD_DIR)/multicore/$*.o
-	@$(LD) -T $(LINKER_SCR) $(CRT0_SMP_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS) $(BUILD_DIR)/multicore/$*.o -o $@
+	@$(CC) $(BARE_CFLAGS) -O3 $(BARE_LDFLAGS) $(UART_CRT0_SMP) $(UART_LIBC) $< -o $@
 
-# --- CoreMark ---
-# Download source first:
-#   git clone https://github.com/eembc/coremark /tmp/coremark
-#   cp /tmp/coremark/core_{list_join,matrix,state,util,main}.c examples/benchmarks/coremark/
-#   cp /tmp/coremark/coremark.h                                 examples/benchmarks/coremark/
-# Then: make coremark
+# --- Bare-metal HTIF builds ---
+$(BARE_BIN)/programs/%.elf: $(PROG_DIR)/%.c $(HTIF_LIBC) | dirs
+	@echo "  CC (HTIF) $<"
+	@$(CC) $(HTIF_CFLAGS) -O3 $(BARE_LDFLAGS) $(HTIF_LIBC) $< -o $@
 
-COREMARK_DIR  = $(EXAM_DIR)/benchmarks/coremark
-COREMARK_SRCS = \
-	$(COREMARK_DIR)/core_list_join.c \
-	$(COREMARK_DIR)/core_matrix.c    \
-	$(COREMARK_DIR)/core_state.c     \
-	$(COREMARK_DIR)/core_util.c      \
-	$(COREMARK_DIR)/core_main.c      \
-	$(COREMARK_DIR)/core_portme.c
-COREMARK_ELF  = $(BIN)/benchmarks/coremark.elf
+$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/microbenchmarks/%.c $(HTIF_LIBC) | dirs
+	@echo "  CC (HTIF) $<"
+	@$(CC) $(HTIF_CFLAGS) -O0 $(BARE_LDFLAGS) $(HTIF_LIBC) $< -o $@
 
-.PHONY: coremark
-coremark: dirs $(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ)
-	@if [ ! -f $(COREMARK_DIR)/coremark.h ]; then \
-		echo "ERROR: CoreMark sources missing.  Run:"; \
-		echo "  git clone https://github.com/eembc/coremark /tmp/coremark"; \
-		echo "  cp /tmp/coremark/core_{list_join,matrix,state,util,main}.c $(COREMARK_DIR)/"; \
-		echo "  cp /tmp/coremark/coremark.h $(COREMARK_DIR)/"; \
-		exit 1; \
-	fi
-	@echo "  CC (CoreMark)"
-	@$(CC) $(APP_CFLAGS) \
-		-DPERFORMANCE_RUN=1 \
-		-I$(COREMARK_DIR) \
-		-I$(LIB_DIR) \
-		$(COREMARK_SRCS) \
-		$(CRT0_OBJ) $(STDIO_OBJ) $(STDLIB_OBJ) $(LIBC_IO_OBJS) \
-		-T $(LINKER_SCR) \
-		-o $(COREMARK_ELF)
-	@echo "  -> $(COREMARK_ELF)"
+$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/synthetic/%.c $(HTIF_LIBC) | dirs
+	@echo "  CC (HTIF) $<"
+	@$(CC) $(HTIF_CFLAGS) -O3 $(BARE_LDFLAGS) $(HTIF_LIBC) $< -o $@
+
+$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/kernels/%.c $(HTIF_LIBC) | dirs
+	@echo "  CC (HTIF) $<"
+	@$(CC) $(HTIF_CFLAGS) -O3 $(BARE_LDFLAGS) $(HTIF_LIBC) $< -o $@
+
+$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/complete_prog/%.c $(HTIF_LIBC) | dirs
+	@echo "  CC (HTIF) $<"
+	@$(CC) $(HTIF_CFLAGS) -O3 $(BARE_LDFLAGS) $(HTIF_LIBC) $< -o $@
 
 # --- Linux (download Buildroot + build via tools/boot_linux.py) ---
 linux:
 	@echo "[Software] Building Linux (download + build in $(LINUX_DIR))..."
 	@cd .. && python3 tools/boot_linux.py --no-boot
 
-# --- Disk Image ---
-disk: $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS) $(MULTICORE_ELFS)
-	@echo "  Built $(words $(PROG_C_ELFS) $(PROG_S_ELFS) $(BENCH_ELFS) $(MULTICORE_ELFS)) ELFs"
-	@echo "  Programs: $(BIN)/programs/"
-	@echo "  Benchmarks: $(BIN)/benchmarks/"
-
 clean:
-	rm -rf build bin build-htif bin-htif *.img
+	rm -rf $(BUILD_DIR) $(BIN) $(BARE_BIN) build-htif *.img
 	rm -rf $(LINUX_DIR)/output $(LINUX_DIR)/buildroot-*
 
 clean-no-linux:
-	rm -rf build bin build-htif bin-htif *.img
+	rm -rf $(BUILD_DIR) $(BIN) $(BARE_BIN) build-htif *.img

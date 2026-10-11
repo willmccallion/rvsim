@@ -1,12 +1,14 @@
 """Checks SE mode against qemu-riscv64: the same static Linux program,
 run under both, must print the same output and exit with the same code.
 
-    .venv/bin/python tools/se/verify.py [--embench] [--programs GLOB ...]
+    .venv/bin/python tools/se/verify.py [--embench] [--bundled] [--programs GLOB ...]
 
 The check programs (tools/se/programs, built by `make se-programs`) run
 by default; `--embench` adds the Embench-IoT benchmarks (`make
-embench-build`). Each rvsim run is a subprocess so its stdout is its
-program's alone. Exits non-zero when any program differs.
+embench-build`) and `--bundled` the bundled programs and benchmarks
+(`make software`), whose cycle counts are left out of the comparison.
+Each rvsim run is a subprocess so its stdout is its program's alone.
+Exits non-zero when any program differs.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SE_PROGRAMS = ROOT / "tests" / "builds" / "se-programs"
 EMBENCH = ROOT / "tests" / "builds" / "embench" / "bin"
+BUNDLED = ROOT / "software" / "bin"
 PYTHON = ROOT / ".venv" / "bin" / "python"
 CYCLE_LIMIT = 2_000_000_000
 
@@ -57,6 +60,14 @@ class Program:
 class Outcome:
     stdout: bytes
     exit_code: int
+
+    @property
+    def result(self) -> bytes:
+        """The output without the cycle counts, which are the measurement
+        rather than the program's result and differ by design."""
+        return b"\n".join(
+            line for line in self.stdout.split(b"\n") if b"Cycles:" not in line
+        )
 
 
 def run_qemu(program: Program, workdir: Path) -> Outcome:
@@ -120,6 +131,9 @@ def main() -> int:
         "--embench", action="store_true", help="also run the Embench-IoT benchmarks"
     )
     parser.add_argument(
+        "--bundled", action="store_true", help="also run the bundled programs"
+    )
+    parser.add_argument(
         "--programs",
         nargs="*",
         default=[],
@@ -131,14 +145,21 @@ def main() -> int:
     programs: list[Program] = []
     if args.programs:
         for pattern in args.programs:
-            programs.extend(Program(Path(p)) for p in sorted(glob.glob(pattern)))
+            programs.extend(
+                Program(Path(p).resolve()) for p in sorted(glob.glob(pattern))
+            )
     else:
         programs = check_programs()
         if args.embench:
             programs.extend(Program(elf) for elf in sorted(EMBENCH.glob("*.elf")))
+        if args.bundled:
+            for subdir in ("programs", "benchmarks"):
+                programs.extend(
+                    Program(elf) for elf in sorted((BUNDLED / subdir).glob("*.elf"))
+                )
     if not programs:
         print(
-            "no programs to run; build them with make se-programs / make embench-build"
+            "no programs to run; build them with make se-programs, make embench-build or make software"
         )
         return 2
 
@@ -147,18 +168,18 @@ def main() -> int:
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         for program, expected, actual in pool.map(check, programs):
             same = (
-                expected.stdout == actual.stdout
+                expected.result == actual.result
                 and expected.exit_code == actual.exit_code
             )
             verdict = "same" if same else "DIFFERS"
             if not same:
                 failures += 1
-                if expected.stdout != actual.stdout:
+                if expected.result != actual.result:
                     verdict += " (stdout)"
             print(
                 f"{program.name:<20} {expected.exit_code:>5} {actual.exit_code:>6}  {verdict}"
             )
-            if not same and expected.stdout != actual.stdout:
+            if not same and expected.result != actual.result:
                 print(
                     "  qemu : "
                     + expected.stdout[:300]

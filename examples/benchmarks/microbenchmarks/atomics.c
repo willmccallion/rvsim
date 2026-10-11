@@ -1,31 +1,20 @@
 #include <stdint.h>
 
-#define UART_BASE 0x10000000
-#define TEST_ADDR 0x80001000UL
+#include "stdio.h"
+#include "stdlib.h"
 
-void print_char(char c) {
-  volatile uint8_t *uart = (uint8_t *)UART_BASE;
-  *uart = c;
-}
+static volatile uint32_t word;
 
-void print_str(const char *s) {
+static void print_str(const char *s) {
   while (*s) {
-    print_char(*s++);
+    putchar(*s++);
   }
 }
 
-void exit(int code) {
-  register int a0 asm("a0") = code;
-  register int a7 asm("a7") = 93; // Syscall Exit
-  asm volatile("ecall" : : "r"(a0), "r"(a7));
-  while (1)
-    ;
-}
-
-void fail(const char *msg) {
+static void fail(const char *msg) {
   print_str("[FAIL] ");
   print_str(msg);
-  print_char('\n');
+  putchar('\n');
   exit(1);
 }
 
@@ -63,7 +52,7 @@ static inline uint32_t sc_w(volatile uint32_t *addr, uint32_t val) {
 }
 
 int main() {
-  volatile uint32_t *mem = (volatile uint32_t *)TEST_ADDR;
+  volatile uint32_t *mem = &word;
 
   print_str("[TEST] Starting Atomics Test (C Version)\n");
 

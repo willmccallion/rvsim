@@ -90,7 +90,9 @@ and the environment, the heap through `brk`, `mmap` and `mremap`, host
 files, the clocks) under rvsim and under `qemu-riscv64`, and requires
 the same output and exit code from both; `EMBENCH=1` adds the 19
 Embench-IoT benchmarks (`make embench-build`), each of which verifies
-its own result and exits 0.
+its own result and exits 0, and `BUNDLED=1` the bundled programs and
+benchmarks (`make software`), compared on everything but the cycle
+counts they print.
 
 ## Limits
 
