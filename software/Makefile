@@ -1,5 +1,6 @@
 # Builds the bundled programs:
-#   bin/programs, bin/benchmarks   static Linux user binaries, run under SE mode
+#   bin/programs, bin/benchmarks   static Linux user binaries, run under SE mode;
+#                                  programs/threaded/ adds pthreads ones, SE only
 #   bin/multicore                  bare-metal; every hart runs smp_main
 #   bin-htif/programs, benchmarks  bare-metal builds of the same sources
 # Bare-metal programs print and exit through HTIF, as on spike and the RTL
@@ -27,6 +28,9 @@ BARE_CFLAGS = $(ARCH_FLAGS) -mcmodel=medany -ffreestanding -nostdlib -g -I$(LIB_
 BARE_LDFLAGS = -T $(LIB_DIR)/user.ld -Wl,--no-warn-rwx-segments
 
 PROG_C_SRCS = $(wildcard $(PROG_DIR)/*.c)
+# The bare-metal libc has no threads, so these build for SE mode alone.
+THREADED_DIR = $(PROG_DIR)/threaded
+THREADED_SRCS = $(wildcard $(THREADED_DIR)/*.c)
 PROG_S_SRCS = $(wildcard $(PROG_DIR)/*.s)
 MICRO_SRCS = $(wildcard $(BENCH_DIR)/microbenchmarks/*.c)
 SYNTH_SRCS = $(wildcard $(BENCH_DIR)/synthetic/*.c)
@@ -38,6 +42,7 @@ MULTICORE_SRCS = $(wildcard $(BENCH_DIR)/multicore/*.c)
 SE_ELFS = \
 	$(patsubst $(PROG_DIR)/%.c, $(BIN)/programs/%.elf, $(PROG_C_SRCS)) \
 	$(patsubst $(PROG_DIR)/%.s, $(BIN)/programs/%.elf, $(PROG_S_SRCS)) \
+	$(patsubst $(THREADED_DIR)/%.c, $(BIN)/programs/%.elf, $(THREADED_SRCS)) \
 	$(patsubst %.c, $(BIN)/benchmarks/%.elf, $(notdir $(BENCH_SRCS)))
 MULTICORE_ELFS = $(patsubst $(BENCH_DIR)/multicore/%.c, $(BIN)/multicore/%.elf, $(MULTICORE_SRCS))
 HTIF_ELFS = \
@@ -70,6 +75,10 @@ $(BIN)/programs/%.elf: $(PROG_DIR)/%.c | dirs
 $(BIN)/programs/%.elf: $(PROG_DIR)/%.s | dirs
 	@echo "  AS (SE) $<"
 	@$(SE_CC) $(SE_CFLAGS) -nostdlib -nostartfiles $< -o $@
+
+$(BIN)/programs/%.elf: $(THREADED_DIR)/%.c | dirs
+	@echo "  CC (SE, threads) $<"
+	@$(SE_CC) $(SE_CFLAGS) -O3 -pthread $< -o $@
 
 $(BIN)/benchmarks/%.elf: $(BENCH_DIR)/microbenchmarks/%.c | dirs
 	@echo "  CC (SE) $<"

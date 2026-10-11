@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- A multithreaded bundled program, `raytracer_mt`: a scene of spheres
+  over a checkered floor, with shadows and a reflection bounce, its rows
+  shared out between N threads (one per CPU by default), printed with the
+  cycles the render took. On the P550 preset it renders in 1.31 M cycles
+  on one hart, 0.70 M on two, 0.37 M on four and 0.24 M on eight.
+  Threaded programs live in `examples/programs/threaded` and build for SE
+  mode only; `make se-verify BUNDLED=1` compares it with qemu on four
+  threads.
 - SE mode answers `/sys/devices/system/cpu/online`, `possible` and
   `present` for the simulated harts, as gem5 does, where the host's files
   showed through: `sysconf(_SC_NPROCESSORS_ONLN)` and `get_nprocs()`

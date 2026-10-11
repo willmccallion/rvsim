@@ -125,20 +125,28 @@ def check(program: Program) -> tuple[Program, Outcome, Outcome]:
     return program, expected, actual
 
 
+# The arguments, environment and harts programs expect, by name: threads
+# runs four workers beside its first thread; raytracer_mt renders on four
+# threads, given the count so that qemu, which reports the host's CPUs,
+# starts as many.
+SPECS = {
+    "hello": Program(Path(), ["7", "second argument"], {"SE_GREETING": "hi"}),
+    "hello_pie": Program(Path(), ["7", "second argument"], {"SE_GREETING": "hi"}),
+    "files": Program(Path(), ["."]),
+    "threads": Program(Path(), harts=5),
+    "raytracer_mt": Program(Path(), ["4"], harts=4),
+}
+
+
+def program_for(elf: Path) -> Program:
+    """`elf` with the arguments, environment and harts it expects."""
+    spec = SPECS.get(elf.stem, Program(Path()))
+    return Program(elf, spec.args, spec.env, spec.harts)
+
+
 def check_programs() -> list[Program]:
-    """The check programs with the arguments, environment and harts they
-    expect: threads runs four workers beside its first thread."""
-    specs = {
-        "hello": Program(Path(), ["7", "second argument"], {"SE_GREETING": "hi"}),
-        "hello_pie": Program(Path(), ["7", "second argument"], {"SE_GREETING": "hi"}),
-        "files": Program(Path(), ["."]),
-        "threads": Program(Path(), harts=5),
-    }
-    programs = []
-    for elf in sorted(SE_PROGRAMS.glob("*.elf")):
-        spec = specs.get(elf.stem, Program(Path()))
-        programs.append(Program(elf, spec.args, spec.env, spec.harts))
-    return programs
+    """The check programs, set up as they expect."""
+    return [program_for(elf) for elf in sorted(SE_PROGRAMS.glob("*.elf"))]
 
 
 def main() -> int:
@@ -183,7 +191,7 @@ def main() -> int:
         if args.bundled:
             for subdir in ("programs", "benchmarks"):
                 programs.extend(
-                    Program(elf)
+                    program_for(elf)
                     for elf in sorted((BUNDLED / subdir).glob("*.elf"))
                     if elf.stem not in NOT_UNDER_QEMU
                     and (args.slow or elf.stem not in LONG_RUNNING)
