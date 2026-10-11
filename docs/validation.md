@@ -66,7 +66,9 @@ difference that a real, more complex core could also show is not a bug.
   on tail- and mask-agnostic elements, so lockstep compares scalar state
   and memory only; the vector suite covers the registers.
 - Interrupt timing against spike: lockstep takes interrupts from rvsim.
-- Multithreaded programs under SE mode: `clone` returns `ENOSYS`.
+- Threads against Linux's scheduler: SE mode runs one thread per hart and
+  never time-slices, so a program with more threads at once than harts
+  cannot run, and a wait costs no kernel time.
 - Whole-program cycle counts against hardware: the two presets reproduce
   measured latencies and two benchmark scores, not a traced program.
 - The RTL comparison needs an hour-long Verilator build, so it runs on
