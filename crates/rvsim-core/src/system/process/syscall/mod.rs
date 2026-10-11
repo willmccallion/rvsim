@@ -1,9 +1,13 @@
 //! The Linux syscalls SE mode serves when a user program's `ecall`
 //! retires. Numbers are riscv64's (`asm-generic/unistd.h`); results are
-//! the value or the negated `errno`, as the kernel returns them.
+//! the value or the negated `errno`, as the kernel returns them. The calls
+//! about threads and processes are in [`thread`]; the rest work on the
+//! calling thread's process.
+
+mod thread;
 
 use super::files::{Stat, errno, io_errno};
-use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, page_ceil};
+use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, Tid, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
 use crate::isa::extension::{Extension, Isa};
 use crate::isa::reg::{self, RegIdx};
@@ -132,16 +136,36 @@ const PATH_MAX: usize = 4096;
 pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: u64) -> Outcome {
     let number = state.hart.regs.read(reg::REG_A7);
     let args: [u64; 6] = std::array::from_fn(|i| state.hart.regs.read(RegIdx::new(10 + i as u8)));
+    let processes = &mut state.uncore.processes;
+    let Some(caller) = processes.thread_on(state.hart.hart_id) else {
+        return Outcome::Exit(1);
+    };
+    processes.count_syscall(caller.tgid, number);
+    let result = thread::dispatch(processes, caller, number, args)
+        .unwrap_or_else(|| process_call(state, caller.tgid, number, args));
+    tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc), tid = caller.tid.as_u64(),
+        number, name = name_of(number),
+        a0 = %crate::common::trace::Hex(args[0]), a1 = %crate::common::trace::Hex(args[1]),
+        a2 = %crate::common::trace::Hex(args[2]), a3 = %crate::common::trace::Hex(args[3]),
+        result = ?result, "syscall");
+    match result {
+        Ok(Reply::Value(value)) => Outcome::Continue { a0: value as u64 },
+        Ok(Reply::Exit(code)) => Outcome::Exit(code),
+        Err(negated_errno) => Outcome::Continue { a0: negated_errno as u64 },
+    }
+}
+
+/// Serves syscall `number` against process `tgid`'s memory, files and
+/// clock.
+fn process_call(state: &mut CoreCtx<'_>, tgid: Tid, number: u64, args: [u64; 6]) -> Result {
     let cycle = state.uncore.cycle;
     let ram_bytes = state.uncore.config.memory.ram_size as u64;
     let isa = state.core.isa;
     let misaligned_traps = state.uncore.config.memory.misaligned_access_trap;
-    let hart = state.hart.hart_id;
     let uncore = &mut *state.uncore;
-    let Some((process, frames)) = uncore.processes.program_and_frames(hart) else {
-        return Outcome::Exit(1);
+    let Some((process, frames)) = uncore.processes.process_and_frames(tgid) else {
+        return Ok(Reply::Exit(1));
     };
-    *process.syscall_counts.entry(number).or_insert(0) += 1;
     let mut sys = Sys {
         process,
         frames,
@@ -151,16 +175,7 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: u64) -> Outcome {
         isa,
         misaligned_traps,
     };
-    let result = sys.dispatch(number, args);
-    tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc), number, name = name_of(number),
-        a0 = %crate::common::trace::Hex(args[0]), a1 = %crate::common::trace::Hex(args[1]),
-        a2 = %crate::common::trace::Hex(args[2]), a3 = %crate::common::trace::Hex(args[3]),
-        result = ?result, "syscall");
-    match result {
-        Ok(Reply::Value(value)) => Outcome::Continue { a0: value as u64 },
-        Ok(Reply::Exit(code)) => Outcome::Exit(code),
-        Err(negated_errno) => Outcome::Continue { a0: negated_errno as u64 },
-    }
+    sys.dispatch(number, args)
 }
 
 /// What a handler produces.
@@ -247,10 +262,6 @@ impl Sys<'_> {
             | SYS_NANOSLEEP
             | SYS_CLOCK_NANOSLEEP
             | SYS_SET_ROBUST_LIST => ok(0),
-            SYS_SET_TID_ADDRESS => {
-                self.process.clear_child_tid = a[0];
-                ok(self.process.pid)
-            }
             SYS_FUTEX => {
                 // One thread: a wait would never be woken, so it reports the
                 // value changed; a wake wakes nobody.
@@ -265,7 +276,6 @@ impl Sys<'_> {
             SYS_GETRUSAGE => self.getrusage(a[1]),
             SYS_UNAME => self.uname(a[0]),
             SYS_SYSINFO => self.sysinfo(a[0]),
-            SYS_GETPID | SYS_GETTID => ok(self.process.pid),
             SYS_PRLIMIT64 => self.prlimit(a[1], a[3]),
             SYS_GETRANDOM => self.getrandom(a[0], a[1]),
             SYS_RISCV_HWPROBE => self.hwprobe(a[0], a[1], a[4]),

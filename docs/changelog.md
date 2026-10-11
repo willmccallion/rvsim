@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `Simulator.exit_codes` holds one exit code per SE program, in the
+  order the programs were given, where it held one per hart: a hart
+  without a program no longer has a `None` entry. Checkpoints are format
+  version 8.
 - GDB watchpoints: `watch`, `rwatch` and `awatch` stop once a load or
   store to the range has retired, as a hardware trigger with "after"
   timing does, and GDB shows the old and new values.

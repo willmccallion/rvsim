@@ -70,7 +70,8 @@ pub struct ProgramImage<'a> {
     pub args: &'a ProcessArgs,
 }
 
-/// Loads `programs`, static riscv64 Linux ELFs, one per hart from hart 0.
+/// Loads `programs`, static riscv64 Linux ELFs, as processes whose first
+/// threads run one per hart from hart 0.
 ///
 /// Each runs under `mode` paging in its own address space drawn from
 /// RAM's frames; a hart beyond the programs is parked, and the run ends
@@ -108,19 +109,11 @@ pub fn load_processes(
     let ram_end = ram_base + state.config.memory.ram_size as u64;
     let mut frames = FrameAllocator::new(ram_base, ram_end);
     let mut loaded = Vec::with_capacity(programs.len());
-    for (index, (program, image)) in programs.iter().zip(&images).enumerate() {
+    for (program, image) in programs.iter().zip(&images) {
         let terminal = state.uncore.terminal.clone();
         let memory = &mut state.uncore.memory;
-        let (process, sp) = place(
-            image,
-            program.args,
-            mode,
-            clock_hz,
-            1 + index as u64,
-            terminal,
-            memory,
-            &mut frames,
-        )?;
+        let (process, sp) =
+            place(image, program.args, mode, clock_hz, terminal, memory, &mut frames)?;
         loaded.push((process, sp, image.entry));
     }
 
@@ -128,7 +121,7 @@ pub fn load_processes(
     for (index, (process, sp, entry)) in loaded.into_iter().enumerate() {
         let hart_id = state.harts[index].hart_id;
         let satp = process.space.satp();
-        processes.insert(hart_id, process);
+        let _ = processes.add_program(process, hart_id);
         start_hart(state, hart_id, entry, sp, satp);
     }
     for hart in state.harts.iter_mut().skip(programs.len()) {
@@ -141,13 +134,11 @@ pub fn load_processes(
 
 /// Builds `image`'s address space and stack from `frames` and returns the
 /// process and its initial stack pointer.
-#[allow(clippy::too_many_arguments, reason = "the pieces one program is built from")]
 fn place(
     image: &Image<'_>,
     args: &ProcessArgs,
     mode: PagingMode,
     clock_hz: u64,
-    pid: u64,
     terminal: SharedTerminal,
     memory: &mut GlobalMemory,
     frames: &mut FrameAllocator,
@@ -169,7 +160,7 @@ fn place(
         image_end = image_end.max(end);
     }
 
-    let mut process = Process::new(space, page_ceil(image_end), clock_hz, terminal, pid);
+    let mut process = Process::new(space, page_ceil(image_end), clock_hz, terminal);
     let stack_top = process.stack_top();
     let stack_bytes = process.stack_bytes();
     process

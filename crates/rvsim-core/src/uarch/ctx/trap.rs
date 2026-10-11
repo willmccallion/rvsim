@@ -11,7 +11,7 @@ impl CoreCtx<'_> {
     pub fn trap(&mut self, cause: &Trap, epc: u64) {
         self.clear_reservation();
 
-        if self.uncore.processes.get(self.hart.hart_id).is_some() {
+        if self.uncore.processes.thread_on(self.hart.hart_id).is_some() {
             // There is no kernel to take it: the program dies as it would
             // under Linux, with the signal's exit status.
             let signal = match cause {

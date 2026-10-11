@@ -212,6 +212,21 @@ class SeveralPrograms(unittest.TestCase):
             cpu.harts[0].instructions_retired, cpu.harts[1].instructions_retired
         )
 
+    def test_exit_codes_hold_one_entry_per_program(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prog.elf")
+            with open(path, "wb") as f:
+                f.write(user_elf(EXIT_WITH_ARGC))
+            cpu = Simulator(
+                Config(hart_count=3),
+                programs=[Program(path), Program(path, args=["one", "two"])],
+            )
+
+            exit_code = cpu.run(limit=200_000)
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(cpu.exit_codes, [1, 3])
+
     def test_a_pseudo_op_exit_ends_the_whole_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             quick = os.path.join(tmp, "quick.elf")

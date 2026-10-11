@@ -48,9 +48,9 @@ program per hart from hart 0 up, each in its own address space drawn from
 the same RAM, sharing whatever the configuration shares (the L3 and
 memory on `presets.linux`, every cache below the cores otherwise). A hart
 with no program sits parked. The run ends when the last program exits,
-with the first non-zero exit code in hart order, and `exit_codes` holds
-each hart's; a program that faults ends with its signal's status while
-the others go on. Each program's stats are under its hart and core
+with the first non-zero exit code in program order, and `exit_codes`
+holds each program's, in the order they were given; a program that
+faults ends with its signal's status while the others go on. Each program's stats are under its hart and core
 (`hart1.*`, `core1.*`).
 
 ```python

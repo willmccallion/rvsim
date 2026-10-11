@@ -237,9 +237,9 @@ impl PySimulator {
         self.inner.hart(0).pc
     }
 
-    /// In SE mode, each hart's program's exit code: ``None`` for a hart
-    /// with no program or whose program is still running. The run's own
-    /// exit code is the first non-zero one in hart order, else 0.
+    /// In SE mode, each program's exit code in the order they were
+    /// loaded: ``None`` for one still running. The run's own exit code is
+    /// the first non-zero one, else 0.
     #[getter]
     fn exit_codes(&self) -> Vec<Option<u64>> {
         self.inner.exit_codes()
