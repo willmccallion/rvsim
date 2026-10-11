@@ -57,6 +57,8 @@ def cortex_a72():
     """
     return Config(
         width=3,
+        vlen=128,
+        num_vec_lanes=None,
         branch_predictor=BranchPredictor.TAGE(
             num_banks=4,
             table_size=2048,
@@ -73,6 +75,7 @@ def cortex_a72():
             store_ports=1,
             prf_gpr_size=128,
             prf_fpr_size=128,
+            prf_vpr_size=64,
             fu_config=Fu(
                 [
                     Fu.IntAlu(count=2, latency=1),
@@ -88,12 +91,15 @@ def cortex_a72():
             ),
         ),
         btb_size=4096,
+        btb_ways=4,
         ras_size=31,
         cpu_clock_mhz=1500,  # Raspberry Pi 4
+        clock_hz=1_000_000_000,
         ram_size="256MB",
         tlb_size=32,  # 32-entry L1 DTLB
         l2_tlb_size=1024,
         l2_tlb_ways=4,
+        l2_tlb_latency=4,
         l1i=Cache(
             size="48KB",
             line="64B",
@@ -116,6 +122,7 @@ def cortex_a72():
             page_boundary=PageBoundary.CrossWithTlb(),
         ),
         store_prefetcher=StorePrefetcher.Stream(streams=4, l2_lines=8),
+        wcb_entries=0,
         # 1MB 16-way L2 on the BCM2711; 21 cycles measured on the A72.
         l2=Cache(
             size="1MB",
@@ -124,6 +131,7 @@ def cortex_a72():
             latency=20,
             mshr_count=16,
         ),
+        l3=None,
         # LPDDR4-3200 on the Raspberry Pi 4: tRCD, tRP and CL of about
         # 18 ns are 27 cycles each at 1.5 GHz; the rest of the measured
         # 162 ns (243 cycles) random-access latency is the fabric and
@@ -188,6 +196,8 @@ def p550(
 
     return Config(
         width=pipeline_width,
+        vlen=128,
+        num_vec_lanes=None,
         backend=Backend.OutOfOrder(
             rob_size=72,  # Modest, Core 2 / Goldmont Plus class
             issue_queue_size=32,  # "more scheduling capacity" than A75
@@ -195,6 +205,7 @@ def p550(
             store_buffer_size=16,  # Conservative estimate from "thin" description
             prf_gpr_size=128,  # "plenty of register file capacity compared to ROB"
             prf_fpr_size=96,  # Proportional to GPR, RV64GC needs FP regs
+            prf_vpr_size=64,
             load_ports=1,
             store_ports=1,
             fu_config=Fu(
@@ -219,11 +230,15 @@ def p550(
         ),
         branch_predictor=branch_predictor,  # type: ignore[arg-type]
         btb_size=32,  # 32-entry BTB, zero-bubble taken branches
+        btb_ways=4,
         ras_size=16,  # 16-entry return stack
         cpu_clock_mhz=1400,  # EIC7700X
+        clock_hz=1_000_000_000,
         misaligned_access_trap=True,  # no hardware misaligned access
         tlb_size=32,  # 32-entry fully associative L1 TLBs
         l2_tlb_size=512,
+        l2_tlb_ways=4,
+        l2_tlb_latency=4,
         ram_size=ram_size_bytes,
         # L1i: 32KB, 4-way, 64B lines (SiFive data sheet)
         l1i=Cache(
@@ -248,6 +263,8 @@ def p550(
             l2_lines=0,
             page_boundary=PageBoundary.Stop(),
         ),
+        store_prefetcher=None,
+        wcb_entries=0,
         # Private L2 per core — size not publicly confirmed,
         # 256KB is consistent with area-optimized OoO cores
         # 256KB 8-way private L2 (data sheet); 13 cycles measured.

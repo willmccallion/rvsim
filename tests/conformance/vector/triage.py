@@ -19,9 +19,9 @@ import sys
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from rvsim import Backend, Config
 from rvsim._core import Simulator
 from rvsim.config._config import _config_to_dict
+from tests.conformance.configs.pipelines import PIPELINES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILDS = os.path.join(REPO_ROOT, "tests", "builds")
@@ -115,7 +115,7 @@ def main():
     spike_sig = bytes(spike_bytes)
 
     # ── rvsim ────────────────────────────────────────────────────────────────
-    cfg = Config(width=1, backend=Backend.InOrder(), vlen=args.vlen)
+    cfg = dict(PIPELINES)["inorder w1"].replace(vlen=args.vlen)
     with open(args.elf, "rb") as f:
         elf_data = f.read()
     cpu = Simulator(_config_to_dict(cfg), elf_data=elf_data)

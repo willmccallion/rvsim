@@ -129,6 +129,7 @@ def config_for(variant: dict) -> Config:
     return Config(
         width=3,
         cpu_clock_mhz=CLOCK_MHZ,
+        clock_hz=1_000_000_000,
         # gem5's LSQ gives a forwarded load one cycle: its writeback event
         # lands in the cycle after the load executes.
         store_forward_latency=1,
@@ -141,6 +142,7 @@ def config_for(variant: dict) -> Config:
             prf_fpr_size=96,
             load_ports=1,
             store_ports=1,
+            prf_vpr_size=64,
             fu_config=functional_units(),
         ),
         branch_predictor=branch_predictor(variant["bp"]),
@@ -150,6 +152,13 @@ def config_for(variant: dict) -> Config:
         l1i=cache(variant["l1i"]),
         l1d=cache(variant["l1d"], l1d_prefetcher(variant)),
         l2=cache(variant["l2"]),
+        l3=None,
+        wcb_entries=0,
+        load_prefetcher=None,
+        store_prefetcher=None,
+        l2_tlb_size=0,
+        l2_tlb_ways=4,
+        l2_tlb_latency=4,
         bus_width=bus["width_bytes"],
         bus_latency=bus["latency"],
         memory_controller=MemoryController.Simple(

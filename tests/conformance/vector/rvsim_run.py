@@ -20,9 +20,9 @@ REPO_ROOT = os.path.dirname(
 )
 sys.path.insert(0, REPO_ROOT)
 
-from rvsim import Backend, Config
 from rvsim._core import Simulator
 from rvsim.config._config import _config_to_dict
+from tests.conformance.configs.pipelines import PIPELINES
 
 CYCLE_LIMIT = 2_000_000
 READELF = None
@@ -85,8 +85,7 @@ def main():
         )
         sys.exit(1)
 
-    # Build a simple config for fast execution
-    cfg = Config(width=4, backend=Backend.InOrder())
+    cfg = dict(PIPELINES)["inorder w4"]
     config_dict = _config_to_dict(cfg)
 
     # Load and run
