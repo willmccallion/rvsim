@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The format is based on 
   the uninterrupted run does. A checkpoint is refused while the program
   has a host file open, since the descriptor would not come back. The
   HTIF device's `fromhost` is saved too.
+- A [Validation](validation.md) page: every check rvsim runs against
+  spike, qemu, gem5, the Rocket and BOOM RTL and measured hardware, what
+  each compares, how often it runs, and where its numbers stand.
 - A pipeline trace for Konata: `python -m rvsim prog.elf --pipeline-trace
   out.kanata`, or `Simulator.open_pipeline_trace(path)` around the part
   of a run to look at, writes where every instruction is each cycle in
