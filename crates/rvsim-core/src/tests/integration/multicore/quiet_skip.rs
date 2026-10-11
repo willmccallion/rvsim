@@ -7,7 +7,7 @@
 use crate::config::{Config, Console, InterconnectConfig, MemoryControllerKind};
 use crate::sim::stats::StatFormat;
 use crate::system::simulator::{StopAt, StopReason};
-use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder};
+use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::multihart::MultiHart;
 
 const T0: u32 = 5;
@@ -19,13 +19,11 @@ const T6: u32 = 31;
 const A0: u32 = 10;
 const A1: u32 = 11;
 const A2: u32 = 12;
-const A7: u32 = 17;
 const MHARTID: u32 = 0xF14;
 const MIE: u32 = 0x304;
 const MTIE: i32 = 0x80;
 const MSIE: i32 = 0x8;
 const WFI: u32 = 0x1050_0073;
-const SYS_EXIT: i32 = 93;
 const EXIT_CODE: i32 = 5;
 /// Timer ticks each sleep lasts; with the CLINT divider, many thousands
 /// of cycles, long enough for DDR5 refreshes and power-down.
@@ -68,8 +66,8 @@ fn program() -> Vec<u32> {
     words.extend(set_timer(InstructionBuilder::new));
     words.extend([
         i().addi(A0, 0, EXIT_CODE).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
         i().addi(T3, 0, MSIE).build(),
         i().csrrs(0, MIE, T3).build(),
         WFI,

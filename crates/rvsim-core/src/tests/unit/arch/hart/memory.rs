@@ -12,16 +12,13 @@ use crate::uarch::mmu::TranslateOutcome;
 
 fn create_test_cpu() -> SystemState {
     let config = Config::default();
-    let mut state = SystemState::build(&config, "");
-    state.direct_mode = true;
-    state
+    SystemState::build(&config, "")
 }
 
 #[test]
-fn test_translate_direct_mode_valid_address() {
+fn test_translate_bare_valid_address() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
     let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
@@ -33,10 +30,9 @@ fn test_translate_direct_mode_valid_address() {
 }
 
 #[test]
-fn test_translate_direct_mode_different_addresses() {
+fn test_translate_bare_different_addresses() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     let test_addrs = vec![0x8000_0000u64, 0x8000_1000u64, 0x8000_2000u64];
 
@@ -50,10 +46,9 @@ fn test_translate_direct_mode_different_addresses() {
 }
 
 #[test]
-fn test_translate_direct_mode_fetch_access() {
+fn test_translate_bare_fetch_access() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
     let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Fetch, 4) else {
@@ -63,10 +58,9 @@ fn test_translate_direct_mode_fetch_access() {
 }
 
 #[test]
-fn test_translate_direct_mode_write_access() {
+fn test_translate_bare_write_access() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
     let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Write, 4) else {
@@ -79,7 +73,6 @@ fn test_translate_direct_mode_write_access() {
 fn test_translate_preserves_translation_cost() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0x8000_0000);
     let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
@@ -92,7 +85,6 @@ fn test_translate_preserves_translation_cost() {
 fn test_translate_multiple_calls() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     for _ in 0..5 {
         let vaddr = VirtAddr::new(0x8000_0000);
@@ -107,7 +99,6 @@ fn test_translate_multiple_calls() {
 fn test_translate_invalid_address_fetch() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
     let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Fetch, 4) else {
@@ -120,7 +111,6 @@ fn test_translate_invalid_address_fetch() {
 fn test_translate_invalid_address_read() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
     let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
@@ -133,7 +123,6 @@ fn test_translate_invalid_address_read() {
 fn test_translate_invalid_address_write() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
     let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Write, 4) else {
@@ -143,10 +132,9 @@ fn test_translate_invalid_address_write() {
 }
 
 #[test]
-fn test_translate_with_direct_mode_false() {
+fn test_translate_with_paging_off() {
     let mut sys = create_test_cpu();
     let mut state = sys.core_ctx(0);
-    state.direct_mode = false;
 
     let vaddr = VirtAddr::new(0x8000_0000);
     // In M-mode with no paging (default SATP=Bare), translation completes

@@ -113,7 +113,6 @@ pub fn load_process(
 
     let satp = process.space.satp();
     state.uncore.process = Some(process);
-    state.uncore.direct_mode = false;
     state.uncore.read_console_through(InputReader::Proxy);
     let mut ctx = state.core_ctx(0);
     ctx.hart.pc = image.entry;
@@ -126,7 +125,11 @@ pub fn load_process(
     ctx.csr_write(csr::SATP, satp);
     ctx.csr_write(csr::MCOUNTEREN, COUNTERS_ALL);
     ctx.csr_write(csr::SCOUNTEREN, COUNTERS_ALL);
-    let mstatus = (ctx.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_INIT;
+    // Linux turns the FPU and the vector unit on for a process; glibc's
+    // string routines use the vector unit when the ISA has it.
+    let mstatus = (ctx.hart.csrs.mstatus & !(csr::MSTATUS_FS | csr::MSTATUS_VS))
+        | csr::MSTATUS_FS_INIT
+        | csr::MSTATUS_VS_INIT;
     ctx.csr_write(csr::MSTATUS, mstatus);
     Ok(())
 }

@@ -9,7 +9,7 @@ use super::CoreCtx;
 use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
 use crate::arch::translation::TranslationResult;
-use crate::common::{AccessType, PhysAddr, VirtAddr};
+use crate::common::{AccessType, VirtAddr};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
@@ -25,34 +25,6 @@ pub(super) fn translate(
     access: AccessType,
     size: u64,
 ) -> TranslateOutcome {
-    if uncore.direct_mode {
-        let paddr = PhysAddr::new(vaddr.val());
-
-        let is_machine = hart.privilege == crate::isa::privileged::PrivilegeMode::Machine;
-        let pmp_result = hart.pmp.check(
-            paddr.val(),
-            size,
-            matches!(access, AccessType::Read),
-            matches!(access, AccessType::Write),
-            matches!(access, AccessType::Fetch),
-            is_machine,
-        );
-        if pmp_result != PmpResult::Allow {
-            return TranslateOutcome::Ready(TranslationResult::fault(
-                Trap::access_fault(access, vaddr.val()),
-                0,
-            ));
-        }
-
-        if !uncore.bus.is_valid_address(paddr) {
-            return TranslateOutcome::Ready(TranslationResult::fault(
-                Trap::access_fault(access, vaddr.val()),
-                0,
-            ));
-        }
-        return TranslateOutcome::Ready(TranslationResult::success(paddr, 0));
-    }
-
     let effective_priv =
         if access == AccessType::Fetch { hart.privilege } else { data_privilege(hart) };
 
@@ -152,34 +124,5 @@ impl CoreCtx<'_> {
         bus_transit_cycles: u64,
     ) -> TranslateOutcome {
         translate_continue(self.core, self.hart, self.uncore, state, raw_pte, bus_transit_cycles)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::Config;
-
-    #[test]
-    fn test_translate_direct_mode() {
-        let mut config = Config::default();
-        config.general.direct_mode = true;
-        let mut sys = crate::system::SystemState::build(&config, "");
-        let mut state = sys.core_ctx(0);
-
-        let result = state.translate(VirtAddr::new(0x8000_0000), AccessType::Read, 4);
-        match result {
-            TranslateOutcome::Ready(r) => {
-                assert_eq!(r.paddr.val(), 0x8000_0000);
-                assert!(r.trap.is_none());
-            }
-            TranslateOutcome::NeedPte { .. } => panic!("direct mode should be Ready"),
-        }
-
-        let result = state.translate(VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF), AccessType::Fetch, 4);
-        match result {
-            TranslateOutcome::Ready(r) => assert!(r.trap.is_some()),
-            TranslateOutcome::NeedPte { .. } => panic!("direct mode should be Ready"),
-        }
     }
 }

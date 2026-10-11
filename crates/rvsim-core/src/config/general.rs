@@ -18,15 +18,6 @@ pub struct GeneralConfig {
     #[serde(default = "GeneralConfig::default_start_pc")]
     pub start_pc: u64,
 
-    /// Direct execution mode: bare-metal binary, no kernel. Traps cause exit instead of jumping to MTVEC.
-    /// Default true so user only needs to change this when running a kernel.
-    #[serde(default = "GeneralConfig::default_direct_mode")]
-    pub direct_mode: bool,
-
-    /// Initial stack pointer (only used when `direct_mode` is true). Defaults to `ram_base` + 16MiB if not set.
-    #[serde(default)]
-    pub initial_sp: Option<u64>,
-
     /// The paging mode a user program runs under in SE mode.
     #[serde(default)]
     pub page_mode: SePagingMode,
@@ -67,11 +58,6 @@ impl GeneralConfig {
         defaults::RAM_BASE
     }
 
-    /// Default direct mode to true so bare-metal runs work out of the box.
-    const fn default_direct_mode() -> bool {
-        true
-    }
-
     /// 1 GHz.
     const fn default_clock_hz() -> u64 {
         1_000_000_000
@@ -83,8 +69,6 @@ impl Default for GeneralConfig {
         Self {
             trace_instructions: false,
             start_pc: defaults::RAM_BASE,
-            direct_mode: true,
-            initial_sp: None,
             page_mode: SePagingMode::default(),
             clock_hz: Self::default_clock_hz(),
         }

@@ -1,6 +1,7 @@
 use crate::Simulator;
 use crate::common::PhysAddr;
 use crate::config::{Config, MemoryControllerKind};
+use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
 use crate::isa::reg::RegIdx;
 use crate::system::SystemState;
 use crate::tests::support::mocks::memory::MockMemory;
@@ -40,7 +41,12 @@ impl TestContext {
         config.system.bus_latency = 0;
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        let state = SystemState::new(&config, "", exit_signal);
+        let mut state = SystemState::new(&config, "", exit_signal);
+        // What a bare-metal program's start-up does before main: switch the
+        // FPU and the vector unit on, so test programs can use them.
+        for hart in &mut state.harts {
+            hart.csrs.mstatus |= MSTATUS_FS_INIT | MSTATUS_VS_INIT;
+        }
         let sim = Simulator::new(state);
 
         Self { sim }

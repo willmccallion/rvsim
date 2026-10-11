@@ -13,7 +13,9 @@ use crate::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
 use crate::sim::packet::MesiState;
 use crate::soc::cache::Cache;
 use crate::tests::integration::multicore::{amo_counter, spinlock};
-use crate::tests::support::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
+use crate::tests::support::builder::instruction::{
+    FENCE_IORW, InstructionBuilder, M5_FAIL, exit_with_a0,
+};
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
 
 const T0: u32 = 5;
@@ -30,10 +32,8 @@ const A3: u32 = 13;
 const A4: u32 = 14;
 const A5: u32 = 15;
 const A6: u32 = 16;
-const A7: u32 = 17;
 const S2: u32 = 18;
 const MHARTID: u32 = 0xF14;
-const SYS_EXIT: i32 = 93;
 
 fn cached(harts: usize, backend: BackendKind) -> Config {
     let mut config = Config::default();
@@ -87,8 +87,7 @@ fn shared_line_stores(harts: i32, iterations: i32) -> Vec<u32> {
         code.push(i().ld(A1, T2, hart * 8).build());
         code.push(i().add(A0, A0, A1).build());
     }
-    code.push(i().addi(A7, 0, SYS_EXIT).build());
-    code.push(ECALL);
+    code.extend(exit_with_a0());
     code.push(i().jal(0, 0).build());
     assert_eq!(code.len() as i32, idle + 1);
     code
@@ -136,8 +135,8 @@ fn producer_consumer(harts: i32) -> Vec<u32> {
         i().bne(A2, A3, -8).build(),
         i().addi(T3, T2, 0x80).build(),
         i().ld(A0, T3, 0).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
         i().jal(0, 0).build(),
     ]);
     assert_eq!(code.len(), 60);
@@ -286,8 +285,8 @@ fn reload_of_a_word_in_the_code_line() -> Vec<u32> {
         i().sw(T0, A1, OFFSET_FROM_T0).build(),
         i().lw(A2, T0, OFFSET_FROM_T0).build(),
         i().sub(A0, A2, A1).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
         i().jal(0, 0).build(),
     ];
     code.resize(WORD_INDEX as usize, i().nop().build());
@@ -326,8 +325,8 @@ fn cbo_after_another_hart_writes(cbo_imm: i64) -> Vec<u32> {
         cbo,
         FENCE_IORW,
         i().addi(A0, 0, 0).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
         i().addi(T6, 0, 5).build(),
         i().sd(T2, T6, 0).build(),
         FENCE_IORW,
@@ -479,8 +478,8 @@ fn contended_streams(harts: i32, rounds: i32) -> Vec<u32> {
         i().addi(A5, A5, 64).build(),
         i().addi(T1, T1, -1).build(),
         i().bne(T1, 0, back * 4).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
     ]);
     assert_eq!(code.len() as i32, idle);
     code.push(i().jal(0, 0).build());
@@ -568,8 +567,8 @@ fn reserved_line_under_store_prefetch(harts: i32, iterations: i32) -> Vec<u32> {
         i().bne(A2, T6, (WAIT - 32) * 4).build(),
         FENCE_IORW,
         i().ld(A0, A6, 0).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
         i().jal(0, 0).build(),
     ];
     assert_eq!(code.len() as i32, IDLE + 1);

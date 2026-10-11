@@ -12,8 +12,6 @@ fn test_config_default() {
     let config = Config::default();
     assert!(!config.general.trace_instructions);
     assert_eq!(config.general.start_pc, 0x8000_0000);
-    assert!(config.general.direct_mode);
-    assert_eq!(config.general.initial_sp, None);
 }
 
 #[test]
@@ -21,8 +19,6 @@ fn test_general_config_defaults() {
     let general = GeneralConfig::default();
     assert!(!general.trace_instructions);
     assert_eq!(general.start_pc, 0x8000_0000);
-    assert!(general.direct_mode);
-    assert_eq!(general.initial_sp, None);
 }
 
 #[test]
@@ -148,8 +144,7 @@ fn test_json_deserialization_minimal() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
-            "start_pc": 2147483648,
-            "direct_mode": true
+            "start_pc": 2147483648
         },
         "system": {
             "ram_base": 2147483648,
@@ -252,8 +247,7 @@ fn test_json_deserialization_with_tracing() {
     let json = r#"{
         "general": {
             "trace_instructions": true,
-            "start_pc": 2147483648,
-            "direct_mode": true
+            "start_pc": 2147483648
         },
         "system": {
             "ram_base": 2147483648,
@@ -363,8 +357,7 @@ fn test_json_dram_controller() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
-            "start_pc": 2147483648,
-            "direct_mode": true
+            "start_pc": 2147483648
         },
         "system": {
             "ram_base": 2147483648,
@@ -465,7 +458,7 @@ fn test_json_all_replacement_policies() {
     for policy in &["LRU", "FIFO", "RANDOM", "MRU", "PLRU"] {
         let json = format!(
             r#"{{
-            "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
+            "general": {{"trace_instructions": false, "start_pc": 2147483648}},
             "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
@@ -488,7 +481,7 @@ fn test_json_all_prefetchers() {
     for prefetcher in &["None", "NextLine", "Stride", "Stream", "Tagged"] {
         let json = format!(
             r#"{{
-            "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
+            "general": {{"trace_instructions": false, "start_pc": 2147483648}},
             "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
@@ -511,7 +504,7 @@ fn test_json_all_branch_predictors() {
     for predictor in &["Static", "GShare", "Perceptron", "Tage", "Tournament"] {
         let json = format!(
             r#"{{
-            "general": {{"trace_instructions": false, "start_pc": 2147483648, "direct_mode": true}},
+            "general": {{"trace_instructions": false, "start_pc": 2147483648}},
             "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
@@ -530,116 +523,11 @@ fn test_json_all_branch_predictors() {
 }
 
 #[test]
-fn test_initial_sp_option() {
-    let json = r#"{
-        "general": {
-            "trace_instructions": false,
-            "start_pc": 2147483648,
-            "direct_mode": true,
-            "initial_sp": 2148532224
-        },
-        "system": {
-            "ram_base": 2147483648,
-            "uart_base": 268435456,
-            "disk_base": 2415919104,
-            "clint_base": 33554432,
-            "syscon_base": 1048576,
-            "kernel_offset": 2097152,
-            "bus_width": 8,
-            "bus_latency": 4,
-            "clint_divider": 10,
-            "console": "stdout"
-        },
-        "memory": {
-            "ram_size": 134217728,
-            "controller": "Simple",
-            "t_cas": 14,
-            "t_ras": 14,
-            "t_pre": 14,
-            "simple_latency": 120,
-            "tlb_size": 32
-        },
-        "cache": {
-            "l1_i": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "LRU",
-                "latency": 1,
-                "prefetcher": "None",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l1_d": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "LRU",
-                "latency": 1,
-                "prefetcher": "None",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l2": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "LRU",
-                "latency": 1,
-                "prefetcher": "None",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l3": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "LRU",
-                "latency": 1,
-                "prefetcher": "None",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            }
-        },
-        "pipeline": {
-            "width": 1,
-            "branch_predictor": "Static",
-            "btb_size": 256,
-            "ras_size": 8,
-            "tage": {
-                "num_banks": 4,
-                "table_size": 2048,
-                "reset_interval": 256000,
-                "history_lengths": [5, 15, 44, 130],
-                "tag_widths": [9, 9, 10, 10]
-            },
-            "perceptron": {
-                "history_length": 32,
-                "table_bits": 10
-            },
-            "tournament": {
-                "global_size_bits": 12,
-                "local_hist_bits": 10,
-                "local_pred_bits": 10
-            }
-        }
-    }"#;
-
-    let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(config.general.initial_sp, Some(0x8010_0000));
-}
-
-#[test]
 fn test_misa_override_option() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
-            "start_pc": 2147483648,
-            "direct_mode": true
+            "start_pc": 2147483648
         },
         "system": {
             "ram_base": 2147483648,
@@ -754,8 +642,7 @@ fn a_captured_console_is_read_from_json() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
-            "start_pc": 2147483648,
-            "direct_mode": true
+            "start_pc": 2147483648
         },
         "system": {
             "ram_base": 2147483648,
@@ -857,8 +744,7 @@ fn test_custom_cache_sizes() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
-            "start_pc": 2147483648,
-            "direct_mode": true
+            "start_pc": 2147483648
         },
         "system": {
             "ram_base": 2147483648,
@@ -970,8 +856,7 @@ fn test_custom_dram_timings() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
-            "start_pc": 2147483648,
-            "direct_mode": true
+            "start_pc": 2147483648
         },
         "system": {
             "ram_base": 2147483648,

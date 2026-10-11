@@ -273,7 +273,6 @@ pub fn run_system(
         let dtlb = &mut ctx.sim.state.cores[0].units.mmu.dtlb;
         dtlb.insert(vpn, ppn, flags | PTE_V, Asid::new(0), PageSize::Kib4);
     }
-    ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
 
     ctx.run_until(50_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("the loop finished");

@@ -49,7 +49,6 @@ fn check(backend: BackendKind, width: usize) {
         4,
     );
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
-    ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
 
     let finished = ctx.run_until(5_000, |ctx| ctx.get_reg(MARKER as usize) == 1);

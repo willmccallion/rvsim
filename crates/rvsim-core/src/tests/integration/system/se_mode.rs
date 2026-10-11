@@ -20,6 +20,8 @@ const M5_DUMP_STATS: u32 = 0x41;
 const SYS_WRITE: i32 = 64;
 const AT_FDCWD: i32 = -100;
 const JAL_SELF: u32 = 0x0000_006f;
+/// `vsetvli x0, x0, e8`: a vector instruction with no effect on the test.
+const VSETVLI_ZERO: u32 = 0x0000_7057;
 const T0: u32 = 5;
 const T1: u32 = 6;
 const A0: u32 = 10;
@@ -298,6 +300,19 @@ fn a_pseudo_op_dumps_the_stats_with_its_label() {
         assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
         let labels: Vec<u64> = sim.state.stats_dumps.iter().map(|dump| dump.label).collect();
         assert_eq!(labels, vec![3], "{backend:?}");
+    }
+}
+
+/// A user program's vector instructions run: glibc's string routines use
+/// them when the ISA has the extension, and Linux enables the unit.
+#[test]
+fn a_user_program_uses_the_vector_unit() {
+    let mut code = vec![VSETVLI_ZERO];
+    code.extend(exit_with(0));
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &code, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
     }
 }
 

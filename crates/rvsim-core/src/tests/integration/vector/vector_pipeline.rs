@@ -12,6 +12,9 @@ use crate::common::PhysAddr;
 use crate::config::Config;
 use crate::tests::support::harness::TestContext;
 
+/// `jal x0, 0`: holds the program at its end instead of running into zeros.
+const SPIN: u32 = 0x0000_006f;
+
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 4096;
 
@@ -73,6 +76,7 @@ fn vsetvli_consumes_immediately_preceding_li() {
             vsetvli(6, 5, vtype(SEW_E32, LMUL_M1, 0, 0)), // vsetvli t1, t0, e32,m1,tu,mu
         ])
         .chain(std::iter::repeat_n(NOP, 32))
+        .chain([SPIN])
         .collect();
 
     let ctx = run_program(&wide_inorder_config(), &program, 500);
@@ -95,6 +99,7 @@ fn vsetvli_consumes_immediately_preceding_li_width1() {
     let program: Vec<u32> = std::iter::empty()
         .chain([addi(5, 0, 4), vsetvli(6, 5, vtype(SEW_E32, LMUL_M1, 0, 0))])
         .chain(std::iter::repeat_n(NOP, 32))
+        .chain([SPIN])
         .collect();
 
     let ctx = run_program(&Config::default(), &program, 500);
@@ -122,6 +127,7 @@ fn vsetvli_after_flushing_vsetvli_then_li() {
             vsetvli(6, 5, vtype(SEW_E8, LMUL_MF8, 0, 0)),
         ])
         .chain(std::iter::repeat_n(NOP, 32))
+        .chain([SPIN])
         .collect();
 
     let ctx = run_program(&wide_inorder_config(), &program, 500);
@@ -146,6 +152,7 @@ fn vsetvli_after_flushing_vsetvli_then_li_width1() {
             vsetvli(6, 5, vtype(SEW_E8, LMUL_MF8, 0, 0)),
         ])
         .chain(std::iter::repeat_n(NOP, 32))
+        .chain([SPIN])
         .collect();
 
     let ctx = run_program(&Config::default(), &program, 500);
@@ -196,6 +203,7 @@ fn vwaddu_vv_at_mf8_does_not_trap_for_odd_vd() {
             vwaddu_vv(27, 26, 1),                         // odd vd=v27, legal at mf8
         ])
         .chain(std::iter::repeat_n(NOP, 32))
+        .chain([SPIN])
         .collect();
 
     let ctx = run_program(&wide_inorder_config(), &program, 500);
@@ -226,6 +234,7 @@ fn vid_v_does_not_check_vs2_alignment() {
             vid_v(12, 1),
         ])
         .chain(std::iter::repeat_n(NOP, 32))
+        .chain([SPIN])
         .collect();
 
     let ctx = run_program(&wide_inorder_config(), &program, 500);

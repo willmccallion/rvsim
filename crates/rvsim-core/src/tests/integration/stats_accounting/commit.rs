@@ -94,7 +94,7 @@ fn retired_instructions_are_counted_by_class(rec: &mut Recorder) {
         ("core0.commit.op.load", loops),
         ("core0.commit.op.store", loops),
         ("core0.commit.op.branch", loops + 1),
-        ("core0.commit.op.system", 1),
+        ("core0.commit.op.system", 1 + 1),
         ("core0.commit.op.atomic", 3),
         ("core0.commit.fp.load", 1),
         ("core0.commit.fp.store", 1),
@@ -123,6 +123,8 @@ fn retired_instructions_are_counted_by_class(rec: &mut Recorder) {
     }
 }
 
+/// The exit pseudo-op retires as a system instruction; the handled ecalls
+/// trap and do not.
 fn a_trapping_ecall_counts_a_trap_and_does_not_retire(rec: &mut Recorder) {
     for backend in BACKENDS {
         let context = format!("{backend:?}");
@@ -133,10 +135,10 @@ fn a_trapping_ecall_counts_a_trap_and_does_not_retire(rec: &mut Recorder) {
 
         rec.expect(&ctx.sim, "hart0.traps", 3, &context);
         rec.expect(&ctx.sim, "system.traps", 3, &context);
-        rec.expect(&ctx.sim, "core0.commit.op.system", 1 + 3 * 3, &context);
+        rec.expect(&ctx.sim, "core0.commit.op.system", 1 + 1 + 3 * 3, &context);
         rec.expect(&ctx.sim, "core0.commit.op.alu", 1 + 3 + 2 + 3, &context);
         rec.expect(&ctx.sim, "core0.commit.op.branch", 3, &context);
-        rec.expect(&ctx.sim, "hart0.retired_insts", 22, &context);
+        rec.expect(&ctx.sim, "hart0.retired_insts", 23, &context);
     }
 }
 

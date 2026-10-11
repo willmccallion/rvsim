@@ -35,7 +35,6 @@ fn run(backend: BackendKind, inst: u32) -> (u64, u64) {
         ctx.sim.probe_mem_store(PhysAddr::new(HANDLER + 4 * n as u64), u64::from(*word), 4);
     }
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
-    ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
 
     ctx.run(500);

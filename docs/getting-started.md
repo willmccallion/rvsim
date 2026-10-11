@@ -53,6 +53,13 @@ three; that is how the bundled programs are checked against spike.
 `make linux` builds the Linux image (see
 [Linux Boot](examples/linux-boot.md)).
 
+A bare-metal image starts as it does under spike: every hart at the
+ELF's entry in machine mode, its id in `a0` and a device tree describing
+the system in `a1` (in the last 64 KiB of RAM). The program's start-up
+sets its own stack and switches the FPU on, as `software/libc/crt0_htif.s`
+does, and it ends the run through HTIF or a
+[pseudo-operation](pseudo-ops.md).
+
 ## Your First Simulation
 
 ### Using the Python API

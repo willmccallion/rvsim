@@ -2,9 +2,7 @@
 
 #include <stdarg.h>
 
-#ifdef RVSIM_IO_HTIF
 #include "htif.h"
-#endif
 
 struct FILE {
   int fd;
@@ -14,7 +12,6 @@ static struct FILE console[] = {{0}, {1}};
 FILE *stdin = &console[0];
 FILE *stdout = &console[1];
 
-#ifdef RVSIM_IO_HTIF
 /* Output goes to the host through HTIF write syscalls, a line at a time. */
 static char out_buf[256];
 static unsigned out_len;
@@ -44,27 +41,6 @@ int getchar(void) {
   }
   return (unsigned char)c;
 }
-#else
-#define UART_BASE 0x10000000UL
-#define UART_LSR_DATA_READY 0x01
-
-int fflush(FILE *stream) {
-  (void)stream;
-  return 0;
-}
-
-int putchar(int c) {
-  *(volatile unsigned char *)UART_BASE = (unsigned char)c;
-  return (unsigned char)c;
-}
-
-int getchar(void) {
-  volatile unsigned char *lsr = (volatile unsigned char *)(UART_BASE + 5);
-  while ((*lsr & UART_LSR_DATA_READY) == 0) {
-  }
-  return *(volatile unsigned char *)UART_BASE;
-}
-#endif
 
 char *fgets(char *s, int size, FILE *stream) {
   (void)stream;

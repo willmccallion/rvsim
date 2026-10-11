@@ -76,7 +76,6 @@ struct Header {
     magic: String,
     version: u64,
     cycle: u64,
-    direct_mode: bool,
     trace: bool,
     ram_base: u64,
     ram_size: u64,
@@ -196,7 +195,6 @@ impl Simulator {
             magic: MAGIC.into(),
             version: VERSION,
             cycle: state.cycle,
-            direct_mode: state.direct_mode,
             trace: state.trace.armed,
             ram_base: ram.map_or(0, Ram::base),
             ram_size: ram.map_or(0, Ram::size),
@@ -255,7 +253,6 @@ impl Simulator {
     fn apply_header(&mut self, header: &Header) -> Result<(), CheckpointError> {
         let state = &mut self.state;
         state.cycle = header.cycle;
-        state.direct_mode = header.direct_mode;
         state.trace.armed = header.trace;
         for (hart, saved) in state.harts.iter_mut().zip(&header.harts) {
             saved.apply(hart);

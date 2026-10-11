@@ -69,7 +69,6 @@ fn run(backend: BackendKind, units: Units, inst: u32) -> (u64, u64, u64) {
     csrs.vtype = VTYPE_E32_M1;
     csrs.vl = 4;
     ctx.set_reg(A0 as usize, DATA);
-    ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
 
     ctx.run(1_000);

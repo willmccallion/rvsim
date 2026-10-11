@@ -1,5 +1,6 @@
 //! Running, stopping, checkpointing and controlling a whole simulation.
 
+pub mod bare_metal;
 pub mod checkpoint_resume;
 #[cfg(feature = "commit-log")]
 pub mod commit_log;

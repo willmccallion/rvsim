@@ -6,7 +6,7 @@ use crate::config::{BackendKind, Config};
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use crate::system::SystemState;
 use crate::system::simulator::{StopAt, StopReason};
-use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, MRET};
+use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, M5_FAIL, MRET};
 use crate::tests::support::harness::TestContext;
 
 pub const PROGRAM_BASE: u64 = 0x8000_0000;
@@ -18,11 +18,9 @@ pub const T2: u32 = 7;
 pub const A0: u32 = 10;
 pub const A1: u32 = 11;
 pub const A2: u32 = 12;
-pub const A7: u32 = 17;
 pub const MEPC: u32 = 0x341;
 pub const MTVEC: u32 = 0x305;
 pub const MHARTID: u32 = 0xF14;
-const SYS_EXIT: i32 = 93;
 
 pub const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrder];
 
@@ -72,7 +70,6 @@ fn prepare(ctx: TestContext, program: &[u32], handler: &[u32]) -> TestContext {
     }
     ctx.set_reg(A1 as usize, DATA);
     ctx.set_reg(A2 as usize, DATA + 0x100);
-    ctx.sim.set_direct_mode(true);
     ctx.sim.sync_arch_regs();
     ctx
 }
@@ -102,7 +99,7 @@ pub fn run_to_exit(ctx: &mut TestContext, context: &str) {
 /// `exit(0)`. The ecall traps, so it does not retire.
 pub fn exit_sequence() -> [u32; 3] {
     let i = InstructionBuilder::new;
-    [i().addi(A0, 0, 0).build(), i().addi(A7, 0, SYS_EXIT).build(), ECALL]
+    [i().addi(A0, 0, 0).build(), i().addi(A1, 0, 0).build(), M5_FAIL]
 }
 
 /// Takes three ecalls into a handler that steps over each, then exits.

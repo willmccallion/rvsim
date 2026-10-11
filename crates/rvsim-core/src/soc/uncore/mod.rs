@@ -106,10 +106,6 @@ pub struct Uncore {
     /// Atomic slot bus-resident devices (HTIF, `SysCon`) write the harness
     /// termination value into. `u64::MAX` means "no exit pending".
     pub exit_signal: Arc<AtomicU64>,
-    /// Direct mode (no translation, flat memory). Initialised from
-    /// `config.general.direct_mode` and runtime-mutable (the ELF loader
-    /// writes it after init).
-    pub direct_mode: bool,
     /// The user process SE mode is running, when it is.
     pub process: Option<crate::system::process::Process>,
     /// The console every device and proxy prints to and reads from.

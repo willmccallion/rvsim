@@ -1,9 +1,6 @@
 #include "stdlib.h"
 #include "stdio.h"
-
-#ifdef RVSIM_IO_HTIF
 #include "htif.h"
-#endif
 
 // Defined in user.ld
 extern char _end;
@@ -103,13 +100,5 @@ void *malloc(size_t size) {
 
 void exit(int status) {
   fflush(stdout);
-#ifdef RVSIM_IO_HTIF
   htif_exit(status);
-#else
-  register long a0 asm("a0") = status;
-  register long a7 asm("a7") = 93;
-  asm volatile("ecall" : : "r"(a0), "r"(a7));
-#endif
-  for (;;) {
-  }
 }
