@@ -82,6 +82,7 @@ plugins:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Coming from gem5: from-gem5.md
   - Configuration: configuration.md
   - API Reference: api.md
   - Validation: validation.md
