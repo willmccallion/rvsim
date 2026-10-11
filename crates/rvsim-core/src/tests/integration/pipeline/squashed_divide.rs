@@ -101,7 +101,6 @@ fn handler_finish_cycle(backend: BackendKind, behind: u32) -> u64 {
         ctx.sim.probe_mem_store(PhysAddr::new(HANDLER + 4 * n as u64), u64::from(*word), 4);
     }
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
-    ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
 
     let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(S4 as usize) == 1);

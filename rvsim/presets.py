@@ -406,7 +406,6 @@ def m1(
         branch_predictor=branch_predictor,
         btb_size=8192,
         ras_size=64,
-        initial_sp=0x8010_0000,
         ram_size=ram_size_bytes,
         l1i=Cache(
             size="128KB",

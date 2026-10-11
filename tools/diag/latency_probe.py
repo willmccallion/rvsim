@@ -24,6 +24,8 @@ from rvsim import Environment, presets
 SRC = Path(__file__).parent / "latency_probe" / "chase.c"
 OUT = ROOT / "tests" / "builds" / "latency-probe"
 LIBC = ROOT / "software" / "libc"
+LIBC_SOURCES = ["crt0_htif.s", "stdio.c", "stdlib.c", "htif.c", "fdt.c"]
+STACK_TOP = 0x8000_0000 + (256 << 20) - (64 << 10) - 0x1000
 CFLAGS = [
     "-march=rv64gc",
     "-mabi=lp64d",
@@ -44,12 +46,13 @@ def parse_size(text: str) -> int:
 def build(footprint: int, steps: int) -> Path:
     OUT.mkdir(parents=True, exist_ok=True)
     stem = OUT / f"chase_{footprint}_{steps}"
-    crt0 = OUT / "crt0.o"
-    if not crt0.exists():
-        subprocess.run(
-            ["riscv64-elf-gcc", *CFLAGS, "-c", str(LIBC / "crt0.s"), "-o", str(crt0)],
-            check=True,
-        )
+    libc = [OUT / f"{name}.o" for name in LIBC_SOURCES]
+    for source, obj in zip(LIBC_SOURCES, libc):
+        if not obj.exists():
+            subprocess.run(
+                ["riscv64-elf-gcc", *CFLAGS, "-c", str(LIBC / source), "-o", str(obj)],
+                check=True,
+            )
     subprocess.run(
         [
             "riscv64-elf-gcc",
@@ -69,7 +72,11 @@ def build(footprint: int, steps: int) -> Path:
             "--no-warn-rwx-segments",
             "-T",
             str(LIBC / "user.ld"),
-            str(crt0),
+            # The chase's array can run past the linker script's stack; put
+            # the stack at the top of the presets' 256 MB of RAM, below the
+            # device tree.
+            f"--defsym=_stack_top={STACK_TOP:#x}",
+            *map(str, libc),
             f"{stem}.o",
             "-o",
             f"{stem}.elf",
@@ -91,9 +98,6 @@ def main() -> int:
     args = ap.parse_args()
 
     config = PRESETS[args.preset]()
-    # The chase's array can run past the default stack; put the stack at the
-    # top of the presets' 256 MB of RAM.
-    config.initial_sp = 0x8000_0000 + (256 << 20) - 0x1000
     print(f"{'footprint':>10} {'cycles/load':>12}", flush=True)
     for text in args.footprints.split(","):
         footprint = parse_size(text)

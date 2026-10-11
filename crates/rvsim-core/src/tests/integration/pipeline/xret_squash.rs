@@ -120,7 +120,6 @@ fn run(backend: BackendKind, width: usize) -> (u64, u64, u64) {
         hart.pmp.set_cfg(0, 0b0000_1111);
         hart.pc = CODE;
     }
-    ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
 
     ctx.run(5_000);

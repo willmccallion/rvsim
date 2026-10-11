@@ -11,9 +11,7 @@ use crate::system::SystemState;
 
 fn create_test_cpu() -> SystemState {
     let config = Config::default();
-    let mut state = SystemState::build(&config, "");
-    state.direct_mode = false;
-    state
+    SystemState::build(&config, "")
 }
 
 #[test]
@@ -25,45 +23,6 @@ fn test_trap_clears_load_reservation() {
     state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
 
     assert!(!state.check_reservation(PhysAddr::new(0x8000_0000)));
-}
-
-#[test]
-fn test_trap_direct_mode_illegal_instruction_zero_exits() {
-    let mut sys = create_test_cpu();
-    let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
-    state.exit_signal.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
-
-    state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
-
-    assert_eq!(state.check_exit(), Some(0));
-}
-
-#[test]
-fn test_trap_direct_mode_other_exceptions_set_exit_code_1() {
-    let mut sys = create_test_cpu();
-    let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
-    state.exit_signal.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
-
-    state.trap(&Trap::LoadAddressMisaligned(0x8000_0001), state.hart.pc);
-
-    assert_eq!(state.check_exit(), Some(1));
-}
-
-#[test]
-fn test_trap_direct_mode_ecall_from_umode_processed() {
-    let mut sys = create_test_cpu();
-    let mut state = sys.core_ctx(0);
-    state.direct_mode = true;
-    state.hart.privilege = PrivilegeMode::User;
-    state.exit_signal.store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
-    state.hart.csrs.mtvec = 0x8000_0000;
-
-    // ECALL in direct mode should be processed normally (not treated as fatal)
-    state.trap(&Trap::EnvironmentCallFromUMode, state.hart.pc);
-
-    // Exit code should remain None (trap is processed, not fatal)
 }
 
 #[test]

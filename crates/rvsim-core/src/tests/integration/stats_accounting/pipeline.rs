@@ -46,7 +46,7 @@ fn a_mispredicted_branch_flushes_once_under_branch(rec: &mut Recorder) {
 
         let [branch, system, memory, coherence, trap] = flushes_by_cause(rec, &ctx.sim, &context);
         assert_eq!((branch, system, memory, coherence), (LOOPS as u64 - 1, 0, 0, 0), "{context}");
-        assert_eq!(trap, 1, "{context}: the exit ecall");
+        assert_eq!(trap, 0, "{context}: the exit is a pseudo-op, not a trap");
         assert!(rec.read(&ctx.sim, "core0.pipeline.flushes.squashed_insns") > 0, "{context}");
     }
 }
@@ -71,7 +71,7 @@ fn traps_flush_under_trap_and_returns_under_system(rec: &mut Recorder) {
         run_to_exit(&mut ctx, &context);
 
         let [branch, system, memory, coherence, trap] = flushes_by_cause(rec, &ctx.sim, &context);
-        assert_eq!(trap, 3 + 1, "{context}: three ecalls and the exit");
+        assert_eq!(trap, 3, "{context}: three ecalls; the exit is a pseudo-op");
         assert_eq!(system, system_flushes, "{context}");
         assert_eq!((branch, memory, coherence), (2 + wrong_path_branches, 0, 0), "{context}");
     }
@@ -101,7 +101,7 @@ fn a_load_that_passed_an_aliasing_store_flushes_under_mem_violations(rec: &mut R
         run_to_exit(&mut ctx, &context);
 
         let counts = flushes_by_cause(rec, &ctx.sim, &context);
-        assert_eq!(counts, [0, 0, violations, 0, 1], "{context}");
+        assert_eq!(counts, [0, 0, violations, 0, 0], "{context}");
         assert_eq!(ctx.get_reg(T1 as usize), 7, "{context}: the load saw the store");
     }
 }
@@ -385,7 +385,6 @@ fn supervisor_loads(backend: BackendKind, paged: bool) -> (TestContext, u64) {
     }
     hart.pmp.set_addr(0, u64::MAX >> 10);
     hart.pmp.set_cfg(0, PMP_TOR_RWX);
-    ctx.sim.state.direct_mode = false;
     (ctx, end)
 }
 

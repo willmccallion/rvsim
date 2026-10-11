@@ -49,7 +49,6 @@ fn check(backend: BackendKind) {
     csrs.tcontrol = TCONTROL_MTE;
     csrs.tdata1[0] = MCONTROL_EXECUTE_M;
     csrs.tdata2[0] = PROGRAM_BASE + TRIGGERED_OFFSET;
-    ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
 
     ctx.run(500);

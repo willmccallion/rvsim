@@ -20,6 +20,7 @@ use crate::common::{AccessType, PhysAddr, SimError, VirtAddr};
 use crate::config::Config;
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::{PrivilegeMode, Trap};
+use crate::isa::reg;
 use crate::sim::components::{CacheId, ComponentId, MemCtrlId};
 use crate::sim::events::Event;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -27,6 +28,7 @@ use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::Packet;
 use crate::sim::stats::Stats;
 use crate::soc::topology::{CacheSlot, PrivateCache};
+use crate::system::dtb;
 use crate::system::process;
 pub use crate::system::process::loader::ProcessArgs;
 use crate::system::snapshot::PipelineSnapshot;
@@ -80,6 +82,9 @@ pub enum StopReason {
 }
 
 /// Cycles between [`Simulator::run_to_with`]'s checks of `keep_going`.
+/// The RAM a bare-metal image's device tree takes at the top.
+pub const DTB_RESERVE: u64 = 64 * 1024;
+
 const CANCEL_POLL_CYCLES: u64 = 1 << 16;
 
 /// The most cycles one quiet skip covers, so a system idle forever still
@@ -153,7 +158,6 @@ impl Simulator {
     pub fn load_elf_with_args(&mut self, data: &[u8], args: &ProcessArgs) -> Result<(), SimError> {
         let loaded =
             loader::try_load_elf(data, &mut self.state.memory).ok_or(SimError::NotAnElf)?;
-        self.set_pc(0, loaded.entry);
         if let Some(tohost) = loaded.tohost_addr {
             if loaded.fromhost_addr.is_some_and(|fromhost| fromhost != tohost + 8) {
                 tracing::warn!(target: "rvsim::htif", tohost, fromhost = ?loaded.fromhost_addr,
@@ -161,11 +165,26 @@ impl Simulator {
             }
             let exit_signal = Arc::clone(&self.state.exit_signal);
             self.state.uncore.add_htif(tohost, &exit_signal, args.argv.clone());
-            self.state.direct_mode = false;
-            self.state.harts[0].privilege = PrivilegeMode::Machine;
+        }
+        self.reset_bare_metal(loaded.entry);
+        Ok(())
+    }
+
+    /// Starts a bare-metal image as spike's boot ROM does: every hart at
+    /// `entry` in machine mode with its id in `a0` and the device tree in
+    /// `a1`. The tree describes this system and sits in the last
+    /// [`DTB_RESERVE`] bytes of RAM.
+    fn reset_bare_metal(&mut self, entry: u64) {
+        let config = self.state.config.clone();
+        let dtb_addr = config.system.ram_base + config.memory.ram_size as u64 - DTB_RESERVE;
+        self.state.load_binary_at(&dtb::generate_dtb(&config), PhysAddr::new(dtb_addr));
+        for hart in &mut self.state.harts {
+            hart.pc = entry;
+            hart.privilege = PrivilegeMode::Machine;
+            hart.regs.write(reg::REG_A0, u64::from(hart.hart_id.val()));
+            hart.regs.write(reg::REG_A1, dtb_addr);
         }
         self.sync_arch_regs();
-        Ok(())
     }
 
     /// Loads `data`, a static Linux ELF, as a user process (SE mode): its
@@ -214,7 +233,6 @@ impl Simulator {
     pub fn boot_kernel(&mut self, boot: &loader::KernelBoot) -> Result<(), SimError> {
         let config = self.state.config.clone();
         loader::setup_kernel_load(&mut self.state, &config, boot)?;
-        self.state.direct_mode = false;
         self.sync_arch_regs();
         Ok(())
     }
@@ -340,18 +358,6 @@ impl Simulator {
     /// What the trace macros print, to change it.
     pub const fn trace_mut(&mut self) -> &mut TraceControl {
         &mut self.state.uncore.trace
-    }
-
-    /// Whether the system runs in direct mode: no translation, a flat
-    /// memory, and `ecall` ending the program.
-    #[must_use]
-    pub const fn direct_mode(&self) -> bool {
-        self.state.uncore.direct_mode
-    }
-
-    /// Sets direct mode; see [`Self::direct_mode`].
-    pub const fn set_direct_mode(&mut self, direct: bool) {
-        self.state.uncore.direct_mode = direct;
     }
 
     /// The last instructions `hart` retired, oldest first, as `(pc,

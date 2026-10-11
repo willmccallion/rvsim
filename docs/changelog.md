@@ -17,6 +17,19 @@ All notable changes to this project are documented here. The format is based on 
   the uninterrupted run does. A checkpoint is refused while the program
   has a host file open, since the descriptor would not come back. The
   HTIF device's `fromhost` is saved too.
+- Direct mode is gone. It was an rvsim-only way to run a bare ELF:
+  identity translation, a preset stack pointer, the FPU switched on at
+  reset, `a1` holding the hart count and an `ecall 93` ending the run
+  with no trap handler installed. A bare-metal image now starts as it
+  does under spike: every hart at the ELF's entry in machine mode with
+  its id in `a0` and a device tree describing the system in `a1`, placed
+  in the last 64 KiB of RAM; the program's start-up sets its stack and
+  switches the FPU on (`software/libc/crt0_htif.s` and `crt0_smp.s` do),
+  and it exits through HTIF or a pseudo-operation. The bare-metal libc
+  prints through HTIF only, and the multi-core programs take their hart
+  count from the device tree and share the HTIF channel under a lock.
+  `Config(initial_sp=...)` is gone with it, and the `direct_mode` and
+  `initial_sp` keys of the native config.
 - Pseudo-operations are an instruction: gem5's m5op (opcode `0x7b`, the
   operation in bits 31:25, arguments in `a0` and `a1`), performed when it
   retires in any mode and at any privilege, so one `rvsim.h` serves a

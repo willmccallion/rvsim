@@ -20,7 +20,6 @@ const STORE_ACCESS_FAULT: u64 = 7;
 fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64) {
     let mut config = Config::default();
     config.pipeline.backend = backend;
-    config.general.direct_mode = false;
     let i = InstructionBuilder::new;
     let program = [i().lui(10, (UNMAPPED >> 12) as i32).build(), access, JAL_SELF];
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);

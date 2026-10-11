@@ -6,17 +6,14 @@ use crate::Simulator;
 use crate::config::{BackendKind, Config, Console};
 use crate::system::SystemState;
 use crate::system::simulator::{StopAt, StopReason};
-use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::builder::instruction::{InstructionBuilder, exit_with_a0};
 use crate::tests::support::harness::TestContext;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const UART: u32 = 5;
 const VALUE: u32 = 6;
 const A0: u32 = 10;
-const A7: u32 = 17;
 const UART_BASE_UPPER: i32 = 0x1_0000;
-const ECALL: u32 = 0x0000_0073;
-const SYS_EXIT: i32 = 93;
 const MESSAGE: &[u8] = b"fib(20)=6765\n";
 const EXIT_CODE: i32 = 7;
 const DEVICE_LATENCY: u64 = 100;
@@ -31,8 +28,7 @@ fn printing_then_exiting() -> Vec<u32> {
         program.push(i().sb(UART, VALUE, 0).build());
     }
     program.push(i().addi(A0, 0, EXIT_CODE).build());
-    program.push(i().addi(A7, 0, SYS_EXIT).build());
-    program.push(ECALL);
+    program.extend(exit_with_a0());
     program
 }
 
@@ -45,9 +41,7 @@ fn system(backend: BackendKind) -> TestContext {
     config.system.console = Console::Captured;
     config.system.bus_latency = DEVICE_LATENCY;
     let sim = Simulator::new(SystemState::build(&config, ""));
-    let mut ctx = TestContext { sim }.load_program(PROGRAM_BASE, &printing_then_exiting());
-    ctx.sim.set_direct_mode(true);
-    ctx
+    TestContext { sim }.load_program(PROGRAM_BASE, &printing_then_exiting())
 }
 
 fn console(ctx: &mut TestContext) -> Vec<u8> {

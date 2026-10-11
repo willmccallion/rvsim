@@ -9,6 +9,14 @@ pub const FENCE_IORW: u32 = 0x0ff0_000f;
 pub const FENCE_I: u32 = 0x0000_100f;
 /// `ecall`.
 pub const ECALL: u32 = crate::isa::encoding::privileged::ECALL;
+/// gem5's `m5_fail`: ends the run with `a1` as the exit code.
+pub const M5_FAIL: u32 = crate::isa::op::pseudo::PseudoOp::encode(0x22);
+
+/// Ends the run with `a0` as the exit code, as a program's exit does.
+#[must_use]
+pub fn exit_with_a0() -> [u32; 2] {
+    [InstructionBuilder::new().addi(11, 10, 0).build(), M5_FAIL]
+}
 /// `mret`.
 pub const MRET: u32 = 0x3020_0073;
 

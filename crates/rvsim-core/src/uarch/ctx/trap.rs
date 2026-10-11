@@ -2,10 +2,8 @@
 
 use super::CoreCtx;
 use crate::isa::csr;
-use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT;
 use crate::isa::privileged::{PrivilegeMode, Trap};
-use crate::isa::reg;
 use crate::trace_trap;
 
 impl CoreCtx<'_> {
@@ -44,44 +42,6 @@ impl CoreCtx<'_> {
                 _ => 0,
             };
             self.signal_exit(128 + signal);
-            return;
-        }
-
-        if self.direct_mode && self.hart.csrs.mtvec == 0 {
-            // In direct mode with no trap handler installed (mtvec == 0),
-            // handle traps directly: ecall triggers SYS_EXIT and everything
-            // else is fatal.  When mtvec has been written (e.g. by arch-test
-            // bootstrap code), we fall through to the standard dispatch path
-            // so that the installed handler runs normally.
-            if matches!(
-                cause,
-                Trap::EnvironmentCallFromUMode
-                    | Trap::EnvironmentCallFromSMode
-                    | Trap::EnvironmentCallFromMMode
-            ) {
-                let val_a7 = self.hart.regs.read(reg::REG_A7);
-                let val_a0 = self.hart.regs.read(reg::REG_A0);
-
-                if val_a7 == sys_ops::SYS_EXIT {
-                    self.signal_exit(val_a0);
-                    return;
-                } else if val_a0 == sys_ops::SYS_EXIT {
-                    let val_a1 = self.hart.regs.read(reg::REG_A1);
-                    self.signal_exit(val_a1);
-                    return;
-                }
-
-                tracing::error!(target: "rvsim::trap", a7 = val_a7, a0 = val_a0, pc = epc, "unhandled ecall in direct mode");
-                self.signal_exit(1);
-                return;
-            }
-
-            if matches!(cause, Trap::IllegalInstruction(0)) {
-                self.signal_exit(0);
-                return;
-            }
-            tracing::error!(target: "rvsim::trap", ?cause, pc = epc, "fatal trap in direct mode");
-            self.signal_exit(1);
             return;
         }
 
@@ -201,74 +161,6 @@ impl CoreCtx<'_> {
 mod tests {
     use super::*;
     use crate::config::Config;
-
-    #[test]
-    fn test_trap_direct_mode_ecall() {
-        let mut config = Config::default();
-        config.general.direct_mode = true;
-        let mut sys = crate::system::SystemState::build(&config, "");
-        let mut state = sys.core_ctx(0);
-
-        state.hart.regs.write(reg::REG_A7, sys_ops::SYS_EXIT);
-        state.hart.regs.write(reg::REG_A0, 42);
-
-        state.trap(&Trap::EnvironmentCallFromMMode, 0x1000);
-        assert_eq!(state.check_exit(), Some(42));
-    }
-
-    #[test]
-    fn test_trap_direct_mode_illegal_instruction() {
-        let mut config = Config::default();
-        config.general.direct_mode = true;
-        let mut sys = crate::system::SystemState::build(&config, "");
-        let mut state = sys.core_ctx(0);
-
-        state.trap(&Trap::IllegalInstruction(0), 0x1000);
-        assert_eq!(state.check_exit(), Some(0));
-    }
-
-    #[test]
-    fn test_trap_direct_mode_breakpoint_with_mtvec() {
-        let mut config = Config::default();
-        config.general.direct_mode = true;
-        let mut sys = crate::system::SystemState::build(&config, "");
-        let mut state = sys.core_ctx(0);
-
-        state.hart.csrs.mtvec = 0x8000_1000;
-        state.trap(&Trap::Breakpoint(0x400), 0x400);
-
-        assert!(state.check_exit().is_none(), "should not be fatal when mtvec is set");
-        assert_eq!(state.hart.csrs.mepc, 0x400);
-        assert_eq!(state.hart.csrs.mcause, 3);
-        assert_eq!(state.hart.csrs.mtval, 0x400);
-        assert_eq!(state.hart.pc, 0x8000_1000);
-    }
-
-    #[test]
-    fn test_trap_direct_mode_breakpoint_no_mtvec() {
-        let mut config = Config::default();
-        config.general.direct_mode = true;
-        let mut sys = crate::system::SystemState::build(&config, "");
-        let mut state = sys.core_ctx(0);
-
-        state.trap(&Trap::Breakpoint(0x400), 0x400);
-        assert_eq!(state.check_exit(), Some(1));
-    }
-
-    #[test]
-    fn test_trap_direct_mode_ecall_with_mtvec() {
-        let mut config = Config::default();
-        config.general.direct_mode = true;
-        let mut sys = crate::system::SystemState::build(&config, "");
-        let mut state = sys.core_ctx(0);
-
-        state.hart.csrs.mtvec = 0x8000_2000;
-        state.trap(&Trap::EnvironmentCallFromMMode, 0x500);
-
-        assert!(state.check_exit().is_none());
-        assert_eq!(state.hart.csrs.mepc, 0x500);
-        assert_eq!(state.hart.pc, 0x8000_2000);
-    }
 
     #[test]
     fn test_do_mret() {

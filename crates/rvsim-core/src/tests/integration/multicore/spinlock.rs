@@ -2,7 +2,7 @@
 //! exclusion must hold, so the counter equals the total iteration count.
 
 use crate::config::BackendKind;
-use crate::tests::support::builder::instruction::{ECALL, FENCE_IORW, InstructionBuilder};
+use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder, M5_FAIL};
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
 
 const T0: u32 = 5;
@@ -16,9 +16,7 @@ const A0: u32 = 10;
 const A1: u32 = 11;
 const A2: u32 = 12;
 const A3: u32 = 13;
-const A7: u32 = 17;
 const MHARTID: u32 = 0xF14;
-const SYS_EXIT: i32 = 93;
 
 /// Lock at `data[0]`, counter at `data[1]`, arrival count at `data[2]`.
 pub fn program(harts: i32, iterations: i32) -> Vec<u32> {
@@ -49,8 +47,8 @@ pub fn program(harts: i32, iterations: i32) -> Vec<u32> {
         i().addi(A3, 0, harts).build(),
         i().bne(A2, A3, -8).build(),
         i().ld(A0, T2, 8).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
         i().jal(0, 0).build(),
     ]
 }

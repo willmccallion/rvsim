@@ -4,7 +4,7 @@
 
 use crate::config::BackendKind;
 use crate::sim::stats::StatFormat;
-use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder};
+use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::multihart::{DATA_BASE, MultiHart, PROGRAM_BASE};
 
 const T0: u32 = 5;
@@ -14,11 +14,9 @@ const T3: u32 = 28;
 const T5: u32 = 30;
 const T6: u32 = 31;
 const A0: u32 = 10;
-const A7: u32 = 17;
 const MHARTID: u32 = 0xF14;
 const MIE: u32 = 0x304;
 const WFI: u32 = 0x1050_0073;
-const SYS_EXIT: i32 = 93;
 const WOKEN: i32 = 7;
 
 /// Hart 1 enables its software interrupt and waits in WFI; hart 0 works,
@@ -40,8 +38,8 @@ fn program() -> Vec<u32> {
         i().beq(T6, 0, -4).build(),
         i().sw(T0, 0, 4).build(),
         i().addi(A0, T6, 0).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
         i().addi(T3, 0, 8).build(),
         i().csrrs(0, MIE, T3).build(),
         WFI,

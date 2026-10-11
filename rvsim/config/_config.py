@@ -116,7 +116,6 @@ class Config:
         vector_mem_width: int | None = None,
         # General
         trace: bool = False,
-        initial_sp: int | None = None,
         page_mode: str = "Sv39",
         clock_hz: int = 1_000_000_000,
         # System (advanced)
@@ -210,7 +209,6 @@ class Config:
 
         # General
         self.trace = trace
-        self.initial_sp = initial_sp
         if page_mode not in ("Sv39", "Sv48", "Sv57"):
             raise ValueError(
                 f"page_mode must be 'Sv39', 'Sv48' or 'Sv57', not {page_mode!r}"

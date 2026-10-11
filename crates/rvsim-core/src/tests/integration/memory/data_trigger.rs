@@ -50,7 +50,6 @@ fn trap_of_data_trigger(backend: BackendKind, store: bool, tdata1: u64) -> (u64,
     csrs.tcontrol = TCONTROL_MTE;
     csrs.tdata1[0] = tdata1;
     csrs.tdata2[0] = DATA;
-    ctx.sim.state.direct_mode = false;
     ctx.sim.sync_arch_regs();
 
     ctx.run(500);

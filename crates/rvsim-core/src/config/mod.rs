@@ -63,8 +63,7 @@ use serde::Deserialize;
 /// let json = r#"{
 ///     "general": {
 ///         "trace_instructions": true,
-///         "start_pc": 2147483648,
-///         "direct_mode": true
+///         "start_pc": 2147483648
 ///     },
 ///     "system": {
 ///         "ram_base": 2147483648,

@@ -2,7 +2,7 @@
 //! exact however the harts interleave.
 
 use crate::config::BackendKind;
-use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder};
+use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
 
 const T0: u32 = 5;
@@ -14,9 +14,7 @@ const T5: u32 = 30;
 const T6: u32 = 31;
 const A0: u32 = 10;
 const A2: u32 = 12;
-const A7: u32 = 17;
 const MHARTID: u32 = 0xF14;
-const SYS_EXIT: i32 = 93;
 
 /// `data[0] += 1` `iterations` times on every hart, then `data[1] += 1`;
 /// hart 0 waits for `data[1] == harts` and exits with `data[0]`.
@@ -40,8 +38,8 @@ pub fn program(harts: i32, iterations: i32) -> Vec<u32> {
         i().addi(A2, 0, harts).build(),
         i().bne(T6, A2, -8).build(),
         i().ld(A0, T2, 0).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
-        ECALL,
+        i().addi(11, 10, 0).build(),
+        M5_FAIL,
         i().jal(0, 0).build(),
     ]
 }
