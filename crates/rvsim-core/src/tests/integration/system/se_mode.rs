@@ -22,6 +22,7 @@ const A2: u32 = 12;
 const A3: u32 = 13;
 const A7: u32 = 17;
 const SP: u32 = 2;
+const CYCLE: u32 = 0xC00;
 const LOAD_ADDRESS: u64 = 0x1_0000;
 const CODE_OFFSET: u64 = 0x80;
 const ET_EXEC: u16 = 2;
@@ -177,6 +178,24 @@ fn a_user_program_exits_with_its_code() {
         let stop = run(backend, &exit_with(42), &["prog"]);
 
         assert_eq!(stop, StopReason::Exited(42), "{backend:?}");
+    }
+}
+
+/// A user program reads the cycle counter without trapping, as it can
+/// under gem5 and qemu; the loader opens the counters to user mode.
+#[test]
+fn a_user_program_reads_the_cycle_counter() {
+    let i = InstructionBuilder::new;
+    let code = vec![
+        i().csrrs(A0, CYCLE, 0).build(),
+        i().sltu(A0, 0, A0).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ];
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &code, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(1), "{backend:?}");
     }
 }
 

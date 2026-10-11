@@ -127,7 +127,9 @@ def _print_help() -> None:
     mode_table = Table(show_header=False, box=None, padding=(0, 2))
     mode_table.add_column(style="green", width=8)
     mode_table.add_column(style="dim")
-    mode_table.add_row(".elf", "bare-metal ELF binary")
+    mode_table.add_row(
+        ".elf", "static Linux user program (SE mode) or bare-metal image"
+    )
     mode_table.add_row(".py", "Python script — use the rvsim API for full control")
     mode_table.add_row("other", "kernel image")
     console.print(Padding(mode_table, (0, 2)))

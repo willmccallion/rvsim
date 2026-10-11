@@ -5,17 +5,14 @@
 # PUTCHAR
 #
 # Description:
-#   Macro to write one byte to the UART address.
+#   Macro to print one byte through putchar below.
 #
 # Args:
 #   reg: The register containing the byte to write
-#
-# Register Usage:
-#   t0: UART Base Address
 #------------------------------------------------------------------------------
 .macro PUTCHAR reg
-    li   t0, 0x10000000                       # t0 <- UART Base Address
-    sb   \reg, 0(t0)                          # Store byte to UART
+    mv   a0, \reg
+    jal  ra, putchar
 .endm
 
 #------------------------------------------------------------------------------
@@ -30,8 +27,6 @@
 #   s1: Saves the input n
 #------------------------------------------------------------------------------
 _start:
-    li    sp, 0x00000000801FF000              # Initialize Stack Pointer
-
     # n value to calculate
     li a0, 20                                 # a0 <- 20
     add s1, a0, zero                          # s1 <- a0 (save n for printing)
@@ -70,6 +65,24 @@ _start:
     li a0, 0                                  # a0 <- 0
     li a7, 93                                 # a7 <- 93 (Exit syscall)
     ecall
+
+#------------------------------------------------------------------------------
+# putchar
+#
+# Description:
+#   Writes the byte in a0 to standard output with the write syscall.
+#   Clobbers a0-a2 and a7.
+#------------------------------------------------------------------------------
+putchar:
+    addi sp, sp, -16
+    sb   a0, 0(sp)
+    li   a0, 1                                # fd: stdout
+    mv   a1, sp
+    li   a2, 1
+    li   a7, 64                               # write
+    ecall
+    addi sp, sp, 16
+    ret
 
 #------------------------------------------------------------------------------
 # fib
@@ -122,7 +135,7 @@ fib_base_return:
 # print_decimal
 #
 # Description:
-#   Prints the unsigned integer in a0 to the UART.
+#   Prints the unsigned integer in a0.
 #   Converts integer to ASCII string in a local stack buffer, then prints.
 #
 # Args:

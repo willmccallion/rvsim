@@ -1,6 +1,21 @@
 #include "stdio.h"
 #include "stdlib.h"
 
+/* Reads one line into buf without its line ending; 0 at end of input. */
+static int read_line(char *buf, int size) {
+  if (!fgets(buf, size, stdin)) {
+    buf[0] = '\0';
+    return 0;
+  }
+  for (char *p = buf; *p; p++) {
+    if (*p == '\n' || *p == '\r') {
+      *p = '\0';
+      break;
+    }
+  }
+  return 1;
+}
+
 #define SIZE 4
 
 // ANSI Colors
@@ -216,8 +231,8 @@ int main() {
       needs_redraw = 0;
     }
 
-    // Use gets to wait for Enter key
-    gets(buf, 16);
+    if (!read_line(buf, sizeof buf))
+      break;
     char c = buf[0];
 
     int moved = 0;

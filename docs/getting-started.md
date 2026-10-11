@@ -33,28 +33,25 @@ RISC-V cross-compiler, spike, `dtc`) for Nix users: `nix develop`.
 
 ### Building the example programs
 
-The bundled programs are built with a bare-metal RISC-V cross-compiler.
-The build expects the `riscv64-elf-` prefix (`riscv64-elf-gcc`,
-`riscv64-elf-ld`); pass `TARGET=riscv64-unknown-elf` if your toolchain
-uses that prefix instead.
+The bundled programs and benchmarks are static Linux user binaries, run
+under [SE mode](se-mode.md); the multi-core programs are bare-metal. The
+build expects the Linux toolchain as `riscv64-linux-gnu-gcc` and the
+bare-metal one as `riscv64-elf-gcc` (`SE_TARGET=` and `TARGET=` override
+the prefixes); the repo's nix shell has both.
 
 ```bash
-make -C software                   # libc, programs and benchmarks into software/bin/
-make -C software TARGET=riscv64-unknown-elf
+make -C software                   # into software/bin/ and software/bin-htif/
 ```
 
 The programs land in `software/bin/programs/`, the benchmarks in
 `software/bin/benchmarks/`, and the multi-core tests in
-`software/bin/multicore/`. `make linux` builds the Linux image (see
+`software/bin/multicore/`. `software/bin-htif/` holds a bare-metal build
+of the programs and benchmarks that print and exit through HTIF, the
+`tohost` protocol that spike's proxy, the Chipyard RTL harness and
+rvsim's HTIF device all serve, so one ELF behaves identically on all
+three; that is how the bundled programs are checked against spike.
+`make linux` builds the Linux image (see
 [Linux Boot](examples/linux-boot.md)).
-
-Each program is built a second time into `software/bin-htif/` with a
-start-up and libc that print and exit through HTIF, the `tohost` and
-`fromhost` protocol spike's proxy and the Chipyard RTL harness serve
-and rvsim's HTIF device serves the same way: one ELF then behaves
-identically on all three, which is how the bundled programs are checked
-against spike. The default build prints through the UART instead.
-Linux user programs need neither; see [SE mode](se-mode.md).
 
 ## Your First Simulation
 

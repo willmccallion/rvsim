@@ -41,6 +41,8 @@ const CLOCK_TICKS_PER_SECOND: u64 = 100;
 const PMP_NAPOT_EVERYTHING: u64 = (1 << 54) - 1;
 /// `pmpcfg` entry 0: readable, writable, executable, NAPOT.
 const PMP_RWX_NAPOT: u64 = 0x1F;
+/// Every counter readable from user mode, as under gem5 and qemu.
+const COUNTERS_ALL: u64 = 0xFFFF_FFFF;
 
 /// The program's command line and environment.
 #[derive(Debug, Clone, Default)]
@@ -119,6 +121,8 @@ pub fn load_process(
     ctx.csr_write(csr::PMPADDR0, PMP_NAPOT_EVERYTHING);
     ctx.csr_write(csr::PMPCFG0, PMP_RWX_NAPOT);
     ctx.csr_write(csr::SATP, satp);
+    ctx.csr_write(csr::MCOUNTEREN, COUNTERS_ALL);
+    ctx.csr_write(csr::SCOUNTEREN, COUNTERS_ALL);
     let mstatus = (ctx.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_INIT;
     ctx.csr_write(csr::MSTATUS, mstatus);
     Ok(())

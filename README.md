@@ -177,7 +177,7 @@ rvsim examples/analysis/o3_inorder.py --widths 1 2 4
 
 ## Building from Source
 
-Requires Rust (the version in `rust-toolchain.toml`), Python 3.10+, and a bare-metal RISC-V GCC (`riscv64-elf-gcc` by default; `TARGET=` overrides the prefix). `nix develop` provides all three.
+Requires Rust (the version in `rust-toolchain.toml`), Python 3.10+, and two RISC-V GCCs for the bundled programs: a Linux one (`riscv64-linux-gnu-gcc`; `SE_TARGET=` overrides the prefix) and a bare-metal one (`riscv64-elf-gcc`; `TARGET=`). `nix develop` provides all of them.
 
 ```bash
 git clone https://github.com/willmccallion/rvsim

@@ -5,8 +5,7 @@
     .extern _bss_start
     .extern _bss_end
     .extern __global_pointer$
-    .extern stdio_flush
-    .extern htif_exit
+    .extern exit
     .extern _stack_top
 
 # The HTIF start-up: as crt0.s, but with what a core other than rvsim's
@@ -36,8 +35,4 @@ bss_clear_done:
     li a0, 0
     li a1, 0
     call main
-
-    mv s0, a0
-    call stdio_flush
-    mv a0, s0
-    call htif_exit
+    call exit

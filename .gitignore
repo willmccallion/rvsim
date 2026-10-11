@@ -15,6 +15,7 @@ site/
 # Linux build output
 software/linux/
 software/bin
+software/bin-htif
 software/build
 
 # All test build artifacts (cloned sources, built spike, generated/compiled

@@ -1,6 +1,21 @@
 #include "stdio.h"
 #include "stdlib.h"
 
+/* Reads one line into buf without its line ending; 0 at end of input. */
+static int read_line(char *buf, int size) {
+  if (!fgets(buf, size, stdin)) {
+    buf[0] = '\0';
+    return 0;
+  }
+  for (char *p = buf; *p; p++) {
+    if (*p == '\n' || *p == '\r') {
+      *p = '\0';
+      break;
+    }
+  }
+  return 1;
+}
+
 #define BOARD_SIZE 64
 #define EMPTY 0
 #define PAWN 1
@@ -334,8 +349,7 @@ int main() {
 
     if (side == WHITE) {
       printf("Move (e.g. e2e4): ");
-      gets(buf, 32);
-      if (buf[0] == 'q')
+      if (!read_line(buf, sizeof buf) || buf[0] == 'q')
         break;
 
       int f = parse(buf);
