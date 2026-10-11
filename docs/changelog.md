@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- SE mode answers `/sys/devices/system/cpu/online`, `possible` and
+  `present` for the simulated harts, as gem5 does, where the host's files
+  showed through: `sysconf(_SC_NPROCESSORS_ONLN)` and `get_nprocs()`
+  return the hart count, so a program that starts a thread per CPU starts
+  one per hart.
 - `make se-verify` also compares a static pthreads program with
   `qemu-riscv64`: a contended mutex, a condition variable, a barrier,
   thread-local storage, joins and a timed wait, on five harts.

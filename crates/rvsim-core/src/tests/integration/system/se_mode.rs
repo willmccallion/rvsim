@@ -1331,3 +1331,70 @@ fn a_checkpoint_resumes_a_thread_waiting_on_a_futex() {
         assert_eq!(second.instructions_retired(), whole.instructions_retired(), "{machine:?}");
     }
 }
+
+/// Opens `path` with `flags` and exits with 16 times the bytes a read of
+/// it returns plus the digit before its last byte, or with the `errno`
+/// the open failed with.
+fn read_a_cpu_list(path: &str, flags: i32) -> Vec<u32> {
+    const SYS_OPENAT: i32 = 56;
+    let i = InstructionBuilder::new;
+    let mut lines = vec![
+        Line::AddressOf(A1, "path"),
+        inst(i().addi(A0, 0, AT_FDCWD).build()),
+        inst(i().addi(A2, 0, flags).build()),
+        inst(i().addi(A3, 0, 0).build()),
+    ];
+    lines.extend(syscall(SYS_OPENAT));
+    lines.extend([
+        Line::To(Jump::Blt(A0, 0), "failed"),
+        inst(i().addi(A1, SP, -64).build()),
+        inst(i().addi(A2, 0, 16).build()),
+    ]);
+    lines.extend(syscall(SYS_READ));
+    lines.extend([
+        inst(i().add(T0, A1, A0).build()),
+        inst(i().lbu(T1, T0, -2).build()),
+        inst(i().addi(T1, T1, -i32::from(b'0')).build()),
+        inst(i().addi(A2, 0, 16).build()),
+        inst(i().mul(A0, A0, A2).build()),
+        inst(i().add(A0, A0, T1).build()),
+    ]);
+    lines.extend(syscall(SYS_EXIT));
+    lines.extend([Line::Label("failed"), inst(i().sub(A0, 0, A0).build())]);
+    lines.extend(syscall(SYS_EXIT));
+    lines.push(Line::Label("path"));
+    let mut bytes = path.as_bytes().to_vec();
+    bytes.resize(bytes.len().next_multiple_of(4) + 4, 0);
+    lines.extend(
+        bytes.chunks(4).map(|word| inst(u32::from_le_bytes([word[0], word[1], word[2], word[3]]))),
+    );
+    assemble(&lines)
+}
+
+/// The CPU lists glibc's `sysconf(_SC_NPROCESSORS_ONLN)` and `get_nprocs`
+/// read name the simulated harts, as gem5 serves them, not the host's
+/// CPUs: `0-2` for three harts, `0` for one.
+#[test]
+fn the_cpu_list_files_name_every_hart() {
+    let online = read_a_cpu_list("/sys/devices/system/cpu/online", 0);
+    let possible = read_a_cpu_list("/sys/devices/system/cpu/possible", 0);
+    for machine in MACHINES {
+        let three = run_for(&mut threaded(machine, &online, 3), 100_000);
+        let one = run_for(&mut threaded(machine, &possible, 1), 100_000);
+
+        assert_eq!(three, StopReason::Exited(4 * 16 + 2), "{machine:?}: \"0-2\\n\"");
+        assert_eq!(one, StopReason::Exited(2 * 16), "{machine:?}: \"0\\n\"");
+    }
+}
+
+#[test]
+fn the_cpu_list_files_are_read_only() {
+    const O_WRONLY: i32 = 1;
+    const EACCES: u64 = 13;
+    let code = read_a_cpu_list("/sys/devices/system/cpu/present", O_WRONLY);
+    for machine in MACHINES {
+        let stop = run_for(&mut threaded(machine, &code, 2), 100_000);
+
+        assert_eq!(stop, StopReason::Exited(EACCES), "{machine:?}");
+    }
+}

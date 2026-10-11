@@ -8,7 +8,7 @@ mod thread;
 
 use thread::ThreadCall;
 
-use super::files::{Stat, errno, io_errno};
+use super::files::{Stat, errno, io_errno, open_flags};
 use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, ThreadRef, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
 use crate::common::VirtAddr;
@@ -139,6 +139,9 @@ const HWPROBE_PAIR_BYTES: u64 = 16;
 /// and every run sees the same clock.
 const REALTIME_EPOCH_SECONDS: u64 = 1_700_000_000;
 const PATH_MAX: usize = 4096;
+const CPU_ONLINE: &str = "/sys/devices/system/cpu/online";
+const CPU_POSSIBLE: &str = "/sys/devices/system/cpu/possible";
+const CPU_PRESENT: &str = "/sys/devices/system/cpu/present";
 
 /// Serves the `ecall` that retired at `pc` on `state`'s hart: performs
 /// the syscall in `a7` with the arguments in `a0` to `a5`, leaves the
@@ -187,6 +190,7 @@ fn process_call(state: &mut CoreCtx<'_>, caller: ThreadRef, number: u64, args: [
     let misaligned_traps = state.uncore.config.memory.misaligned_access_trap;
     let uncore = &mut *state.uncore;
     let threads_alive = uncore.processes.live_threads() as u64;
+    let hart_count = uncore.processes.hart_count();
     let Some((process, frames)) = uncore.processes.process_and_frames(caller.tgid) else {
         return Err(-errno::ESRCH);
     };
@@ -198,6 +202,7 @@ fn process_call(state: &mut CoreCtx<'_>, caller: ThreadRef, number: u64, args: [
         cycle,
         ram_bytes,
         threads_alive,
+        hart_count,
         isa,
         misaligned_traps,
     };
@@ -231,6 +236,8 @@ struct Sys<'a> {
     ram_bytes: u64,
     /// How many threads every process has between them, for `sysinfo`.
     threads_alive: u64,
+    /// The harts a thread may run on, for the CPU lists.
+    hart_count: usize,
     /// What the hart implements, for `riscv_hwprobe`.
     isa: Isa,
     /// Whether a misaligned access traps instead of being performed.
@@ -404,7 +411,25 @@ impl Sys<'_> {
 
     fn openat(&mut self, dirfd: i64, path: VirtAddr, flags: u64, mode: u64) -> Result {
         let path = self.resolve(dirfd, path)?;
+        if let Some(contents) = self.generated_file(&path) {
+            if flags & open_flags::O_ACCMODE != open_flags::O_RDONLY {
+                return Err(-errno::EACCES);
+            }
+            return self.process.files.open_generated(contents).and_then(ok_i64);
+        }
         self.process.files.open(path, flags, mode).and_then(ok_i64)
+    }
+
+    /// The contents of a file the kernel generates about the machine,
+    /// which SE mode answers for the simulated machine rather than letting
+    /// the host's through, as gem5's SE mode does: the CPU lists glibc's
+    /// `sysconf` and `get_nprocs` read, naming every hart.
+    fn generated_file(&self, path: &std::path::Path) -> Option<Vec<u8>> {
+        let list = match path.to_str()? {
+            CPU_ONLINE | CPU_POSSIBLE | CPU_PRESENT => cpu_list(self.hart_count),
+            _ => return None,
+        };
+        Some(list.into_bytes())
     }
 
     fn fstat(&mut self, fd: i64, buf: VirtAddr) -> Result {
@@ -762,6 +787,14 @@ impl Sys<'_> {
         bytes.truncate(len);
         self.write_user(buf, &bytes)?;
         ok(len as u64)
+    }
+}
+
+/// A Linux CPU list naming CPUs 0 to `count - 1`: `0-3`, or `0` alone.
+fn cpu_list(count: usize) -> String {
+    match count.saturating_sub(1) {
+        0 => "0\n".to_owned(),
+        last => format!("0-{last}\n"),
     }
 }
 
