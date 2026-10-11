@@ -1,13 +1,13 @@
 //! Rocket's branch history table configuration.
 
 use crate::config::defaults;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Rocket's BHT (`BHTParams` in rocket-chip's `rocket/BTB.scala`): a table
 /// of counters indexed by the fetch PC with a hash of the global history
 /// placed above the PC bits.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BhtConfig {
     /// Counters in the table; a power of two.

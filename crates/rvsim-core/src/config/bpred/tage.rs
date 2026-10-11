@@ -1,10 +1,10 @@
 //! TAGE and its banking, hashing, history, allocation and update options.
 
 use crate::config::defaults;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// TAGE (Tagged Geometric) predictor configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TageConfig {
     /// Number of tagged tables
@@ -81,7 +81,7 @@ pub struct TageConfig {
 }
 
 /// How the PC enters TAGE's hashes.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TageHashing {
     /// `TAGEBase`: the PC shifted past its two low bits.
@@ -100,7 +100,7 @@ pub enum TageHashing {
 /// `short_factor * table_size` entries, the rest one of
 /// `long_factor * table_size`; each enabled bank takes the next
 /// `table_size`-entry slice from a PC- and path-hashed start.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TageBanking {
     /// Slices in the short-tag array.
@@ -114,7 +114,7 @@ pub struct TageBanking {
 }
 
 /// What each control instruction shifts into TAGE's global history.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TageHistoryMode {
     /// `TAGEBase`: its direction, and one PC bit of path.
@@ -126,7 +126,7 @@ pub enum TageHistoryMode {
 }
 
 /// How TAGE allocates entries for a misprediction.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TageAllocation {
     /// `TAGEBase`: free entries from one of the next three tables up,
@@ -143,7 +143,7 @@ pub enum TageAllocation {
 }
 
 /// Which entries TAGE trains on a committed branch.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TageUpdate {
     /// `TAGEBase`: the provider, the alternate while the provider is not

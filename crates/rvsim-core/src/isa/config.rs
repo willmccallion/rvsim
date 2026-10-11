@@ -10,10 +10,10 @@
 //! the device tree all follow it. Without one, the hart implements
 //! everything the simulator has.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Top-level ISA capability descriptor.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IsaConfig {
     /// The ISA string, such as `rv64gcv_zba_zbb_zbs_zicbom`, naming the
@@ -35,7 +35,7 @@ pub struct IsaConfig {
 }
 
 /// Vector ISA capabilities (RVV 1.0 and sub-extensions).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VectorIsa {
     /// Maximum vector element width in bits (`ELEN`). Spec values: 32 (`Zve32x`)

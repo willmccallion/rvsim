@@ -8,7 +8,7 @@ use crate::config::{
 };
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::rvv::Vlen;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// The widest unit-stride vector access: one 64-byte line, the smallest
 /// line every cache level must have.
@@ -16,7 +16,7 @@ pub const MAX_VECTOR_MEM_WIDTH: usize = CBOZ_BLOCK_SIZE as usize;
 
 /// Specifies the memory dependence prediction algorithm used to determine
 /// whether loads can bypass older unresolved stores at issue time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum MemDepPredictorKind {
     /// Blind (conservative) predictor.
@@ -33,7 +33,7 @@ pub enum MemDepPredictorKind {
 }
 
 /// Pipeline and branch predictor configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PipelineConfig {
     /// Superscalar width (instructions per cycle)
@@ -485,7 +485,7 @@ impl Default for PipelineConfig {
 }
 
 /// Store-set memory dependence predictor configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StoreSetConfig {
     /// SSIT (Store Set ID Table) size — indexed by `(pc >> 2) % ssit_size`.
@@ -530,7 +530,7 @@ impl StoreSetConfig {
 }
 
 /// Configuration for the functional unit pool.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FuConfig {
     /// Number of integer ALU units.
@@ -661,7 +661,7 @@ impl Default for FuConfig {
 }
 
 /// Backend type selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum BackendKind {
     /// In-order pipeline (default).
@@ -673,7 +673,7 @@ pub enum BackendKind {
 
 /// Which CSR accesses squash the instructions fetched behind them and
 /// refetch, as the modelled core's decoder has it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum CsrSquash {
     /// Every CSR instruction: gem5's `MinorCPU`, and BOOM, whose decoder
@@ -711,7 +711,7 @@ const fn write_affects_execution(addr: u32) -> bool {
 }
 
 /// Forwarding policy. Selects how `forward_load` reacts to in-flight vec stores.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VecStoreForwarding {
     /// Per-line byte-mask forwarding (BOOM/Apple/Intel/AMD/ARM pattern). Default.

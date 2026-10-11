@@ -1,10 +1,10 @@
 //! The perceptron and tournament predictors.
 
 use crate::config::defaults;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Perceptron branch predictor configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PerceptronConfig {
     /// Global history length
@@ -35,7 +35,7 @@ impl PerceptronConfig {
 }
 
 /// Tournament branch predictor configuration.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TournamentConfig {
     /// Global predictor size (log2)

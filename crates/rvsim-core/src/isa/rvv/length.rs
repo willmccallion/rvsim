@@ -63,7 +63,7 @@ impl Vlmax {
 ///
 /// Deserializes from the raw bit count, so a configuration with a VLEN the
 /// vector unit cannot have is refused as it is read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Deserialize, serde::Serialize)]
 #[serde(try_from = "usize")]
 pub struct Vlen(usize);
 

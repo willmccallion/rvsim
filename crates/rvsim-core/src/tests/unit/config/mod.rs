@@ -998,6 +998,18 @@ fn a_vlen_the_vector_unit_cannot_have_is_refused_when_the_config_is_read() {
     assert_eq!(pipeline.vlen.bits(), 256);
 }
 
+/// A machine written as JSON reads back as the same machine.
+#[test]
+fn the_default_and_minimal_machines_round_trip_through_json() {
+    for config in [Config::default(), Config::minimal()] {
+        let written = serde_json::to_value(&config).expect("the config writes");
+
+        let read: Config = serde_json::from_value(written.clone()).expect("the config reads");
+
+        assert_eq!(serde_json::to_value(&read).expect("the config writes again"), written);
+    }
+}
+
 #[test]
 fn the_minimal_machine_is_one_wide_in_order_without_caches() {
     let config = Config::minimal();

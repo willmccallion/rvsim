@@ -1,12 +1,12 @@
 //! Branch predictor configuration.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Branch prediction algorithm types.
 ///
 /// Specifies the branch prediction algorithm used to predict
 /// branch directions and targets for improved pipeline performance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum BranchPredictorKind {
     /// Static branch predictor (always predict not-taken).

@@ -1,10 +1,10 @@
 //! The data prefetchers of the load/store unit and the L1D, modelled on
 //! the Cortex-A72's load/store hardware prefetcher (TRM §6.4.9).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Where a load prefetch stream stops at the end of a page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub enum PageBoundary {
     /// Stays inside the page of the load that trained the stream, at that
     /// page's size: the A72 with VA prefetch disabled (`CPUACTLR_EL1[43]`).
@@ -17,7 +17,7 @@ pub enum PageBoundary {
 }
 
 /// The load/store unit's prefetcher for loads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum LoadPrefetcherConfig {
     /// No load prefetcher.
@@ -41,7 +41,7 @@ pub enum LoadPrefetcherConfig {
 }
 
 /// The L1D's prefetcher for store misses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
 pub enum StorePrefetcherConfig {
     /// No store prefetcher.

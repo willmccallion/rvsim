@@ -1,9 +1,9 @@
 //! The coherence fabric: protocol, home agent and interconnect.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Which home agent decides who must be snooped.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "kind")]
 pub enum HomeAgentConfig {
     /// Snoop every other core on every request.
@@ -39,7 +39,7 @@ impl Default for HomeAgentConfig {
 }
 
 /// Which interconnect carries coherence messages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "kind")]
 pub enum InterconnectConfig {
     /// Any port to any port, one hop.
@@ -109,7 +109,7 @@ impl Default for InterconnectConfig {
 }
 
 /// Coherence protocol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum CoherenceProtocolConfig {
     /// Modified / Exclusive / Shared / Invalid.
@@ -118,7 +118,7 @@ pub enum CoherenceProtocolConfig {
 }
 
 /// Coherence fabric configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CoherenceConfig {
     /// Protocol.

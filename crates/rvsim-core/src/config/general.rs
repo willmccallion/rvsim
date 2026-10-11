@@ -1,13 +1,13 @@
 //! General simulator settings: tracing, console, clock.
 
 use super::defaults;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// General simulation settings and options.
 ///
 /// Contains high-level simulation configuration such as tracing,
 /// initial program counter, and direct (bare-metal) execution mode.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GeneralConfig {
     /// Enable instruction tracing to stderr and debug output (hang detection, status updates, mode switches)
@@ -28,7 +28,7 @@ pub struct GeneralConfig {
 }
 
 /// The paging modes SE mode builds a user program's tables for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 pub enum SePagingMode {
     /// Three-level tables over 39 bits, Linux's default on riscv64.
     #[default]
@@ -76,7 +76,7 @@ impl Default for GeneralConfig {
 }
 
 /// Where the UART console connects.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Console {
     /// The host's stdout, with input read from its stdin.

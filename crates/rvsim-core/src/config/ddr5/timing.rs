@@ -259,7 +259,9 @@ impl Ddr5Timing {
 
 /// A [`Ddr5Timing`] field that configuration may override, named as the
 /// JEDEC parameter in snake case (`t_rcd`, `t_ccd_l_wr`, ...).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
+)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
 pub enum Ddr5TimingField {

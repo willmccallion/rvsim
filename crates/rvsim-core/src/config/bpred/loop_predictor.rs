@@ -1,10 +1,10 @@
 //! The loop predictor.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Seznec's loop predictor (used by SC-L-TAGE). The defaults are gem5's
 /// 64KB TAGE-SC-L loop predictor.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[serde(default)]
 #[allow(clippy::struct_excessive_bools)]
