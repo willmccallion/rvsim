@@ -166,3 +166,34 @@ class HostFiles(unittest.TestCase):
 
         self.assertEqual(result.returncode, len(SCRIPT), result.stderr)
         self.assertEqual(written, SCRIPT)
+
+
+class SeveralPrograms(unittest.TestCase):
+    """``--program`` adds a program on another hart; the harts follow."""
+
+    def test_a_second_program_runs_on_its_own_hart(self):
+        from tests.python.test_se_mode import COUNT_THEN_EXIT, EXIT_WITH_ARGC, user_elf
+
+        with tempfile.TemporaryDirectory() as tmp:
+            slow = os.path.join(tmp, "slow.elf")
+            with open(slow, "wb") as f:
+                f.write(user_elf(COUNT_THEN_EXIT))
+            argc = os.path.join(tmp, "argc.elf")
+            with open(argc, "wb") as f:
+                f.write(user_elf(EXIT_WITH_ARGC))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "rvsim",
+                    slow,
+                    "--quiet",
+                    "--program",
+                    f"{argc} one two",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 9, result.stderr)

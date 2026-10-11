@@ -9,7 +9,7 @@ import struct
 import tempfile
 import unittest
 
-from rvsim import Config, Environment, Simulator
+from rvsim import Config, Environment, Program, Simulator
 
 LOAD_ADDRESS = 0x1_0000
 CODE_OFFSET = 0x80
@@ -185,6 +185,57 @@ def file_exchange() -> list[int]:
     name = b"out.txt\0"
     code += [int.from_bytes(name[i : i + 4], "little") for i in range(0, 8, 4)]
     return code
+
+
+class SeveralPrograms(unittest.TestCase):
+    """Several programs run at once, one per hart, and the run ends when the
+    last of them exits."""
+
+    def test_two_programs_run_on_two_harts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            quick = os.path.join(tmp, "quick.elf")
+            with open(quick, "wb") as f:
+                f.write(user_elf(EXIT_WITH_ARGC))
+            slow = os.path.join(tmp, "slow.elf")
+            with open(slow, "wb") as f:
+                f.write(user_elf(COUNT_THEN_EXIT))
+            cpu = Simulator(
+                Config(hart_count=2),
+                programs=[Program(slow), Program(quick, args=["one"])],
+            )
+
+            exit_code = cpu.run(limit=200_000)
+
+        self.assertEqual(exit_code, 9)
+        self.assertEqual(cpu.exit_codes, [9, 2])
+        self.assertGreater(
+            cpu.harts[0].instructions_retired, cpu.harts[1].instructions_retired
+        )
+
+    def test_a_pseudo_op_exit_ends_the_whole_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            quick = os.path.join(tmp, "quick.elf")
+            with open(quick, "wb") as f:
+                f.write(user_elf(M5_FAIL_7))
+            slow = os.path.join(tmp, "slow.elf")
+            with open(slow, "wb") as f:
+                f.write(user_elf(COUNT_THEN_EXIT))
+            cpu = Simulator(
+                Config(hart_count=2), programs=[Program(slow), Program(quick)]
+            )
+
+            exit_code = cpu.run(limit=200_000)
+
+        self.assertEqual(exit_code, 7)
+        self.assertEqual(cpu.exit_codes, [None, None])
+
+    def test_more_programs_than_harts_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prog.elf")
+            with open(path, "wb") as f:
+                f.write(user_elf(EXIT_WITH_ARGC))
+            with self.assertRaisesRegex(RuntimeError, "hart_count"):
+                Simulator(Config(), programs=[Program(path), Program(path)])
 
 
 class HostFiles(unittest.TestCase):

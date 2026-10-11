@@ -84,14 +84,21 @@ pub enum SpaceError {
     Unmapped(u64),
 }
 
-/// Hands out 4 KiB frames of RAM, never reusing one.
+/// Hands out 4 KiB frames of RAM, never reusing one; every process's
+/// pages and tables come from the one allocator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct FrameAllocator {
+pub struct FrameAllocator {
     next: u64,
     end: u64,
 }
 
 impl FrameAllocator {
+    /// Frames from `first_free`, rounded up to a page, to `end`.
+    #[must_use]
+    pub const fn new(first_free: u64, end: u64) -> Self {
+        Self { next: (first_free + PAGE_SIZE - 1) & !(PAGE_SIZE - 1), end }
+    }
+
     fn alloc_zeroed(&mut self, memory: &mut GlobalMemory) -> Result<u64, SpaceError> {
         if self.next + PAGE_SIZE > self.end {
             return Err(SpaceError::OutOfFrames);
@@ -116,28 +123,23 @@ struct Mapping {
 pub struct AddressSpace {
     mode: PagingMode,
     root: u64,
-    frames: FrameAllocator,
     /// Virtual page number to its frame.
     pages: BTreeMap<u64, Mapping>,
 }
 
 impl AddressSpace {
-    /// An empty address space whose tables and pages come from the RAM
-    /// between `first_free` and `ram_end`.
+    /// An empty address space whose tables and pages come from `frames`.
     ///
     /// # Errors
     ///
     /// [`SpaceError`] when the address is unmapped or out of range, or RAM is full.
     pub fn new(
         mode: PagingMode,
-        first_free: u64,
-        ram_end: u64,
         memory: &mut GlobalMemory,
+        frames: &mut FrameAllocator,
     ) -> Result<Self, SpaceError> {
-        let mut frames =
-            FrameAllocator { next: (first_free + PAGE_SIZE - 1) & !(PAGE_SIZE - 1), end: ram_end };
         let root = frames.alloc_zeroed(memory)?;
-        Ok(Self { mode, root, frames, pages: BTreeMap::new() })
+        Ok(Self { mode, root, pages: BTreeMap::new() })
     }
 
     /// The paging mode the tables are built for.
@@ -198,6 +200,7 @@ impl AddressSpace {
     pub fn map(
         &mut self,
         memory: &mut GlobalMemory,
+        frames: &mut FrameAllocator,
         vaddr: u64,
         permissions: Permissions,
     ) -> Result<(), SpaceError> {
@@ -207,9 +210,9 @@ impl AddressSpace {
         let vpn = vaddr >> PAGE_SHIFT;
         let frame = match self.pages.get(&vpn) {
             Some(mapping) => mapping.frame,
-            None => self.frames.alloc_zeroed(memory)?,
+            None => frames.alloc_zeroed(memory)?,
         };
-        self.write_leaf(memory, vpn, frame, permissions)?;
+        self.write_leaf(memory, frames, vpn, frame, permissions)?;
         let _ = self.pages.insert(vpn, Mapping { frame, permissions });
         Ok(())
     }
@@ -222,6 +225,7 @@ impl AddressSpace {
     pub fn map_range(
         &mut self,
         memory: &mut GlobalMemory,
+        frames: &mut FrameAllocator,
         start: u64,
         len: u64,
         permissions: Permissions,
@@ -230,7 +234,7 @@ impl AddressSpace {
         let end = start.checked_add(len).ok_or(SpaceError::OutOfRange(start))?;
         let mut page = first;
         while page < end {
-            self.map(memory, page, permissions)?;
+            self.map(memory, frames, page, permissions)?;
             page += PAGE_SIZE;
         }
         Ok(())
@@ -245,7 +249,7 @@ impl AddressSpace {
         while page < end {
             let vpn = page >> PAGE_SHIFT;
             if self.pages.remove(&vpn).is_some() {
-                let _ = self.write_pte(memory, vpn, 0);
+                self.clear_pte(memory, vpn);
             }
             page += PAGE_SIZE;
         }
@@ -381,43 +385,47 @@ impl AddressSpace {
     }
 
     fn write_leaf(
-        &mut self,
+        &self,
         memory: &mut GlobalMemory,
+        frames: &mut FrameAllocator,
         vpn: u64,
         frame: u64,
         permissions: Permissions,
     ) -> Result<(), SpaceError> {
         let pte = (frame >> PAGE_SHIFT) << PTE_PPN_SHIFT | permissions.pte_bits();
-        self.write_pte(memory, vpn, pte)
-    }
-
-    /// Writes the leaf PTE for `vpn`, creating the tables on the way.
-    fn write_pte(
-        &mut self,
-        memory: &mut GlobalMemory,
-        vpn: u64,
-        pte: u64,
-    ) -> Result<(), SpaceError> {
         let mut table = self.root;
-        let levels = self.levels();
-        for level in (1..levels).rev() {
-            let index = (vpn >> (9 * level)) & (ENTRIES_PER_TABLE - 1);
-            let slot = PhysAddr::new(table + index * PTE_SIZE);
+        for level in (1..self.levels()).rev() {
+            let slot = Self::table_slot(table, vpn, level);
             let entry = memory.read(slot, 8).unwrap_or(0);
             table = if entry & PTE_VALID != 0 {
                 (entry >> PTE_PPN_SHIFT) << PAGE_SHIFT
             } else {
-                if pte == 0 {
-                    return Ok(());
-                }
-                let next = self.frames.alloc_zeroed(memory)?;
+                let next = frames.alloc_zeroed(memory)?;
                 let pointer = (next >> PAGE_SHIFT) << PTE_PPN_SHIFT | PTE_VALID;
                 memory.write(Writer::External, slot, pointer, 8);
                 next
             };
         }
-        let index = vpn & (ENTRIES_PER_TABLE - 1);
-        memory.write(Writer::External, PhysAddr::new(table + index * PTE_SIZE), pte, 8);
+        memory.write(Writer::External, Self::table_slot(table, vpn, 0), pte, 8);
         Ok(())
+    }
+
+    /// Clears the leaf PTE for `vpn`, if its tables exist.
+    fn clear_pte(&self, memory: &mut GlobalMemory, vpn: u64) {
+        let mut table = self.root;
+        for level in (1..self.levels()).rev() {
+            let entry = memory.read(Self::table_slot(table, vpn, level), 8).unwrap_or(0);
+            if entry & PTE_VALID == 0 {
+                return;
+            }
+            table = (entry >> PTE_PPN_SHIFT) << PAGE_SHIFT;
+        }
+        memory.write(Writer::External, Self::table_slot(table, vpn, 0), 0, 8);
+    }
+
+    /// The address of `vpn`'s entry in the table at `table` for `level`.
+    const fn table_slot(table: u64, vpn: u64, level: u32) -> PhysAddr {
+        let index = (vpn >> (9 * level)) & (ENTRIES_PER_TABLE - 1);
+        PhysAddr::new(table + index * PTE_SIZE)
     }
 }

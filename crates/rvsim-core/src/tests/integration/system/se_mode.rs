@@ -2,11 +2,12 @@
 //! are served as syscalls, and a fault ends it the way a signal would.
 
 use crate::Simulator;
+use crate::common::SimError;
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::op::pseudo::PseudoOp;
 use crate::system::checkpoint::CheckpointError;
 use crate::system::process::loader::PIE_BASE;
-use crate::system::simulator::{ProcessArgs, ProgramKind, StopAt, StopReason};
+use crate::system::simulator::{ProcessArgs, ProgramImage, ProgramKind, StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 
 const ECALL: u32 = 0x0000_0073;
@@ -461,4 +462,146 @@ fn hwprobe_reports_misaligned_access_speed_and_unknown_keys() {
     }
     let mut sim = simulator_on(&trapping, &hwprobe_program(5, false), &["prog"]);
     assert_eq!(run_for(&mut sim, 50_000), StopReason::Exited(UNSUPPORTED));
+}
+
+/// A simulator with `hart_count` harts running `programs`, one per hart.
+fn simulator_with_programs(backend: BackendKind, programs: &[&[u32]]) -> Simulator {
+    let mut config = config(backend);
+    config.system.hart_count = programs.len();
+    let mut sim = Simulator::build(&config, "");
+    let args = ProcessArgs { argv: vec!["prog".to_string()], envp: vec![] };
+    let images: Vec<Vec<u8>> = programs.iter().map(|code| user_elf(code, ET_EXEC)).collect();
+    let loaded: Vec<ProgramImage<'_>> =
+        images.iter().map(|data| ProgramImage { data, args: &args }).collect();
+    sim.load_processes(&loaded).expect("the programs load");
+    sim
+}
+
+/// Counts to `count` in a loop, then exits with `code`.
+fn count_then_exit(count: i32, code: i32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(T0, 0, 0).build(),
+        i().addi(T1, 0, count).build(),
+        i().addi(T0, T0, 1).build(),
+        i().blt(T0, T1, -4).build(),
+        i().addi(A0, 0, code).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ]
+}
+
+/// Stores `value` at a fixed address in its own data page, reads it back
+/// after a pause, and exits with it: the pages of two programs at the same
+/// virtual address are different frames.
+fn store_then_exit_with_load(value: i32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(T0, 0, value).build(),
+        i().sd(SP, T0, -32).build(),
+        i().addi(T1, 0, 200).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, 0, -4).build(),
+        i().ld(A0, SP, -32).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ]
+}
+
+/// Two programs run on two harts; the run ends when the second one exits,
+/// with the first non-zero exit code in hart order, and each hart reports
+/// its own program's code.
+#[test]
+fn two_programs_run_to_their_own_exits() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator_with_programs(backend, &[&exit_with(0), &count_then_exit(300, 9)]);
+
+        let stop = run_for(&mut sim, 100_000);
+
+        assert_eq!(stop, StopReason::Exited(9), "{backend:?}");
+        assert_eq!(sim.exit_codes(), vec![Some(0), Some(9)], "{backend:?}");
+        let retired = |hart: usize| sim.hart(hart).instructions_retired;
+        assert!(
+            retired(1) > retired(0) + 500,
+            "{backend:?}: hart 1 kept running after hart 0 exited"
+        );
+    }
+}
+
+#[test]
+fn the_runs_exit_code_is_the_first_non_zero_one_in_hart_order() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim =
+            simulator_with_programs(backend, &[&exit_with(5), &exit_with(7), &exit_with(0)]);
+
+        let stop = run_for(&mut sim, 100_000);
+
+        assert_eq!(stop, StopReason::Exited(5), "{backend:?}");
+        assert_eq!(sim.exit_codes(), vec![Some(5), Some(7), Some(0)], "{backend:?}");
+    }
+}
+
+#[test]
+fn each_program_has_its_own_memory() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator_with_programs(
+            backend,
+            &[&store_then_exit_with_load(11), &store_then_exit_with_load(22)],
+        );
+
+        let stop = run_for(&mut sim, 100_000);
+
+        assert_eq!(stop, StopReason::Exited(11), "{backend:?}");
+        assert_eq!(sim.exit_codes(), vec![Some(11), Some(22)], "{backend:?}");
+    }
+}
+
+/// A faulting program ends with its signal's status while the other goes
+/// on to its own exit.
+#[test]
+fn a_fault_ends_one_program_and_the_other_runs_on() {
+    let illegal = vec![0xffff_ffff];
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator_with_programs(backend, &[&illegal, &count_then_exit(300, 0)]);
+
+        let stop = run_for(&mut sim, 100_000);
+
+        assert_eq!(stop, StopReason::Exited(132), "{backend:?}");
+        assert_eq!(sim.exit_codes(), vec![Some(132), Some(0)], "{backend:?}");
+    }
+}
+
+#[test]
+fn more_programs_than_harts_are_refused() {
+    let config = config(BackendKind::InOrder);
+    let mut sim = Simulator::build(&config, "");
+    let args = ProcessArgs::default();
+    let a = user_elf(&exit_with(0), ET_EXEC);
+    let programs = [ProgramImage { data: &a, args: &args }, ProgramImage { data: &a, args: &args }];
+
+    let error = sim.load_processes(&programs).expect_err("two programs on one hart");
+
+    assert!(matches!(error, SimError::UnsupportedProgram { .. }), "{error}");
+}
+
+/// A checkpoint taken mid-run of two programs resumes both to the same
+/// end as the uninterrupted run.
+#[test]
+fn a_checkpoint_resumes_two_programs() {
+    let programs: [&[u32]; 2] = [&count_then_exit(400, 3), &count_then_exit(900, 0)];
+    let mut whole = simulator_with_programs(BackendKind::OutOfOrder, &programs);
+    let expected = run_for(&mut whole, 100_000);
+    let mut first = simulator_with_programs(BackendKind::OutOfOrder, &programs);
+    let _ = run_for(&mut first, 200);
+    let mut saved = Vec::new();
+    first.save_checkpoint(&mut saved).expect("the checkpoint saves");
+    let mut second = simulator_with_programs(BackendKind::OutOfOrder, &programs);
+    second.restore_checkpoint(&mut std::io::Cursor::new(saved)).expect("the checkpoint restores");
+
+    let resumed = run_for(&mut second, 100_000);
+
+    assert_eq!(expected, StopReason::Exited(3));
+    assert_eq!(resumed, expected);
+    assert_eq!(second.exit_codes(), whole.exit_codes());
+    assert_eq!(second.state.instructions_retired(), whole.state.instructions_retired());
 }

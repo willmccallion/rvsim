@@ -86,7 +86,9 @@ pub(super) fn perform_deferred_csr(state: &mut CoreCtx<'_>, entry: &mut RobEntry
 /// that every older instruction has retired and every older store has
 /// been written; the result becomes the entry's, destined for `a0`.
 pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> Option<Outcome> {
-    if entry.ctrl.system_op != SystemOp::Ecall || state.uncore.process.is_none() {
+    if entry.ctrl.system_op != SystemOp::Ecall
+        || state.uncore.processes.get(state.hart.hart_id).is_none()
+    {
         return None;
     }
     let outcome = syscall::serve_ecall(state, entry.pc);
@@ -374,10 +376,14 @@ fn retire_system(
         ),
         // The instructions fetched behind a served ecall read registers and
         // mappings it changed, so they are refetched, as after a CSR write.
+        // A program's exit parks its hart; what was fetched behind the
+        // ecall is dropped, and nothing is fetched while it waits.
         SystemOp::Ecall => match syscall {
             Some(Outcome::Exit(code)) => {
-                state.signal_exit(code);
-                CommitFlow::Stop(None)
+                state.exit_process(code);
+                CommitFlow::Stop(Some(CommitEvent::SquashAfter(
+                    entry.pc.wrapping_add(entry.inst_size.as_u64()),
+                )))
             }
             Some(Outcome::Continue { .. }) => {
                 state.core.mmu.sfence_vma(&syscall::flush_all());

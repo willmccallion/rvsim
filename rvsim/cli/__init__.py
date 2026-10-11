@@ -316,6 +316,15 @@ def main() -> None:
         help="an environment entry for a Linux user program (SE mode); repeatable",
     )
     parser.add_argument(
+        "--program",
+        metavar="'BINARY [ARG...]'",
+        action="append",
+        default=[],
+        help="another static Linux user program to run on its own hart beside the "
+        "first, with its arguments (shell-split); repeatable. The harts default "
+        "to the number of programs",
+    )
+    parser.add_argument(
         "--mode",
         choices=["se", "bare"],
         default=None,
@@ -369,7 +378,7 @@ def main() -> None:
         return
 
     from ..config import Config, load_config
-    from ..simulator import Simulator
+    from ..simulator import Program, Simulator
 
     if args.config and args.preset:
         parser.error("--config and --preset are mutually exclusive")
@@ -397,6 +406,18 @@ def main() -> None:
         host_files = {"script": args.script, "outdir": args.outdir}
         if mode == "kernel":
             return Simulator(cfg, kernel=target, **host_files)
+        if args.program:
+            import shlex
+
+            programs = [Program(target, extra_args, args.env)]
+            for entry in args.program:
+                words = shlex.split(entry)
+                if not words:
+                    parser.error("--program needs a binary")
+                programs.append(Program(words[0], words[1:], args.env))
+            if args.harts is None:
+                cfg.hart_count = max(cfg.hart_count, len(programs))
+            return Simulator(cfg, programs=programs, **host_files)
         return Simulator(
             cfg,
             binary=target,

@@ -1,10 +1,12 @@
-//! SE mode: a Linux user program run without a kernel.
+//! SE mode: Linux user programs run without a kernel, one per hart.
 //!
-//! The simulator loads the static ELF, builds its page tables and stack,
-//! and runs it in user mode; an `ecall` retires as an instruction whose
-//! effect is the syscall, served by the simulator against the host's
-//! files, clock and memory, as gem5's SE mode does. Syscalls cost the
-//! pipeline a flush and nothing else; there is no kernel to charge for.
+//! The simulator loads each static ELF, builds its page tables and stack,
+//! and runs it in user mode on its hart; an `ecall` retires as an
+//! instruction whose effect is the syscall, served by the simulator
+//! against the host's files, clock and memory, as gem5's SE mode does.
+//! Syscalls cost the pipeline a flush and nothing else; there is no
+//! kernel to charge for. The programs share RAM's frames and the caches
+//! below their cores, and the run ends when the last of them exits.
 
 pub(crate) mod files;
 pub mod loader;
@@ -15,11 +17,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::common::HartId;
 use crate::isa::privileged::PagingMode;
 use crate::sim::memory::GlobalMemory;
 use crate::soc::terminal::SharedTerminal;
 
-pub use page_table::{AddressSpace, PAGE_SIZE, Permissions, SpaceError};
+pub use page_table::{AddressSpace, FrameAllocator, PAGE_SIZE, Permissions, SpaceError};
 
 use files::FileTable;
 
@@ -46,12 +49,15 @@ pub struct Process {
     file_maps: BTreeMap<u64, u64>,
     /// How many syscalls were served, by number.
     pub syscall_counts: BTreeMap<u64, u64>,
+    /// The process id the program sees: 1 for the first program, then up.
+    pub pid: u64,
 }
 
 /// A process's state in a checkpoint: everything but its host files,
 /// which a restored run does not get back.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessState {
+    pid: u64,
     space: AddressSpace,
     brk_start: u64,
     brk: u64,
@@ -82,16 +88,18 @@ impl Layout {
 }
 
 impl Process {
-    /// A process over an address space whose heap starts at `brk_start`.
+    /// Process `pid` over an address space whose heap starts at `brk_start`.
     #[must_use]
     pub fn new(
         space: AddressSpace,
         brk_start: u64,
         clock_hz: u64,
         terminal: SharedTerminal,
+        pid: u64,
     ) -> Self {
         let layout = Layout::for_space(&space);
         Self {
+            pid,
             space,
             files: FileTable::new(terminal),
             brk_start,
@@ -109,6 +117,7 @@ impl Process {
     #[must_use]
     pub fn checkpoint(&self) -> ProcessState {
         ProcessState {
+            pid: self.pid,
             space: self.space.clone(),
             brk_start: self.brk_start,
             brk: self.brk,
@@ -125,6 +134,7 @@ impl Process {
     #[must_use]
     pub fn from_checkpoint(state: ProcessState, terminal: SharedTerminal) -> Self {
         Self {
+            pid: state.pid,
             space: state.space,
             files: FileTable::new(terminal),
             brk_start: state.brk_start,
@@ -153,14 +163,23 @@ impl Process {
     /// Moves the program break to `new_brk`, mapping or unmapping the
     /// pages between, and returns where it ends up: unchanged when the
     /// request is below the start or cannot be mapped, as Linux does.
-    pub fn set_brk(&mut self, memory: &mut GlobalMemory, new_brk: u64) -> u64 {
+    pub fn set_brk(
+        &mut self,
+        memory: &mut GlobalMemory,
+        frames: &mut FrameAllocator,
+        new_brk: u64,
+    ) -> u64 {
         if new_brk < self.brk_start || !self.space.in_range(new_brk) {
             return self.brk;
         }
         let old_end = page_ceil(self.brk);
         let new_end = page_ceil(new_brk);
         if new_end > old_end {
-            if self.space.map_range(memory, old_end, new_end - old_end, Permissions::RW).is_err() {
+            if self
+                .space
+                .map_range(memory, frames, old_end, new_end - old_end, Permissions::RW)
+                .is_err()
+            {
                 return self.brk;
             }
         } else if new_end < old_end {
@@ -179,6 +198,7 @@ impl Process {
     pub fn map_anonymous(
         &mut self,
         memory: &mut GlobalMemory,
+        frames: &mut FrameAllocator,
         hint: Option<u64>,
         len: u64,
         permissions: Permissions,
@@ -196,7 +216,7 @@ impl Process {
                 start
             }
         };
-        self.space.map_range(memory, start, len, permissions)?;
+        self.space.map_range(memory, frames, start, len, permissions)?;
         Ok(start)
     }
 
@@ -238,4 +258,132 @@ impl Process {
 #[must_use]
 pub const fn page_ceil(value: u64) -> u64 {
     (value + PAGE_SIZE - 1) & !(PAGE_SIZE - 1)
+}
+
+/// A hart's program: the process, and its exit code once it has exited.
+#[derive(Debug)]
+struct Slot {
+    process: Process,
+    exit_code: Option<u64>,
+}
+
+/// The user programs SE mode runs, one per hart, drawing their pages and
+/// tables from one frame allocator; empty outside SE mode.
+#[derive(Debug, Default)]
+pub struct Processes {
+    frames: Option<FrameAllocator>,
+    /// Indexed by hart.
+    slots: Vec<Option<Slot>>,
+}
+
+/// The programs' state in a checkpoint.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ProcessesState {
+    frames: Option<FrameAllocator>,
+    slots: Vec<Option<(ProcessState, Option<u64>)>>,
+}
+
+impl Processes {
+    /// A table for `hart_count` harts whose programs' frames come from
+    /// `frames`.
+    #[must_use]
+    pub fn new(hart_count: usize, frames: FrameAllocator) -> Self {
+        Self { frames: Some(frames), slots: (0..hart_count).map(|_| None).collect() }
+    }
+
+    /// Whether any program is loaded: whether this is SE mode.
+    #[must_use]
+    pub fn is_se(&self) -> bool {
+        self.slots.iter().any(Option::is_some)
+    }
+
+    /// Gives `hart` the program `process`.
+    pub fn insert(&mut self, hart: HartId, process: Process) {
+        self.slots[hart.as_index()] = Some(Slot { process, exit_code: None });
+    }
+
+    /// The frames every program draws from, while in SE mode.
+    pub const fn frames_mut(&mut self) -> Option<&mut FrameAllocator> {
+        self.frames.as_mut()
+    }
+
+    /// `hart`'s program.
+    #[must_use]
+    pub fn get(&self, hart: HartId) -> Option<&Process> {
+        self.slots.get(hart.as_index())?.as_ref().map(|slot| &slot.process)
+    }
+
+    /// `hart`'s program, to change it.
+    pub fn get_mut(&mut self, hart: HartId) -> Option<&mut Process> {
+        self.slots.get_mut(hart.as_index())?.as_mut().map(|slot| &mut slot.process)
+    }
+
+    /// `hart`'s program together with the frames it maps from.
+    pub fn program_and_frames(
+        &mut self,
+        hart: HartId,
+    ) -> Option<(&mut Process, &mut FrameAllocator)> {
+        let process = &mut self.slots.get_mut(hart.as_index())?.as_mut()?.process;
+        Some((process, self.frames.as_mut()?))
+    }
+
+    /// Records that `hart`'s program exited with `code`, and says whether
+    /// every program has now exited.
+    pub fn record_exit(&mut self, hart: HartId, code: u64) -> bool {
+        if let Some(slot) = self.slots.get_mut(hart.as_index()).and_then(Option::as_mut) {
+            let _ = slot.exit_code.get_or_insert(code);
+        }
+        self.slots.iter().flatten().all(|slot| slot.exit_code.is_some())
+    }
+
+    /// Each hart's program's exit code: `None` for a hart without a
+    /// program or whose program is still running.
+    #[must_use]
+    pub fn exit_codes(&self) -> Vec<Option<u64>> {
+        self.slots.iter().map(|slot| slot.as_ref().and_then(|slot| slot.exit_code)).collect()
+    }
+
+    /// The run's exit code once every program has exited: the first
+    /// non-zero code in hart order, else 0.
+    #[must_use]
+    pub fn run_exit_code(&self) -> u64 {
+        self.exit_codes().into_iter().flatten().find(|&code| code != 0).unwrap_or(0)
+    }
+
+    /// How many host files the programs have open between them.
+    #[must_use]
+    pub fn host_files_open(&self) -> usize {
+        self.slots.iter().flatten().map(|slot| slot.process.files.host_files_open()).sum()
+    }
+
+    /// The state a checkpoint keeps.
+    #[must_use]
+    pub fn checkpoint(&self) -> ProcessesState {
+        ProcessesState {
+            frames: self.frames.clone(),
+            slots: self
+                .slots
+                .iter()
+                .map(|slot| slot.as_ref().map(|slot| (slot.process.checkpoint(), slot.exit_code)))
+                .collect(),
+        }
+    }
+
+    /// The programs a checkpoint holds, each with only the console open.
+    #[must_use]
+    pub fn from_checkpoint(state: ProcessesState, terminal: &SharedTerminal) -> Self {
+        Self {
+            frames: state.frames,
+            slots: state
+                .slots
+                .into_iter()
+                .map(|slot| {
+                    slot.map(|(process, exit_code)| Slot {
+                        process: Process::from_checkpoint(process, terminal.clone()),
+                        exit_code,
+                    })
+                })
+                .collect(),
+        }
+    }
 }

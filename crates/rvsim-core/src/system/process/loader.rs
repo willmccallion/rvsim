@@ -8,12 +8,16 @@ use object::Endianness;
 use object::elf::{EM_RISCV, ET_DYN, ET_EXEC, PF_R, PF_W, PF_X, PT_INTERP, PT_LOAD, PT_PHDR};
 use object::read::elf::{ElfFile64, FileHeader, ProgramHeader};
 
-use super::{AddressSpace, PAGE_SIZE, Permissions, Process, SpaceError, page_ceil};
-use crate::common::SimError;
+use super::{
+    AddressSpace, FrameAllocator, PAGE_SIZE, Permissions, Process, Processes, SpaceError, page_ceil,
+};
+use crate::arch::Hart;
+use crate::common::{CoreId, HartId, SimError};
 use crate::isa::csr;
 use crate::isa::privileged::{PagingMode, PrivilegeMode};
 use crate::isa::reg;
-use crate::soc::terminal::InputReader;
+use crate::sim::memory::GlobalMemory;
+use crate::soc::terminal::{InputReader, SharedTerminal};
 use crate::system::state::SystemState;
 
 const AT_NULL: u64 = 0;
@@ -57,24 +61,39 @@ pub struct ProcessArgs {
     pub envp: Vec<String>,
 }
 
-/// Loads `data`, a static riscv64 Linux ELF, as the process hart 0 runs
-/// under `mode` paging.
+/// A program to load: its ELF image and command line.
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramImage<'a> {
+    /// The static riscv64 Linux ELF.
+    pub data: &'a [u8],
+    /// Its command line and environment.
+    pub args: &'a ProcessArgs,
+}
+
+/// Loads `programs`, static riscv64 Linux ELFs, one per hart from hart 0.
+///
+/// Each runs under `mode` paging in its own address space drawn from
+/// RAM's frames; a hart beyond the programs is parked, and the run ends
+/// when the last program exits.
 ///
 /// # Errors
 ///
-/// [`SimError::UnsupportedProgram`] for anything but a static RISC-V
-/// executable, position-independent or not; [`SimError::ProcessMemory`]
-/// when RAM cannot hold it.
-pub fn load_process(
+/// [`SimError::NotAnElf`], [`SimError::UnsupportedProgram`] or
+/// [`SimError::ProcessMemory`].
+pub fn load_processes(
     state: &mut SystemState,
-    data: &[u8],
-    args: &ProcessArgs,
+    programs: &[ProgramImage<'_>],
     mode: PagingMode,
     clock_hz: u64,
 ) -> Result<(), SimError> {
-    if state.harts.len() != 1 {
+    let harts = state.harts.len();
+    if programs.is_empty() || programs.len() > harts {
         return Err(SimError::UnsupportedProgram {
-            reason: "SE mode runs one hart; configure a single core".to_string(),
+            reason: format!(
+                "{} programs need {} harts to run on, one each; configure hart_count",
+                programs.len(),
+                programs.len()
+            ),
         });
     }
     if mode == PagingMode::Bare {
@@ -82,13 +101,58 @@ pub fn load_process(
             reason: "SE mode needs a paging mode (Sv39, Sv48 or Sv57)".to_string(),
         });
     }
-    let image = Image::parse(data)?;
+    let images =
+        programs.iter().map(|program| Image::parse(program.data)).collect::<Result<Vec<_>, _>>()?;
 
     let ram_base = state.config.system.ram_base;
     let ram_end = ram_base + state.config.memory.ram_size as u64;
-    let memory = &mut state.uncore.memory;
-    let mut space = AddressSpace::new(mode, ram_base, ram_end, memory).map_err(space_error)?;
+    let mut frames = FrameAllocator::new(ram_base, ram_end);
+    let mut loaded = Vec::with_capacity(programs.len());
+    for (index, (program, image)) in programs.iter().zip(&images).enumerate() {
+        let terminal = state.uncore.terminal.clone();
+        let memory = &mut state.uncore.memory;
+        let (process, sp) = place(
+            image,
+            program.args,
+            mode,
+            clock_hz,
+            1 + index as u64,
+            terminal,
+            memory,
+            &mut frames,
+        )?;
+        loaded.push((process, sp, image.entry));
+    }
 
+    let mut processes = Processes::new(harts, frames);
+    for (index, (process, sp, entry)) in loaded.into_iter().enumerate() {
+        let hart_id = state.harts[index].hart_id;
+        let satp = process.space.satp();
+        processes.insert(hart_id, process);
+        start_hart(state, hart_id, entry, sp, satp);
+    }
+    for hart in state.harts.iter_mut().skip(programs.len()) {
+        park(hart);
+    }
+    state.uncore.processes = processes;
+    state.uncore.read_console_through(InputReader::Proxy);
+    Ok(())
+}
+
+/// Builds `image`'s address space and stack from `frames` and returns the
+/// process and its initial stack pointer.
+#[allow(clippy::too_many_arguments, reason = "the pieces one program is built from")]
+fn place(
+    image: &Image<'_>,
+    args: &ProcessArgs,
+    mode: PagingMode,
+    clock_hz: u64,
+    pid: u64,
+    terminal: SharedTerminal,
+    memory: &mut GlobalMemory,
+    frames: &mut FrameAllocator,
+) -> Result<(Process, u64), SimError> {
+    let mut space = AddressSpace::new(mode, memory, frames).map_err(space_error)?;
     let mut image_end = 0;
     for segment in &image.segments {
         let perms = segment.permissions;
@@ -98,28 +162,31 @@ pub fn load_process(
         })?;
         while page < end {
             let merged = space.permissions(page).map_or(perms, |existing| existing.union(perms));
-            space.map(memory, page, merged).map_err(space_error)?;
+            space.map(memory, frames, page, merged).map_err(space_error)?;
             page += PAGE_SIZE;
         }
         space.write(memory, segment.vaddr, segment.data).map_err(space_error)?;
         image_end = image_end.max(end);
     }
 
-    let mut process =
-        Process::new(space, page_ceil(image_end), clock_hz, state.uncore.terminal.clone());
+    let mut process = Process::new(space, page_ceil(image_end), clock_hz, terminal, pid);
     let stack_top = process.stack_top();
     let stack_bytes = process.stack_bytes();
     process
         .space
-        .map_range(memory, stack_top - stack_bytes, stack_bytes, Permissions::RW)
+        .map_range(memory, frames, stack_top - stack_bytes, stack_bytes, Permissions::RW)
         .map_err(space_error)?;
-    let sp = build_stack(&mut process, memory, &image, args).map_err(space_error)?;
+    let sp = build_stack(&mut process, memory, image, args).map_err(space_error)?;
+    Ok((process, sp))
+}
 
-    let satp = process.space.satp();
-    state.uncore.process = Some(process);
-    state.uncore.read_console_through(InputReader::Proxy);
-    let mut ctx = state.core_ctx(0);
-    ctx.hart.pc = image.entry;
+/// Points `hart_id` at `entry` in user mode with `sp` and `satp`, the
+/// whole address space open to it, the counters readable, and the FPU
+/// and vector unit on, as Linux leaves them for a process.
+fn start_hart(state: &mut SystemState, hart_id: HartId, entry: u64, sp: u64, satp: u64) {
+    let core = state.topology.core_of_hart(hart_id).map_or(hart_id.as_index(), CoreId::as_index);
+    let mut ctx = state.core_ctx(core);
+    ctx.hart.pc = entry;
     ctx.hart.privilege = PrivilegeMode::User;
     ctx.hart.regs.write(reg::REG_SP, sp);
     // A user-mode access no PMP entry matches is denied, so the firmware
@@ -129,13 +196,17 @@ pub fn load_process(
     ctx.csr_write(csr::SATP, satp);
     ctx.csr_write(csr::MCOUNTEREN, COUNTERS_ALL);
     ctx.csr_write(csr::SCOUNTEREN, COUNTERS_ALL);
-    // Linux turns the FPU and the vector unit on for a process; glibc's
-    // string routines use the vector unit when the ISA has it.
     let mstatus = (ctx.hart.csrs.mstatus & !(csr::MSTATUS_FS | csr::MSTATUS_VS))
         | csr::MSTATUS_FS_INIT
         | csr::MSTATUS_VS_INIT;
     ctx.csr_write(csr::MSTATUS, mstatus);
-    Ok(())
+}
+
+/// Leaves `hart` waiting as after a `wfi` nothing can wake: it has no
+/// program.
+pub const fn park(hart: &mut Hart) {
+    hart.wfi_waiting = true;
+    hart.csrs.mie = 0;
 }
 
 const fn space_error(error: SpaceError) -> SimError {
@@ -230,7 +301,7 @@ impl<'a> Image<'a> {
 /// vector, `envp`, `argv` and `argc`, 16-byte aligned.
 fn build_stack(
     process: &mut Process,
-    memory: &mut crate::sim::memory::GlobalMemory,
+    memory: &mut GlobalMemory,
     image: &Image<'_>,
     args: &ProcessArgs,
 ) -> Result<u64, SpaceError> {

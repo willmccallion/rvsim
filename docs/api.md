@@ -46,6 +46,8 @@ See [Configuration](configuration.md) for every parameter.
 
 ::: rvsim.Simulator
 
+::: rvsim.Program
+
 ### Pseudo-operations
 
 A program marks regions, dumps or resets the stats, stops the host's run,

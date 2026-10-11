@@ -55,7 +55,7 @@ from .session.stops import (
     Stopped,
     When,
 )
-from .simulator import Instruction, PipelineSnapshot, Simulator
+from .simulator import Instruction, PipelineSnapshot, Program, Simulator
 from .stats import Stats, Table
 from .sweep import Sweep, SweepResults
 
@@ -101,6 +101,7 @@ __all__ = [
     "Pc",
     "PipelineSnapshot",
     "Prefetcher",
+    "Program",
     "Region",
     "ReplacementPolicy",
     "Result",

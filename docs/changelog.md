@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- SE mode runs several programs at once, one per hart, as gem5's
+  `se.py -n N --cmd "a;b"` does: `Simulator(programs=[Program(...),
+  ...])` or `python -m rvsim a.elf --program "b.elf arg"`. Each program
+  has its own address space from the shared RAM and sees the memory
+  system the configuration shares; the run ends when the last exits, with
+  the first non-zero exit code in hart order, and `Simulator.exit_codes`
+  holds each hart's. A program's `getpid` is 1, 2, ... by hart.
+  Checkpoints carry every program (format version 7).
 - More of gem5's m5ops: `m5_rpns` (`rvsim_time_ns()` in `rvsim.h`) gives
   the simulated time in nanoseconds, `m5_sum` adds its arguments,
   `m5_debug_break` and `m5_switch_cpu` stop the host's run, and

@@ -11,7 +11,7 @@ impl CoreCtx<'_> {
     pub fn trap(&mut self, cause: &Trap, epc: u64) {
         self.clear_reservation();
 
-        if self.uncore.process.is_some() {
+        if self.uncore.processes.get(self.hart.hart_id).is_some() {
             // There is no kernel to take it: the program dies as it would
             // under Linux, with the signal's exit status.
             let signal = match cause {
@@ -41,7 +41,7 @@ impl CoreCtx<'_> {
                 Trap::IllegalInstruction(i) => u64::from(i),
                 _ => 0,
             };
-            self.signal_exit(128 + signal);
+            self.exit_process(128 + signal);
             return;
         }
 
