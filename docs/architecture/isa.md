@@ -10,7 +10,9 @@ the shared execute layer, and both pipelines run that definition
 `misa` reads `RV64IMAFDCBSUV`, B standing for Zba, Zbb and Zbs. Every
 extension below is always on except
 Svadu, which `Config(svadu=True)` enables; the vector unit's VLEN is set by
-`Config(vlen=...)`.
+`Config(vlen=...)`. The generated [device tree](soc.md#device-tree) names
+them all, so a Linux guest enables what the hart has: `/proc/cpuinfo`
+shows `rv64imafdcbv_zicbom_zicboz_zicntr_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zbkb_zbkc_zbkx_zvbb_zvbc_zvfh_zvkb_zvkg_zvkned_zvknha_zvknhb_zvksed_zvksh_zvkt_zvl128b_sstc`.
 
 ## Unprivileged extensions
 

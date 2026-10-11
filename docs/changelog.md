@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The generated device tree advertises every extension the hart
+  implements, not just `misa`'s letters: `riscv,isa` names Zicbom,
+  Zicboz, Zicntr, Zicsr, Zifencei, Zihintpause, Zihpm, Zfh, the Zb and
+  Zbk families, the Zvb and Zvk families, Zvfh, `zvl<VLEN>b`, Sstc and
+  Svadu as the configuration has them, the `riscv,isa-base` and
+  `riscv,isa-extensions` pair says the same for kernels that prefer it,
+  `riscv,cbom-block-size` and `riscv,cboz-block-size` carry the block
+  size Linux needs before it uses the cache-block instructions, and
+  `mmu-type` follows `paging_mode_max` instead of always saying Sv39. A
+  Linux guest now enables its Zbb string routines and reports the
+  extensions through `hwprobe`, so glibc picks the matching routines
+  (#76).
 - gem5's `readfile` and `writefile` pseudo-operations (`m5_read_file`,
   `m5_write_file`; `rvsim_read_file` and `rvsim_write_file` in
   `rvsim.h`): a guest reads the host's script file into its memory and

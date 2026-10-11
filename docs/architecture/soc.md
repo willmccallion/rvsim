@@ -162,9 +162,12 @@ rvsim generates a Flattened Device Tree Blob (DTB) from the active
 configuration, unless a DTB file is supplied. It is placed at
 `ram_base + 0x0220_0000` and contains:
 
-- One `cpu@N` node per hart, with the `misa` letters plus `_sstc` (and
-  `_svadu` when enabled) as its `riscv,isa`, `riscv,sv39` as its MMU type,
-  and a `cpu-map`
+- One `cpu@N` node per hart, with every extension the hart implements
+  as its `riscv,isa` string (`rv64imafdcbv_zicbom_..._sstc`, plus
+  `_svadu` when enabled) and as the `riscv,isa-base` and
+  `riscv,isa-extensions` pair newer kernels prefer, the strongest paging
+  mode `satp` accepts as its `mmu-type`, the 64-byte block the Zicbom
+  and Zicboz instructions act on as their block sizes, and a `cpu-map`
 - A memory node sized to `ram_size`
 - The CLINT, with timer and software interrupts for every hart, and the
   PLIC, with an M- and an S-mode context for every hart

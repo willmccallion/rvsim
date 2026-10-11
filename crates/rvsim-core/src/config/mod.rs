@@ -36,6 +36,7 @@ pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};
 pub use system::SystemConfig;
 
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
+use crate::isa::extension::{Extension, Extensions};
 use serde::Deserialize;
 
 /// Root configuration structure containing all simulator settings.
@@ -272,6 +273,57 @@ impl Config {
     /// every [`Vlen`](crate::isa::rvv::Vlen) already satisfies Zvl128b.
     const fn implements_full_v(&self) -> bool {
         self.isa.vector.elen == 64
+    }
+
+    /// The multi-letter extensions the hart implements: every one the
+    /// simulator has, less those the `misa` letters or the ISA options
+    /// leave out.
+    #[must_use]
+    pub fn extensions(&self) -> Extensions {
+        let misa = self.misa();
+        let mut set = Extensions::all();
+        for ext in Extension::ALL {
+            if ext.builds_on().is_some_and(|letter| !misa.has(letter)) {
+                set = set.without(ext);
+            }
+        }
+        if !self.isa.vector.zvfh {
+            set = set.without(Extension::Zvfh);
+        }
+        if !self.isa.svadu {
+            set = set.without(Extension::Svadu);
+        }
+        set
+    }
+
+    /// The names of the multi-letter extensions the hart implements, in
+    /// ISA-string order, with the vector register length (`zvl128b`) among
+    /// the vector ones.
+    #[must_use]
+    pub fn extension_names(&self) -> Vec<String> {
+        let mut names: Vec<String> =
+            self.extensions().iter().map(|ext| ext.name().to_owned()).collect();
+        if self.misa().has_v() {
+            let after_vector = names
+                .iter()
+                .rposition(|name| name.starts_with("zv"))
+                .map_or(names.len(), |i| i + 1);
+            names.insert(after_vector, format!("zvl{}b", self.pipeline.vlen.bits()));
+        }
+        names
+    }
+
+    /// The ISA string naming the hart's `misa` letters and every extension
+    /// it implements, as the device tree advertises it and Linux prints it:
+    /// `rv64imafdcbv_zicbom_..._svadu`.
+    #[must_use]
+    pub fn isa_string(&self) -> String {
+        let mut isa = self.misa().isa_string();
+        for name in self.extension_names() {
+            isa.push('_');
+            isa.push_str(&name);
+        }
+        isa
     }
 
     /// Checks the combinations the simulator cannot build.

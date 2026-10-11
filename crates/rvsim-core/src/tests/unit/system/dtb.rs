@@ -166,17 +166,38 @@ fn phandles_never_collide() {
     assert_eq!(seen.len(), count);
 }
 
-#[test]
-fn the_isa_string_is_the_harts_misa() {
-    let default_isa = tree_for(1).child("cpus").child("cpu@0").props["riscv,isa"].clone();
-    let mut config = Config::default();
-    config.pipeline.misa_override = Some("RV64IMAFD".parse().expect("valid ISA string"));
-    let without_c =
-        parse(&generate_dtb(&config)).child("cpus").child("cpu@0").props["riscv,isa"].clone();
+const DEFAULT_ISA: &str = "rv64imafdcbv_zicbom_zicboz_zicntr_zicsr_zifencei_zihintpause_zihpm_zfh_zba_zbb_zbc_zbs_zbkb_zbkc_zbkx_zvbb_zvbc_zvfh_zvkb_zvkg_zvkned_zvknha_zvknhb_zvksed_zvksh_zvkt_zvl128b_sstc";
 
+fn cpu0(config: &Config) -> Node {
+    let tree = parse(&generate_dtb(config));
+    let cpu = tree.child("cpus").child("cpu@0");
+    Node { name: cpu.name.clone(), props: cpu.props.clone(), children: Vec::new() }
+}
+
+fn string_prop(node: &Node, name: &str) -> String {
+    String::from_utf8(node.props[name].clone()).unwrap().trim_end_matches('\0').to_owned()
+}
+
+fn string_list_prop(node: &Node, name: &str) -> Vec<String> {
+    string_prop(node, name).split('\0').map(str::to_owned).collect()
+}
+
+/// The ISA string names `misa`'s letters and every extension the hart
+/// implements; what the letters leave out takes its extensions with it.
+#[test]
+fn the_isa_string_names_every_implemented_extension() {
+    let mut config = Config::default();
+    config.pipeline.misa_override = Some("RV64IMAC".parse().expect("valid ISA string"));
+
+    let (default_isa, without_fdv) = (
+        string_prop(&cpu0(&Config::default()), "riscv,isa"),
+        string_prop(&cpu0(&config), "riscv,isa"),
+    );
+
+    assert_eq!(default_isa, DEFAULT_ISA);
     assert_eq!(
-        (default_isa, without_c),
-        (b"rv64imafdcbv_sstc\0".to_vec(), b"rv64imafdb_sstc\0".to_vec())
+        without_fdv,
+        "rv64imacb_zicbom_zicboz_zicntr_zicsr_zifencei_zihintpause_zihpm_zba_zbb_zbc_zbs_zbkb_zbkc_zbkx_sstc"
     );
 }
 
@@ -185,7 +206,56 @@ fn a_svadu_hart_advertises_svadu() {
     let mut config = Config::default();
     config.isa.svadu = true;
 
-    let isa = parse(&generate_dtb(&config)).child("cpus").child("cpu@0").props["riscv,isa"].clone();
+    let isa = string_prop(&cpu0(&config), "riscv,isa");
 
-    assert_eq!(isa, b"rv64imafdcbv_sstc_svadu\0".to_vec());
+    assert_eq!(isa, format!("{DEFAULT_ISA}_svadu"));
+}
+
+#[test]
+fn a_hart_without_zvfh_leaves_it_out() {
+    let mut config = Config::default();
+    config.isa.vector.zvfh = false;
+
+    let isa = string_prop(&cpu0(&config), "riscv,isa");
+
+    assert_eq!(isa, DEFAULT_ISA.replace("_zvfh", ""));
+}
+
+/// The newer property pair says the same as the string, one extension per
+/// entry, for kernels that prefer it.
+#[test]
+fn the_isa_extensions_list_matches_the_isa_string() {
+    let cpu = cpu0(&Config::default());
+
+    let listed = string_list_prop(&cpu, "riscv,isa-extensions");
+
+    assert_eq!(string_prop(&cpu, "riscv,isa-base"), "rv64i");
+    let from_string: Vec<String> = ["i", "m", "a", "f", "d", "c", "b", "v"]
+        .into_iter()
+        .map(str::to_owned)
+        .chain(DEFAULT_ISA.split('_').skip(1).map(str::to_owned))
+        .collect();
+    assert_eq!(listed, from_string);
+}
+
+/// Linux uses Zicbom and Zicboz only when told their block size.
+#[test]
+fn the_cache_block_sizes_are_the_block_the_operations_act_on() {
+    let cpu = cpu0(&Config::default());
+
+    assert_eq!(cpu.u32_prop("riscv,cbom-block-size"), 64);
+    assert_eq!(cpu.u32_prop("riscv,cboz-block-size"), 64);
+}
+
+#[test]
+fn the_mmu_type_is_the_strongest_paging_mode() {
+    let mut config = Config::default();
+    config.memory.paging_mode_max = crate::isa::privileged::PagingMode::Sv39;
+
+    let (default_mmu, sv39) = (
+        string_prop(&cpu0(&Config::default()), "mmu-type"),
+        string_prop(&cpu0(&config), "mmu-type"),
+    );
+
+    assert_eq!((default_mmu.as_str(), sv39.as_str()), ("riscv,sv57", "riscv,sv39"));
 }
