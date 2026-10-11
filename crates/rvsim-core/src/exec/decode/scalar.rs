@@ -553,6 +553,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 c.reg_write = !d.rd.is_zero();
             }
         }
+        sys_ops::OP_PSEUDO => c.system_op = SystemOp::Pseudo,
         i_opcodes::OP_MISC_MEM => match d.funct3 {
             i_funct3::FENCE => c.system_op = SystemOp::Fence,
             i_funct3::FENCE_I => c.system_op = SystemOp::FenceI,

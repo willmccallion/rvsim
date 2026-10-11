@@ -8,9 +8,11 @@ use crate::exec::execute::perform_csr_access;
 use crate::exec::retire;
 use crate::exec::signals::ControlFlow;
 use crate::isa::csr;
+use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
+use crate::soc::devices::SimOp;
 use crate::soc::uncore::debug::PC_TRACE_MAX;
 use crate::system::process::syscall::{self, Outcome};
 use crate::trace_branch;
@@ -354,8 +356,44 @@ fn retire_system(
             }
             None => CommitFlow::Continue,
         },
+        SystemOp::Pseudo => retire_pseudo_op(state, entry),
         _ => CommitFlow::Continue,
     }
+}
+
+/// Performs the pseudo-operation `entry` asks for, as gem5 performs an
+/// m5op when it commits, with `a0` and `a1` as its arguments; the stats
+/// and break requests take effect at the end of the cycle, with the
+/// sim-control device's.
+fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
+    let a0 = state.hart.regs.read(crate::isa::reg::REG_A0);
+    let a1 = state.hart.regs.read(crate::isa::reg::REG_A1);
+    match PseudoOp::of(entry.inst) {
+        PseudoOp::Exit => {
+            state.signal_exit(0);
+            return CommitFlow::Stop(None);
+        }
+        PseudoOp::Fail => {
+            state.signal_exit(a1);
+            return CommitFlow::Stop(None);
+        }
+        PseudoOp::ResetStats => state.uncore.request(SimOp::ResetStats),
+        PseudoOp::DumpStats => state.uncore.request(SimOp::DumpStats { label: a0 }),
+        PseudoOp::DumpResetStats => {
+            state.uncore.request(SimOp::DumpStats { label: a0 });
+            state.uncore.request(SimOp::ResetStats);
+        }
+        PseudoOp::Checkpoint | PseudoOp::WorkBegin | PseudoOp::WorkEnd => {
+            state.uncore.request(SimOp::Break { label: a0 });
+        }
+        PseudoOp::Unknown(func) => tracing::warn!(
+            target: "rvsim::pseudo_op",
+            pc = %crate::common::trace::Hex(entry.pc),
+            func,
+            "pseudo-operation rvsim does not perform"
+        ),
+    }
+    CommitFlow::Continue
 }
 
 /// Releases what the instruction held in the memory system and rename

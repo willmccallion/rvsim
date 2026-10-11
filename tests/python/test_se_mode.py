@@ -16,6 +16,7 @@ CODE_OFFSET = 0x80
 ECALL = 0x0000_0073
 SYS_EXIT = 93
 SYS_WRITE = 64
+M5_FAIL = 0x22
 
 
 def addi(rd: int, rs1: int, imm: int) -> int:
@@ -75,6 +76,8 @@ WRITE_HI = [
     ECALL,
     int.from_bytes(b"hi\n\0", "little"),
 ]
+# gem5's m5_fail(0, 7): the pseudo-instruction ends the run with code 7.
+M5_FAIL_7 = [addi(11, 0, 7), 0x7B | (M5_FAIL << 25)]
 # Counts to 300 in t0, then exit(9).
 COUNT_THEN_EXIT = [
     addi(5, 0, 0),
@@ -115,6 +118,11 @@ class SeMode(unittest.TestCase):
     def test_an_unknown_paging_mode_is_refused(self):
         with self.assertRaisesRegex(ValueError, "page_mode"):
             Config(page_mode="Sv32")
+
+    def test_a_pseudo_op_ends_the_program_with_its_code(self):
+        cpu = Simulator(Config(), elf_data=user_elf(M5_FAIL_7))
+
+        self.assertEqual(cpu.run(limit=50_000), 7)
 
     def test_a_captured_console_holds_what_the_program_prints(self):
         cpu = Simulator(Config(console="captured"), elf_data=user_elf(WRITE_HI))

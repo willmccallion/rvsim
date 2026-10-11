@@ -162,7 +162,7 @@ pub fn system_effect(state: &impl ArchState, inst: &Inst) -> SystemEffect {
     }
     match inst.ctrl.system_op {
         SystemOp::None | SystemOp::Fence => SystemEffect::NotSystem,
-        SystemOp::FenceI | SystemOp::Mret | SystemOp::Sret | SystemOp::Wfi => {
+        SystemOp::FenceI | SystemOp::Mret | SystemOp::Sret | SystemOp::Wfi | SystemOp::Pseudo => {
             SystemEffect::AtRetire
         }
         SystemOp::SfenceVma => SystemEffect::SfenceVma(SfenceVmaInfo {

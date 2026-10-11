@@ -21,7 +21,7 @@ use crate::sim::stats::paths::HartPaths;
 use crate::soc::bus::Bus;
 use crate::soc::cache::Cache;
 use crate::soc::coherence::CoherenceFabric;
-use crate::soc::devices::Htif;
+use crate::soc::devices::{Htif, SimOp};
 use crate::soc::memory::controller::MemoryController;
 use crate::soc::terminal::{InputReader, SharedTerminal};
 use crate::soc::topology::Topology;
@@ -124,6 +124,9 @@ pub struct Uncore {
     pub stats_dumps: Vec<StatsDump>,
     /// The label of a guest break the host has not yet stopped for.
     pub pending_break: Option<u64>,
+    /// Requests retired pseudo-instructions made, applied at the end of
+    /// the cycle with the devices'.
+    pub pending_sim_ops: Vec<SimOp>,
     /// Stat paths rooted at `hart<N>`, indexed by `HartId`.
     pub hart_stat_paths: Vec<HartPaths>,
 }
@@ -223,6 +226,11 @@ impl Uncore {
         let htif = Htif::new(tohost_addr, exit_signal.clone(), args, self.terminal.clone());
         self.bus.add_device(Box::new(htif));
         self.read_console_through(InputReader::Proxy);
+    }
+
+    /// Queues a request a retired pseudo-instruction made.
+    pub fn request(&mut self, op: SimOp) {
+        self.pending_sim_ops.push(op);
     }
 
     /// Hands the console's input to `reader`: the UART, or the proxy a

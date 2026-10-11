@@ -67,6 +67,10 @@ and otherwise the host's stdin feeds `read`, which waits for it as it
 would under Linux. A bare-metal program printing through HTIF uses the
 same console.
 
+A program marks the region it wants measured, or stops and ends the run,
+with [pseudo-operations](pseudo-ops.md), the same m5op instruction a
+gem5 workload uses.
+
 ## The syscalls served
 
 The Linux riscv64 ABI (`asm-generic/unistd.h`), as static glibc and

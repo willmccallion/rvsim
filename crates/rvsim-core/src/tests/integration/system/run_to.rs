@@ -3,6 +3,7 @@
 //! prints.
 
 use crate::config::{Config, Console};
+use crate::isa::op::pseudo::PseudoOp;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
@@ -84,6 +85,34 @@ fn any_of_the_pcs_stops_when_a_hart_is_about_to_run_it() {
 #[test]
 fn a_guest_break_stops_the_run_and_it_resumes_to_the_exit() {
     let mut ctx = system();
+    let everything = StopAt { cycles: Some(20_000), guest_breaks: true, ..StopAt::default() };
+
+    let first = ctx.sim.run_to(&everything).expect("the run ticks");
+    let second = ctx.sim.run_to(&everything).expect("the run ticks");
+
+    assert_eq!(first, StopReason::GuestBreak { label: BREAK_LABEL as u64 });
+    assert_eq!(second, StopReason::Exited(3));
+}
+
+/// The guest-break program with the pseudo-instruction: a work marker
+/// labelled `BREAK_LABEL`, then `m5_fail` with exit code 3.
+fn pseudo_op_program() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(10, 0, BREAK_LABEL).build(),
+        PseudoOp::encode(0x5a),
+        i().addi(11, 0, 3).build(),
+        PseudoOp::encode(0x22),
+        i().jal(0, 0).build(),
+    ]
+}
+
+#[test]
+fn a_pseudo_op_marker_stops_the_run_and_it_resumes_to_the_exit() {
+    let mut config = Config::default();
+    config.system.console = Console::Quiet;
+    let mut ctx =
+        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &pseudo_op_program());
     let everything = StopAt { cycles: Some(20_000), guest_breaks: true, ..StopAt::default() };
 
     let first = ctx.sim.run_to(&everything).expect("the run ticks");

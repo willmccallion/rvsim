@@ -4,6 +4,7 @@
 use crate::Simulator;
 use crate::common::SimError;
 use crate::config::{BackendKind, Config, Console};
+use crate::isa::op::pseudo::PseudoOp;
 use crate::system::checkpoint::CheckpointError;
 use crate::system::simulator::{ProcessArgs, ProgramKind, StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -13,6 +14,8 @@ const SYS_EXIT: i32 = 93;
 const SYS_BRK: i32 = 214;
 const SYS_OPENAT: i32 = 56;
 const SYS_READ: i32 = 63;
+const M5_FAIL: u32 = 0x22;
+const M5_DUMP_STATS: u32 = 0x41;
 const SYS_WRITE: i32 = 64;
 const AT_FDCWD: i32 = -100;
 const JAL_SELF: u32 = 0x0000_006f;
@@ -242,6 +245,35 @@ fn a_user_program_exits_with_its_code() {
         let stop = run(backend, &exit_with(42), &["prog"]);
 
         assert_eq!(stop, StopReason::Exited(42), "{backend:?}");
+    }
+}
+
+/// gem5's `m5_fail` ends the run with its code from a user program too.
+#[test]
+fn a_pseudo_op_ends_a_user_program_with_its_code() {
+    let i = InstructionBuilder::new;
+    let code = vec![i().addi(A1, 0, 7).build(), PseudoOp::encode(M5_FAIL)];
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &code, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(7), "{backend:?}");
+    }
+}
+
+/// A stats dump asked for with a pseudo-operation carries `a0` as its label.
+#[test]
+fn a_pseudo_op_dumps_the_stats_with_its_label() {
+    let i = InstructionBuilder::new;
+    let mut code = vec![i().addi(A0, 0, 3).build(), PseudoOp::encode(M5_DUMP_STATS)];
+    code.extend(exit_with(0));
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator(backend, &code, &["prog"]);
+
+        let stop = run_for(&mut sim, 50_000);
+
+        assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
+        let labels: Vec<u64> = sim.state.stats_dumps.iter().map(|dump| dump.label).collect();
+        assert_eq!(labels, vec![3], "{backend:?}");
     }
 }
 

@@ -733,6 +733,9 @@ impl Simulator {
         for op in self.state.bus.take_sim_ops() {
             self.state.apply_sim_op(op);
         }
+        for op in std::mem::take(&mut self.state.uncore.pending_sim_ops) {
+            self.state.apply_sim_op(op);
+        }
         self.broken_invariant.take().map_or(Ok(()), Err)
     }
 
