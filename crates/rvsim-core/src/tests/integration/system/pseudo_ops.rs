@@ -14,6 +14,11 @@ const A1: u32 = 11;
 const M5_FAIL: u32 = 0x22;
 const M5_RESET_STATS: u32 = 0x40;
 const M5_DUMP_STATS: u32 = 0x41;
+const M5_RPNS: u32 = 0x07;
+const M5_SUM: u32 = 0x23;
+const M5_DEBUG_BREAK: u32 = 0x51;
+const M5_PANIC: u32 = 0x54;
+const A2: u32 = 12;
 
 /// What the guest asks for before the loop.
 #[derive(Clone, Copy)]
@@ -91,4 +96,81 @@ fn a_guest_reset_starts_the_dumped_window_at_the_region() {
     assert_eq!(dumps[0].label, 42);
     assert!(is_the_loop(dumps[0].instructions_retired), "{}", dumps[0].instructions_retired);
     assert!(dumps[0].cycles < ctx.sim.state.cycle, "the window starts after the run did");
+}
+
+/// Runs `program` on `backend` until it exits and returns the exit code.
+fn exit_code_on(backend: crate::config::BackendKind, program: &[u32]) -> Option<u64> {
+    let mut config = Config::default();
+    config.pipeline.backend = backend;
+    config.system.console = crate::config::Console::Quiet;
+    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    ctx.run(20_000);
+    ctx.sim.state.check_exit()
+}
+
+/// `m5_sum` adds its six arguments into `a0`, and a value-returning
+/// pseudo-operation's result reaches the instruction behind it.
+#[test]
+fn sum_adds_its_arguments_into_a0() {
+    let i = InstructionBuilder::new;
+    let program = [
+        i().addi(A0, 0, 1).build(),
+        i().addi(A1, 0, 2).build(),
+        i().addi(A2, 0, 3).build(),
+        i().addi(13, 0, 4).build(),
+        i().addi(14, 0, 5).build(),
+        i().addi(15, 0, 6).build(),
+        PseudoOp::encode(M5_SUM),
+        i().addi(A1, A0, 0).build(),
+        PseudoOp::encode(M5_FAIL),
+        i().jal(0, 0).build(),
+    ];
+    for backend in [crate::config::BackendKind::InOrder, crate::config::BackendKind::OutOfOrder] {
+        assert_eq!(exit_code_on(backend, &program), Some(21), "{backend:?}");
+    }
+}
+
+/// `m5_rpns` reports the simulated time by `clock_hz`: at 1 GHz, the
+/// cycle count in nanoseconds, so a short program exits with a small
+/// non-zero count.
+#[test]
+fn rpns_reports_the_simulated_time_in_nanoseconds() {
+    let i = InstructionBuilder::new;
+    let mut program = Vec::new();
+    for _ in 0..40 {
+        program.push(i().addi(0, 0, 0).build());
+    }
+    program.extend([
+        PseudoOp::encode(M5_RPNS),
+        i().addi(A1, A0, 0).build(),
+        PseudoOp::encode(M5_FAIL),
+        i().jal(0, 0).build(),
+    ]);
+    for backend in [crate::config::BackendKind::InOrder, crate::config::BackendKind::OutOfOrder] {
+        let ns = exit_code_on(backend, &program).expect("the program exits");
+
+        assert!((10..1_000).contains(&ns), "{backend:?}: {ns} ns for a few dozen instructions");
+    }
+}
+
+#[test]
+fn debug_break_stops_the_hosts_run_and_panic_ends_it() {
+    use crate::system::simulator::{StopAt, StopReason};
+    let i = InstructionBuilder::new;
+    let program = [
+        PseudoOp::encode(M5_DEBUG_BREAK),
+        i().addi(0, 0, 0).build(),
+        PseudoOp::encode(M5_PANIC),
+        i().jal(0, 0).build(),
+    ];
+    let mut config = Config::default();
+    config.system.console = crate::config::Console::Quiet;
+    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let everything = StopAt { cycles: Some(20_000), guest_breaks: true, ..StopAt::default() };
+
+    let first = ctx.sim.run_to(&everything).expect("the run ticks");
+    let second = ctx.sim.run_to(&everything).expect("the run ticks");
+
+    assert_eq!(first, StopReason::GuestBreak { label: 0 });
+    assert_eq!(second, StopReason::Exited(1));
 }

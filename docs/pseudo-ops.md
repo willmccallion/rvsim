@@ -50,22 +50,28 @@ The numbers are gem5's, from `include/gem5/asm/generic/m5ops.h`.
 
 | Operation | gem5 name | `rvsim.h` | What rvsim does |
 |---|---|---|---|
+| `0x07` | `m5_rpns()` | `rvsim_time_ns()` | `a0` gets the simulated time in nanoseconds, by the clock SE mode's time syscalls read (`clock_hz`). |
 | `0x21` | `m5_exit(delay)` | | Ends the run with exit code 0. |
 | `0x22` | `m5_fail(delay, code)` | `rvsim_exit(code)` | Ends the run with exit code `a1`. |
+| `0x23` | `m5_sum(a, b, c, d, e, f)` | | `a0` gets the sum of `a0` to `a5`. |
 | `0x40` | `m5_reset_stats(delay, period)` | `rvsim_reset_stats()` | Zeroes the stats; the window measured from here. |
 | `0x41` | `m5_dump_stats(delay, period)` | `rvsim_dump_stats(label)` | Keeps a snapshot of the stats labelled `a0`. |
 | `0x42` | `m5_dump_reset_stats(delay, period)` | | A snapshot labelled `a0`, then a reset. |
 | `0x43` | `m5_checkpoint(delay, period)` | | Stops the host's run, labelled `a0`, for it to save a checkpoint. |
 | `0x4f` | `m5_write_file(buf, len, offset, name)` | `rvsim_write_file(buf, len, offset, name)` | Writes `a1` bytes of the program's memory at `a0` to offset `a2` of the file named by the string at `a3` in the host's output directory; `a0` gets how many. |
 | `0x50` | `m5_read_file(buf, len, offset)` | `rvsim_read_file(buf, len, offset)` | Copies up to `a1` bytes of the host's script file, from offset `a2`, into the program's memory at `a0`; `a0` gets how many, 0 at the end. |
+| `0x51` | `m5_debug_break()` | | Stops the host's run here, labelled 0. |
+| `0x52` | `m5_switch_cpu()` | | Stops the host's run here, labelled 0, for it to switch configuration. |
+| `0x54` | `m5_panic()` | | Ends the run with exit code 1, with a warning. |
 | `0x5a` | `m5_work_begin(id, thread)` | `rvsim_break(label)` | Stops the host's run at the marker, labelled `a0`. |
 | `0x5b` | `m5_work_end(id, thread)` | | Stops the host's run at the marker, labelled `a0`. |
 
 gem5 reads `a0` as a delay in nanoseconds for the stats operations and
 `a1` as a period; rvsim applies them at once and uses `a0` as the
 snapshot's label, which is 0 for a gem5 workload calling
-`m5_dump_stats(0, 0)`. Any other operation number does nothing, and a
-warning names it on the `rvsim::pseudo_op` tracing target.
+`m5_dump_stats(0, 0)`. Any other operation number (the quiesce family,
+`m5_init_param`, the symbol operations) does nothing, and a warning names
+it on the `rvsim::pseudo_op` tracing target.
 
 ## Files
 

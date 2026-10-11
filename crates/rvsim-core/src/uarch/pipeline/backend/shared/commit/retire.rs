@@ -97,20 +97,31 @@ pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> 
     Some(outcome)
 }
 
-/// Performs the pseudo-operation that returns a value, readfile or
-/// writefile, now that every older instruction has retired and every
-/// older store has been written; the result becomes the entry's,
-/// destined for `a0`.
-pub(super) fn perform_file_op(state: &mut CoreCtx<'_>, entry: &mut RobEntry) {
+/// Performs the pseudo-operation that returns a value, now that every
+/// older instruction has retired and every older store has been written;
+/// the result becomes the entry's, destined for `a0`.
+pub(super) fn perform_pseudo_result(state: &mut CoreCtx<'_>, entry: &mut RobEntry) {
     if entry.ctrl.system_op != SystemOp::Pseudo || !entry.ctrl.reg_write {
         return;
     }
     let result = match PseudoOp::of(entry.inst) {
-        PseudoOp::ReadFile => host_files::read_file(state),
-        PseudoOp::WriteFile => host_files::write_file(state),
+        PseudoOp::ReadFile => host_files::read_file(state) as u64,
+        PseudoOp::WriteFile => host_files::write_file(state) as u64,
+        PseudoOp::Rpns => simulated_nanoseconds(state),
+        PseudoOp::Sum => {
+            (10..16).map(|reg| state.hart.regs.read(RegIdx::new(reg))).fold(0, u64::wrapping_add)
+        }
         _ => return,
     };
-    entry.result = Some(result as u64);
+    entry.result = Some(result);
+}
+
+/// The simulated time in nanoseconds, by the clock SE mode's time
+/// syscalls read (`clock_hz`), as gem5's `m5_rpns` reports its tick.
+fn simulated_nanoseconds(state: &CoreCtx<'_>) -> u64 {
+    let clock_hz = state.uncore.config.general.clock_hz.max(1);
+    u64::try_from(u128::from(state.uncore.cycle) * 1_000_000_000 / u128::from(clock_hz))
+        .unwrap_or(u64::MAX)
 }
 
 /// Applies `entry`'s architectural effects and releases what it held.
@@ -399,6 +410,13 @@ fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
             state.signal_exit(a1);
             return CommitFlow::Stop(None);
         }
+        PseudoOp::Panic => {
+            tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(entry.pc),
+                "the guest called m5_panic; the run ends with exit code 1");
+            state.signal_exit(1);
+            return CommitFlow::Stop(None);
+        }
+        PseudoOp::Rpns | PseudoOp::Sum => {}
         PseudoOp::ReadFile | PseudoOp::WriteFile => {
             return CommitFlow::Stop(Some(CommitEvent::SquashAfter(
                 entry.pc.wrapping_add(entry.inst_size.as_u64()),
@@ -412,6 +430,9 @@ fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
         }
         PseudoOp::Checkpoint | PseudoOp::WorkBegin | PseudoOp::WorkEnd => {
             state.uncore.request(SimOp::Break { label: a0 });
+        }
+        PseudoOp::DebugBreak | PseudoOp::SwitchCpu => {
+            state.uncore.request(SimOp::Break { label: 0 });
         }
         PseudoOp::Unknown(func) => tracing::warn!(
             target: "rvsim::pseudo_op",

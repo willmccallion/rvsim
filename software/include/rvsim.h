@@ -9,6 +9,7 @@
 // numbers are gem5's, so a binary instrumented with gem5's libm5 runs
 // unchanged. See docs/pseudo-ops.md.
 
+#define RVSIM_OP_RPNS 0x07
 #define RVSIM_OP_FAIL 0x22
 #define RVSIM_OP_RESET_STATS 0x40
 #define RVSIM_OP_DUMP_STATS 0x41
@@ -48,6 +49,16 @@ static inline void rvsim_break(unsigned long label) {
 // Ends the simulation with exit code `code`.
 static inline void rvsim_exit(unsigned long code) {
   RVSIM_PSEUDO_OP(RVSIM_OP_FAIL, 0, code);
+}
+
+// The simulated time in nanoseconds, as gem5's m5_rpns reports it.
+static inline unsigned long rvsim_time_ns(void) {
+  register unsigned long rvsim_a0_ __asm__("a0");
+  __asm__ volatile(".word 0x7b | (" RVSIM_STR(RVSIM_OP_RPNS) " << 25)"
+                   : "=r"(rvsim_a0_)
+                   :
+                   : "memory");
+  return rvsim_a0_;
 }
 
 // Copies up to `len` bytes of the host's script file, from `offset`, into

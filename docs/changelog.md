@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- More of gem5's m5ops: `m5_rpns` (`rvsim_time_ns()` in `rvsim.h`) gives
+  the simulated time in nanoseconds, `m5_sum` adds its arguments,
+  `m5_debug_break` and `m5_switch_cpu` stop the host's run, and
+  `m5_panic` ends it with exit code 1.
 - SE mode answers `riscv_hwprobe` as the 6.6 kernel its `uname` reports
   would, from the hart's ISA string: F/D, C, V, Zba, Zbb and Zbs, and
   whether misaligned accesses are fast. A static glibc program under SE

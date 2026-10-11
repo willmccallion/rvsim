@@ -203,7 +203,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         let Some(mut entry) = rob.commit_head() else { break };
         retire::perform_deferred_csr(state, &mut entry);
         let syscall = retire::perform_syscall(state, &mut entry);
-        retire::perform_file_op(state, &mut entry);
+        retire::perform_pseudo_result(state, &mut entry);
         retired_count += 1;
         youngest_retired = Some(entry.seq);
         let mut targets =
