@@ -97,6 +97,7 @@ print(result.stats.query(r"^ipc$|bp\.committed\.accuracy|l1d\.miss_rate"))
 - **[Getting Started](getting-started.md)**: install, run your first simulation, understand the output
 - **[Configuration](configuration.md)**: every parameter, with its default: caches, predictors, backends, functional units, memory, multi-core
 - **[API Reference](api.md)**: `Config`, `Environment`, `Session`, `Simulator`, `Sweep`, `Stats`
+- **[Validation](validation.md)**: what rvsim is checked against, how often, and where the numbers stand
 - **[Design](architecture/design.md)**: how the simulator is structured and why
 - **[Architecture](architecture/pipeline.md)**: the pipeline, memory hierarchy, branch prediction, ISA, devices and multi-core in depth
 

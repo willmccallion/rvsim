@@ -84,6 +84,7 @@ nav:
   - Getting Started: getting-started.md
   - Configuration: configuration.md
   - API Reference: api.md
+  - Validation: validation.md
   - Architecture:
     - Design: architecture/design.md
     - Pipeline: architecture/pipeline.md
