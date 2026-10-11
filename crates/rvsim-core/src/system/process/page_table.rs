@@ -4,6 +4,8 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::common::{PAGE_SHIFT, PhysAddr};
 use crate::isa::csr;
 use crate::isa::privileged::PagingMode;
@@ -25,7 +27,7 @@ const PTE_DIRTY: u64 = 1 << 7;
 const PTE_PPN_SHIFT: u64 = 10;
 
 /// What a mapped page may be used for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Permissions {
     /// Loads may read it.
     pub read: bool,
@@ -83,7 +85,7 @@ pub enum SpaceError {
 }
 
 /// Hands out 4 KiB frames of RAM, never reusing one.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct FrameAllocator {
     next: u64,
     end: u64,
@@ -102,14 +104,15 @@ impl FrameAllocator {
 }
 
 /// A page the process has mapped.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct Mapping {
     frame: u64,
     permissions: Permissions,
 }
 
-/// The process's page tables and the record of its mappings.
-#[derive(Debug, Clone)]
+/// The process's page tables and the record of its mappings. The tables
+/// themselves live in RAM, so a checkpoint's RAM image carries them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddressSpace {
     mode: PagingMode,
     root: u64,

@@ -1,9 +1,11 @@
 //! Checkpoints of a drained system's architectural state.
 //!
 //! A checkpoint holds each hart's registers (vector ones too), CSRs, PMP,
-//! privilege, PC and load reservation, every device's registers, and RAM.
-//! Caches, TLBs and predictors are not kept and start cold after a restore,
-//! as gem5's do. A checkpoint restores into any configuration with the same
+//! privilege, PC and load reservation, every device's registers, RAM, and
+//! in SE mode the process's mappings, break and heap; its host files are
+//! not kept, so a checkpoint is refused while any is open. Caches, TLBs
+//! and predictors are not kept and start cold after a restore, as gem5's
+//! do. A checkpoint restores into any configuration with the same
 //! harts, RAM size and VLEN, so a system booted on a fast configuration can
 //! continue on a detailed one.
 //!
@@ -21,6 +23,7 @@ use crate::common::PhysAddr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 use crate::sim::memory::Ram;
+use crate::system::process::{Process, ProcessState};
 use crate::system::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
@@ -80,6 +83,8 @@ struct Header {
     vlen_bits: u64,
     harts: Vec<HartState>,
     devices: serde_json::Value,
+    /// The user process, in SE mode.
+    process: Option<ProcessState>,
 }
 
 /// One hart's architectural state.
@@ -180,8 +185,8 @@ impl Simulator {
     ///
     /// Returns [`CheckpointError`] when writing fails.
     pub fn save_checkpoint(&mut self, out: &mut impl Write) -> Result<(), CheckpointError> {
-        if self.state.process.is_some() {
-            return Err(CheckpointError::Unsupported("in SE mode"));
+        if self.state.process.as_ref().is_some_and(|process| process.files.host_files_open() > 0) {
+            return Err(CheckpointError::Unsupported("while the program has host files open"));
         }
         self.drain();
         let state = &self.state;
@@ -202,6 +207,7 @@ impl Simulator {
                 .map(|hart| HartState::of(hart, reservations.reserved(hart.hart_id)))
                 .collect(),
             devices: state.bus.checkpoint_devices(),
+            process: state.process.as_ref().map(Process::checkpoint),
         };
         let header = serde_json::to_vec(&header)?;
         out.write_all(&(header.len() as u64).to_le_bytes())?;
@@ -262,6 +268,7 @@ impl Simulator {
             }
         }
         state.uncore.bus.restore_devices(&header.devices).map_err(CheckpointError::Device)?;
+        state.uncore.process = header.process.clone().map(Process::from_checkpoint);
         for core in &mut state.cores {
             let units = &mut core.units;
             units.l1_i_cache.invalidate_all(&mut state.uncore.stats);

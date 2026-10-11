@@ -25,6 +25,20 @@ def ld(rd: int, rs1: int, imm: int) -> int:
     return ((imm & 0xFFF) << 20) | (rs1 << 15) | (3 << 12) | (rd << 7) | 0x03
 
 
+def blt(rs1: int, rs2: int, imm: int) -> int:
+    imm &= 0x1FFF
+    return (
+        (((imm >> 12) & 1) << 31)
+        | (((imm >> 5) & 0x3F) << 25)
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (4 << 12)
+        | (((imm >> 1) & 0xF) << 8)
+        | (((imm >> 11) & 1) << 7)
+        | 0x63
+    )
+
+
 def user_elf(code: list[int]) -> bytes:
     """A static riscv64 executable with one RWX segment holding ``code``."""
     entry = LOAD_ADDRESS + CODE_OFFSET
@@ -44,6 +58,16 @@ def user_elf(code: list[int]) -> bytes:
 
 # argc from the stack into a0, then exit(a0).
 EXIT_WITH_ARGC = [ld(10, 2, 0), addi(17, 0, SYS_EXIT), ECALL]
+# Counts to 300 in t0, then exit(9).
+COUNT_THEN_EXIT = [
+    addi(5, 0, 0),
+    addi(6, 0, 300),
+    addi(5, 5, 1),
+    blt(5, 6, -4),
+    addi(10, 0, 9),
+    addi(17, 0, SYS_EXIT),
+    ECALL,
+]
 
 
 class SeMode(unittest.TestCase):
@@ -74,6 +98,22 @@ class SeMode(unittest.TestCase):
     def test_an_unknown_paging_mode_is_refused(self):
         with self.assertRaisesRegex(ValueError, "page_mode"):
             Config(page_mode="Sv32")
+
+    def test_a_checkpoint_resumes_a_user_program(self):
+        whole = Simulator(Config(), elf_data=user_elf(COUNT_THEN_EXIT))
+        expected = whole.run(limit=50_000)
+        first = Simulator(Config(), elf_data=user_elf(COUNT_THEN_EXIT))
+        self.assertIsNone(first.run(limit=100))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "point.ckpt")
+            first.save(path)
+            second = Simulator(Config(), elf_data=user_elf(COUNT_THEN_EXIT))
+            second.restore(path)
+
+        self.assertEqual(expected, 9)
+        self.assertEqual(second.run(limit=50_000), expected)
+        self.assertEqual(second.instructions_retired, whole.instructions_retired)
 
     def test_a_bare_metal_image_still_loads_as_one(self):
         cpu = Simulator(

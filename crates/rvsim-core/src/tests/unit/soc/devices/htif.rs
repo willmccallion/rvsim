@@ -123,3 +123,33 @@ fn test_htif_write_u32() {
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1_u64, 4);
     assert_eq!(exit_signal.load(Ordering::Relaxed), 0);
 }
+
+/// `fromhost` is part of a checkpoint: a restored device answers the
+/// target's poll as the saved one would have.
+#[test]
+fn fromhost_survives_a_checkpoint() {
+    let exit_signal = Arc::new(AtomicU64::new(0));
+    let mut htif = Htif::new(0x1000, exit_signal, Vec::new());
+    let state = serde_json::json!({ "fromhost": 5, "host_files_open": 0 });
+
+    htif.restore(&state).expect("the state restores");
+
+    assert_eq!(
+        crate::tests::support::probe::read(&mut htif, crate::common::PhysAddr::new(0x1008), 8),
+        5
+    );
+    assert_eq!(htif.checkpoint(), Some(state));
+}
+
+/// A checkpoint taken with host files open cannot be restored into a
+/// device that has none of them.
+#[test]
+fn a_checkpoint_with_host_files_open_is_refused() {
+    let exit_signal = Arc::new(AtomicU64::new(0));
+    let htif = Htif::new(0x1000, exit_signal, Vec::new());
+    let state = serde_json::json!({ "fromhost": 0, "host_files_open": 2 });
+
+    let refused = htif.check_restore(&state);
+
+    assert!(refused.is_err(), "{refused:?}");
+}

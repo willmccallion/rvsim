@@ -13,6 +13,8 @@ pub(crate) mod syscall;
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::isa::privileged::PagingMode;
 use crate::sim::memory::GlobalMemory;
 
@@ -43,6 +45,21 @@ pub struct Process {
     file_maps: BTreeMap<u64, u64>,
     /// How many syscalls were served, by number.
     pub syscall_counts: BTreeMap<u64, u64>,
+}
+
+/// A process's state in a checkpoint: everything but its host files,
+/// which a restored run does not get back.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProcessState {
+    space: AddressSpace,
+    brk_start: u64,
+    brk: u64,
+    mmap_next: u64,
+    clear_child_tid: u64,
+    clock_hz: u64,
+    random: u64,
+    file_maps: BTreeMap<u64, u64>,
+    syscall_counts: BTreeMap<u64, u64>,
 }
 
 /// Where a process's regions start, relative to the address space's top.
@@ -79,6 +96,39 @@ impl Process {
             random: 0x9E37_79B9_7F4A_7C15,
             file_maps: BTreeMap::new(),
             syscall_counts: BTreeMap::new(),
+        }
+    }
+
+    /// The state a checkpoint keeps.
+    #[must_use]
+    pub fn checkpoint(&self) -> ProcessState {
+        ProcessState {
+            space: self.space.clone(),
+            brk_start: self.brk_start,
+            brk: self.brk,
+            mmap_next: self.mmap_next,
+            clear_child_tid: self.clear_child_tid,
+            clock_hz: self.clock_hz,
+            random: self.random,
+            file_maps: self.file_maps.clone(),
+            syscall_counts: self.syscall_counts.clone(),
+        }
+    }
+
+    /// The process a checkpoint holds, with only the console open.
+    #[must_use]
+    pub fn from_checkpoint(state: ProcessState) -> Self {
+        Self {
+            space: state.space,
+            files: FileTable::default(),
+            brk_start: state.brk_start,
+            brk: state.brk,
+            mmap_next: state.mmap_next,
+            clear_child_tid: state.clear_child_tid,
+            clock_hz: state.clock_hz,
+            random: state.random,
+            file_maps: state.file_maps,
+            syscall_counts: state.syscall_counts,
         }
     }
 

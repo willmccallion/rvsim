@@ -4,14 +4,22 @@
 use crate::Simulator;
 use crate::common::SimError;
 use crate::config::{BackendKind, Config, Console};
+use crate::system::checkpoint::CheckpointError;
 use crate::system::simulator::{ProcessArgs, ProgramKind, StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 
 const ECALL: u32 = 0x0000_0073;
 const SYS_EXIT: i32 = 93;
 const SYS_BRK: i32 = 214;
+const SYS_OPENAT: i32 = 56;
+const AT_FDCWD: i32 = -100;
+const JAL_SELF: u32 = 0x0000_006f;
+const T0: u32 = 5;
+const T1: u32 = 6;
 const A0: u32 = 10;
 const A1: u32 = 11;
+const A2: u32 = 12;
+const A3: u32 = 13;
 const A7: u32 = 17;
 const SP: u32 = 2;
 const LOAD_ADDRESS: u64 = 0x1_0000;
@@ -65,12 +73,97 @@ fn config(backend: BackendKind) -> Config {
     config
 }
 
-/// Loads `code` as a process with `argv` and runs it to its exit.
-fn run(backend: BackendKind, code: &[u32], argv: &[&str]) -> StopReason {
+/// A simulator with `code` loaded as a process with `argv`.
+fn simulator(backend: BackendKind, code: &[u32], argv: &[&str]) -> Simulator {
     let mut sim = Simulator::build(&config(backend), "");
     let args = ProcessArgs { argv: argv.iter().map(ToString::to_string).collect(), envp: vec![] };
     sim.load_process(&user_elf(code, ET_EXEC), &args).expect("the program loads");
-    sim.run_to(&StopAt { cycles: Some(50_000), ..StopAt::default() }).expect("the program runs")
+    sim
+}
+
+fn run_for(sim: &mut Simulator, cycles: u64) -> StopReason {
+    sim.run_to(&StopAt { cycles: Some(cycles), ..StopAt::default() }).expect("the program runs")
+}
+
+/// Loads `code` as a process with `argv` and runs it to its exit.
+fn run(backend: BackendKind, code: &[u32], argv: &[&str]) -> StopReason {
+    run_for(&mut simulator(backend, code, argv), 50_000)
+}
+
+/// Counts to 300, grows the heap with `brk` and writes to it, exits 9.
+fn count_then_use_the_heap() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().addi(T0, 0, 0).build(),
+        i().addi(T1, 0, 300).build(),
+        i().addi(T0, T0, 1).build(),
+        i().addi(A0, A0, 1).build(),
+        i().blt(T0, T1, -8).build(),
+        i().addi(A0, 0, 0).build(),
+        i().addi(A7, 0, SYS_BRK).build(),
+        ECALL,
+        i().addi(A1, A0, 64).build(),
+        i().addi(A0, A1, 0).build(),
+        i().addi(A7, 0, SYS_BRK).build(),
+        ECALL,
+        i().sd(A0, A7, -8).build(),
+        i().addi(A0, 0, 9).build(),
+        i().addi(A7, 0, SYS_EXIT).build(),
+        ECALL,
+    ]
+}
+
+/// A checkpoint taken in the loop restores the process: the run finishes
+/// as the uninterrupted one, `brk` still maps the heap, and the same
+/// instructions retire.
+#[test]
+fn a_checkpoint_resumes_a_user_program() {
+    let code = count_then_use_the_heap();
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut whole = simulator(backend, &code, &["prog"]);
+        let expected = run_for(&mut whole, 50_000);
+        let mut first = simulator(backend, &code, &["prog"]);
+        run_for(&mut first, 200);
+        let mut saved = Vec::new();
+        first.save_checkpoint(&mut saved).expect("a user program's checkpoint saves");
+
+        let mut second = simulator(backend, &code, &["prog"]);
+        second.restore_checkpoint(&mut saved.as_slice()).expect("the checkpoint restores");
+        let outcome = run_for(&mut second, 50_000);
+
+        assert_eq!(expected, StopReason::Exited(9), "{backend:?}");
+        assert_eq!(outcome, expected, "{backend:?}");
+        assert_eq!(second.instructions_retired(), whole.instructions_retired(), "{backend:?}");
+    }
+}
+
+/// With a host file open, a checkpoint is refused: the descriptor would
+/// not come back.
+#[test]
+fn a_checkpoint_is_refused_while_a_host_file_is_open() {
+    let i = InstructionBuilder::new;
+    let path_offset = 8 * 4;
+    let mut code = vec![
+        i().auipc(A1, 0).build(),
+        i().addi(A1, A1, path_offset).build(),
+        i().addi(A0, 0, AT_FDCWD).build(),
+        i().addi(A2, 0, 0).build(),
+        i().addi(A3, 0, 0).build(),
+        i().addi(A7, 0, SYS_OPENAT).build(),
+        ECALL,
+        JAL_SELF,
+    ];
+    code.extend(
+        b"/dev/null\0\0\0"
+            .chunks(4)
+            .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]])),
+    );
+    let mut sim = simulator(BackendKind::InOrder, &code, &["prog"]);
+    run_for(&mut sim, 2_000);
+
+    let refused = sim.save_checkpoint(&mut Vec::new());
+
+    assert!(matches!(refused, Err(CheckpointError::Unsupported(_))), "{refused:?}");
 }
 
 fn exit_with(a0: i32) -> Vec<u32> {

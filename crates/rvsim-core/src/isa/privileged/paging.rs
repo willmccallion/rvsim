@@ -1,9 +1,11 @@
 //! Address-translation modes `satp.MODE` selects.
 
+use serde::{Deserialize, Serialize};
+
 use crate::isa::csr::{SATP_MODE_BARE, SATP_MODE_SV39, SATP_MODE_SV48, SATP_MODE_SV57};
 
 /// Supervisor address-translation modes recognised by this implementation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PagingMode {
     /// No translation; virtual address is the physical address.
     Bare,
