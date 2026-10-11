@@ -17,6 +17,13 @@ All notable changes to this project are documented here. The format is based on 
   the uninterrupted run does. A checkpoint is refused while the program
   has a host file open, since the descriptor would not come back. The
   HTIF device's `fromhost` is saved too.
+- A pipeline trace for Konata: `python -m rvsim prog.elf --pipeline-trace
+  out.kanata`, or `Simulator.open_pipeline_trace(path)` around the part
+  of a run to look at, writes where every instruction is each cycle in
+  the Kanata log Konata displays, on both backends, squashes included.
+  The pipeline reports to a `PipelineTrace` trait, so another viewer's
+  format is another implementation. See
+  [Pipeline trace](pipeline-trace.md).
 - Direct mode is gone. It was an rvsim-only way to run a bare ELF:
   identity translation, a preset stack pointer, the FPU switched on at
   reset, `a1` holding the hart count and an `ecall 93` ending the run

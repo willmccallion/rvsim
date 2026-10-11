@@ -9,7 +9,7 @@ pub mod debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::common::{HartId, PhysAddr, SimError};
+use crate::common::{HartId, InstSeq, PhysAddr, SimError};
 use crate::config::Config;
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
@@ -25,6 +25,7 @@ use crate::soc::devices::{Htif, SimOp};
 use crate::soc::memory::controller::MemoryController;
 use crate::soc::terminal::{InputReader, SharedTerminal};
 use crate::soc::topology::Topology;
+use crate::uarch::pipeline::trace::{Departure, PipelineTrace, Stage};
 use debug::HartDebug;
 
 /// What the trace macros print once tracing is armed.
@@ -110,6 +111,9 @@ pub struct Uncore {
     pub process: Option<crate::system::process::Process>,
     /// The console every device and proxy prints to and reads from.
     pub terminal: SharedTerminal,
+    /// Where the pipeline reports each instruction's progress, when a
+    /// trace is open.
+    pub pipeline_trace: Option<Box<dyn PipelineTrace>>,
     /// Global event queue: every inter-component message lands here.
     pub event_queue: EventQueue,
     /// Hierarchical statistics tree; sim-side perf observability counters.
@@ -227,6 +231,35 @@ impl Uncore {
     /// Queues a request a retired pseudo-instruction made.
     pub fn request(&mut self, op: SimOp) {
         self.pending_sim_ops.push(op);
+    }
+
+    /// Tells the open pipeline trace, if any, that `seq` on `hart` was
+    /// fetched from `pc`.
+    pub fn trace_fetched(&mut self, hart: HartId, seq: InstSeq, pc: u64) {
+        if let Some(trace) = &mut self.pipeline_trace {
+            trace.fetched(self.cycle, hart, seq, pc);
+        }
+    }
+
+    /// Tells the open pipeline trace, if any, `seq`'s encoding.
+    pub fn trace_decoded(&mut self, hart: HartId, seq: InstSeq, inst: u32) {
+        if let Some(trace) = &mut self.pipeline_trace {
+            trace.decoded(self.cycle, hart, seq, inst);
+        }
+    }
+
+    /// Tells the open pipeline trace, if any, that `seq` entered `stage`.
+    pub fn trace_stage(&mut self, hart: HartId, seq: InstSeq, stage: Stage) {
+        if let Some(trace) = &mut self.pipeline_trace {
+            trace.entered(self.cycle, hart, seq, stage);
+        }
+    }
+
+    /// Tells the open pipeline trace, if any, that `seq` left the pipeline.
+    pub fn trace_left(&mut self, hart: HartId, seq: InstSeq, how: Departure) {
+        if let Some(trace) = &mut self.pipeline_trace {
+            trace.left(self.cycle, hart, seq, how);
+        }
     }
 
     /// Hands the console's input to `reader`: the UART, or the proxy a

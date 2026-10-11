@@ -10,6 +10,7 @@ use crate::uarch::pipeline::backend::shared::flush_stats::count_flush;
 use crate::uarch::pipeline::engine::ExecutionEngine;
 use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::squash::{PendingSquash, Redirect, SquashCause};
+use crate::uarch::pipeline::trace::Departure;
 
 use super::O3Engine;
 
@@ -161,6 +162,9 @@ impl O3Engine {
         self.serialization.squash(|tag| squash.squashes(tag));
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
         let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
+        for seq in self.rob.seqs_after(keep_tag) {
+            state.trace_left(seq, Departure::Squashed);
+        }
         let squashed = if let Some(keep_tag) = keep_tag {
             for entry in self.rob.iter_after(keep_tag) {
                 self.free_list.reclaim(entry.phys_dst);

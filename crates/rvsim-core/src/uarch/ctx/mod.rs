@@ -21,12 +21,14 @@ pub use stage::StageCtx;
 use std::ops::{Deref, DerefMut};
 
 use crate::arch::Hart;
+use crate::common::InstSeq;
 use crate::common::PhysAddr;
 use crate::isa::op::MemWidth;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::stats::paths::HartPaths;
 use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
+use crate::uarch::pipeline::trace::{Departure, Stage};
 
 /// What a pipeline works on: its hart, its core, and the uncore.
 ///
@@ -40,6 +42,23 @@ pub struct CoreCtx<'a> {
     pub core: &'a mut CoreUnits,
     /// The uncore.
     pub uncore: &'a mut Uncore,
+}
+
+impl CoreCtx<'_> {
+    /// Reports a fetched instruction to the open pipeline trace, if any.
+    pub fn trace_fetched(&mut self, seq: InstSeq, pc: u64) {
+        self.uncore.trace_fetched(self.hart.hart_id, seq, pc);
+    }
+
+    /// Reports a stage entry to the open pipeline trace, if any.
+    pub fn trace_stage(&mut self, seq: InstSeq, stage: Stage) {
+        self.uncore.trace_stage(self.hart.hart_id, seq, stage);
+    }
+
+    /// Reports an instruction leaving the pipeline to the open trace, if any.
+    pub fn trace_left(&mut self, seq: InstSeq, how: Departure) {
+        self.uncore.trace_left(self.hart.hart_id, seq, how);
+    }
 }
 
 impl Deref for CoreCtx<'_> {

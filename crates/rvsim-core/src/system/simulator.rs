@@ -36,6 +36,9 @@ use crate::system::state::SystemState;
 use crate::system::{StatsDump, StatsEpoch, TraceControl, cache_audit, coherence_audit, loader};
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::PipelineDispatch;
+use crate::uarch::pipeline::trace::PipelineTrace;
+pub use crate::uarch::pipeline::trace::PipelineTraceFormat;
+use crate::uarch::pipeline::trace::kanata::KanataWriter;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
@@ -554,12 +557,53 @@ impl Simulator {
     }
 
     /// [`Self::run_to`], asking `keep_going` every so often whether to go
-    /// on (a host checking for Ctrl-C).
+    /// on (a host checking for Ctrl-C). An open pipeline trace is written
+    /// out when the run stops.
     ///
     /// # Errors
     ///
-    /// Returns the [`SimError`] a tick raised.
+    /// Returns the [`SimError`] a tick raised, or the pipeline trace's
+    /// write error.
     pub fn run_to_with(
+        &mut self,
+        stop: &StopAt,
+        keep_going: impl FnMut() -> bool,
+    ) -> Result<StopReason, SimError> {
+        let reason = self.run_to_unflushed(stop, keep_going)?;
+        if let Some(trace) = &mut self.state.uncore.pipeline_trace {
+            trace.flush()?;
+        }
+        Ok(reason)
+    }
+
+    /// Opens a pipeline trace at `path` in `format`; the pipeline reports
+    /// every instruction's progress to it until [`Self::close_pipeline_trace`].
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::FileRead`] when the file cannot be created.
+    pub fn open_pipeline_trace(
+        &mut self,
+        path: &str,
+        format: PipelineTraceFormat,
+    ) -> Result<(), SimError> {
+        let trace: Box<dyn PipelineTrace> = match format {
+            PipelineTraceFormat::Kanata => Box::new(KanataWriter::create(path)?),
+        };
+        self.state.uncore.pipeline_trace = Some(trace);
+        Ok(())
+    }
+
+    /// Writes out and closes the pipeline trace, if one is open.
+    ///
+    /// # Errors
+    ///
+    /// The trace's write error.
+    pub fn close_pipeline_trace(&mut self) -> Result<(), SimError> {
+        self.state.uncore.pipeline_trace.take().map_or(Ok(()), |mut trace| trace.flush())
+    }
+
+    fn run_to_unflushed(
         &mut self,
         stop: &StopAt,
         mut keep_going: impl FnMut() -> bool,

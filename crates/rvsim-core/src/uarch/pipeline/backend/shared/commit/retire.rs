@@ -27,6 +27,7 @@ use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::outstanding::StoreOwner;
 use crate::uarch::pipeline::rob::RobEntry;
+use crate::uarch::pipeline::trace::{Departure, Stage};
 
 use super::gate::updated_pte;
 use super::stats::update_instruction_stats;
@@ -102,6 +103,8 @@ fn apply_retirement(
     entry: &RobEntry,
     syscall: Option<Outcome>,
 ) -> CommitFlow {
+    state.trace_stage(entry.seq, Stage::Commit);
+    state.trace_left(entry.seq, Departure::Retired);
     advance_pc(state, entry);
     count_retired(state, entry);
     write_destinations(state, targets.registers, entry);

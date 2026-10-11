@@ -20,6 +20,7 @@ use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 use crate::uarch::pipeline::squash::{Redirect, SquashCause};
+use crate::uarch::pipeline::trace::Stage;
 
 /// What one cycle of in-order execute produced.
 #[derive(Debug, Default)]
@@ -93,6 +94,7 @@ fn execute_one(
     if state.check_execute_trigger(id.inst.pc) {
         return faulted(state, id, Trap::Breakpoint(id.inst.pc));
     }
+    state.trace_stage(id.seq, Stage::Execute);
 
     if let Some(executed) = execute_system(state, id, rob) {
         return executed;

@@ -357,6 +357,9 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             }
             TranslateOutcome::Ready(r) => (r.paddr, r.trap),
             TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
+                // Not reported to the trace yet: the instruction is fetched
+                // again, under a new number, once the walk completes.
+                let seq = engine.common_mut().alloc_inst_seq();
                 let pending = Fetch1Fetch2Entry {
                     pc: current_pc,
                     paddr: PhysAddr::new(0),
@@ -365,7 +368,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     pred_target: 0,
                     trap: None,
                     exception_stage: None,
-                    seq: engine.common_mut().alloc_inst_seq(),
+                    seq,
                 };
                 park_fetch_walk(state, engine, walk_state, pte_addr, pending);
                 // Fetch holds here until the translation returns: the
@@ -381,6 +384,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                 "F1: fetch trap"
             );
             let seq = engine.common_mut().alloc_inst_seq();
+            state.trace_fetched(seq, current_pc);
             group.push(engine.common_mut(), fault_entry(seq, current_pc, trap_cause), None);
             break;
         }
@@ -411,6 +415,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let mut pred_target = 0;
         let mut upper_paddr = None;
         let seq = engine.common_mut().alloc_inst_seq();
+        state.trace_fetched(seq, current_pc);
 
         let full_inst = if is_compressed {
             expand(half_word)

@@ -2,8 +2,10 @@
 //! back, completing their ROB entries and waking their dependents.
 
 use crate::exec::signals::ControlFlow;
+use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPhysRegFile};
+use crate::uarch::pipeline::trace::Stage;
 
 use super::issue_queue::IssueQueue;
 use super::{O3Engine, PendingResult};
@@ -43,10 +45,18 @@ impl O3Engine {
     /// Writes back up to `slots` of the non-memory results finished by `now`:
     /// completes their ROB entries, or records their faults, and wakes their
     /// dependents. Returns how many slots it used.
-    pub(super) fn writeback_finished_results(&mut self, now: u64, slots: usize) -> usize {
+    pub(super) fn writeback_finished_results(
+        &mut self,
+        state: &mut CoreCtx<'_>,
+        now: u64,
+        slots: usize,
+    ) -> usize {
         let finished = self.take_finished_results(now, slots);
         let used = finished.len();
         for PendingResult { entry, .. } in finished {
+            if let Some(seq) = self.rob.find_entry(entry.rob_tag).map(|e| e.seq) {
+                state.trace_stage(seq, Stage::Writeback);
+            }
             if let Some(trap) = entry.trap {
                 let stage = entry.exception_stage.unwrap_or(ExceptionStage::Execute);
                 self.rob.fault(entry.rob_tag, trap, stage);

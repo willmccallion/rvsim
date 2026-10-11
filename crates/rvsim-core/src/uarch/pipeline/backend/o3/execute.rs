@@ -18,6 +18,7 @@ use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rob::Rob;
 use crate::uarch::pipeline::squash::{Redirect, SquashCause};
+use crate::uarch::pipeline::trace::Stage;
 use crate::{trace_execute, trace_trap};
 
 /// Execute a single instruction for the O3 backend.
@@ -37,6 +38,7 @@ pub fn execute_one(
     if state.check_execute_trigger(id.inst.pc) {
         return faulted(state, id, Trap::Breakpoint(id.inst.pc));
     }
+    state.trace_stage(id.seq, Stage::Execute);
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = %id.rob_tag,

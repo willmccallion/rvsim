@@ -322,6 +322,11 @@ def main() -> None:
         help="run the ELF as a Linux user program (se) or a bare-metal image (bare); "
         "by default an entry below RAM with no tohost symbol means se",
     )
+    parser.add_argument(
+        "--pipeline-trace",
+        metavar="FILE",
+        help="write where every instruction is each cycle, as a Kanata log for Konata",
+    )
     parser.add_argument("positional_args", nargs="*", help=argparse.SUPPRESS)
 
     args, remaining = parser.parse_known_args()
@@ -398,6 +403,8 @@ def main() -> None:
             )
         finally:
             sys.stderr = _real_stderr
+        if args.pipeline_trace:
+            sim.open_pipeline_trace(args.pipeline_trace)
         print_stats = not args.quiet and not args.no_stats
         exit_code = run_watch(
             sim,
@@ -418,6 +425,8 @@ def main() -> None:
                 mode=args.mode,
             )
         )
+        if args.pipeline_trace:
+            sim.open_pipeline_trace(args.pipeline_trace)
         exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)
 
     if args.json and exit_code is not None:

@@ -356,6 +356,7 @@ impl SystemState {
                 exit_signal,
                 process: None,
                 terminal,
+                pipeline_trace: None,
                 event_queue: EventQueue::new(),
                 stats,
                 stats_epoch: StatsEpoch::default(),

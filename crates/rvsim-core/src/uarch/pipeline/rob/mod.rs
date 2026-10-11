@@ -783,6 +783,15 @@ impl Rob {
     }
 
     /// Iterate over all valid entries (head to tail).
+    /// The sequence numbers of the entries a squash drops: those after
+    /// `keep_tag`, or all of them.
+    pub fn seqs_after(&self, keep_tag: Option<RobTag>) -> Vec<crate::common::InstSeq> {
+        keep_tag.map_or_else(
+            || self.iter_all().map(|entry| entry.seq).collect(),
+            |tag| self.iter_after(tag).map(|entry| entry.seq).collect(),
+        )
+    }
+
     pub fn iter_all(&self) -> impl Iterator<Item = &RobEntry> {
         let entries = &self.entries;
         let head = self.head;

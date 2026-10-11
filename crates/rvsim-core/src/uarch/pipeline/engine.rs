@@ -437,6 +437,12 @@ impl BackendCommon {
     /// Drops every fetch in flight: line requests, fetch walks, completed
     /// groups waiting to drain and any fetch hold. Responses for them that
     /// arrive later are discarded rather than entering the new fetch stream.
+    /// The instructions fetch has numbered but not yet handed to the
+    /// fetch1→fetch2 latch: those in groups waiting on their line.
+    pub fn in_flight_fetch_seqs(&self) -> impl Iterator<Item = InstSeq> + '_ {
+        self.fetch_reorder.values().flat_map(|group| group.entries.iter()).map(|entry| entry.seq)
+    }
+
     pub fn drop_fetches(&mut self) {
         self.outstanding_fetches.clear();
         self.outstanding_walks.retain(|_, walk| {
@@ -570,7 +576,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
 
         let fetch_squashing = match self.redirect.take() {
             Some(pc) => {
-                self.discard_frontend_speculation();
+                self.discard_frontend_speculation(state);
                 self.frontend.fetch_pc = pc;
                 self.recovering_from_redirect = true;
                 self.engine.fetch_squashes_for_a_cycle()
@@ -601,7 +607,16 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// fetches and fetch walks, and the fetch reorder buffer. Backend
     /// resources (outstanding loads, stores and their walks) belong to ROB
     /// entries a redirect leaves intact, so they survive.
-    fn discard_frontend_speculation(&mut self) {
+    fn discard_frontend_speculation(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
+        let squashed = self
+            .frontend
+            .seqs()
+            .chain(self.rename_output.entries().map(|entry| entry.seq))
+            .chain(self.engine.common().in_flight_fetch_seqs())
+            .collect::<Vec<_>>();
+        for seq in squashed {
+            state.trace_left(seq, crate::uarch::pipeline::trace::Departure::Squashed);
+        }
         self.frontend.flush();
         self.rename_output.clear();
         let common = self.engine.common_mut();
@@ -623,7 +638,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         self.frontend.fetch_pc = state.hart.pc;
         self.redirect = None;
         self.recovering_from_redirect = false;
-        self.discard_frontend_speculation();
+        self.discard_frontend_speculation(state);
         let common = self.engine.common_mut();
         common.mailbox.clear();
         common.outstanding_loads.clear();

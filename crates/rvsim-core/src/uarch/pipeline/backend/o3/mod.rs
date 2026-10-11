@@ -32,6 +32,7 @@ use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
+use crate::uarch::pipeline::trace::Departure;
 use crate::uarch::vector::chaining::VecPendingResult;
 use crate::uarch::vector::lane_model::NumLanes;
 
@@ -303,7 +304,7 @@ impl ExecutionEngine for O3Engine {
 
         let memory_blocked = self.note_memory_backpressure(state);
         writeback_slots -= self.writeback_forwarded_loads(state, writeback_slots);
-        writeback_slots -= self.writeback_finished_results(now, writeback_slots);
+        writeback_slots -= self.writeback_finished_results(state, now, writeback_slots);
         self.issue_vec_mem_waves();
         self.send_vector_memory_micro_ops();
         self.complete_vector_results(now, writeback_slots);
@@ -323,6 +324,9 @@ impl ExecutionEngine for O3Engine {
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
+        for seq in self.rob.seqs_after(None) {
+            state.trace_left(seq, Departure::Squashed);
+        }
         self.serialization = serialize::Serialization::Off;
         self.fu_pool.release_squashed(self.cycle, |_| true);
         self.common.data_cache_flush = DataCacheFlush::Idle;

@@ -224,6 +224,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 );
                 return;
             }
+            state.trace_fetched(entry.seq, entry.pc);
             entry.trap = result.trap;
             entry.exception_stage = Some(ExceptionStage::Fetch);
             entry.paddr = PhysAddr::new(0);
