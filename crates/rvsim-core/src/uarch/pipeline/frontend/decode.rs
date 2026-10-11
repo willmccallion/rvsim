@@ -17,6 +17,7 @@ use crate::uarch::bpred::ControlInst;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{IdExEntry, IfIdEntry};
+use crate::uarch::pipeline::trace::Stage;
 
 /// Executes the decode stage.
 ///
@@ -39,6 +40,8 @@ pub fn decode_stage(
 
     for if_entry in input.iter().take(state.config.pipeline.decode_width()) {
         if let Some(trap) = &if_entry.trap {
+            state.trace_decoded(if_entry.seq, if_entry.inst);
+            state.trace_stage(if_entry.seq, Stage::Decode);
             output.push(IdExEntry {
                 inst: Inst {
                     pc: if_entry.pc,
@@ -48,6 +51,7 @@ pub fn decode_stage(
                 },
                 trap: Some(trap.clone()),
                 exception_stage: if_entry.exception_stage,
+                seq: if_entry.seq,
                 ..Default::default()
             });
             consumed_count += 1;
@@ -122,6 +126,8 @@ pub fn decode_stage(
             pred_target: if_entry.pred_target,
             seq: if_entry.seq,
         };
+        state.trace_decoded(decoded.seq, if_entry.inst);
+        state.trace_stage(decoded.seq, Stage::Decode);
         if !has_trap {
             redirect = check_fetch_prediction(state, &mut decoded);
         }

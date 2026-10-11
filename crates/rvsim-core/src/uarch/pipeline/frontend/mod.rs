@@ -19,6 +19,7 @@ pub mod fetch1;
 pub mod fetch2;
 pub mod rename;
 
+use crate::common::InstSeq;
 use crate::common::PhysAddr;
 use crate::config::PipelineConfig;
 use crate::uarch::ctx::StageCtx;
@@ -160,6 +161,15 @@ impl<E: ExecutionEngine> Frontend<E> {
         self.fetch1_fetch2.is_empty()
             && self.fetch2_decode.is_empty()
             && self.decode_rename.is_empty()
+    }
+
+    /// The sequence numbers of every instruction in the frontend latches.
+    pub fn seqs(&self) -> impl Iterator<Item = InstSeq> + '_ {
+        self.fetch1_fetch2
+            .entries()
+            .map(|entry| entry.seq)
+            .chain(self.fetch2_decode.entries().map(|entry| entry.seq))
+            .chain(self.decode_rename.entries().map(|entry| entry.seq))
     }
 
     /// Flushes all frontend latches.

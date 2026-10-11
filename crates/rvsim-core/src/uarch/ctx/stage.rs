@@ -14,6 +14,7 @@ use super::{csr, memory};
 use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
 use crate::arch::translation::PteUpdate;
+use crate::common::InstSeq;
 use crate::common::{AccessType, PhysAddr, VirtAddr};
 use crate::exec::state::ArchState;
 use crate::isa::csr::CsrAddr;
@@ -27,6 +28,7 @@ use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::mmu::ptw::WalkState;
+use crate::uarch::pipeline::trace::Stage;
 use crate::uarch::prefetch::{LoadPrefetch, PagePlacer, PrefetchDrop};
 
 /// A stage's view of its core: the hart read-only, the micro-architecture
@@ -120,6 +122,21 @@ impl<'a> StageCtx<'a> {
 
     /// The event queue, to schedule a packet.
     #[inline]
+    /// Reports a fetched instruction to the open pipeline trace, if any.
+    pub fn trace_fetched(&mut self, seq: InstSeq, pc: u64) {
+        self.uncore.trace_fetched(self.hart.hart_id, seq, pc);
+    }
+
+    /// Reports an instruction's encoding to the open pipeline trace, if any.
+    pub fn trace_decoded(&mut self, seq: InstSeq, inst: u32) {
+        self.uncore.trace_decoded(self.hart.hart_id, seq, inst);
+    }
+
+    /// Reports a stage entry to the open pipeline trace, if any.
+    pub fn trace_stage(&mut self, seq: InstSeq, stage: Stage) {
+        self.uncore.trace_stage(self.hart.hart_id, seq, stage);
+    }
+
     pub const fn events(&mut self) -> &mut EventQueue {
         &mut self.uncore.event_queue
     }

@@ -39,6 +39,7 @@ use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
 use crate::uarch::pipeline::squash::PendingSquash;
+use crate::uarch::pipeline::trace::Departure;
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
 use crate::exec::signals::ControlFlow;
@@ -154,6 +155,9 @@ impl InOrderEngine {
         let squashed = keep_tag.map_or(self.rob.len(), |tag| self.rob.iter_after(tag).count());
         count_flush(state, squash.redirect.cause.into(), squashed);
         let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
+        for seq in self.rob.seqs_after(keep_tag) {
+            state.trace_left(seq, Departure::Squashed);
+        }
         if let Some(keep_tag) = keep_tag {
             self.rob.flush_after(keep_tag);
             self.store_buffer.flush_after(keep_tag);
@@ -405,7 +409,7 @@ impl ExecutionEngine for InOrderEngine {
         }
 
         self.retire_vec_mem_elements(state);
-        writeback::writeback_stage(&state.stage(), &mut self.mem2_wb, &mut self.rob);
+        writeback::writeback_stage(&mut state.stage(), &mut self.mem2_wb, &mut self.rob);
 
         let _ = memory2::memory2_stage(
             &state.stage(),
@@ -502,6 +506,9 @@ impl ExecutionEngine for InOrderEngine {
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
+        for seq in self.rob.seqs_after(None) {
+            state.trace_left(seq, Departure::Squashed);
+        }
         self.fu_pool.release_squashed(self.cycle, |_| true);
         self.rob.flush_all();
         self.store_buffer.flush_speculative();

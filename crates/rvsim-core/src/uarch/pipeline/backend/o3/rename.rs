@@ -25,6 +25,7 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::trace::Stage;
 
 impl O3Engine {
     /// Renames one decoded instruction and allocates its backend slots.
@@ -171,6 +172,7 @@ impl O3Engine {
             }
             return Renamed::Stalled(Box::new(id));
         };
+        state.trace_stage(id.seq, Stage::Rename);
 
         if needs_dst {
             self.rename_map.set(id.inst.rd, id.inst.ctrl.fp_reg_write, rd_phys);

@@ -60,6 +60,7 @@ use crate::uarch::pipeline::outstanding::{
     WalkContinuation,
 };
 use crate::uarch::pipeline::rob::{RobState, RobTag};
+use crate::uarch::pipeline::trace::Stage;
 use crate::{trace_fwd, trace_mem};
 
 /// Outcome of processing a single `ExMem1Entry`.
@@ -135,6 +136,9 @@ pub fn memory1_stage<E: ExecutionEngine>(
     let mut iter = entries.into_iter();
 
     while let Some(mut ex) = iter.next() {
+        if let Some(seq) = engine.rob().find_entry(ex.rob_tag).map(|entry| entry.seq) {
+            state.trace_stage(seq, Stage::Memory);
+        }
         let was_waiting = std::mem::take(&mut ex.replaying);
         let micro_op = ex.vec_mem.as_ref().map(|v| v.micro_op);
         let translated = translations

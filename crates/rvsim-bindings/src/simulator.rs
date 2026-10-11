@@ -9,13 +9,13 @@ use crate::instruction::PyInstruction;
 use crate::snapshot::PyPipelineSnapshot;
 use crate::stats::PyStats;
 use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory, Width};
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader::KernelBoot;
-use rvsim_core::system::simulator::{ProcessArgs, ProgramKind};
+use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramKind};
 use std::io::Write;
 use std::io::{BufReader, BufWriter};
 
@@ -433,6 +433,30 @@ impl PySimulator {
     #[cfg(feature = "commit-log")]
     fn open_commit_log(&mut self, path: &str) -> PyResult<()> {
         self.inner.open_commit_log(path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Opens a pipeline trace at ``path``: every instruction's progress
+    /// through the pipeline, for a viewer. ``format`` is ``"kanata"``, the
+    /// log Konata displays. The trace is written out whenever a run stops
+    /// and closed by ``close_pipeline_trace``.
+    #[pyo3(signature = (path, format = "kanata"))]
+    fn open_pipeline_trace(&mut self, path: &str, format: &str) -> PyResult<()> {
+        let format = match format {
+            "kanata" => PipelineTraceFormat::Kanata,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown pipeline trace format {other:?}; the formats are \"kanata\""
+                )));
+            }
+        };
+        self.inner
+            .open_pipeline_trace(path, format)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Writes out and closes the pipeline trace, if one is open.
+    fn close_pipeline_trace(&mut self) -> PyResult<()> {
+        self.inner.close_pipeline_trace().map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
     /// Execute until one instruction commits.

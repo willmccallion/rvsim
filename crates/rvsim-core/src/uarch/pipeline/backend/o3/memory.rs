@@ -125,7 +125,7 @@ impl O3Engine {
             })
             .collect();
 
-        writeback::writeback_stage(&state.stage(), &mut entries, &mut self.rob);
+        writeback::writeback_stage(&mut state.stage(), &mut entries, &mut self.rob);
 
         for (rd_phys, val) in wakeups {
             self.prf.write(rd_phys, val);

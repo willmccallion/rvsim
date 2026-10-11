@@ -14,13 +14,14 @@ use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::trace::Stage;
 
 impl InOrderEngine {
     /// Renames one decoded instruction and allocates its ROB and store
     /// buffer slots. A store waits here, before anything is allocated, when
     /// its buffer is full; `can_accept` covers the ROB and issue-queue slots
     /// every instruction needs.
-    pub(super) fn rename_one(&mut self, state: &StageCtx<'_>, id: IdExEntry) -> Renamed {
+    pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, id: IdExEntry) -> Renamed {
         let store_slot = if id.inst.ctrl.uses_store_buffer() {
             !self.store_buffer.is_full()
         } else if is_vec_store(id.inst.ctrl.vec_op) {
@@ -44,6 +45,7 @@ impl InOrderEngine {
         ) else {
             return Renamed::Stalled(Box::new(id));
         };
+        state.trace_stage(id.seq, Stage::Rename);
 
         // Capture source tags BEFORE updating scoreboard for rd.
         let rs1_tag = self.scoreboard.get_producer(id.inst.rs1, id.inst.ctrl.rs1_fp);

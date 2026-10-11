@@ -16,6 +16,7 @@ use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPrfView};
 use crate::uarch::pipeline::squash::PendingSquash;
+use crate::uarch::pipeline::trace::Stage;
 use crate::uarch::vector::chaining::VecPendingResult;
 use crate::uarch::vector::lane_model;
 
@@ -83,6 +84,7 @@ impl O3Engine {
     /// tracks its result until the unit is done with it.
     fn issue_one(&mut self, state: &mut CoreCtx<'_>, selected: SelectedEntry, now: u64) {
         let SelectedEntry { entry, fu_type, unit, data_follows } = selected;
+        state.trace_stage(entry.seq, Stage::Issue);
         if entry.inst.ctrl.mem_read || entry.inst.ctrl.uses_store_buffer() {
             self.mdp.issued(entry.rob_tag);
         }
@@ -313,6 +315,7 @@ impl O3Engine {
         rename_output: &mut Vec<RenameIssueEntry>,
     ) {
         for entry in std::mem::take(rename_output) {
+            state.trace_stage(entry.seq, Stage::Dispatch);
             let is_load = entry.inst.ctrl.mem_read;
             let is_store = entry.inst.ctrl.uses_store_buffer();
             let is_atomic = entry.inst.ctrl.atomic_op.is_some();

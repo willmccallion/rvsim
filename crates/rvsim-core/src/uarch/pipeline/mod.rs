@@ -30,3 +30,5 @@ pub mod rob;
 pub mod snapshot;
 
 pub mod squash;
+
+pub mod trace;

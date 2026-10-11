@@ -14,12 +14,16 @@ use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::Mem2WbEntry;
 use crate::uarch::pipeline::rob::Rob;
+use crate::uarch::pipeline::trace::Stage;
 
 /// Executes the Writeback stage: marks ROB entries Completed (or Faulted).
-pub fn writeback_stage(state: &StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, rob: &mut Rob) {
+pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, rob: &mut Rob) {
     let entries = std::mem::take(input);
 
     for wb in entries {
+        if let Some(seq) = rob.find_entry(wb.rob_tag).map(|entry| entry.seq) {
+            state.trace_stage(seq, Stage::Writeback);
+        }
         if let Some(ref trap) = wb.trap {
             if wb.fp_flags != 0 {
                 rob.set_fp_flags(wb.rob_tag, wb.fp_flags);

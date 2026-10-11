@@ -6,6 +6,7 @@ pub mod checkpoint_resume;
 pub mod commit_log;
 pub mod exit;
 pub mod htif_syscalls;
+pub mod pipeline_trace;
 pub mod run_to;
 pub mod se_mode;
 pub mod sim_control;
