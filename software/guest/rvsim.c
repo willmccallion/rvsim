@@ -10,7 +10,7 @@
  *   rvsim run START END CMD [ARG]   dump START, run CMD, dump END
  *   rvsim readfile                  copy the host's script file to stdout
  *   rvsim writefile FILE [NAME]     copy FILE to NAME in the host's output
- *                                   directory (FILE's name by default)
+ *                                   directory (FILE's base name by default)
  *
  * `run` brackets the command as tightly as a separate process allows: the
  * dumps are taken in this process just before the fork and just after the
@@ -130,6 +130,14 @@ static int write_file(const char *path, const char *name)
 	return 0;
 }
 
+/* The part of `path` after its last slash: the host name a written file
+ * gets by default, since a name with a directory in it would be refused. */
+static const char *base_name(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+	return slash == NULL ? path : slash + 1;
+}
+
 static void usage(void)
 {
 	fputs("usage: rvsim dump-stats LABEL | reset-stats | break LABEL | exit [CODE] |"
@@ -156,7 +164,7 @@ int main(int argc, char **argv)
 	} else if (strcmp(verb, "readfile") == 0 && argc == 2) {
 		return read_file();
 	} else if (strcmp(verb, "writefile") == 0 && (argc == 3 || argc == 4)) {
-		return write_file(argv[2], argc == 4 ? argv[3] : argv[2]);
+		return write_file(argv[2], argc == 4 ? argv[3] : base_name(argv[2]));
 	} else {
 		usage();
 	}

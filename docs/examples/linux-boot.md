@@ -46,7 +46,7 @@ The image's `rvsim` command talks to the simulator with the
 | `rvsim exit [CODE]` | Ends the simulation |
 | `rvsim run START END CMD [ARG...]` | Dumps `START`, runs `CMD`, dumps `END`: what `Session.measure` uses |
 | `rvsim readfile` | Copies the host's script file (`Simulator(script=...)`) to stdout |
-| `rvsim writefile FILE [NAME]` | Copies `FILE` to `NAME` in the host's output directory (`Simulator(outdir=...)`) |
+| `rvsim writefile FILE [NAME]` | Copies `FILE` to `NAME` (its base name by default) in the host's output directory (`Simulator(outdir=...)`) |
 
 A boot with a script and an output directory runs the script and
 collects its results without a shell session:
