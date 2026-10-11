@@ -4,4 +4,5 @@ pub mod dtb;
 pub mod execution;
 pub mod external_writes;
 pub mod loader;
+pub mod memory_map;
 pub mod threads;

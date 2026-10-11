@@ -4,7 +4,10 @@
 //! This allows the simulator to provide a DTB to OpenSBI/Linux without
 //! requiring an external `dtc` compilation step.
 
-use crate::config::Config;
+use crate::config::{
+    CLINT_REGION_BYTES, Config, PLIC_BASE, PLIC_REGION_BYTES, RTC_BASE, RTC_REGION_BYTES,
+    SYSCON_REGION_BYTES, UART_REGION_BYTES, VIRTIO_REGION_BYTES,
+};
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::extension::Extension;
 use crate::isa::privileged::PagingMode;
@@ -234,8 +237,8 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let disk_base = config.system.disk_base;
     let clint_base = config.system.clint_base;
     let syscon_base = config.system.syscon_base;
-    let rtc_base: u64 = 0x10_1000;
-    let plic_base: u64 = 0x0c00_0000;
+    let rtc_base = RTC_BASE;
+    let plic_base = PLIC_BASE;
     let timebase_freq: u32 = 10_000_000;
     let hart_count = u32::try_from(config.system.hart_count.max(1)).unwrap_or(u32::MAX);
 
@@ -332,7 +335,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         let node_name = format!("clint@{clint_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "riscv,clint0");
-        b.prop_reg_2_2(clint_base, 0x10000);
+        b.prop_reg_2_2(clint_base, CLINT_REGION_BYTES);
         // Per hart: <&intc 3> (M-mode software), <&intc 7> (M-mode timer).
         b.prop_bytes("interrupts-extended", &interrupts_extended(&phandles, &[3, 7]));
         b.end_node();
@@ -343,7 +346,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         let node_name = format!("uart@{uart_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "ns16550a");
-        b.prop_reg_2_2(uart_base, 0x100);
+        b.prop_reg_2_2(uart_base, UART_REGION_BYTES);
         b.prop_u32("clock-frequency", 10_000_000);
         b.prop_u32("interrupt-parent", plic_phandle);
         b.prop_bytes("interrupts", &10u32.to_be_bytes());
@@ -356,7 +359,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         let node_name = format!("virtio_mmio@{disk_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "virtio,mmio");
-        b.prop_reg_2_2(disk_base, 0x1000);
+        b.prop_reg_2_2(disk_base, VIRTIO_REGION_BYTES);
         b.prop_u32("interrupt-parent", plic_phandle);
         b.prop_bytes("interrupts", &1u32.to_be_bytes());
         b.end_node();
@@ -367,7 +370,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         let node_name = format!("interrupt-controller@{plic_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "riscv,plic0");
-        b.prop_reg_2_2(plic_base, 0x4000000);
+        b.prop_reg_2_2(plic_base, PLIC_REGION_BYTES);
         b.prop_u32("#interrupt-cells", 1);
         b.prop_empty("interrupt-controller");
         // Per hart: <&intc 11> (M-mode external), <&intc 9> (S-mode external).
@@ -383,7 +386,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         let node_name = format!("syscon@{syscon_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "syscon");
-        b.prop_reg_2_2(syscon_base, 0x1000);
+        b.prop_reg_2_2(syscon_base, SYSCON_REGION_BYTES);
         b.prop_u32("phandle", syscon_phandle);
         b.end_node();
     }
@@ -413,7 +416,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         let node_name = format!("rtc@{rtc_base:x}");
         b.begin_node(&node_name);
         b.prop_string("compatible", "google,goldfish-rtc");
-        b.prop_reg_2_2(rtc_base, 0x1000);
+        b.prop_reg_2_2(rtc_base, RTC_REGION_BYTES);
         b.prop_u32("interrupt-parent", plic_phandle);
         b.prop_bytes("interrupts", &11u32.to_be_bytes());
         b.end_node();

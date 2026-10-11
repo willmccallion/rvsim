@@ -418,7 +418,7 @@ impl Device for Uart {
         "UART0"
     }
     fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, 0x100)
+        (self.base_addr, crate::config::UART_REGION_BYTES)
     }
 
     fn tick(&mut self) -> bool {

@@ -342,7 +342,7 @@ impl Device for Plic {
         "PLIC"
     }
     fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, 0x4000000)
+        (self.base_addr, crate::config::PLIC_REGION_BYTES)
     }
 
     /// Quiet once the claims in the delay line all equal what the current
