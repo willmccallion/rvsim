@@ -299,6 +299,10 @@ def rocket() -> Config:
     """
     return Config(
         width=1,
+        vlen=128,
+        num_vec_lanes=None,
+        cpu_clock_mhz=2400,
+        clock_hz=1_000_000_000,
         backend=Backend.InOrder(
             fu_config=Fu(
                 [
@@ -330,9 +334,14 @@ def rocket() -> Config:
         tlb_ways=0,
         l2_tlb_size=512,
         l2_tlb_ways=1,
+        l2_tlb_latency=4,
         l1i=Cache(size="32KB", line="64B", ways=8, latency=1),
         l1d=Cache(size="32KB", line="64B", ways=8, latency=1, mshr_count=1),
         l2=Cache(size="512KB", line="64B", ways=8, latency=15),
+        l3=None,
+        wcb_entries=0,
+        load_prefetcher=None,
+        store_prefetcher=None,
         bus_latency=1,
         memory_controller=MemoryController.Simple(latency=1, bandwidth_gib_s=12.8),
     )
@@ -375,6 +384,10 @@ def boom() -> Config:
     """
     return Config(
         width=2,
+        vlen=128,
+        num_vec_lanes=None,
+        cpu_clock_mhz=2400,
+        clock_hz=1_000_000_000,
         fetch_width=4,
         backend=Backend.OutOfOrder(
             rob_size=64,
@@ -385,6 +398,7 @@ def boom() -> Config:
             store_ports=1,
             prf_gpr_size=80,
             prf_fpr_size=64,
+            prf_vpr_size=64,
             checkpoint_count=12,
             fu_config=Fu(
                 [
@@ -421,9 +435,14 @@ def boom() -> Config:
         tlb_ways=0,
         l2_tlb_size=512,
         l2_tlb_ways=1,
+        l2_tlb_latency=4,
         l1i=Cache(size="16KB", line="64B", ways=4, latency=2),
         l1d=Cache(size="16KB", line="64B", ways=4, latency=4, mshr_count=2),
         l2=Cache(size="512KB", line="64B", ways=8, latency=21, mshr_count=8),
+        l3=None,
+        wcb_entries=0,
+        load_prefetcher=None,
+        store_prefetcher=None,
         bus_latency=1,
         memory_controller=MemoryController.Simple(latency=1, bandwidth_gib_s=12.8),
     )
