@@ -8,6 +8,7 @@ mod bpred;
 mod cache;
 mod checks;
 mod coherence;
+mod components;
 pub mod ddr5;
 mod defaults;
 mod general;
@@ -29,6 +30,7 @@ pub use cache::{
 pub use coherence::{
     CoherenceConfig, CoherenceProtocolConfig, HomeAgentConfig, InterconnectConfig,
 };
+pub use components::{ComponentDefaults, InOrderDefaults, TageScLDefaults};
 pub use general::{Console, GeneralConfig};
 pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind};
 pub use pipeline::{

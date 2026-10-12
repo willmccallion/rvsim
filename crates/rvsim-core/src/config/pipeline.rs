@@ -529,9 +529,11 @@ impl StoreSetConfig {
     }
 }
 
-/// Configuration for the functional unit pool.
+/// Configuration for the functional unit pool. A field left out takes
+/// its default.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct FuConfig {
     /// Number of integer ALU units.
     pub num_int_alu: usize,
@@ -570,52 +572,36 @@ pub struct FuConfig {
     /// Latency of memory operations in cycles.
     pub mem_latency: u64,
     /// Number of vector integer ALU units.
-    #[serde(default = "default_num_vec_int_alu")]
     pub num_vec_int_alu: usize,
     /// Startup latency of vector integer ALU operations.
-    #[serde(default = "default_vec_int_alu_latency")]
     pub vec_int_alu_latency: u64,
     /// Number of vector integer multiplier units.
-    #[serde(default = "default_num_vec_int_mul")]
     pub num_vec_int_mul: usize,
     /// Startup latency of vector integer multiply operations.
-    #[serde(default = "default_vec_int_mul_latency")]
     pub vec_int_mul_latency: u64,
     /// Number of vector integer divider units.
-    #[serde(default = "default_num_vec_int_div")]
     pub num_vec_int_div: usize,
     /// Per-element latency of vector integer divide operations.
-    #[serde(default = "default_vec_int_div_latency")]
     pub vec_int_div_latency: u64,
     /// Number of vector FP ALU units.
-    #[serde(default = "default_num_vec_fp_alu")]
     pub num_vec_fp_alu: usize,
     /// Startup latency of vector FP ALU operations.
-    #[serde(default = "default_vec_fp_alu_latency")]
     pub vec_fp_alu_latency: u64,
     /// Number of vector FP FMA units.
-    #[serde(default = "default_num_vec_fp_fma")]
     pub num_vec_fp_fma: usize,
     /// Startup latency of vector FP FMA operations.
-    #[serde(default = "default_vec_fp_fma_latency")]
     pub vec_fp_fma_latency: u64,
     /// Number of vector FP div/sqrt units.
-    #[serde(default = "default_num_vec_fp_div_sqrt")]
     pub num_vec_fp_div_sqrt: usize,
     /// Per-element latency of vector FP div/sqrt operations.
-    #[serde(default = "default_vec_fp_div_sqrt_latency")]
     pub vec_fp_div_sqrt_latency: u64,
     /// Number of vector memory units.
-    #[serde(default = "default_num_vec_mem")]
     pub num_vec_mem: usize,
     /// Startup latency of vector memory operations.
-    #[serde(default = "default_vec_mem_latency")]
     pub vec_mem_latency: u64,
     /// Number of vector permute units.
-    #[serde(default = "default_num_vec_permute")]
     pub num_vec_permute: usize,
     /// Startup latency of vector permute operations.
-    #[serde(default = "default_vec_permute_latency")]
     pub vec_permute_latency: u64,
 }
 
@@ -640,22 +626,22 @@ impl Default for FuConfig {
             branch_latency: 1,
             num_mem: 2,
             mem_latency: 1,
-            num_vec_int_alu: default_num_vec_int_alu(),
-            vec_int_alu_latency: default_vec_int_alu_latency(),
-            num_vec_int_mul: default_num_vec_int_mul(),
-            vec_int_mul_latency: default_vec_int_mul_latency(),
-            num_vec_int_div: default_num_vec_int_div(),
-            vec_int_div_latency: default_vec_int_div_latency(),
-            num_vec_fp_alu: default_num_vec_fp_alu(),
-            vec_fp_alu_latency: default_vec_fp_alu_latency(),
-            num_vec_fp_fma: default_num_vec_fp_fma(),
-            vec_fp_fma_latency: default_vec_fp_fma_latency(),
-            num_vec_fp_div_sqrt: default_num_vec_fp_div_sqrt(),
-            vec_fp_div_sqrt_latency: default_vec_fp_div_sqrt_latency(),
-            num_vec_mem: default_num_vec_mem(),
-            vec_mem_latency: default_vec_mem_latency(),
-            num_vec_permute: default_num_vec_permute(),
-            vec_permute_latency: default_vec_permute_latency(),
+            num_vec_int_alu: 1,
+            vec_int_alu_latency: 1,
+            num_vec_int_mul: 1,
+            vec_int_mul_latency: 3,
+            num_vec_int_div: 1,
+            vec_int_div_latency: 20,
+            num_vec_fp_alu: 1,
+            vec_fp_alu_latency: 4,
+            num_vec_fp_fma: 1,
+            vec_fp_fma_latency: 5,
+            num_vec_fp_div_sqrt: 1,
+            vec_fp_div_sqrt_latency: 20,
+            num_vec_mem: 1,
+            vec_mem_latency: 1,
+            num_vec_permute: 1,
+            vec_permute_latency: 1,
         }
     }
 }
@@ -721,68 +707,4 @@ pub enum VecStoreForwarding {
     Stall,
     /// Most conservative: stall on any older in-flight vec store.
     Off,
-}
-
-const fn default_num_vec_int_alu() -> usize {
-    1
-}
-
-const fn default_vec_int_alu_latency() -> u64 {
-    1
-}
-
-const fn default_num_vec_int_mul() -> usize {
-    1
-}
-
-const fn default_vec_int_mul_latency() -> u64 {
-    3
-}
-
-const fn default_num_vec_int_div() -> usize {
-    1
-}
-
-const fn default_vec_int_div_latency() -> u64 {
-    20
-}
-
-const fn default_num_vec_fp_alu() -> usize {
-    1
-}
-
-const fn default_vec_fp_alu_latency() -> u64 {
-    4
-}
-
-const fn default_num_vec_fp_fma() -> usize {
-    1
-}
-
-const fn default_vec_fp_fma_latency() -> u64 {
-    5
-}
-
-const fn default_num_vec_fp_div_sqrt() -> usize {
-    1
-}
-
-const fn default_vec_fp_div_sqrt_latency() -> u64 {
-    20
-}
-
-const fn default_num_vec_mem() -> usize {
-    1
-}
-
-const fn default_vec_mem_latency() -> u64 {
-    1
-}
-
-const fn default_num_vec_permute() -> usize {
-    1
-}
-
-const fn default_vec_permute_latency() -> u64 {
-    1
 }

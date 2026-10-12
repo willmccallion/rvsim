@@ -41,9 +41,6 @@ impl Config {
     }
 }
 
-/// The default machine's caches, as the Python API writes them: a level
-/// whose prefetcher has no table carries a table size of zero, and the
-/// absent L3 a zero geometry.
 fn default_caches() -> CacheHierarchyConfig {
     CacheHierarchyConfig {
         l1_i: CacheConfig {
@@ -51,7 +48,6 @@ fn default_caches() -> CacheHierarchyConfig {
             size_bytes: 32 << 10,
             ways: 4,
             prefetcher: PrefetcherKind::NextLine,
-            prefetch_table_size: 0,
             ..CacheConfig::default()
         },
         l1_d: CacheConfig {
@@ -66,17 +62,6 @@ fn default_caches() -> CacheHierarchyConfig {
             size_bytes: 256 << 10,
             ways: 8,
             latency: 10,
-            prefetch_table_size: 0,
-            prefetch_degree: 0,
-            ..CacheConfig::default()
-        },
-        l3: CacheConfig {
-            size_bytes: 0,
-            line_bytes: 0,
-            ways: 0,
-            latency: 0,
-            prefetch_table_size: 0,
-            prefetch_degree: 0,
             ..CacheConfig::default()
         },
         ..CacheHierarchyConfig::default()

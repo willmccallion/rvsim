@@ -26,14 +26,14 @@ pub fn py_dict_to_config(py: Python<'_>, dict: &Bound<'_, PyAny>) -> PyResult<Co
     Ok(config)
 }
 
-/// Converts a simulator `Config` to the Python dict `py_dict_to_config`
-/// reads.
+/// Converts a configuration value, a whole `Config` or a component of one,
+/// to the Python dict `py_dict_to_config` reads it from.
 ///
 /// # Errors
 ///
-/// Returns `ValueError` if the configuration cannot be written as JSON.
-pub fn config_to_py_dict(py: Python<'_>, config: &Config) -> PyResult<PyObject> {
-    let json_str = serde_json::to_string(config).map_err(|e| {
+/// Returns `ValueError` if the value cannot be written as JSON.
+pub fn config_to_py_dict<T: serde::Serialize>(py: Python<'_>, value: &T) -> PyResult<PyObject> {
+    let json_str = serde_json::to_string(value).map_err(|e| {
         PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Unwritable config: {e}"))
     })?;
     let json = py.import("json")?;

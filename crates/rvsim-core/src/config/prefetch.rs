@@ -16,6 +16,24 @@ pub enum PageBoundary {
     CrossWithTlb,
 }
 
+impl LoadPrefetcherConfig {
+    /// The stride prefetcher's starting point: a 64-entry table keeping four
+    /// lines ahead in the L1D, none in the L2 alone, inside the page.
+    #[must_use]
+    pub const fn stride() -> Self {
+        Self::Stride { table_size: 64, l1_lines: 4, l2_lines: 0, page_boundary: PageBoundary::Stop }
+    }
+}
+
+impl StorePrefetcherConfig {
+    /// The store prefetcher's starting point: four runs tracked, eight lines
+    /// ahead in the L2.
+    #[must_use]
+    pub const fn stream() -> Self {
+        Self::Stream { streams: 4, l2_lines: 8 }
+    }
+}
+
 /// The load/store unit's prefetcher for loads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields)]

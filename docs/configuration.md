@@ -103,13 +103,20 @@ Backend.OutOfOrder(
 ### Backend: In-Order
 
 ```python
-Backend.InOrder(fu_config=None)
+Backend.InOrder(
+    fu_config=None,               # Functional unit pool (see below); Fu() by default
+    rob_size=64,                  # Instructions in flight from issue to commit
+    store_buffer_size=16,         # Committed stores waiting to drain
+    load_ports=1,                 # Loads reaching memory per cycle
+    store_ports=1,                # Stores reaching memory per cycle
+    vec_store_buffer_size=8,      # In-flight vector stores
+    vec_store_forwarding="byte_mask",  # As for the out-of-order backend
+)
 ```
 
 The in-order backend issues in program order, up to `issue_width` per
 cycle, with a scoreboard tracking operands. `fu_config` is its functional
-unit pool (the default `Fu()` when `None`), described under Functional
-Units below; it has a 64-entry ROB and a 16-entry store buffer.
+unit pool, described under Functional Units below.
 
 ### Functional Units
 
