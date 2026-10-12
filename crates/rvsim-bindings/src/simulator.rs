@@ -820,7 +820,7 @@ impl PySimulator {
     }
 
     /// The console output since the last call, when the config's
-    /// ``console`` is ``"captured"``.
+    /// ``console`` is ``"Captured"``.
     fn read_console(&mut self) -> String {
         String::from_utf8_lossy(&self.inner.take_console_output()).into_owned()
     }

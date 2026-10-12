@@ -486,7 +486,7 @@ fn load_prefetches_the_l1d_cannot_take_are_dropped(rec: &mut Recorder) {
         let mut dropped = [0; 2];
         for (n, mshrs) in [2, 16].into_iter().enumerate() {
             let mut config = everything_on(backend);
-            config.cache.l1_d.prefetcher = PrefetcherKind::None;
+            config.cache.l1_d.prefetcher = PrefetcherKind::Off;
             config.cache.l1_d.mshr_count = count(mshrs);
 
             let ctx = run_settled(&config, read_modify_write_lines(48), &context);

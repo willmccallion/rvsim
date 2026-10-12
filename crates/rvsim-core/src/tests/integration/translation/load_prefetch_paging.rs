@@ -232,7 +232,7 @@ pub fn run_system(
     config.cache.l1_d.enabled = true;
     config.cache.l1_d.size_bytes = 32 * 1024;
     config.cache.l1_d.ways = 8;
-    config.cache.l1_d.prefetcher = PrefetcherKind::None;
+    config.cache.l1_d.prefetcher = PrefetcherKind::Off;
     config.cache.load_prefetcher =
         LoadPrefetcherConfig::Stride { table_size: 64, l1_lines: 4, l2_lines: 0, page_boundary };
     config.system.console = crate::config::Console::Quiet;

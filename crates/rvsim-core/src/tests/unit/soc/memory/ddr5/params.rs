@@ -16,7 +16,7 @@ fn defaults_match_the_built_in_ddr5_4800_configuration() {
 #[test]
 fn a_config_file_selects_bin_policies_and_timing_overrides() {
     let json = r#"{
-        "speed_bin": "5600B",
+        "speed_bin": "Ddr5_5600B",
         "channels": 1,
         "ranks_per_channel": 1,
         "scheduler": "Fcfs",
@@ -57,7 +57,8 @@ fn non_power_of_two_topology_is_rejected_at_parse_time() {
 
 #[test]
 fn the_memory_section_carries_the_ddr5_block() {
-    let json = r#"{"controller": "Ddr5", "ddr5": {"speed_bin": "4800B", "ranks_per_channel": 4}}"#;
+    let json =
+        r#"{"controller": "Ddr5", "ddr5": {"speed_bin": "Ddr5_4800B", "ranks_per_channel": 4}}"#;
     let memory: MemoryConfig = serde_json::from_str(json).unwrap();
     assert_eq!(memory.controller, MemoryControllerKind::Ddr5);
     assert_eq!(memory.ddr5.to_config().ranks_per_channel, 4);

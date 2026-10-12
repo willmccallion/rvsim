@@ -40,7 +40,7 @@ def run_sweep(binary):
             # Base config with TAGE predictor
             cfg = Config(
                 width=width,
-                branch_predictor=BranchPredictor.TAGE(),
+                branch_predictor=BranchPredictor.Tage(),
                 l1d=Cache(size, ways=4, mshr_count=8),
                 l1i=Cache("32KB", ways=4),
                 l2=Cache("1MB", ways=16, latency=10),

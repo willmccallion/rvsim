@@ -18,7 +18,7 @@ WIDTHS = [1, 2, 4]
 BP_MAP = {
     "Static": BranchPredictor.Static,
     "GShare": BranchPredictor.GShare,
-    "TAGE": BranchPredictor.TAGE,
+    "Tage": BranchPredictor.Tage,
     "Perceptron": BranchPredictor.Perceptron,
     "Tournament": BranchPredictor.Tournament,
 }
@@ -30,9 +30,9 @@ def main():
     )
     ap.add_argument(
         "--bp",
-        default="TAGE",
+        default="Tage",
         choices=BP_MAP.keys(),
-        help="Branch predictor (default: TAGE)",
+        help="Branch predictor (default: Tage)",
     )
     ap.add_argument(
         "--widths", type=int, nargs="+", default=WIDTHS, help="Pipeline widths to test"

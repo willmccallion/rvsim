@@ -57,7 +57,7 @@ fn test_cache_config_defaults() {
     assert_eq!(cache.ways, 1);
     assert_eq!(cache.policy, ReplacementPolicyKind::Lru);
     assert_eq!(cache.latency, 1);
-    assert_eq!(cache.prefetcher, PrefetcherKind::None);
+    assert_eq!(cache.prefetcher, PrefetcherKind::Off);
     assert_eq!(cache.prefetch_table_size, 64);
     assert_eq!(cache.prefetch_degree, 1);
 }
@@ -122,11 +122,11 @@ fn test_replacement_policy_enum() {
 
 #[test]
 fn test_prefetcher_enum() {
-    assert_eq!(PrefetcherKind::default(), PrefetcherKind::None);
-    assert_ne!(PrefetcherKind::None, PrefetcherKind::NextLine);
-    assert_ne!(PrefetcherKind::None, PrefetcherKind::Stride);
-    assert_ne!(PrefetcherKind::None, PrefetcherKind::Stream);
-    assert_ne!(PrefetcherKind::None, PrefetcherKind::Tagged);
+    assert_eq!(PrefetcherKind::default(), PrefetcherKind::Off);
+    assert_ne!(PrefetcherKind::Off, PrefetcherKind::NextLine);
+    assert_ne!(PrefetcherKind::Off, PrefetcherKind::Stride);
+    assert_ne!(PrefetcherKind::Off, PrefetcherKind::Stream);
+    assert_ne!(PrefetcherKind::Off, PrefetcherKind::Tagged);
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn test_json_deserialization_minimal() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "console": "stdout"
+            "console": "Stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -172,9 +172,9 @@ fn test_json_deserialization_minimal() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -183,9 +183,9 @@ fn test_json_deserialization_minimal() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -194,9 +194,9 @@ fn test_json_deserialization_minimal() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -205,9 +205,9 @@ fn test_json_deserialization_minimal() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             }
@@ -258,7 +258,7 @@ fn test_json_deserialization_with_tracing() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "console": "stdout"
+            "console": "Stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -275,7 +275,7 @@ fn test_json_deserialization_with_tracing() {
                 "size_bytes": 32768,
                 "line_bytes": 64,
                 "ways": 4,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
                 "prefetcher": "NextLine",
                 "prefetch_table_size": 64,
@@ -286,7 +286,7 @@ fn test_json_deserialization_with_tracing() {
                 "size_bytes": 32768,
                 "line_bytes": 64,
                 "ways": 4,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
                 "prefetcher": "Stride",
                 "prefetch_table_size": 64,
@@ -297,9 +297,9 @@ fn test_json_deserialization_with_tracing() {
                 "size_bytes": 131072,
                 "line_bytes": 64,
                 "ways": 8,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 10,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -308,9 +308,9 @@ fn test_json_deserialization_with_tracing() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 20,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             }
@@ -368,7 +368,7 @@ fn test_json_dram_controller() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "console": "stdout"
+            "console": "Stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -384,9 +384,9 @@ fn test_json_dram_controller() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -395,9 +395,9 @@ fn test_json_dram_controller() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -406,9 +406,9 @@ fn test_json_dram_controller() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -417,9 +417,9 @@ fn test_json_dram_controller() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             }
@@ -454,17 +454,17 @@ fn test_json_dram_controller() {
 
 #[test]
 fn test_json_all_replacement_policies() {
-    for policy in &["LRU", "FIFO", "RANDOM", "MRU", "PLRU"] {
+    for policy in &["Lru", "Fifo", "Random", "Mru", "Plru"] {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "Stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
-                "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 4, "policy": "{}", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}}
+                "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 4, "policy": "{}", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}}
             }},
             "pipeline": {{"width": 1, "branch_predictor": "Static", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
         }}"#,
@@ -477,17 +477,17 @@ fn test_json_all_replacement_policies() {
 
 #[test]
 fn test_json_all_prefetchers() {
-    for prefetcher in &["None", "NextLine", "Stride", "Stream", "Tagged"] {
+    for prefetcher in &["Off", "NextLine", "Stride", "Stream", "Tagged"] {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "Stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
-                "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "{}", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}}
+                "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "{}", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}}
             }},
             "pipeline": {{"width": 1, "branch_predictor": "Static", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
         }}"#,
@@ -504,13 +504,13 @@ fn test_json_all_branch_predictors() {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "stdout"}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "Stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
-                "l1_i": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "LRU", "latency": 1, "prefetcher": "None", "prefetch_table_size": 64, "prefetch_degree": 1}}
+                "l1_i": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
+                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}}
             }},
             "pipeline": {{"width": 1, "branch_predictor": "{}", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
         }}"#,
@@ -539,7 +539,7 @@ fn test_isa_string_option() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "console": "stdout"
+            "console": "Stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -556,9 +556,9 @@ fn test_isa_string_option() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -567,9 +567,9 @@ fn test_isa_string_option() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -578,9 +578,9 @@ fn test_isa_string_option() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -589,9 +589,9 @@ fn test_isa_string_option() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             }
@@ -662,7 +662,7 @@ fn a_captured_console_is_read_from_json() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "console": "captured"
+            "console": "Captured"
         },
         "memory": {
             "ram_size": 134217728,
@@ -679,9 +679,9 @@ fn a_captured_console_is_read_from_json() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -690,9 +690,9 @@ fn a_captured_console_is_read_from_json() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -701,9 +701,9 @@ fn a_captured_console_is_read_from_json() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -712,9 +712,9 @@ fn a_captured_console_is_read_from_json() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             }
@@ -764,7 +764,7 @@ fn test_custom_cache_sizes() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "console": "stdout"
+            "console": "Stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -781,9 +781,9 @@ fn test_custom_cache_sizes() {
                 "size_bytes": 16384,
                 "line_bytes": 64,
                 "ways": 2,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 2,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 128,
                 "prefetch_degree": 2
             },
@@ -792,9 +792,9 @@ fn test_custom_cache_sizes() {
                 "size_bytes": 16384,
                 "line_bytes": 64,
                 "ways": 2,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 2,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 128,
                 "prefetch_degree": 2
             },
@@ -803,9 +803,9 @@ fn test_custom_cache_sizes() {
                 "size_bytes": 262144,
                 "line_bytes": 64,
                 "ways": 8,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 15,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -814,9 +814,9 @@ fn test_custom_cache_sizes() {
                 "size_bytes": 1048576,
                 "line_bytes": 64,
                 "ways": 16,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 40,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             }
@@ -876,7 +876,7 @@ fn test_custom_dram_timings() {
             "bus_width": 8,
             "bus_latency": 4,
             "clint_divider": 10,
-            "console": "stdout"
+            "console": "Stdout"
         },
         "memory": {
             "ram_size": 134217728,
@@ -892,9 +892,9 @@ fn test_custom_dram_timings() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -903,9 +903,9 @@ fn test_custom_dram_timings() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -914,9 +914,9 @@ fn test_custom_dram_timings() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             },
@@ -925,9 +925,9 @@ fn test_custom_dram_timings() {
                 "size_bytes": 4096,
                 "line_bytes": 64,
                 "ways": 1,
-                "policy": "LRU",
+                "policy": "Lru",
                 "latency": 1,
-                "prefetcher": "None",
+                "prefetcher": "Off",
                 "prefetch_table_size": 64,
                 "prefetch_degree": 1
             }
@@ -1031,18 +1031,14 @@ fn the_64kb_tage_sc_l_configuration_validates() {
     assert!(config.validate().is_ok());
 }
 
-/// A DDR5 speed bin writes as the Python API names it and still reads
-/// under its variant name, as older checkpoints wrote it.
+/// A DDR5 speed bin is written under its variant name.
 #[test]
-fn a_ddr5_speed_bin_writes_as_the_python_api_names_it() {
+fn a_ddr5_speed_bin_is_named_by_its_variant() {
     use crate::config::ddr5::Ddr5SpeedBinName;
 
     let written = serde_json::to_value(Ddr5SpeedBinName::Ddr5_5600B).expect("the bin writes");
-    let old: Ddr5SpeedBinName =
-        serde_json::from_str(r#""Ddr5_5600B""#).expect("the old name reads");
 
-    assert_eq!(written, "5600B");
-    assert_eq!(old, Ddr5SpeedBinName::Ddr5_5600B);
+    assert_eq!(written, "Ddr5_5600B");
 }
 
 #[test]

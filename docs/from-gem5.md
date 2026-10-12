@@ -39,8 +39,8 @@ matter:
   but `clone` makes threads only: `fork` returns `ENOSYS`.
 
 The program's stdin, stdout and stderr are the simulator's console, as
-they would be for a kernel's serial port: `Config(console="quiet")`
-drops the output, `"captured"` keeps it for `read_console()`.
+they would be for a kernel's serial port: `Config(console="Quiet")`
+drops the output, `"Captured"` keeps it for `read_console()`.
 [SE mode](se-mode.md) has the details and the list of syscalls served.
 
 Full-system mode boots OpenSBI and Linux from a generated device tree,
@@ -78,10 +78,10 @@ the bundled image.
 | store sets (`numStoreSets`, `SSITSize`) | `MemDepPredictor.StoreSet()`, or `.Blind()` |
 | `BaseCache(size, assoc, tag_latency, mshrs, prefetcher=StridePrefetcher())` | `Cache("32KB", ways=8, latency=1, mshr_count=8, prefetcher=Prefetcher.Stride())` |
 | `--l2cache`, an L3 | `l2=Cache(...)`, `l3=Cache(...)` |
-| `LRURP`, `RandomRP`, `TreePLRURP`, `FIFORP`, `MRURP` | `ReplacementPolicy.LRU()`, `.Random()`, `.PLRU()`, `.FIFO()`, `.MRU()` |
-| `clusivity` | `Cache.NINE()`, `.Inclusive()`, `.Exclusive()` |
+| `LRURP`, `RandomRP`, `TreePLRURP`, `FIFORP`, `MRURP` | `ReplacementPolicy.Lru()`, `.Random()`, `.Plru()`, `.Fifo()`, `.Mru()` |
+| `clusivity` | `Cache.Nine()`, `.Inclusive()`, `.Exclusive()` |
 | `StridePrefetcher`, `TaggedPrefetcher`, stream prefetchers | `Prefetcher.Stride()`, `.Tagged()`, `.Stream()`, `.NextLine()`; `LoadPrefetcher.Stride()` and `StorePrefetcher.Stream()` on the load/store unit |
-| `DDR4_2400_8x8` and the other `DRAMInterface`s, DRAMsim3 | `MemoryController.DDR5(...)` (channels, ranks, banks, timings, refresh, ECC), `.DRAM()`, `.Simple()` |
+| `DDR4_2400_8x8` and the other `DRAMInterface`s, DRAMsim3 | `MemoryController.Ddr5(...)` (channels, ranks, banks, timings, refresh, ECC), `.Dram()`, `.Simple()` |
 | Ruby protocols, directories, `--network=simple|garnet` | the coherence fabric: `HomeAgent.SnoopFilter()` or `.Broadcast()`, `Interconnect.Crossbar()`, `.Ring()`, `.Mesh()`, `.Torus()`, `.Hypercube()` |
 | `clk_domain`, `--cpu-clock` | `cpu_clock_mhz` (devices, DRAM); `clock_hz` (the clock SE mode's time syscalls read) |
 | `RiscvISA` with `enable_rvv`, `enable_Zcd`, `vlen`, `elen` | `Config(isa="rv64gcv_zba_zbb_zbs_zicbom")`, the ISA string as `-march` spells it, which `misa`, the decoder and the device tree all follow; `Config(vlen=...)` |

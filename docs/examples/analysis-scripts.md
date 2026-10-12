@@ -43,7 +43,7 @@ rvsim examples/analysis/branch_predict.py --width 4 --programs maze qsort
 
 ```
   ›  core0.bp.committed.accuracy
-  predictor  Static  GShare    TAGE  ScLTage  Perceptron  Tournament
+  predictor  Static  GShare    Tage  ScLTage  Perceptron  Tournament
   qsort.elf  0.3623  0.8553  0.8749   0.8834      0.8770      0.8654
   maze.elf   0.6566  0.9849  0.9917   0.9923      0.9892      0.9857
   AGGREGATE  0.4042  0.8738  0.8915   0.8989      0.8930      0.8826
@@ -99,7 +99,7 @@ Measures how IPC scales with superscalar width using a fixed predictor.
 
 ```bash
 rvsim examples/analysis/width_scaling.py
-rvsim examples/analysis/width_scaling.py --bp TAGE --widths 1 2 4 8
+rvsim examples/analysis/width_scaling.py --bp Tage --widths 1 2 4 8
 ```
 
 **Metrics:** cycles, IPC, committed branch accuracy and mispredictions

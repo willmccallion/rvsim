@@ -59,7 +59,7 @@ def cortex_a72():
         width=3,
         vlen=128,
         num_vec_lanes=None,
-        branch_predictor=BranchPredictor.TAGE(
+        branch_predictor=BranchPredictor.Tage(
             num_banks=4,
             table_size=2048,
             reset_interval=1000,
@@ -136,7 +136,7 @@ def cortex_a72():
         # 18 ns are 27 cycles each at 1.5 GHz; the rest of the measured
         # 162 ns (243 cycles) random-access latency is the fabric and
         # controller, carried by the bus crossing each way.
-        memory_controller=MemoryController.DRAM(
+        memory_controller=MemoryController.Dram(
             t_cas=27,
             t_ras=27,
             t_pre=27,
@@ -287,7 +287,7 @@ def p550(
         # 18 ns are 25 cycles each at 1.4 GHz; the rest of the measured
         # 194 ns (272 cycles) random-access latency is the SoC fabric and
         # controller, carried by the bus crossing each way.
-        memory_controller=MemoryController.DRAM(
+        memory_controller=MemoryController.Dram(
             t_cas=25,
             t_ras=25,
             t_pre=25,

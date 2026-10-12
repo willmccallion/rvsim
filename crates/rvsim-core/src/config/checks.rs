@@ -185,7 +185,7 @@ fn check_cache_level(level: &'static str, cache: &CacheConfig) -> Result<(), Con
         return Err(ConfigError::PlruWays { level, ways: cache.ways });
     }
     match cache.prefetcher {
-        PrefetcherKind::None => Ok(()),
+        PrefetcherKind::Off => Ok(()),
         PrefetcherKind::Stride => {
             power_of_two("cache prefetch_table_size", cache.prefetch_table_size)?;
             at_least_one("cache prefetch_degree", cache.prefetch_degree)

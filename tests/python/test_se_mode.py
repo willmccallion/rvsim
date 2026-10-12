@@ -191,7 +191,7 @@ class SeMode(unittest.TestCase):
         self.assertEqual(cpu.run(limit=50_000), 7)
 
     def test_a_captured_console_holds_what_the_program_prints(self):
-        cpu = Simulator(Config(console="captured"), elf_data=user_elf(WRITE_HI))
+        cpu = Simulator(Config(console="Captured"), elf_data=user_elf(WRITE_HI))
 
         self.assertEqual(cpu.run(limit=50_000), 3)
         self.assertEqual(cpu.read_console(), "hi\n")

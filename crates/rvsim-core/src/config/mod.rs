@@ -115,7 +115,7 @@ use serde::{Deserialize, Serialize};
 ///             "ways": 8,
 ///             "latency": 10,
 ///             "policy": "Lru",
-///             "prefetcher": "None"
+///             "prefetcher": "Off"
 ///         },
 ///         "l3": {
 ///             "enabled": false,
@@ -124,7 +124,7 @@ use serde::{Deserialize, Serialize};
 ///             "ways": 1,
 ///             "latency": 20,
 ///             "policy": "Lru",
-///             "prefetcher": "None"
+///             "prefetcher": "Off"
 ///         }
 ///     },
 ///     "pipeline": {

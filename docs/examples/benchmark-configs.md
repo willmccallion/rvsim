@@ -48,7 +48,7 @@ config = presets.linux(harts=1, core=presets.basic())  # any core
 `linux()` keeps the core's pipeline, predictors and caches and replaces
 the system around it: the memory map the bundled image expects, `harts`
 harts kept coherent by a snoop-filter home agent over `interconnect`
-(`mesh` by default), and four channels of DDR5-5600 (`memory="dram"`
+(`Mesh` by default), and four channels of DDR5-5600 (`memory="Dram"`
 keeps the core's controller). With `real_time=True`, the default, the CLINT
 ticks at the device tree's 10 MHz timebase so the guest's clock keeps time.
 See [Linux Boot](linux-boot.md).

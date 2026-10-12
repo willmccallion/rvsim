@@ -17,7 +17,7 @@ from rvsim import Config, Cache, Backend, BranchPredictor, MemDepPredictor
 config = Config(
     width=4,
     backend=Backend.OutOfOrder(rob_size=128),
-    branch_predictor=BranchPredictor.TAGE(),
+    branch_predictor=BranchPredictor.Tage(),
     l1d=Cache("32KB", ways=8, latency=1, mshr_count=8),
     l2=Cache("256KB", ways=8, latency=10),
 )
@@ -27,7 +27,7 @@ Use `replace()` to derive new configs from a base; every `Config` keeps
 its own copies of its components, so changing one never changes another:
 
 ```python
-base = Config(width=4, branch_predictor=BranchPredictor.TAGE())
+base = Config(width=4, branch_predictor=BranchPredictor.Tage())
 narrow = base.replace(width=2)
 wide = base.replace(width=8)
 ```
@@ -56,7 +56,7 @@ and `linux()` for a system that boots the bundled Linux image. See
 | `fence_squash` | `bool` | `False` | Whether a FENCE squashes the instructions fetched behind it when it commits, as BOOM's does |
 | `store_forward_latency` | `int` | L1D hit latency | Cycles from a load matching a store in the store buffer to its data reaching writeback, where a load the L1D answers takes the L1D hit latency; `0` writes the load back in the cycle it matches (a forwarded vector span takes at least one cycle) |
 | `backend` | `Backend.*` | `OutOfOrder()` | `Backend.OutOfOrder(...)` or `Backend.InOrder()` |
-| `branch_predictor` | `BranchPredictor.*` | `TAGE()` | Direction predictor (see below) |
+| `branch_predictor` | `BranchPredictor.*` | `Tage()` | Direction predictor (see below) |
 | `btb_size` | `int` | `4096` | Branch target buffer entries |
 | `btb_ways` | `int` | `4` | BTB associativity; `btb_size / btb_ways` must be a power of two |
 | `ras_size` | `int` | `32` | Return address stack depth |
@@ -80,7 +80,7 @@ Backend.OutOfOrder(
     prf_vpr_size=64,              # Physical vector registers
     vec_chaining=True,            # Let a dependent vector op start on the first element group
     vec_store_buffer_size=8,      # In-flight vector stores
-    vec_store_forwarding="byte_mask",  # Vector store-to-load forwarding: "byte_mask", "stall" or "off"
+    vec_store_forwarding="ByteMask",  # Vector store-to-load forwarding: "ByteMask", "Stall" or "Off"
 )
 ```
 
@@ -95,9 +95,9 @@ Backend.OutOfOrder(
 - **Stores** issue in two halves when their data is not ready: the
   address as soon as the base register is, the data when the value is
   (see [Pipeline](architecture/pipeline.md)).
-- **Vector store forwarding.** `byte_mask` forwards any bytes a vector
-  store holds, as most out-of-order cores do; `stall` makes an overlapping
-  load wait for the store to be written, as Saturn does; `off` treats every
+- **Vector store forwarding.** `ByteMask` forwards any bytes a vector
+  store holds, as most out-of-order cores do; `Stall` makes an overlapping
+  load wait for the store to be written, as Saturn does; `Off` treats every
   overlap as a stall.
 
 ### Backend: In-Order
@@ -110,7 +110,7 @@ Backend.InOrder(
     load_ports=1,                 # Loads reaching memory per cycle
     store_ports=1,                # Stores reaching memory per cycle
     vec_store_buffer_size=8,      # In-flight vector stores
-    vec_store_forwarding="byte_mask",  # As for the out-of-order backend
+    vec_store_forwarding="ByteMask",  # As for the out-of-order backend
 )
 ```
 
@@ -173,7 +173,7 @@ BranchPredictor.Perceptron(       # Perceptron predictor
     history_length=32,
     table_bits=10,
 )
-BranchPredictor.TAGE(             # TAGEBase-style TAGE (defaults shown)
+BranchPredictor.Tage(             # TAGEBase-style TAGE (defaults shown)
     num_banks=8,
     table_size=2048,
     reset_interval=256_000,
@@ -183,7 +183,7 @@ BranchPredictor.TAGE(             # TAGEBase-style TAGE (defaults shown)
 BranchPredictor.ScLTage()         # 64KB TAGE-SC-L with ITTAGE (Seznec's CBP-5 configuration)
 ```
 
-`TAGE` and `ScLTage` take further keywords for every structure of the
+`Tage` and `ScLTage` take further keywords for every structure of the
 predictor (allocation and update rules, history kind, hashing, banking,
 the bimodal table, USE_ALT_ON_NA counters); `ScLTage` adds the loop
 predictor (`loop_*`), the statistical corrector (`sc_*`, with
@@ -228,7 +228,7 @@ Cache(
     mshr_count=None,      # Lines fetched at once (None = the default, 8)
     write_buffers=None,   # Evicted lines in flight to the next level (None = the default, 8)
     targets_per_mshr=None,  # Requests one MSHR can hold (None = the default, 20)
-    policy=None,          # Eviction policy; ReplacementPolicy.LRU() when None
+    policy=None,          # Eviction policy; ReplacementPolicy.Lru() when None
     prefetcher=None,      # Hardware prefetcher; Prefetcher.Off() when None
 )
 ```
@@ -239,7 +239,7 @@ Cache(
 | `l1d` | `Cache` or `None` | 32 KiB, 4-way, 1 cycle, stride prefetch | L1 data cache |
 | `l2` | `Cache` or `None` | 256 KiB, 8-way, 10 cycles | Private L2 |
 | `l3` | `Cache` or `None` | `None` | Shared last-level cache |
-| `inclusion_policy` | `Cache.*` | `Cache.NINE()` | Relationship between L1 and L2 |
+| `inclusion_policy` | `Cache.*` | `Cache.Nine()` | Relationship between L1 and L2 |
 | `wcb_entries` | `int` | `0` | Write-combining buffer entries between the store buffer and the L1D (0 = none) |
 | `load_prefetcher` | `LoadPrefetcher.Stride` or `None` | `None` | The load/store unit's load prefetcher (see below) |
 | `store_prefetcher` | `StorePrefetcher.Stream` or `None` | `None` | The L1D's store-miss prefetcher, which fills the L2 (see below) |
@@ -260,11 +260,11 @@ load-to-use. `None` disables a level.
 ### Replacement Policies
 
 ```python
-ReplacementPolicy.LRU()      # Least recently used (default)
-ReplacementPolicy.PLRU()     # Tree pseudo-LRU
-ReplacementPolicy.FIFO()     # First in, first out
+ReplacementPolicy.Lru()      # Least recently used (default)
+ReplacementPolicy.Plru()     # Tree pseudo-LRU
+ReplacementPolicy.Fifo()     # First in, first out
 ReplacementPolicy.Random()   # Random eviction
-ReplacementPolicy.MRU()      # Most recently used
+ReplacementPolicy.Mru()      # Most recently used
 ```
 
 ### Prefetchers
@@ -319,7 +319,7 @@ Config(
 ### Inclusion Policies
 
 ```python
-Cache.NINE()        # Neither inclusive nor exclusive (default)
+Cache.Nine()        # Neither inclusive nor exclusive (default)
 Cache.Inclusive()   # An L2 eviction back-invalidates the L1 copies
 Cache.Exclusive()   # L1 victims go to the L2; an L1 fill takes the L2's copy
 ```
@@ -337,7 +337,7 @@ Cache.Exclusive()   # L1 victims go to the L2; an L1 fill takes the L2's copy
 | `l2_tlb_size` | `int` | `0` | Entries in the shared L2 TLB; `0` disables it |
 | `l2_tlb_ways` | `int` | `4` | L2 TLB associativity |
 | `l2_tlb_latency` | `int` | `4` | L2 TLB hit latency in cycles |
-| `paging_mode_max` | `str` | `"sv57"` | Strongest paging mode `satp` accepts (`"bare"`, `"sv39"`, `"sv48"`, `"sv57"`); a stronger mode written to `satp` reads back as Bare, which makes a kernel fall back |
+| `paging_mode_max` | `str` | `"Sv57"` | Strongest paging mode `satp` accepts (`"Bare"`, `"Sv39"`, `"Sv48"`, `"Sv57"`); a stronger mode written to `satp` reads back as Bare, which makes a kernel fall back |
 | `misaligned_access_trap` | `bool` | `False` | Raise address-misaligned exceptions instead of performing misaligned accesses in hardware |
 | `isa` | `str` or `None` | `None` | The ISA the hart implements, as the compiler's `-march`, spike's `--isa` and `/proc/cpuinfo` spell it: the single letters (`G` is `IMAFD`, `B` is Zba, Zbb and Zbs together), then every multi-letter extension, such as `"rv64gcv_zba_zbb_zbs_zicbom_zicboz"`; the vector crypto groups `zvkn`, `zvknc`, `zvkng`, `zvks`, `zvksc` and `zvksg` stand for their members. It sets `misa`, what the decoder accepts (an instruction of an extension left out raises an illegal-instruction exception) and what the device tree advertises. `None` is everything the simulator implements; `Config().isa_string()` shows the resolved string. Zicsr, Zifencei, Zicntr, Zihintpause, Zihpm and Sstc are always implemented, and an unknown name is refused. Without `C` every instruction is 32 bits: fetch steps a word at a time and a word whose low bits are not `11` is illegal |
 | `svadu` | `bool` | `False` | Implement Svadu: with `menvcfg.ADUE` set the page-table walker sets A and D bits itself; otherwise a missing A or D bit faults (Svade) |
@@ -349,13 +349,13 @@ MemoryController.Simple(      # Fixed latency (default), serialised on a bandwid
     latency=120,              # Core cycles from the controller starting a request to its data
     bandwidth_gib_s=12.8,     # each request busies the controller for its bytes' time
 )
-MemoryController.DRAM(        # Row-buffer DRAM: per-bank open rows and refresh
+MemoryController.Dram(        # Row-buffer DRAM: per-bank open rows and refresh
     t_cas=14,                 # Column access, cycles
     t_ras=14,                 # Row activate, cycles
     t_pre=14,                 # Precharge, cycles
 )
-MemoryController.DDR5(        # Command-level JEDEC DDR5 (see Memory Hierarchy)
-    speed_bin="4800B",        # "4800B" or "5600B"
+MemoryController.Ddr5(        # Command-level JEDEC DDR5 (see Memory Hierarchy)
+    speed_bin="Ddr5_4800B",        # "Ddr5_4800B" or "Ddr5_5600B"
     channels=2,               # Channels; each has two 32-bit sub-channels
     subchannels_per_channel=2,
     ranks_per_channel=2,
@@ -501,9 +501,9 @@ each private cache counts its snoops under
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `trace` | `bool` | `False` | Emit a trace event at every pipeline stage an instruction passes. `RUST_LOG` selects which are printed: `rvsim=trace` for all, or targets such as `rvsim::commit=trace`, `rvsim::mem=trace` and `rvsim::fwd=trace` |
-| `console` | `str` or `None` | `None` | Where the guest's console connects, for the UART, HTIF's console and a user program's stdin, stdout and stderr: `"stdout"`, `"stderr"`, `"quiet"`, or `"captured"` (kept in memory for `read_console()`, input given with `write_console()`); overrides the two shorthands below |
-| `uart_quiet` | `bool` | `False` | Shorthand for `console="quiet"` |
-| `uart_to_stderr` | `bool` | `False` | Shorthand for `console="stderr"` |
+| `console` | `str` or `None` | `None` | Where the guest's console connects, for the UART, HTIF's console and a user program's stdin, stdout and stderr: `"Stdout"`, `"Stderr"`, `"Quiet"`, or `"Captured"` (kept in memory for `read_console()`, input given with `write_console()`); overrides the two shorthands below |
+| `uart_quiet` | `bool` | `False` | Shorthand for `console="Quiet"` |
+| `uart_to_stderr` | `bool` | `False` | Shorthand for `console="Stderr"` |
 
 ---
 
@@ -603,7 +603,7 @@ Config(
               prefetcher=Prefetcher.NextLine(degree=2)),
     l2=Cache("256KB", ways=8, latency=12, mshr_count=16),
     l3=Cache("4MB", ways=16, latency=30, mshr_count=32),
-    memory_controller=MemoryController.DDR5(speed_bin="5600B"),
+    memory_controller=MemoryController.Ddr5(speed_bin="Ddr5_5600B"),
     l2_tlb_size=1024,
 )
 ```

@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Configuration names are the core's, in Python and in the dicts it
+  sends, with no aliases or second spellings: `BranchPredictor.Tage`,
+  `Cache.Nine`, `MemoryController.Dram` and `MemoryController.Ddr5`,
+  `ReplacementPolicy.Lru`, `Plru`, `Fifo` and `Mru`; paging modes
+  `"Bare"` to `"Sv57"`; DDR5 speed bins `"Ddr5_4800B"` and
+  `"Ddr5_5600B"`; consoles `"Stdout"`, `"Stderr"`, `"Quiet"` and
+  `"Captured"`; vector store forwarding `"ByteMask"`, `"Stall"` and
+  `"Off"`; TAGE rules `"TageBase"` and `"Cbp5"`, history `"Direction"` and
+  `"PcBits"`, and hashing `"TageBase"` and `"TageScL"`; and `presets.linux()`'s `memory` (`"Ddr5"`, `"Dram"`) and
+  `interconnect` (`"Mesh"` and the rest), with the `--memory`,
+  `--interconnect` and `--speed-bin` flags of `rvsim bench` and
+  `tools/boot_linux.py`. A cache with no prefetcher names it `Off`, as
+  `Prefetcher.Off()` does. The old names are refused.
 - Every default of the Python API comes from the core: `Config()` reads
   the core's default machine, and each builder the default of its
   component, through `rvsim._core.component_defaults()`, so no default is

@@ -37,7 +37,7 @@ fn test_config() -> CacheConfig {
         policy: ReplacementPolicyKind::Lru,
         latency: LATENCY,
         response_latency: RESPONSE_LATENCY,
-        prefetcher: PrefetcherKind::None,
+        prefetcher: PrefetcherKind::Off,
         prefetch_table_size: 64,
         prefetch_degree: 1,
         mshr_count: count(4),

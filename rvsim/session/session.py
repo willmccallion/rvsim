@@ -102,7 +102,7 @@ class WorkloadEnded(RuntimeError):
 def _native(config: ConfigLike) -> dict[str, Any]:
     """The native config dict, with the console captured for the session."""
     native = copy.deepcopy(_config_to_dict(config))
-    native["system"]["console"] = "captured"
+    native["system"]["console"] = "Captured"
     return native
 
 
