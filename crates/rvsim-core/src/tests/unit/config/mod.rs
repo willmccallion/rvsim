@@ -1021,3 +1021,39 @@ fn the_minimal_machine_is_one_wide_in_order_without_caches() {
     assert!(caches.iter().all(|cache| !cache.enabled));
     assert_eq!(config.memory.controller, MemoryControllerKind::Simple);
 }
+
+#[test]
+fn the_64kb_tage_sc_l_configuration_validates() {
+    let mut config = Config::minimal();
+    config.pipeline.branch_predictor = BranchPredictorKind::ScLTage;
+    config.pipeline.tage = TageConfig::tage_sc_l_64kb();
+
+    assert!(config.validate().is_ok());
+}
+
+/// A DDR5 speed bin writes as the Python API names it and still reads
+/// under its variant name, as older checkpoints wrote it.
+#[test]
+fn a_ddr5_speed_bin_writes_as_the_python_api_names_it() {
+    use crate::config::ddr5::Ddr5SpeedBinName;
+
+    let written = serde_json::to_value(Ddr5SpeedBinName::Ddr5_5600B).expect("the bin writes");
+    let old: Ddr5SpeedBinName =
+        serde_json::from_str(r#""Ddr5_5600B""#).expect("the old name reads");
+
+    assert_eq!(written, "5600B");
+    assert_eq!(old, Ddr5SpeedBinName::Ddr5_5600B);
+}
+
+#[test]
+fn a_unit_pool_takes_the_default_for_each_field_it_leaves_out() {
+    let json = r#"{"num_int_alu": 2, "int_alu_latency": 2, "num_fp_add": 0}"#;
+
+    let pool: FuConfig = serde_json::from_str(json).unwrap();
+
+    let defaults = FuConfig::default();
+    assert_eq!((pool.num_int_alu, pool.int_alu_latency, pool.num_fp_add), (2, 2, 0));
+    assert_eq!(pool.fp_add_latency, defaults.fp_add_latency);
+    assert_eq!(pool.num_int_div, defaults.num_int_div);
+    assert_eq!(pool.vec_int_div_latency, defaults.vec_int_div_latency);
+}
