@@ -16,7 +16,7 @@ SPINLOCK = os.path.join(ROOT, "software", "bin", "multicore", "spinlock.elf")
 @unittest.skipUnless(os.path.exists(SPINLOCK), "spinlock.elf not built")
 class MulticorePrograms(unittest.TestCase):
     def test_spinlock_counts_on_every_hart(self):
-        cpu = Simulator(Config(hart_count=4, console="captured"), binary=SPINLOCK)
+        cpu = Simulator(Config(hart_count=4, console="Captured"), binary=SPINLOCK)
 
         code = cpu.run(limit=50_000_000)
 

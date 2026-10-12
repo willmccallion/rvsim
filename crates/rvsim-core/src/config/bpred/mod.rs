@@ -30,7 +30,6 @@ pub enum BranchPredictorKind {
     /// Tagged Geometric History Length predictor.
     ///
     /// Advanced predictor using multiple history lengths with tags.
-    #[serde(alias = "TAGE")]
     Tage,
     /// Tournament predictor combining local and global predictors.
     ///
@@ -39,7 +38,6 @@ pub enum BranchPredictorKind {
     /// SC-L-TAGE + ITTAGE composed predictor.
     ///
     /// Combines TAGE, Loop, Statistical Corrector, and Indirect Target TAGE.
-    #[serde(alias = "SC-L-TAGE")]
     ScLTage,
 }
 

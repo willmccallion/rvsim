@@ -22,7 +22,7 @@ FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
 def configs():
     """Every preset, on its own backend and on the in-order one."""
     for name, preset in presets.PRESETS.items():
-        config = preset().replace(console="captured")
+        config = preset().replace(console="Captured")
         yield name, config
         yield f"{name} in-order", config.replace(backend=Backend.InOrder())
 
@@ -107,7 +107,7 @@ class Checkpoint(unittest.TestCase):
     def test_a_checkpoint_from_one_backend_finishes_on_the_other(self):
         for name, preset in presets.PRESETS.items():
             with self.subTest(preset=name):
-                o3 = preset().replace(console="captured")
+                o3 = preset().replace(console="Captured")
                 in_order = o3.replace(backend=Backend.InOrder())
                 whole = boot(in_order)
                 expected = finish(whole)

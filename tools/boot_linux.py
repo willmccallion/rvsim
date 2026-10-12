@@ -32,7 +32,7 @@ import tarfile
 import urllib.request
 
 from rvsim import Simulator, presets
-from rvsim.presets import INTERCONNECTS
+from rvsim.presets import INTERCONNECTS, MEMORIES
 
 BUILDROOT_VER = "2024.08"
 BUILDROOT_URL = f"https://buildroot.org/downloads/buildroot-{BUILDROOT_VER}.tar.gz"
@@ -176,19 +176,19 @@ def main():
     )
     ap.add_argument(
         "--memory",
-        choices=["ddr5", "dram"],
-        default="ddr5",
+        choices=MEMORIES,
+        default="Ddr5",
         help="Memory subsystem: JEDEC DDR5 command timing or the row-buffer DRAM model",
     )
     ap.add_argument(
         "--speed-bin",
-        default="5600B",
-        help="DDR5 speed bin, 4800B or 5600B (default 5600B)",
+        default="Ddr5_5600B",
+        help="DDR5 speed bin, Ddr5_4800B or Ddr5_5600B (default Ddr5_5600B)",
     )
     ap.add_argument(
         "--interconnect",
-        choices=sorted(INTERCONNECTS),
-        default="mesh",
+        choices=INTERCONNECTS,
+        default="Mesh",
         help="Coherence interconnect between the cores (default mesh)",
     )
     args = ap.parse_args()
@@ -231,7 +231,7 @@ def main():
     )
     print(
         f"[boot_linux] Booting {args.harts} hart(s), {args.interconnect} interconnect, "
-        f"{args.memory}{' ' + args.speed_bin if args.memory == 'ddr5' else ''} memory..."
+        f"{args.memory}{' ' + args.speed_bin if args.memory == 'Ddr5' else ''} memory..."
     )
 
     sim = Simulator(cfg, kernel=image_path, disk=disk_path)

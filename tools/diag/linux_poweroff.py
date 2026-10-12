@@ -79,7 +79,7 @@ def main() -> int:
         return 1
 
     os.chdir(ROOT)
-    config = presets.linux(args.harts, real_time=False).replace(console="captured")
+    config = presets.linux(args.harts, real_time=False).replace(console="Captured")
     sim = Simulator(config, kernel=kernel, disk=disk)
     started = time.monotonic()
     failure = boot_to_poweroff(sim, started + args.timeout, args.limit)

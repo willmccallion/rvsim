@@ -54,7 +54,7 @@ fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
-    config.cache.l1_d.prefetcher = PrefetcherKind::None;
+    config.cache.l1_d.prefetcher = PrefetcherKind::Off;
     match prefetcher {
         L1dPrefetcher::None => {}
         L1dPrefetcher::InTheCache => {

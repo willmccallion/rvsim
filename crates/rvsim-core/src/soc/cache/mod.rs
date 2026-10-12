@@ -279,7 +279,7 @@ impl Cache {
             PrefetcherKind::Tagged => {
                 Some(Box::new(TaggedPrefetcher::new(safe_line, config.prefetch_degree)))
             }
-            PrefetcherKind::None => None,
+            PrefetcherKind::Off => None,
         };
 
         Self {

@@ -294,9 +294,9 @@ class Backend:
             self.prf_vpr_size = prf_vpr_size
             self.vec_chaining = vec_chaining
             self.vec_store_buffer_size = vec_store_buffer_size
-            if vec_store_forwarding not in ("byte_mask", "stall", "off"):
+            if vec_store_forwarding not in ("ByteMask", "Stall", "Off"):
                 raise ValueError(
-                    f"vec_store_forwarding must be 'byte_mask', 'stall', or 'off'; "
+                    f"vec_store_forwarding must be 'ByteMask', 'Stall', or 'Off'; "
                     f"got {vec_store_forwarding!r}"
                 )
             self.vec_store_forwarding = vec_store_forwarding
@@ -312,10 +312,6 @@ class Backend:
                 f"vec_store_buffer_size={self.vec_store_buffer_size}, "
                 f"vec_store_forwarding={self.vec_store_forwarding!r})"
             )
-
-
-# The core's names for the backends.
-_BACKENDS = {"InOrder": Backend.InOrder, "OutOfOrder": Backend.OutOfOrder}
 
 
 def _backend_from(pipeline: dict):

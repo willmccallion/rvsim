@@ -10,35 +10,29 @@ use std::num::NonZeroUsize;
 /// Specifies the algorithm used to select which cache line to evict
 /// when a new line must be installed in a full cache set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
-#[serde(rename_all = "UPPERCASE")]
 pub enum ReplacementPolicyKind {
     /// Least Recently Used replacement policy.
     ///
     /// Evicts the cache line that was accessed least recently.
     #[default]
-    #[serde(alias = "Lru")]
     Lru,
     /// Pseudo-LRU (tree-based) replacement policy.
     ///
     /// Approximates LRU using a binary tree structure for lower
     /// hardware overhead while maintaining good performance.
-    #[serde(alias = "Plru")]
     Plru,
     /// First In First Out replacement policy.
     ///
     /// Evicts the oldest cache line in the set (round-robin).
-    #[serde(alias = "Fifo")]
     Fifo,
     /// Random replacement policy.
     ///
     /// Evicts a randomly selected cache line from the set.
-    #[serde(alias = "Random")]
     Random,
     /// Most Recently Used replacement policy.
     ///
     /// Evicts the cache line that was accessed most recently.
     /// Effective for cyclic access patterns larger than the cache.
-    #[serde(alias = "Mru")]
     Mru,
 }
 
@@ -55,7 +49,6 @@ pub enum InclusionPolicy {
     /// not affect other levels. This is the simplest policy and matches
     /// the existing behavior.
     #[default]
-    #[serde(alias = "NINE")]
     Nine,
     /// Inclusive: L2 is a superset of L1.
     ///
@@ -78,7 +71,7 @@ pub enum InclusionPolicy {
 pub enum PrefetcherKind {
     /// No prefetching enabled.
     #[default]
-    None,
+    Off,
     /// Next-line prefetcher.
     ///
     /// Prefetches the next sequential cache line after each access.

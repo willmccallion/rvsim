@@ -17,7 +17,7 @@ FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
 @unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
 class PipelineTrace(unittest.TestCase):
     def test_a_trace_covers_the_part_of_the_run_it_is_open_for(self):
-        cpu = Simulator(Config(console="quiet"), binary=FIB)
+        cpu = Simulator(Config(console="Quiet"), binary=FIB)
         cpu.run(limit=2_000)
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "fib.kanata")
@@ -34,7 +34,7 @@ class PipelineTrace(unittest.TestCase):
         self.assertTrue(any(line.startswith("R\t") for line in lines))
 
     def test_an_unknown_format_is_refused(self):
-        cpu = Simulator(Config(console="quiet"), binary=FIB)
+        cpu = Simulator(Config(console="Quiet"), binary=FIB)
 
         with self.assertRaises(ValueError):
             cpu.open_pipeline_trace("unused.trace", format="o3pipeview")
