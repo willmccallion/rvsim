@@ -2,6 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Longest ITTAGE history, in history bits: what the global history
+/// register holds.
+pub const MAX_ITTAGE_HISTORY: usize = 1 << 10;
+
 /// Indirect Target TAGE configuration (used by SC-L-TAGE).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

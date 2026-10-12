@@ -2,8 +2,8 @@
 
 use crate::config::{
     BackendKind, BhtConfigError, CacheConfig, Config, ConfigError, CsrSquash, HomeAgentConfig,
-    InterconnectConfig, LoadPrefetcherConfig, MemoryControllerKind, PageBoundary, PrefetcherKind,
-    ReplacementPolicyKind, StorePrefetcherConfig,
+    InterconnectConfig, LoadPrefetcherConfig, MAX_ITTAGE_HISTORY, MemoryControllerKind,
+    PageBoundary, PrefetcherKind, ReplacementPolicyKind, StorePrefetcherConfig,
 };
 
 #[test]
@@ -409,6 +409,23 @@ fn a_tagged_predictors_lists_have_one_entry_per_bank() {
     assert_eq!(
         ittage,
         ConfigError::BankList { predictor: "ittage", field: "tag_widths", len: 1, banks: 8 }
+    );
+}
+
+#[test]
+fn an_ittage_history_longer_than_the_global_history_is_refused() {
+    let err = refused(Config::minimal(), |c| {
+        c.pipeline.ittage.history_lengths =
+            vec![4, 8, 16, 32, 64, 128, 256, MAX_ITTAGE_HISTORY + 1];
+    });
+
+    assert_eq!(
+        err,
+        ConfigError::TooLarge {
+            field: "ittage history_lengths",
+            value: MAX_ITTAGE_HISTORY + 1,
+            most: MAX_ITTAGE_HISTORY,
+        }
     );
 }
 

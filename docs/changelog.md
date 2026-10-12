@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- An ITTAGE history longer than the 1024 bits the global history register
+  holds is refused when the configuration is checked, rather than
+  panicking as the predictor is built.
 - Configuration names are the core's, in Python and in the dicts it
   sends, with no aliases or second spellings: `BranchPredictor.Tage`,
   `Cache.Nine`, `MemoryController.Dram` and `MemoryController.Ddr5`,

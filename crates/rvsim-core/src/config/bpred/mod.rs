@@ -49,7 +49,7 @@ mod simple;
 mod tage;
 
 pub use bht::{BhtConfig, BhtConfigError};
-pub use ittage::IttageConfig;
+pub use ittage::{IttageConfig, MAX_ITTAGE_HISTORY};
 pub use loop_predictor::LoopConfig;
 pub use sc::{
     GehlConfig, LocalGehlConfig, MAX_GEHL_TABLES, MAX_LOCAL_HISTORIES, ScConfig, ScConfigError,
