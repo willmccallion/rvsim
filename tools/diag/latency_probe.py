@@ -36,7 +36,7 @@ CFLAGS = [
     "-nostdlib",
     "-O2",
 ]
-PRESETS = {**CALIBRATED, "fast": presets.fast}
+PRESETS = {**CALIBRATED, **presets.PRESETS}
 STEPS = (10_000, 20_000)
 
 
