@@ -63,7 +63,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// let config = Config::default();
 /// assert_eq!(config.general.trace_instructions, false);
-/// assert_eq!(config.cache.l1_d.size_bytes, 32 * 1024);
+/// assert_eq!(config.cache.l1_d.size_bytes, 48 * 1024);
 /// assert!(!Config::minimal().cache.l1_d.enabled);
 /// ```
 ///

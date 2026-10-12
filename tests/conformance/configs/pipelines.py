@@ -3,8 +3,9 @@
 A test runner imports `PIPELINES` from here and iterates over (label, cfg)
 tuples. Each Config exercises a different rvsim configuration: pipeline width,
 backend, branch predictor, ROB sizing, FU pool, cache hierarchy, prefetcher,
-replacement policy, memory controller, mem-dep predictor, TLB, the two
-configurations calibrated to measured hardware (cortex-a72, p550; see
+replacement policy, memory controller, mem-dep predictor, TLB, the default
+machine (Config()), the two configurations calibrated to measured hardware
+(cortex-a72, p550; see
 tools/diag/calibration.py) and the Linux system.
 
 If you add or remove a Config here, every runner picks it up automatically —
@@ -469,14 +470,18 @@ PIPELINES = [
 
     ("ref p550",            calibration.p550()),
     ("ref linux",           presets.linux()),
+
+    # ── The default machine ───────────────────────────────────────────────────
+    ("default",             Config()),
 ]
 # fmt: on
 
-# The configs `--smoke` runs every riscv-test on: both backends at the
-# narrowest and widest widths, no caches, an L3, every prefetcher, DDR5,
-# capped paging modes, a coherent multi-core fabric, and the two calibrated
-# configurations.
+# The configs `--smoke` runs every riscv-test on: the default machine, both
+# backends at the narrowest and widest widths, no caches, an L3, every
+# prefetcher, DDR5, capped paging modes, a coherent multi-core fabric, and
+# the two calibrated configurations.
 SMOKE_PIPELINES = [
+    "default",
     "inorder w1",
     "inorder w4",
     "o3 w1",

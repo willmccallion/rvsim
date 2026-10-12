@@ -115,8 +115,16 @@ class Prefetchers(unittest.TestCase):
             },
         )
 
-    def test_no_prefetcher_by_default(self):
+    def test_the_default_machine_prefetches_loads_and_stores(self):
         cache = Config().to_dict()["cache"]
+
+        self.assertEqual(cache["load_prefetcher"]["kind"], "Stride")
+        self.assertEqual(cache["store_prefetcher"]["kind"], "Stream")
+
+    def test_none_turns_a_prefetcher_off(self):
+        config = Config(load_prefetcher=None, store_prefetcher=None)
+
+        cache = config.to_dict()["cache"]
 
         self.assertEqual(cache["load_prefetcher"], {"kind": "None"})
         self.assertEqual(cache["store_prefetcher"], {"kind": "None"})
@@ -140,6 +148,13 @@ class RustMachines(unittest.TestCase):
         self.assertEqual({field: pipeline[field] for field in in_order}, in_order)
         self.assertEqual(tage_sc_l["tage"], components["tage_sc_l"]["tage"])
         self.assertEqual(tage_sc_l["sc"], components["tage_sc_l"]["sc"])
+
+    def test_fu_is_the_default_machines_pool(self):
+        backend = Backend.OutOfOrder(fu_config=Fu())
+
+        pool = check_config(Config(backend=backend).to_dict())["pipeline"]["fu_config"]
+
+        self.assertEqual(pool, default_config()["pipeline"]["fu_config"])
 
     def test_the_minimal_machine_has_no_caches(self):
         cache = minimal_config()["cache"]

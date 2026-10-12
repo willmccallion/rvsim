@@ -354,20 +354,21 @@ dropped when its line is already present, already being fetched or being
 written back, so no level fetches a line twice, and when it would take the
 last free MSHR; each level's prefetcher works independently.
 
-### In the presets and calibrated configurations
+### In the default machine, presets and calibrated configurations
 
 | Configuration | L1D prefetching |
 |--------|-----------------|
 | `cortex_a72`, calibrated | Load prefetcher, `l2_lines=22` and `CrossWithTlb` (the reset values of `CPUECTLR_EL1[33:32]` and `CPUACTLR_EL1[43]`); store prefetcher into the L2. The L1D distance (1 line), table size (32) and store run length (8 lines, 4 runs) are not published |
 | `p550`, calibrated | SiFive has not published the P550's prefetchers: a load prefetcher that keeps to the page (`Stop`, 1 line ahead, no L2 stream) and no store prefetcher, as the cautious reading |
-| `fast()`, `basic()` | The cache-side stride prefetcher on the L1D, as before |
+| `Config()`, `basic()` | Load prefetcher, 4 lines ahead in the L1D and 16 in the L2, `CrossWithTlb`; store prefetcher into the L2; a cache-side next-line prefetcher on the L1D, as Intel's L1D pairs a PC-indexed stride prefetcher with a next-line one (§9.5.2), and a stream prefetcher on the L2 |
+| `fast()` | The cache-side stride prefetcher on the L1D, as before |
 
 ## DRAM Controller
 
 Three memory controllers are available; all sit behind the L3 (or the last
 enabled cache level) and the system bus.
 
-**Simple controller** (the default) — every access takes `latency` cycles
+**Simple controller** — every access takes `latency` cycles
 (120 by default) once the controller is free: each request busies it for the time its bytes take
 at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
 
@@ -383,15 +384,16 @@ at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
 ### DDR5 Controller
 
 `MemoryController.Ddr5()` is a command-level model of a DDR5 memory
-subsystem in the style of gem5's `MemCtrl` / `DRAMInterface`. Every request
+subsystem in the style of gem5's `MemCtrl` / `DRAMInterface`; the default
+machine has two channels of DDR5-5600. Every request
 becomes a sequence of JEDEC commands scheduled against per-bank state, and
 every command must clear the timing constraints of JESD79-5B.
 
 **Clock domain.** The controller runs at the DRAM command clock (data rate
 / 2, so 2400 MHz for DDR5-4800). Requests arrive stamped with the core cycle
 and are converted through `cpu_clock_mhz`; responses are converted back. Set
-`cpu_clock_mhz` to the core you are modelling; the default 2400 MHz gives a
-1:1 ratio with DDR5-4800.
+`cpu_clock_mhz` to the core you are modelling; the default machine's
+4000 MHz core runs over DDR5-5600's 2800 MHz command clock.
 
 **Topology.** `channels` × two sub-channels (each with its own command and
 32-bit data bus) × `ranks_per_channel` × `bank_groups_per_rank` ×

@@ -16,7 +16,7 @@ test-all-smoke` runs the same set locally.
 |---|---|---|
 | Rust tests | The pipeline, caches, devices, ISA and system code against their specifications: unit tests and hand-assembled integration programs on both backends | about 2,600 tests, with and without the `commit-log` feature |
 | Python tests | The Python API, the command line, checkpoints, the Session API, SE mode, HTIF, pseudo-ops, the pipeline trace and the bundled programs | about 110 tests |
-| [riscv-tests](https://github.com/riscv-software-src/riscv-tests) | Every ISA test (`rv64ui`, `um`, `ua`, `uf`, `ud`, `uc`, `uzba`, `uzbb`, `uzbc`, `uzbs`, `uzfh`, `mi`, `si`) ends with its pass code | 188 of 188, on 14 pipeline configurations; `ma_data` is skipped on the one that traps misaligned accesses, as the ISA allows |
+| [riscv-tests](https://github.com/riscv-software-src/riscv-tests) | Every ISA test (`rv64ui`, `um`, `ua`, `uf`, `ud`, `uc`, `uzba`, `uzbb`, `uzbc`, `uzbs`, `uzfh`, `mi`, `si`) ends with its pass code | 188 of 188, on the 15 smoke configurations, the default machine among them; `ma_data` is skipped on the one that traps misaligned accesses, as the ISA allows |
 | [riscv-vector-tests](https://github.com/chipsalliance/riscv-vector-tests) | A sample of every vector instruction class, cross-checked element by element against spike | the sample on 2 configurations; the full set below |
 | Multi-core programs | The bundled self-checking programs (spinlocks, AMO counters, barriers, false sharing, litmus tests) on 2 and 4 harts | every program on the smoke configurations, 4 harts on 4 of them |
 | SE mode against qemu-riscv64 | The same static Linux program, run on both, prints the same output and exits with the same code | 6 check programs (one runs pthreads on five harts), 19 Embench-IoT benchmarks and 44 bundled programs, `raytracer_mt` on four threads; the two that take minutes join with `SLOW=1` |
@@ -24,7 +24,7 @@ test-all-smoke` runs the same set locally.
 
 ## On demand and before a release
 
-`make test-all` runs every suite on every one of the 72 pipeline
+`make test-all` runs every suite on every one of the 73 pipeline
 configurations in `tests/conformance/configs/pipelines.py` (backends,
 widths, reorder-buffer and register-file sizes, predictors, functional
 unit mixes, cache arrangements). It takes several CPU-hours. `make

@@ -32,11 +32,14 @@ narrow = base.replace(width=2)
 wide = base.replace(width=8)
 ```
 
-`rvsim.presets` holds complete machines: `basic()`, `fast()`, `rocket()`
-and `boom()` for Chipyard's Rocket and Medium BOOM as their RTL builds them
-([Error against Rocket](rtl-rocket.md), [Error against BOOM](rtl-boom.md)),
-and `linux()` for a system that boots the bundled Linux image. See
-[Benchmark Configs](examples/benchmark-configs.md).
+`Config()` is a complete machine, a desktop out-of-order core of the
+mid-2020s with three cache levels, every prefetcher and DDR5-5600: the
+defaults below describe it, so a configuration changes only what it
+names. `rvsim.presets` holds the others: `basic()`, which is `Config()`;
+`fast()`; `rocket()` and `boom()` for Chipyard's Rocket and Medium BOOM as
+their RTL builds them ([Error against Rocket](rtl-rocket.md),
+[Error against BOOM](rtl-boom.md)); and `linux()` for a system that boots
+the bundled Linux image. See [Benchmark Configs](examples/benchmark-configs.md).
 
 ---
 
@@ -44,7 +47,7 @@ and `linux()` for a system that boots the bundled Linux image. See
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `width` | `int` | `4` | Instructions per cycle for every stage that has no width of its own |
+| `width` | `int` | `6` | Instructions per cycle for every stage that has no width of its own |
 | `fetch_width`, `decode_width`, `rename_width`, `issue_width`, `commit_width` | `int` | `width` | Per-stage widths |
 | `writeback_width` | `int` | `width` | Results the out-of-order backend writes back per cycle; the rest wait for later cycles |
 | `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
@@ -56,9 +59,9 @@ and `linux()` for a system that boots the bundled Linux image. See
 | `fence_squash` | `bool` | `False` | Whether a FENCE squashes the instructions fetched behind it when it commits, as BOOM's does |
 | `store_forward_latency` | `int` | L1D hit latency | Cycles from a load matching a store in the store buffer to its data reaching writeback, where a load the L1D answers takes the L1D hit latency; `0` writes the load back in the cycle it matches (a forwarded vector span takes at least one cycle) |
 | `backend` | `Backend.*` | `OutOfOrder()` | `Backend.OutOfOrder(...)` or `Backend.InOrder()` |
-| `branch_predictor` | `BranchPredictor.*` | `Tage()` | Direction predictor (see below) |
-| `btb_size` | `int` | `4096` | Branch target buffer entries |
-| `btb_ways` | `int` | `4` | BTB associativity; `btb_size / btb_ways` must be a power of two |
+| `branch_predictor` | `BranchPredictor.*` | `ScLTage()` | Direction predictor, with ITTAGE for indirect targets (see below) |
+| `btb_size` | `int` | `8192` | Branch target buffer entries |
+| `btb_ways` | `int` | `8` | BTB associativity; `btb_size / btb_ways` must be a power of two |
 | `ras_size` | `int` | `32` | Return address stack depth |
 | `mem_dep_predictor` | `MemDepPredictor.*` | `StoreSet()` | Memory dependence predictor (see below) |
 
@@ -66,27 +69,28 @@ and `linux()` for a system that boots the bundled Linux image. See
 
 ```python
 Backend.OutOfOrder(
-    rob_size=128,                 # Reorder buffer entries
-    issue_queue_size=32,          # Unified issue queue entries (CAM wakeup/select)
-    store_buffer_size=32,         # Store buffer entries
-    load_queue_size=32,           # Load queue entries
-    load_ports=2,                 # Loads issued per cycle
-    store_ports=1,                # Stores issued per cycle
-    prf_gpr_size=256,             # Physical integer registers
-    prf_fpr_size=128,             # Physical floating-point registers
+    rob_size=320,                 # Reorder buffer entries
+    issue_queue_size=128,         # Unified issue queue entries (CAM wakeup/select)
+    store_buffer_size=72,         # Store buffer entries
+    load_queue_size=128,          # Load queue entries
+    load_ports=3,                 # Loads issued per cycle
+    store_ports=2,                # Stores issued per cycle
+    prf_gpr_size=224,             # Physical integer registers
+    prf_fpr_size=192,             # Physical floating-point registers
     fu_config=Fu([...]),          # Functional unit pool (see below); Fu() by default
     checkpoint_count=0,           # Rename-map checkpoints for branch recovery (0: rebuild from the ROB)
     squash_width=8,               # ROB entries commit squashes per cycle after a squash
-    prf_vpr_size=64,              # Physical vector registers
+    prf_vpr_size=96,              # Physical vector registers
     vec_chaining=True,            # Let a dependent vector op start on the first element group
     vec_store_buffer_size=8,      # In-flight vector stores
     vec_store_forwarding="ByteMask",  # Vector store-to-load forwarding: "ByteMask", "Stall" or "Off"
 )
 ```
 
-- **Register files.** `prf_gpr_size` and `prf_fpr_size` must each hold
-  the 32 architectural registers plus one for every instruction that can
-  be in flight with a destination; 32 + `rob_size` always suffices.
+- **Register files.** The integer and floating-point registers form one
+  pool of `prf_gpr_size + prf_fpr_size` with 64 holding the architectural
+  registers, so rename stalls once the rest are destinations of
+  instructions in flight; the default's 352 cover its 320-entry ROB.
 - **Squash recovery.** After a misprediction, trap or ordering violation,
   commit squashes the flushed ROB entries `squash_width` per cycle and
   rename waits until it has finished, one cycle more; the rename map
@@ -104,7 +108,7 @@ Backend.OutOfOrder(
 
 ```python
 Backend.InOrder(
-    fu_config=None,               # Functional unit pool (see below); Fu() by default
+    fu_config=None,               # Functional unit pool (see below); a dual-issue core's by default
     rob_size=64,                  # Instructions in flight from issue to commit
     store_buffer_size=16,         # Committed stores waiting to drain
     load_ports=1,                 # Loads reaching memory per cycle
@@ -116,7 +120,9 @@ Backend.InOrder(
 
 The in-order backend issues in program order, up to `issue_width` per
 cycle, with a scoreboard tracking operands. `fu_config` is its functional
-unit pool, described under Functional Units below.
+unit pool, described under Functional Units below: when `None`, a
+dual-issue core's, with two integer ALUs and one of every other unit at
+the default machine's latencies.
 
 ### Functional Units
 
@@ -126,25 +132,26 @@ from rvsim import Fu
 fu = Fu([
     Fu.IntAlu(count=4, latency=1),       # add, sub, logic, shift, compare
     Fu.IntMul(count=1, latency=3),       # multiply (pipelined)
-    Fu.IntDiv(count=1, latency=35),      # divide and remainder (not pipelined)
-    Fu.FpAdd(count=2, latency=4),        # FP add, subtract, compare, convert
-    Fu.FpMul(count=2, latency=5),        # FP multiply
-    Fu.FpFma(count=2, latency=5),        # FP fused multiply-add
-    Fu.FpDivSqrt(count=1, latency=21),   # FP divide and square root (not pipelined)
+    Fu.IntDiv(count=1, latency=14),      # divide and remainder (not pipelined)
+    Fu.FpAdd(count=2, latency=3),        # FP add, subtract, compare, convert
+    Fu.FpMul(count=2, latency=4),        # FP multiply
+    Fu.FpFma(count=2, latency=4),        # FP fused multiply-add
+    Fu.FpDivSqrt(count=1, latency=13),   # FP divide and square root (not pipelined)
     Fu.Branch(count=2, latency=1),       # branch and jump resolution
-    Fu.Mem(count=2, latency=1),          # load and store address generation
-    Fu.VecIntAlu(count=1, latency=1),    # vector integer arithmetic and logic
+    Fu.Mem(count=3, latency=1),          # load and store address generation
+    Fu.VecIntAlu(count=2, latency=1),    # vector integer arithmetic and logic
     Fu.VecIntMul(count=1, latency=3),    # vector integer multiply
-    Fu.VecIntDiv(count=1, latency=20),   # vector integer divide (not pipelined)
-    Fu.VecFpAlu(count=1, latency=4),     # vector FP add, compare, convert
-    Fu.VecFpFma(count=1, latency=5),     # vector FP multiply and fused multiply-add
-    Fu.VecFpDivSqrt(count=1, latency=20),  # vector FP divide and square root (not pipelined)
-    Fu.VecMem(count=1, latency=1),       # vector load and store address generation
+    Fu.VecIntDiv(count=1, latency=14),   # vector integer divide (not pipelined)
+    Fu.VecFpAlu(count=2, latency=3),     # vector FP add, compare, convert
+    Fu.VecFpFma(count=2, latency=4),     # vector FP multiply and fused multiply-add
+    Fu.VecFpDivSqrt(count=1, latency=13),  # vector FP divide and square root (not pipelined)
+    Fu.VecMem(count=2, latency=1),       # vector load and store address generation
     Fu.VecPermute(count=1, latency=1),   # slides, gathers, compress, moves
 ])
 ```
 
-The list above is `Fu()`, the default. A scalar unit type left out of a
+The list above is `Fu()`, the default machine's pool, and each unit's
+`count` and `latency` default to its entry there. A scalar unit type left out of a
 `Fu` list has no units, so an instruction that needs one never issues:
 include every scalar type your workload uses. A vector unit type left out
 gets one unit with the default latency. A vector instruction's time on its
@@ -235,18 +242,21 @@ Cache(
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `l1i` | `Cache` or `None` | 32 KiB, 4-way, 1 cycle, next-line prefetch | L1 instruction cache |
-| `l1d` | `Cache` or `None` | 32 KiB, 4-way, 1 cycle, stride prefetch | L1 data cache |
-| `l2` | `Cache` or `None` | 256 KiB, 8-way, 10 cycles | Private L2 |
-| `l3` | `Cache` or `None` | `None` | Shared last-level cache |
+| `l1i` | `Cache` or `None` | 32 KiB, 8-way, PLRU, 1 cycle, next-line prefetch, 8 MSHRs | L1 instruction cache |
+| `l1d` | `Cache` or `None` | 48 KiB, 12-way, PLRU, `latency=4` (5-cycle load-to-use), next-line prefetch, 16 MSHRs | L1 data cache |
+| `l2` | `Cache` or `None` | 1 MiB, 8-way, PLRU, `latency=8` (14-cycle load-to-use), stream prefetch (degree 4), 32 MSHRs | Private L2 |
+| `l3` | `Cache` or `None` | 32 MiB, 16-way, PLRU, `latency=35` (50-cycle load-to-use), 64 MSHRs | Shared last-level cache |
 | `inclusion_policy` | `Cache.*` | `Cache.Nine()` | Relationship between L1 and L2 |
-| `wcb_entries` | `int` | `0` | Write-combining buffer entries between the store buffer and the L1D (0 = none) |
-| `load_prefetcher` | `LoadPrefetcher.Stride` or `None` | `None` | The load/store unit's load prefetcher (see below) |
-| `store_prefetcher` | `StorePrefetcher.Stream` or `None` | `None` | The L1D's store-miss prefetcher, which fills the L2 (see below) |
+| `wcb_entries` | `int` | `16` | Write-combining buffer entries between the store buffer and the L1D (0 = none) |
+| `load_prefetcher` | `LoadPrefetcher.Stride` or `None` | 64 entries, 4 lines ahead in the L1D and 16 in the L2, crossing pages through the TLB | The load/store unit's load prefetcher (see below) |
+| `store_prefetcher` | `StorePrefetcher.Stream` or `None` | 4 streams, 8 lines ahead | The L1D's store-miss prefetcher, which fills the L2 (see below) |
 
 A load that hits takes one cycle of address generation plus the L1D's
 `latency` to reach its dependents, so `latency=3` models a 4-cycle
-load-to-use. `None` disables a level.
+load-to-use. `None` disables a level. The default machine's load-to-use
+figures are each level's own: a dependent pointer chase over a footprint
+that level holds, with the levels above it shrunk to a few KiB at their
+own latencies and a TLB large enough that no step walks.
 
 !!! tip "MSHRs and writeback buffers"
     Every level fetches at most `mshr_count` lines at a time and keeps at
@@ -331,12 +341,12 @@ Cache.Exclusive()   # L1 victims go to the L2; an L1 fill takes the L2's copy
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `ram_size` | `str` or `int` | `"256MB"` | Main memory size |
-| `memory_controller` | `MemoryController.*` | `Simple()` | Memory controller (see below) |
+| `memory_controller` | `MemoryController.*` | `Ddr5(speed_bin="Ddr5_5600B")`, two channels (324-cycle, 81 ns load-to-use) | Memory controller (see below) |
 | `tlb_size` | `int` | `64` | Entries in each of the instruction and data L1 TLBs |
 | `tlb_ways` | `int` | `0` | L1 TLB associativity; `0` is fully associative |
-| `l2_tlb_size` | `int` | `0` | Entries in the shared L2 TLB; `0` disables it |
-| `l2_tlb_ways` | `int` | `4` | L2 TLB associativity |
-| `l2_tlb_latency` | `int` | `4` | L2 TLB hit latency in cycles |
+| `l2_tlb_size` | `int` | `2048` | Entries in the shared L2 TLB; `0` disables it |
+| `l2_tlb_ways` | `int` | `8` | L2 TLB associativity |
+| `l2_tlb_latency` | `int` | `7` | L2 TLB hit latency in cycles |
 | `paging_mode_max` | `str` | `"Sv57"` | Strongest paging mode `satp` accepts (`"Bare"`, `"Sv39"`, `"Sv48"`, `"Sv57"`); a stronger mode written to `satp` reads back as Bare, which makes a kernel fall back |
 | `misaligned_access_trap` | `bool` | `False` | Raise address-misaligned exceptions instead of performing misaligned accesses in hardware |
 | `isa` | `str` or `None` | `None` | The ISA the hart implements, as the compiler's `-march`, spike's `--isa` and `/proc/cpuinfo` spell it: the single letters (`G` is `IMAFD`, `B` is Zba, Zbb and Zbs together), then every multi-letter extension, such as `"rv64gcv_zba_zbb_zbs_zicbom_zicboz"`; the vector crypto groups `zvkn`, `zvknc`, `zvkng`, `zvks`, `zvksc` and `zvksg` stand for their members. It sets `misa`, what the decoder accepts (an instruction of an extension left out raises an illegal-instruction exception) and what the device tree advertises. `None` is everything the simulator implements; `Config().isa_string()` shows the resolved string. Zicsr, Zifencei, Zicntr, Zihintpause, Zihpm and Sstc are always implemented, and an unknown name is refused. Without `C` every instruction is 32 bits: fetch steps a word at a time and a word whose low bits are not `11` is illegal |
@@ -345,7 +355,7 @@ Cache.Exclusive()   # L1 victims go to the L2; an L1 fill takes the L2's copy
 ### Memory Controllers
 
 ```python
-MemoryController.Simple(      # Fixed latency (default), serialised on a bandwidth:
+MemoryController.Simple(      # Fixed latency, serialised on a bandwidth:
     latency=120,              # Core cycles from the controller starting a request to its data
     bandwidth_gib_s=12.8,     # each request busies the controller for its bytes' time
 )
@@ -354,8 +364,9 @@ MemoryController.Dram(        # Row-buffer DRAM: per-bank open rows and refresh
     t_ras=14,                 # Row activate, cycles
     t_pre=14,                 # Precharge, cycles
 )
-MemoryController.Ddr5(        # Command-level JEDEC DDR5 (see Memory Hierarchy)
-    speed_bin="Ddr5_4800B",        # "Ddr5_4800B" or "Ddr5_5600B"
+MemoryController.Ddr5(        # Command-level JEDEC DDR5 (see Memory Hierarchy); the
+                              # default machine's is Ddr5(speed_bin="Ddr5_5600B")
+    speed_bin="Ddr5_4800B",   # "Ddr5_4800B" or "Ddr5_5600B"
     channels=2,               # Channels; each has two 32-bit sub-channels
     subchannels_per_channel=2,
     ranks_per_channel=2,
@@ -392,7 +403,7 @@ miss to memory also pays `bus_latency` each way.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `vlen` | `int` | `128` | Vector register length in bits, a power of two from 128 to 2048 |
+| `vlen` | `int` | `256` | Vector register length in bits, a power of two from 128 to 2048 |
 | `num_vec_lanes` | `int` | `vlen / 64`, at least 1 | 64-bit lanes the vector units process per cycle |
 | `vector_mem_width` | `int` | `vlen / 8`, at most `64` | Bytes one unit-stride vector memory access moves (the vector load-store datapath), a power of two from 8 to 64 |
 
@@ -408,10 +419,10 @@ console.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `cpu_clock_mhz` | `int` | `2400` | Core clock: converts between cycles and nanoseconds for the DDR5 controller, device latencies and the RTC |
+| `cpu_clock_mhz` | `int` | `4000` | Core clock: converts between cycles and nanoseconds for the DDR5 controller, device latencies and the RTC |
 | `hart_count` | `int` | `1` | Harts in the system, one per core (see [Multi-core](#multi-core)) |
 | `bus_width` | `int` | `8` | System bus width in bytes |
-| `bus_latency` | `int` | `4` | System bus latency in cycles, each way |
+| `bus_latency` | `int` | `1` | System bus latency in cycles, each way |
 | `device_latency_ns` | `int` | `100` | Time every device takes to answer a register access |
 | `device_latency_ns_overrides` | `dict` | `None` | Per-device access latency by name (`UART0`, `CLINT`, `PLIC`, `VirtIO-Blk`, `SysCon`, `GoldfishRTC`, `HTIF`) |
 | `clint_divider` | `int` | `10` | CPU cycles per `mtime` tick |
@@ -501,6 +512,7 @@ each private cache counts its snoops under
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `trace` | `bool` | `False` | Emit a trace event at every pipeline stage an instruction passes. `RUST_LOG` selects which are printed: `rvsim=trace` for all, or targets such as `rvsim::commit=trace`, `rvsim::mem=trace` and `rvsim::fwd=trace` |
+| `clock_hz` | `int` | `4_000_000_000` | The clock SE mode's time syscalls divide the cycle count by (see [SE mode](se-mode.md)) |
 | `console` | `str` or `None` | `None` | Where the guest's console connects, for the UART, HTIF's console and a user program's stdin, stdout and stderr: `"Stdout"`, `"Stderr"`, `"Quiet"`, or `"Captured"` (kept in memory for `read_console()`, input given with `write_console()`); overrides the two shorthands below |
 | `uart_quiet` | `bool` | `False` | Shorthand for `console="Quiet"` |
 | `uart_to_stderr` | `bool` | `False` | Shorthand for `console="Stderr"` |
