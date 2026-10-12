@@ -231,6 +231,15 @@ class Validation(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "RV64"):
             Simulator(Config(isa="RV32I"))
 
+    def test_a_refused_dict_names_the_field_at_fault(self):
+        config = Config().to_dict()
+        config["system"]["console"] = "stdout"
+
+        with self.assertRaisesRegex(
+            ValueError, r"^Invalid config at system\.console: unknown variant `stdout`"
+        ):
+            check_config(config)
+
     def test_a_field_the_core_does_not_know_is_refused(self):
         config = Config().to_dict()
         config["pipeline"]["widht"] = 4
