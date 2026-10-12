@@ -45,6 +45,7 @@ pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(config::default_config, m)?)?;
     m.add_function(wrap_pyfunction!(config::minimal_config, m)?)?;
     m.add_function(wrap_pyfunction!(config::check_config, m)?)?;
+    m.add_function(wrap_pyfunction!(config::component_defaults, m)?)?;
 
     Ok(())
 }
