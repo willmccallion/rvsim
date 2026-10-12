@@ -28,8 +28,6 @@ pub struct ComponentDefaults {
     pub bht: BhtConfig,
     /// The store-set memory dependence predictor.
     pub store_set: StoreSetConfig,
-    /// The functional unit pool.
-    pub fu: FuConfig,
     /// The structures the in-order backend reads.
     pub in_order: InOrderDefaults,
     /// The load/store unit's stride prefetcher.
@@ -64,6 +62,8 @@ pub struct InOrderDefaults {
     pub vec_store_buffer_size: usize,
     /// How a load meets an in-flight vector store.
     pub vec_store_forwarding: VecStoreForwarding,
+    /// Its units: a dual-issue core's.
+    pub fu_config: FuConfig,
 }
 
 /// The parts of the 64KB TAGE-SC-L at their defaults.
@@ -94,7 +94,6 @@ impl Default for ComponentDefaults {
             tournament: TournamentConfig::default(),
             bht: BhtConfig::default(),
             store_set: StoreSetConfig::default(),
-            fu: FuConfig::default(),
             in_order: InOrderDefaults {
                 rob_size: defaults::ROB_SIZE,
                 store_buffer_size: defaults::STORE_BUFFER_SIZE,
@@ -102,6 +101,7 @@ impl Default for ComponentDefaults {
                 store_ports: defaults::STORE_PORTS,
                 vec_store_buffer_size: defaults::VEC_STORE_BUFFER_SIZE,
                 vec_store_forwarding: VecStoreForwarding::default(),
+                fu_config: dual_issue_pool(),
             },
             load_prefetcher: LoadPrefetcherConfig::stride(),
             store_prefetcher: StorePrefetcherConfig::stream(),
@@ -111,5 +111,46 @@ impl Default for ComponentDefaults {
             snoop_filter: HomeAgentConfig::default(),
             interconnect: InterconnectConfig::default(),
         }
+    }
+}
+
+/// A dual-issue in-order core's units: two integer ALUs and one of every
+/// other unit, at the default core's latencies.
+const fn dual_issue_pool() -> FuConfig {
+    FuConfig {
+        num_int_alu: 2,
+        int_alu_latency: 1,
+        num_int_mul: 1,
+        int_mul_latency: 3,
+        num_int_div: 1,
+        int_div_latency: 14,
+        num_fp_add: 1,
+        fp_add_latency: 3,
+        num_fp_mul: 1,
+        fp_mul_latency: 4,
+        num_fp_fma: 1,
+        fp_fma_latency: 4,
+        num_fp_div_sqrt: 1,
+        fp_div_sqrt_latency: 13,
+        num_branch: 1,
+        branch_latency: 1,
+        num_mem: 1,
+        mem_latency: 1,
+        num_vec_int_alu: 1,
+        vec_int_alu_latency: 1,
+        num_vec_int_mul: 1,
+        vec_int_mul_latency: 3,
+        num_vec_int_div: 1,
+        vec_int_div_latency: 14,
+        num_vec_fp_alu: 1,
+        vec_fp_alu_latency: 3,
+        num_vec_fp_fma: 1,
+        vec_fp_fma_latency: 4,
+        num_vec_fp_div_sqrt: 1,
+        vec_fp_div_sqrt_latency: 13,
+        num_vec_mem: 1,
+        vec_mem_latency: 1,
+        num_vec_permute: 1,
+        vec_permute_latency: 1,
     }
 }

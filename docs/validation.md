@@ -16,7 +16,7 @@ test-all-smoke` runs the same set locally.
 |---|---|---|
 | Rust tests | The pipeline, caches, devices, ISA and system code against their specifications: unit tests and hand-assembled integration programs on both backends | about 2,460 tests, with and without the `commit-log` feature |
 | Python tests | The Python API, the command line, checkpoints, the Session API, SE mode, HTIF, pseudo-ops, the pipeline trace and the bundled programs | about 90 tests |
-| [riscv-tests](https://github.com/riscv-software-src/riscv-tests) | Every ISA test (`rv64ui`, `um`, `ua`, `uf`, `ud`, `uc`, `mi`, `si`) ends with its pass code | 134 of 134, on 6 pipeline configurations |
+| [riscv-tests](https://github.com/riscv-software-src/riscv-tests) | Every ISA test (`rv64ui`, `um`, `ua`, `uf`, `ud`, `uc`, `mi`, `si`) ends with its pass code | 134 of 134, on the 15 smoke configurations, the default machine among them |
 | [riscv-vector-tests](https://github.com/chipsalliance/riscv-vector-tests) | A sample of every vector instruction class, cross-checked element by element against spike | the sample on 2 configurations; the full set below |
 | Multi-core programs | The bundled self-checking programs (spinlocks, AMO counters, barriers, false sharing, litmus tests) on 2 and 4 harts | every program on the smoke configurations, 4 harts on 4 of them |
 | SE mode against qemu-riscv64 | The same static Linux program, run on both, prints the same output and exits with the same code | 6 check programs (one runs pthreads on five harts), 19 Embench-IoT benchmarks and 44 bundled programs, `raytracer_mt` on four threads; the two that take minutes join with `SLOW=1` |
@@ -24,7 +24,7 @@ test-all-smoke` runs the same set locally.
 
 ## On demand and before a release
 
-`make test-all` runs every suite on every one of the 72 pipeline
+`make test-all` runs every suite on every one of the 73 pipeline
 configurations in `tests/conformance/configs/pipelines.py` (backends,
 widths, reorder-buffer and register-file sizes, predictors, functional
 unit mixes, cache arrangements). It takes several CPU-hours. `make
@@ -32,7 +32,7 @@ prerelease` runs it and boots Linux.
 
 | Check | What it compares | Result |
 |---|---|---|
-| riscv-tests, all configurations | As above | 134 of 134 on all 72 |
+| riscv-tests, all configurations | As above | 134 of 134 on all 73 |
 | riscv-vector-tests, full set | 3,023 programs, every element of every vector register and every memory access against spike | 3,023 of 3,023 at VLEN 128 (2026-09-28) |
 | Lockstep against spike (`make lockstep`) | Every retired instruction's PC, privilege, destination register, CSR write and memory access, replayed on spike one instruction at a time, over the riscv-tests, the bundled programs, the benchmarks and the vector tests | clean on all configurations (2026-10-10); vector register contents are not yet compared, interrupts are taken from rvsim |
 | Multi-core programs | As above, on 2, 4 and 8 harts | clean |

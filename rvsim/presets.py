@@ -1,7 +1,8 @@
 """
 Built-in configuration presets.
 
-- ``basic`` — modest 4-wide OoO core, small caches, good for quick runs.
+- ``basic`` — the default machine, ``Config()``: a 6-wide out-of-order
+  desktop core with three cache levels, every prefetcher and DDR5-5600.
 - ``fast``  — Apple M4 P-core class: 8-wide OoO at 4.4 GHz, 630-entry ROB,
   192KB L1I, 128KB L1D, 4MB L2, 36MB L3, the 64KB TAGE-SC-L with ITTAGE,
   4 unified FP/SIMD pipes, and DRAM controller.
@@ -59,10 +60,7 @@ MEMORIES = ("Ddr5", "Dram")
 
 
 def basic() -> Config:
-    """Modest 4-wide out-of-order core with small caches.
-
-    This is identical to ``Config()`` with no arguments.
-    """
+    """The default machine: identical to ``Config()`` with no arguments."""
     return Config()
 
 

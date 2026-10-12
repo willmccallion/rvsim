@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from ._core_defaults import COMPONENTS, MACHINE
 
-_FU = COMPONENTS["fu"]
+# Fu() and each unit's defaults are the default machine's pool.
+_FU = MACHINE["pipeline"]["fu_config"]
 _IN_ORDER = COMPONENTS["in_order"]
 # Backend.OutOfOrder() is the default machine's out-of-order core.
 _OUT_OF_ORDER = MACHINE["pipeline"]
@@ -163,7 +164,7 @@ class Fu:
             },
         )
 
-    # The core's default pool.
+    # The default machine's pool.
     _DEFAULTS: list
 
     def __init__(self, units=None):
@@ -233,7 +234,8 @@ class Backend:
     """Namespace for pipeline backend configurations."""
 
     class InOrder:
-        """In-order issue from a FIFO onto ``fu_config``'s unit pool."""
+        """In-order issue from a FIFO onto ``fu_config``'s unit pool, a
+        dual-issue core's when ``None``."""
 
         def __init__(
             self,
@@ -246,7 +248,9 @@ class Backend:
             vec_store_buffer_size: int = _IN_ORDER["vec_store_buffer_size"],
             vec_store_forwarding: str = _IN_ORDER["vec_store_forwarding"],
         ):
-            self.fu_config = fu_config if fu_config is not None else Fu()
+            self.fu_config = (
+                fu_config if fu_config is not None else _fu_from(_IN_ORDER["fu_config"])
+            )
             self.rob_size = rob_size
             self.store_buffer_size = store_buffer_size
             self.load_ports = load_ports
