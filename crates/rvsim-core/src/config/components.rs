@@ -2,10 +2,11 @@
 //! starting point of every builder in the Python API.
 
 use super::ddr5::Ddr5Params;
+use super::defaults;
 use super::{
     BhtConfig, CacheConfig, CoherenceConfig, FuConfig, HomeAgentConfig, InterconnectConfig,
     IttageConfig, LoadPrefetcherConfig, LoopConfig, MemoryConfig, PerceptronConfig, ScConfig,
-    StorePrefetcherConfig, StoreSetConfig, TageConfig, TournamentConfig,
+    StorePrefetcherConfig, StoreSetConfig, TageConfig, TournamentConfig, VecStoreForwarding,
 };
 use serde::Serialize;
 
@@ -29,6 +30,8 @@ pub struct ComponentDefaults {
     pub store_set: StoreSetConfig,
     /// The functional unit pool.
     pub fu: FuConfig,
+    /// The structures the in-order backend reads.
+    pub in_order: InOrderDefaults,
     /// The load/store unit's stride prefetcher.
     pub load_prefetcher: LoadPrefetcherConfig,
     /// The L1D's store-miss prefetcher.
@@ -43,6 +46,24 @@ pub struct ComponentDefaults {
     pub snoop_filter: HomeAgentConfig,
     /// An interconnect's hop latency and bandwidth.
     pub interconnect: InterconnectConfig,
+}
+
+/// The structures the in-order backend reads, at the sizes an in-order core
+/// starts from.
+#[derive(Debug, Clone, Serialize)]
+pub struct InOrderDefaults {
+    /// Instructions in flight from issue to commit.
+    pub rob_size: usize,
+    /// Committed stores waiting to drain.
+    pub store_buffer_size: usize,
+    /// Loads that reach memory per cycle.
+    pub load_ports: usize,
+    /// Stores that reach memory per cycle.
+    pub store_ports: usize,
+    /// Vector stores in flight.
+    pub vec_store_buffer_size: usize,
+    /// How a load meets an in-flight vector store.
+    pub vec_store_forwarding: VecStoreForwarding,
 }
 
 /// The parts of the 64KB TAGE-SC-L at their defaults.
@@ -74,6 +95,14 @@ impl Default for ComponentDefaults {
             bht: BhtConfig::default(),
             store_set: StoreSetConfig::default(),
             fu: FuConfig::default(),
+            in_order: InOrderDefaults {
+                rob_size: defaults::ROB_SIZE,
+                store_buffer_size: defaults::STORE_BUFFER_SIZE,
+                load_ports: defaults::IN_ORDER_LOAD_PORTS,
+                store_ports: defaults::STORE_PORTS,
+                vec_store_buffer_size: defaults::VEC_STORE_BUFFER_SIZE,
+                vec_store_forwarding: VecStoreForwarding::default(),
+            },
             load_prefetcher: LoadPrefetcherConfig::stride(),
             store_prefetcher: StorePrefetcherConfig::stream(),
             memory: MemoryConfig::default(),

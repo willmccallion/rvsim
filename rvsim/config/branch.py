@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
+from ._core_defaults import COMPONENTS
+
+_TAGE = COMPONENTS["tage"]
+_TAGE_SC_L = COMPONENTS["tage_sc_l"]
+_SC = _TAGE_SC_L["sc"]
+_ITTAGE = _TAGE_SC_L["ittage"]
+_LOOP = _TAGE_SC_L["loop_predictor"]
+_BHT = COMPONENTS["bht"]
+_PERCEPTRON = COMPONENTS["perceptron"]
+_TOURNAMENT = COMPONENTS["tournament"]
+_STORE_SET = COMPONENTS["store_set"]
+
 _GHR_MAX_BITS = 1024  # Must match GHR_MAX_WORDS * 64 in branch_predictor.rs
 
 
@@ -15,55 +27,6 @@ _TAGE_MAX_HISTORY = 8192  # Must match MAX_TAGE_HISTORY in config.rs
 
 
 _TAGE_HASHINGS = ("tage_base", "tage_sc_l")
-
-
-# gem5's TAGE_SC_L_TAGE_64KB: 18 geometric lengths from 6 to 3000, each
-# shared by a pair of banks, and the banks it enables (noSkip).
-_TAGE_SC_L_64KB_HISTORY_LENGTHS = (
-    6,
-    6,
-    9,
-    9,
-    12,
-    12,
-    18,
-    18,
-    26,
-    26,
-    37,
-    37,
-    54,
-    54,
-    78,
-    78,
-    112,
-    112,
-    161,
-    161,
-    232,
-    232,
-    335,
-    335,
-    482,
-    482,
-    695,
-    695,
-    1002,
-    1002,
-    1444,
-    1444,
-    2081,
-    2081,
-    3000,
-    3000,
-)
-
-
-_TAGE_SC_L_64KB_ENABLED = [
-    bank
-    in (1, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 23, 25, 27, 31, 35)
-    for bank in range(36)
-]
 
 
 def _tage_hashing(hashing: str) -> str:
@@ -123,10 +86,10 @@ class BranchPredictor:
 
         def __init__(
             self,
-            entries: int = 512,
-            counter_bits: int = 1,
-            history_length: int = 8,
-            history_bits: int = 3,
+            entries: int = _BHT["entries"],
+            counter_bits: int = _BHT["counter_bits"],
+            history_length: int = _BHT["history_length"],
+            history_bits: int = _BHT["history_bits"],
         ):
             self.entries = entries
             self.counter_bits = counter_bits
@@ -159,6 +122,11 @@ class BranchPredictor:
             self.first_long_bank = first_long_bank
             self.enabled = list(enabled)
 
+        @classmethod
+        def from_dict(cls, banking: dict | None) -> BranchPredictor.TageBanking | None:
+            """The banking a core TAGE dict holds, or None."""
+            return None if banking is None else cls(**banking)
+
         def to_dict(self) -> dict:
             return {
                 "short_factor": self.short_factor,
@@ -177,22 +145,22 @@ class BranchPredictor:
     class TAGE:
         def __init__(
             self,
-            num_banks: int = 8,
-            table_size: int = 2048,
-            reset_interval: int = 256_000,
+            num_banks: int = _TAGE["num_banks"],
+            table_size: int = _TAGE["table_size"],
+            reset_interval: int = _TAGE["reset_interval"],
             history_lengths: list[int] | None = None,
             tag_widths: list[int] | None = None,
-            use_alt_counters: int = 1,
-            use_alt_bits: int = 4,
-            useful_bits: int = 2,
-            max_allocations: int = 1,
-            allocation: str = "tage_base",
-            update: str = "tage_base",
-            history: str = "direction",
-            path_history_bits: int = 16,
-            bimodal_entries: int | None = None,
-            bimodal_hysteresis_share_log: int = 2,
-            hashing: str = "tage_base",
+            use_alt_counters: int = _TAGE["use_alt_counters"],
+            use_alt_bits: int = _TAGE["use_alt_bits"],
+            useful_bits: int = _TAGE["useful_bits"],
+            max_allocations: int = _TAGE["max_allocations"],
+            allocation: str = _TAGE["allocation"],
+            update: str = _TAGE["update"],
+            history: str = _TAGE["history"],
+            path_history_bits: int = _TAGE["path_history_bits"],
+            bimodal_entries: int | None = _TAGE["bimodal_entries"],
+            bimodal_hysteresis_share_log: int = _TAGE["bimodal_hysteresis_share_log"],
+            hashing: str = _TAGE["hashing"],
             banking: BranchPredictor.TageBanking | None = None,
         ):
             self.num_banks = num_banks
@@ -207,16 +175,20 @@ class BranchPredictor:
             self.bimodal_entries = bimodal_entries
             self.bimodal_hysteresis_share_log = bimodal_hysteresis_share_log
             self.hashing = _tage_hashing(hashing)
-            self.banking = banking
+            self.banking = (
+                banking
+                if banking is not None
+                else BranchPredictor.TageBanking.from_dict(_TAGE["banking"])
+            )
             self.table_size = table_size
             self.reset_interval = reset_interval
             self.history_lengths = (
                 history_lengths
                 if history_lengths is not None
-                else [5, 11, 22, 44, 89, 178, 356, 712]
+                else list(_TAGE["history_lengths"])
             )
             self.tag_widths = (
-                tag_widths if tag_widths is not None else [8, 8, 9, 9, 10, 10, 11, 11]
+                tag_widths if tag_widths is not None else list(_TAGE["tag_widths"])
             )
             _validate_history_lengths(
                 self.history_lengths, "TAGE history_lengths", _TAGE_MAX_HISTORY
@@ -232,7 +204,11 @@ class BranchPredictor:
             )
 
     class Perceptron:
-        def __init__(self, history_length: int = 32, table_bits: int = 10):
+        def __init__(
+            self,
+            history_length: int = _PERCEPTRON["history_length"],
+            table_bits: int = _PERCEPTRON["table_bits"],
+        ):
             self.history_length = history_length
             self.table_bits = table_bits
 
@@ -245,9 +221,9 @@ class BranchPredictor:
     class Tournament:
         def __init__(
             self,
-            global_size_bits: int = 12,
-            local_hist_bits: int = 10,
-            local_pred_bits: int = 10,
+            global_size_bits: int = _TOURNAMENT["global_size_bits"],
+            local_hist_bits: int = _TOURNAMENT["local_hist_bits"],
+            local_pred_bits: int = _TOURNAMENT["local_pred_bits"],
         ):
             self.global_size_bits = global_size_bits
             self.local_hist_bits = local_hist_bits
@@ -274,6 +250,11 @@ class BranchPredictor:
             self.lengths = list(lengths) if lengths is not None else []
             self.log_entries = log_entries
             self.weight_init = weight_init
+
+        @classmethod
+        def from_dict(cls, gehl: dict) -> BranchPredictor.ScGehl:
+            """The GEHL component a core SC dict holds."""
+            return cls(gehl["lengths"], gehl["log_entries"], gehl["weight_init"])
 
         def to_dict(self) -> dict:
             return {
@@ -307,6 +288,19 @@ class BranchPredictor:
             self.index_shift = index_shift
             self.mix_pc = mix_pc
             self.gehl = BranchPredictor.ScGehl(lengths, log_entries, weight_init)
+
+        @classmethod
+        def from_dict(cls, local: dict) -> BranchPredictor.ScLocalGehl:
+            """The local GEHL component a core SC dict holds."""
+            gehl = local["gehl"]
+            return cls(
+                local["histories"],
+                local["index_shift"],
+                gehl["lengths"],
+                gehl["log_entries"],
+                gehl["weight_init"],
+                local["mix_pc"],
+            )
 
         def to_dict(self) -> dict:
             return {
@@ -346,53 +340,55 @@ class BranchPredictor:
         def __init__(
             self,
             # TAGE parameters
-            num_banks: int = 36,
-            table_size: int = 1024,
-            reset_interval: int = 1024,
+            num_banks: int = _TAGE_SC_L["tage"]["num_banks"],
+            table_size: int = _TAGE_SC_L["tage"]["table_size"],
+            reset_interval: int = _TAGE_SC_L["tage"]["reset_interval"],
             history_lengths: list[int] | None = None,
             tag_widths: list[int] | None = None,
-            use_alt_counters: int = 16,
-            use_alt_bits: int = 5,
-            useful_bits: int = 1,
-            max_allocations: int = 2,
-            allocation: str = "cbp5",
-            update: str = "cbp5",
-            history: str = "pc_bits",
-            path_history_bits: int = 27,
-            bimodal_entries: int | None = 8192,
-            bimodal_hysteresis_share_log: int = 2,
-            hashing: str = "tage_sc_l",
+            use_alt_counters: int = _TAGE_SC_L["tage"]["use_alt_counters"],
+            use_alt_bits: int = _TAGE_SC_L["tage"]["use_alt_bits"],
+            useful_bits: int = _TAGE_SC_L["tage"]["useful_bits"],
+            max_allocations: int = _TAGE_SC_L["tage"]["max_allocations"],
+            allocation: str = _TAGE_SC_L["tage"]["allocation"],
+            update: str = _TAGE_SC_L["tage"]["update"],
+            history: str = _TAGE_SC_L["tage"]["history"],
+            path_history_bits: int = _TAGE_SC_L["tage"]["path_history_bits"],
+            bimodal_entries: int | None = _TAGE_SC_L["tage"]["bimodal_entries"],
+            bimodal_hysteresis_share_log: int = _TAGE_SC_L["tage"][
+                "bimodal_hysteresis_share_log"
+            ],
+            hashing: str = _TAGE_SC_L["tage"]["hashing"],
             banking: BranchPredictor.TageBanking | None = None,
             # Loop predictor parameters
-            loop_log_size: int = 5,
-            loop_log_assoc: int = 2,
-            loop_tag_bits: int = 10,
-            loop_iter_bits: int = 10,
-            loop_confidence_bits: int = 4,
-            loop_age_bits: int = 4,
-            loop_use_counter_bits: int = 7,
-            loop_use_direction_bit: bool = True,
-            loop_use_hashing: bool = True,
-            loop_restrict_allocation: bool = True,
-            loop_initial_iter: int = 0,
-            loop_initial_age: int = 7,
-            loop_optional_age_reset: bool = False,
-            loop_long_loop_confidence: bool = True,
-            loop_optional_age_increment: bool = True,
+            loop_log_size: int = _LOOP["log_size"],
+            loop_log_assoc: int = _LOOP["log_assoc"],
+            loop_tag_bits: int = _LOOP["tag_bits"],
+            loop_iter_bits: int = _LOOP["iter_bits"],
+            loop_confidence_bits: int = _LOOP["confidence_bits"],
+            loop_age_bits: int = _LOOP["age_bits"],
+            loop_use_counter_bits: int = _LOOP["use_counter_bits"],
+            loop_use_direction_bit: bool = _LOOP["use_direction_bit"],
+            loop_use_hashing: bool = _LOOP["use_hashing"],
+            loop_restrict_allocation: bool = _LOOP["restrict_allocation"],
+            loop_initial_iter: int = _LOOP["initial_iter"],
+            loop_initial_age: int = _LOOP["initial_age"],
+            loop_optional_age_reset: bool = _LOOP["optional_age_reset"],
+            loop_long_loop_confidence: bool = _LOOP["long_loop_confidence"],
+            loop_optional_age_increment: bool = _LOOP["optional_age_increment"],
             # SC parameters
-            sc_log_bias: int = 8,
-            sc_counter_bits: int = 6,
-            sc_weight_bits: int = 6,
-            sc_bias_weight_init: int = 4,
-            sc_chooser_bits: int = 7,
-            sc_threshold_bits: int = 12,
-            sc_initial_threshold: int = 35,
-            sc_per_pc_threshold_bits: int = 6,
-            sc_per_pc_threshold_width: int = 8,
-            sc_initial_per_pc_threshold: int = 0,
-            sc_threshold_weight_step: int = 12,
-            sc_halve_short_tables: bool = True,
-            sc_imli_counter_bits: int = 8,
+            sc_log_bias: int = _SC["log_bias"],
+            sc_counter_bits: int = _SC["counter_bits"],
+            sc_weight_bits: int = _SC["weight_bits"],
+            sc_bias_weight_init: int = _SC["bias_weight_init"],
+            sc_chooser_bits: int = _SC["chooser_bits"],
+            sc_threshold_bits: int = _SC["threshold_bits"],
+            sc_initial_threshold: int = _SC["initial_threshold"],
+            sc_per_pc_threshold_bits: int = _SC["per_pc_threshold_bits"],
+            sc_per_pc_threshold_width: int = _SC["per_pc_threshold_width"],
+            sc_initial_per_pc_threshold: int = _SC["initial_per_pc_threshold"],
+            sc_threshold_weight_step: int = _SC["threshold_weight_step"],
+            sc_halve_short_tables: bool = _SC["halve_short_tables"],
+            sc_imli_counter_bits: int = _SC["imli_counter_bits"],
             sc_global: BranchPredictor.ScGehl | None = None,
             sc_backward: BranchPredictor.ScGehl | None = None,
             sc_path: BranchPredictor.ScGehl | None = None,
@@ -400,11 +396,11 @@ class BranchPredictor:
             sc_imli: BranchPredictor.ScGehl | None = None,
             sc_imli_history: BranchPredictor.ScGehl | None = None,
             # ITTAGE parameters
-            ittage_num_banks: int = 8,
-            ittage_table_size: int = 256,
+            ittage_num_banks: int = _ITTAGE["num_banks"],
+            ittage_table_size: int = _ITTAGE["table_size"],
             ittage_history_lengths: list[int] | None = None,
             ittage_tag_widths: list[int] | None = None,
-            ittage_reset_interval: int = 256_000,
+            ittage_reset_interval: int = _ITTAGE["reset_interval"],
         ):
             self.num_banks = num_banks
             self.table_size = table_size
@@ -412,10 +408,12 @@ class BranchPredictor:
             self.history_lengths = (
                 history_lengths
                 if history_lengths is not None
-                else list(_TAGE_SC_L_64KB_HISTORY_LENGTHS)
+                else list(_TAGE_SC_L["tage"]["history_lengths"])
             )
             self.tag_widths = (
-                tag_widths if tag_widths is not None else [8] * 12 + [12] * 24
+                tag_widths
+                if tag_widths is not None
+                else list(_TAGE_SC_L["tage"]["tag_widths"])
             )
             self.use_alt_counters = use_alt_counters
             self.use_alt_bits = use_alt_bits
@@ -431,7 +429,9 @@ class BranchPredictor:
             self.banking = (
                 banking
                 if banking is not None
-                else BranchPredictor.TageBanking(10, 20, 12, _TAGE_SC_L_64KB_ENABLED)
+                else BranchPredictor.TageBanking.from_dict(
+                    _TAGE_SC_L["tage"]["banking"]
+                )
             )
             self.loop_log_size = loop_log_size
             self.loop_log_assoc = loop_log_assoc
@@ -463,35 +463,41 @@ class BranchPredictor:
             self.sc_threshold_weight_step = sc_threshold_weight_step
             self.sc_halve_short_tables = sc_halve_short_tables
             self.sc_imli_counter_bits = sc_imli_counter_bits
-            self.sc_global = sc_global if sc_global is not None else gehl()
-            self.sc_backward = (
-                sc_backward if sc_backward is not None else gehl([40, 24, 10], 10, 7)
+            self.sc_global = (
+                sc_global if sc_global is not None else gehl.from_dict(_SC["global"])
             )
-            self.sc_path = sc_path if sc_path is not None else gehl([25, 16, 9], 9, 7)
+            self.sc_backward = (
+                sc_backward
+                if sc_backward is not None
+                else gehl.from_dict(_SC["backward"])
+            )
+            self.sc_path = (
+                sc_path if sc_path is not None else gehl.from_dict(_SC["path"])
+            )
             self.sc_local = (
                 list(sc_local)
                 if sc_local is not None
-                else [
-                    local(256, 2, [11, 6, 3], 10),
-                    local(16, 5, [16, 11, 6], 9, mix_pc=True),
-                    local(16, 10, [9, 4], 10),
-                ]
+                else [local.from_dict(entry) for entry in _SC["local"]]
             )
-            self.sc_imli = sc_imli if sc_imli is not None else gehl([8], 8, 7)
+            self.sc_imli = (
+                sc_imli if sc_imli is not None else gehl.from_dict(_SC["imli"])
+            )
             self.sc_imli_history = (
-                sc_imli_history if sc_imli_history is not None else gehl([10, 4], 9, 0)
+                sc_imli_history
+                if sc_imli_history is not None
+                else gehl.from_dict(_SC["imli_history"])
             )
             self.ittage_num_banks = ittage_num_banks
             self.ittage_table_size = ittage_table_size
             self.ittage_history_lengths = (
                 ittage_history_lengths
                 if ittage_history_lengths is not None
-                else [4, 8, 16, 32, 64, 128, 256, 512]
+                else list(_ITTAGE["history_lengths"])
             )
             self.ittage_tag_widths = (
                 ittage_tag_widths
                 if ittage_tag_widths is not None
-                else [9, 9, 10, 10, 11, 11, 12, 12]
+                else list(_ITTAGE["tag_widths"])
             )
             self.ittage_reset_interval = ittage_reset_interval
             _validate_history_lengths(
@@ -518,7 +524,11 @@ class MemDepPredictor:
             return "MemDepPredictor.Blind()"
 
     class StoreSet:
-        def __init__(self, ssit_size: int = 1024, lfst_size: int = 1024):
+        def __init__(
+            self,
+            ssit_size: int = _STORE_SET["ssit_size"],
+            lfst_size: int = _STORE_SET["lfst_size"],
+        ):
             self.ssit_size = ssit_size
             self.lfst_size = lfst_size
 
@@ -527,3 +537,75 @@ class MemDepPredictor:
                 f"MemDepPredictor.StoreSet(ssit_size={self.ssit_size}, "
                 f"lfst_size={self.lfst_size})"
             )
+
+
+# The core's names for the branch predictors.
+_PREDICTORS = {
+    "Static": BranchPredictor.Static,
+    "GShare": BranchPredictor.GShare,
+    "Bht": BranchPredictor.Bht,
+    "Tage": BranchPredictor.TAGE,
+    "Perceptron": BranchPredictor.Perceptron,
+    "Tournament": BranchPredictor.Tournament,
+    "ScLTage": BranchPredictor.ScLTage,
+}
+
+# The core's names for the memory dependence predictors.
+_MEM_DEP_PREDICTORS = {
+    "Blind": MemDepPredictor.Blind,
+    "StoreSet": MemDepPredictor.StoreSet,
+}
+
+
+def _tage_arguments(tage: dict) -> dict:
+    """``BranchPredictor.TAGE`` arguments from a core TAGE dict."""
+    return {**tage, "banking": BranchPredictor.TageBanking.from_dict(tage["banking"])}
+
+
+def _branch_predictor_from(pipeline: dict):
+    """The branch predictor a core pipeline dict describes."""
+    kind = _PREDICTORS[pipeline["branch_predictor"]]
+    if kind is BranchPredictor.TAGE:
+        return BranchPredictor.TAGE(**_tage_arguments(pipeline["tage"]))
+    if kind is BranchPredictor.ScLTage:
+        sc = pipeline["sc"]
+        gehl = BranchPredictor.ScGehl.from_dict
+        components = {"global", "backward", "path", "local", "imli", "imli_history"}
+        return BranchPredictor.ScLTage(
+            **_tage_arguments(pipeline["tage"]),
+            **{
+                f"loop_{field}": value
+                for field, value in pipeline["loop_predictor"].items()
+            },
+            **{
+                f"sc_{field}": value
+                for field, value in sc.items()
+                if field not in components
+            },
+            sc_global=gehl(sc["global"]),
+            sc_backward=gehl(sc["backward"]),
+            sc_path=gehl(sc["path"]),
+            sc_local=[
+                BranchPredictor.ScLocalGehl.from_dict(local) for local in sc["local"]
+            ],
+            sc_imli=gehl(sc["imli"]),
+            sc_imli_history=gehl(sc["imli_history"]),
+            **{f"ittage_{field}": value for field, value in pipeline["ittage"].items()},
+        )
+    if kind is BranchPredictor.Bht:
+        return BranchPredictor.Bht(**pipeline["bht"])
+    if kind is BranchPredictor.Perceptron:
+        return BranchPredictor.Perceptron(**pipeline["perceptron"])
+    if kind is BranchPredictor.Tournament:
+        return BranchPredictor.Tournament(**pipeline["tournament"])
+    return kind()
+
+
+def _mem_dep_predictor_from(pipeline: dict):
+    """The memory dependence predictor a core pipeline dict describes."""
+    if pipeline["mem_dep_predictor"] == "Blind":
+        return MemDepPredictor.Blind()
+    store_set = pipeline["store_set"]
+    return MemDepPredictor.StoreSet(
+        ssit_size=store_set["ssit_size"], lfst_size=store_set["lfst_size"]
+    )
