@@ -30,7 +30,7 @@ pub use cache::{
 pub use coherence::{
     CoherenceConfig, CoherenceProtocolConfig, HomeAgentConfig, InterconnectConfig,
 };
-pub use components::{ComponentDefaults, TageScLDefaults};
+pub use components::{ComponentDefaults, InOrderDefaults, TageScLDefaults};
 pub use general::{Console, GeneralConfig};
 pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind};
 pub use pipeline::{

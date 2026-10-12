@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Every default of the Python API comes from the core: `Config()` reads
+  the core's default machine, and each builder the default of its
+  component, through `rvsim._core.component_defaults()`, so no default is
+  written in Python. A configuration's dict names only what its Python
+  objects model, under the core's names, and the core fills in the rest;
+  every machine is unchanged, cycle for cycle. `Backend.InOrder()` takes
+  the ROB, store buffer, load and store ports and vector store buffer the
+  in-order backend reads, which were fixed.
 - Building a simulator refuses configurations no machine can have, with a
   `ValueError` naming the field, where they used to hang, crash or quietly
   build another machine: zero widths, queues, ports, TLBs, clocks or

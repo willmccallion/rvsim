@@ -19,7 +19,12 @@ from rvsim import (
     StorePrefetcher,
     presets,
 )
-from rvsim._core import check_config, default_config, minimal_config
+from rvsim._core import (
+    check_config,
+    component_defaults,
+    default_config,
+    minimal_config,
+)
 from tests.conformance.configs.pipelines import PIPELINES
 from tools.diag.calibration import CALIBRATED
 
@@ -120,6 +125,21 @@ class Prefetchers(unittest.TestCase):
 class RustMachines(unittest.TestCase):
     def test_config_is_the_cores_default_machine(self):
         self.assertEqual(check_config(Config().to_dict()), default_config())
+
+    def test_a_builder_left_at_its_defaults_is_the_cores_component(self):
+        components = component_defaults()
+        in_order = components["in_order"]
+
+        cache = check_config(Config(l1d=Cache()).to_dict())["cache"]["l1_d"]
+        pipeline = check_config(Config(backend=Backend.InOrder()).to_dict())["pipeline"]
+        tage_sc_l = check_config(
+            Config(branch_predictor=BranchPredictor.ScLTage()).to_dict()
+        )["pipeline"]
+
+        self.assertEqual(cache, {**components["cache"], "enabled": True})
+        self.assertEqual({field: pipeline[field] for field in in_order}, in_order)
+        self.assertEqual(tage_sc_l["tage"], components["tage_sc_l"]["tage"])
+        self.assertEqual(tage_sc_l["sc"], components["tage_sc_l"]["sc"])
 
     def test_the_minimal_machine_has_no_caches(self):
         cache = minimal_config()["cache"]
@@ -228,3 +248,12 @@ class InOrderBackend(unittest.TestCase):
         self.assertEqual(config["pipeline"]["fu_config"]["num_int_mul"], 1)
         self.assertEqual(config["pipeline"]["fu_config"]["int_mul_latency"], 8)
         self.assertEqual(config["pipeline"]["fu_config"]["num_fp_add"], 0)
+
+    def test_a_pool_without_fp_units_builds_a_hart_without_f_or_d(self):
+        pool = Fu([Fu.IntAlu(), Fu.IntMul(), Fu.IntDiv(), Fu.Branch(), Fu.Mem()])
+        config = Config(isa="RV64IMAC", backend=Backend.InOrder(fu_config=pool))
+
+        fu_config = check_config(config.to_dict())["pipeline"]["fu_config"]
+
+        self.assertEqual(fu_config["num_fp_add"], 0)
+        Simulator(config)

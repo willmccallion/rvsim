@@ -203,6 +203,10 @@ pub const LOAD_PORTS: usize = 2;
 /// Default number of store ports (stores issued per cycle) for out-of-order backend.
 pub const STORE_PORTS: usize = 1;
 
+/// Load ports of an in-order core as the Python API's `Backend.InOrder()`
+/// builds it: one load reaches memory per cycle.
+pub const IN_ORDER_LOAD_PORTS: usize = 1;
+
 /// Default checkpoint count for O(1) branch recovery (32 slots).
 /// Real `OoO` processors (e.g. BOOM, ARM Cortex-A77) typically have 16-64 checkpoint slots.
 pub const CHECKPOINT_COUNT: usize = 32;
