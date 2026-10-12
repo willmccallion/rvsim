@@ -305,15 +305,6 @@ class MemoryController:
             )
 
 
-def _resource_count(name: str, count: int | None) -> int | None:
-    """A cache resource count: None for the simulator default, else at least 1."""
-    if count is not None and count < 1:
-        raise ValueError(
-            f"{name} must be at least 1, or None for the default; got {count}"
-        )
-    return count
-
-
 class Cache:
     """Single cache level configuration."""
 
@@ -370,9 +361,9 @@ class Cache:
         self.prefetcher = (
             prefetcher if prefetcher is not None else _prefetcher_from(_CACHE)
         )
-        self.mshr_count = _resource_count("mshr_count", mshr_count)
-        self.write_buffers = _resource_count("write_buffers", write_buffers)
-        self.targets_per_mshr = _resource_count("targets_per_mshr", targets_per_mshr)
+        self.mshr_count = mshr_count
+        self.write_buffers = write_buffers
+        self.targets_per_mshr = targets_per_mshr
         self.response_latency = response_latency
 
     def __repr__(self) -> str:

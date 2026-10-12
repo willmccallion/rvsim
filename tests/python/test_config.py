@@ -165,11 +165,9 @@ class RustMachines(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pipeline.width must be at least 1"):
             Simulator(Config(width=0))
 
-    def test_a_machine_the_core_refuses_raises_value_error(self):
-        config = Config(btb_size=96, btb_ways=4)
-
+    def test_a_config_the_core_refuses_raises_value_error_as_it_is_built(self):
         with self.assertRaisesRegex(ValueError, "btb_size"):
-            check_config(config.to_dict())
+            Config(btb_size=96, btb_ways=4)
 
 
 class Validation(unittest.TestCase):
@@ -188,8 +186,11 @@ class Validation(unittest.TestCase):
 
     def test_a_cache_with_zero_of_a_resource_is_refused(self):
         for field in ("mshr_count", "write_buffers", "targets_per_mshr"):
-            with self.subTest(field=field), self.assertRaisesRegex(ValueError, field):
-                Cache("32KB", ways=4, **{field: 0})
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(ValueError, rf"cache\.l1_d\.{field}"),
+            ):
+                Config(l1d=Cache("32KB", ways=4, **{field: 0}))
 
     def test_a_config_dict_with_zero_mshrs_is_refused(self):
         config = Config().to_dict()
@@ -250,9 +251,19 @@ class Validation(unittest.TestCase):
 
 class InOrderBackend(unittest.TestCase):
     def test_its_unit_pool_reaches_the_core(self):
-        pool = Fu([Fu.IntAlu(count=1, latency=1), Fu.IntMul(count=1, latency=8)])
+        pool = Fu(
+            [
+                Fu.IntAlu(count=1, latency=1),
+                Fu.IntMul(count=1, latency=8),
+                Fu.IntDiv(),
+                Fu.Branch(),
+                Fu.Mem(),
+            ]
+        )
 
-        config = Config(backend=Backend.InOrder(fu_config=pool)).to_dict()
+        config = Config(
+            isa="RV64IMAC", backend=Backend.InOrder(fu_config=pool)
+        ).to_dict()
 
         self.assertEqual(config["pipeline"]["fu_config"]["num_int_mul"], 1)
         self.assertEqual(config["pipeline"]["fu_config"]["int_mul_latency"], 8)
