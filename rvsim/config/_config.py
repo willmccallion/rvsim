@@ -7,6 +7,7 @@ import copy
 import inspect
 from typing import Any
 
+from .._core import check_config
 from ._core_defaults import MACHINE
 from ._serialize import _config_to_dict_impl
 from ._units import _parse_size
@@ -27,18 +28,6 @@ from .memory import (
     _load_prefetcher_from,
     _store_prefetcher_from,
 )
-
-_PAGING_MODES = ("Bare", "Sv39", "Sv48", "Sv57")
-
-
-def _validate_paging_mode(value: str) -> str:
-    """Check a paging-mode cap: one of the core's paging modes."""
-    if not isinstance(value, str):
-        raise TypeError(f"paging_mode_max must be a string, got {type(value).__name__}")
-    if value not in _PAGING_MODES:
-        raise ValueError(f"paging_mode_max={value!r} not in {_PAGING_MODES}")
-    return value
-
 
 _GENERAL = MACHINE["general"]
 _SYSTEM = MACHINE["system"]
@@ -65,6 +54,9 @@ _DEFAULT_MEMORY_CONTROLLER = _controller_from(_MEMORY)
 class Config:
     """
     Full simulator configuration with flat parameter access.
+
+    The core checks the configuration as it is built: one it cannot read
+    or would refuse to build raises ``ValueError`` naming the field.
 
     Example::
 
@@ -173,10 +165,6 @@ class Config:
         self.fetch_decode_latency = fetch_decode_latency
         self.decode_rename_latency = decode_rename_latency
         self.rename_issue_latency = rename_issue_latency
-        if csr_squash not in (None, "EveryAccess", "AffectingWrites", "Never"):
-            raise ValueError(
-                f"csr_squash must be 'EveryAccess', 'AffectingWrites' or 'Never', not {csr_squash!r}"
-            )
         self.csr_squash = csr_squash
         self.fence_squash = fence_squash
         self.store_forward_latency = store_forward_latency
@@ -184,11 +172,6 @@ class Config:
         self.backend = (
             copy.deepcopy(backend) if backend is not None else Backend.InOrder()
         )
-        if csr_squash == "Never" and isinstance(self.backend, Backend.InOrder):
-            raise ValueError(
-                "csr_squash 'Never' needs the out-of-order backend's rename hold; "
-                "use 'EveryAccess' or 'AffectingWrites'"
-            )
         self.mem_dep_predictor = copy.deepcopy(mem_dep_predictor)
         self.btb_size = btb_size
         self.btb_ways = btb_ways
@@ -217,7 +200,7 @@ class Config:
         self.l2_tlb_ways = l2_tlb_ways
         self.l2_tlb_latency = l2_tlb_latency
         self.misaligned_access_trap = misaligned_access_trap
-        self.paging_mode_max = _validate_paging_mode(paging_mode_max)
+        self.paging_mode_max = paging_mode_max
 
         # ISA extensions
         self.isa = isa
@@ -230,13 +213,7 @@ class Config:
 
         # General
         self.trace = trace
-        if page_mode not in ("Sv39", "Sv48", "Sv57"):
-            raise ValueError(
-                f"page_mode must be 'Sv39', 'Sv48' or 'Sv57', not {page_mode!r}"
-            )
         self.page_mode = page_mode
-        if clock_hz <= 0:
-            raise ValueError(f"clock_hz must be positive, not {clock_hz}")
         self.clock_hz = clock_hz
 
         # System
@@ -255,13 +232,12 @@ class Config:
         self.rtc_epoch_seconds = rtc_epoch_seconds
         self.uart_to_stderr = uart_to_stderr
         self.uart_quiet = uart_quiet
-        if console is not None and console not in _CONSOLES:
-            raise ValueError(f"console must be one of {_CONSOLES}, got {console!r}")
         self.console = console
         self.hart_count = hart_count
         self.coherence = (
             copy.deepcopy(coherence) if coherence is not None else Coherence()
         )
+        check_config(self.to_dict())
 
     def isa_string(self) -> str:
         """The ISA string the hart implements, as the device tree advertises
@@ -315,9 +291,6 @@ class Config:
         if self.store_prefetcher is not None:
             parts.append(f"store_prefetcher={self.store_prefetcher!r}")
         return f"Config({', '.join(parts)})"
-
-
-_CONSOLES = ("Stdout", "Stderr", "Quiet", "Captured")
 
 
 def _config_to_dict(config) -> dict[str, Any]:
