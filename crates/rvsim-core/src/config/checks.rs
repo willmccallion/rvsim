@@ -282,6 +282,8 @@ fn check_predictors(pipeline: &PipelineConfig) -> Result<(), ConfigError> {
     power_of_two("ittage table_size", ittage.table_size)?;
     check_bank_list("ittage", "history_lengths", ittage.history_lengths.len(), ittage.num_banks)?;
     check_bank_list("ittage", "tag_widths", ittage.tag_widths.len(), ittage.num_banks)?;
+    let longest_ittage_history = ittage.history_lengths.iter().copied().max().unwrap_or(0);
+    at_most("ittage history_lengths", longest_ittage_history, super::MAX_ITTAGE_HISTORY)?;
     let perceptron = &pipeline.perceptron;
     at_most("perceptron history_length", perceptron.history_length, MAX_HISTORY_MASK_BITS)?;
     at_most("perceptron table_bits", perceptron.table_bits, MAX_PERCEPTRON_TABLE_BITS)?;
