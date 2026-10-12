@@ -1,15 +1,17 @@
 //! Global history register.
 
-/// Maximum number of u64 words in a GHR. 16 × 64 = 1024 bits.
+use crate::config::MAX_ITTAGE_HISTORY;
+
+/// Words in a GHR: enough for the longest history a configuration allows.
 /// This is a capacity bound — the effective history length comes from config.
-const GHR_MAX_WORDS: usize = 16;
+const GHR_MAX_WORDS: usize = MAX_ITTAGE_HISTORY.div_ceil(64);
 
 /// Global History Register snapshot.
 ///
 /// A fixed-capacity shift register that stores branch outcome history.
 /// The effective history length (`len`) is determined by the predictor
 /// configuration (e.g., `max(hist_lengths)` for TAGE), while the storage
-/// capacity is bounded at compile time at `GHR_MAX_WORDS` × 64 = 1024 bits.
+/// capacity is bounded at compile time by `MAX_ITTAGE_HISTORY`.
 ///
 /// Bit 0 is the most recently pushed outcome. Snapshots are captured at
 /// fetch time and carried through pipeline latches so that update and
@@ -35,7 +37,8 @@ impl Ghr {
     ///
     /// # Panics
     ///
-    /// Panics if `max_bits` exceeds the compile-time capacity (1024 bits).
+    /// Panics if `max_bits` exceeds the compile-time capacity, which
+    /// `Config::validate` keeps configurations within.
     pub fn with_len(max_bits: usize) -> Self {
         assert!(
             max_bits <= GHR_MAX_WORDS * 64,

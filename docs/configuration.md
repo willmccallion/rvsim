@@ -543,7 +543,8 @@ field, rather than hanging, crashing or quietly building another machine:
   needs `disk_base` moved, as `presets.linux()` does.
 - **Predictors.** The BTB has a power-of-two set count; TAGE and ITTAGE
   tables are powers of two with one history length and one tag width per
-  bank. Tables stay small enough to allocate: perceptron `table_bits` at
+  bank. TAGE histories are at most 8192 bits and ITTAGE ones at most 1024,
+  the global history register's size. Tables stay small enough to allocate: perceptron `table_bits` at
   most 20 and `history_length` at most 63, tournament tables at most 24
   bits, the loop predictor at most 2^20 entries and the write-combining
   buffer at most 1024 entries.

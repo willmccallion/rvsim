@@ -5,7 +5,10 @@
 //! commit.
 
 use crate::common::InstSeq;
-use crate::config::{BhtConfig, Config, PerceptronConfig, TageConfig, TournamentConfig};
+use crate::config::{
+    BhtConfig, Config, MAX_ITTAGE_HISTORY, PerceptronConfig, PipelineConfig, TageConfig,
+    TournamentConfig,
+};
 use crate::uarch::bpred::predictors::bht::BhtPredictor;
 use crate::uarch::bpred::predictors::gshare::GSharePredictor;
 use crate::uarch::bpred::predictors::perceptron::PerceptronPredictor;
@@ -265,9 +268,9 @@ fn tournament_learns_an_alternating_branch() {
     assert_eq!(late_mispredictions, 0);
 }
 
-#[test]
-fn sc_l_tage_learns_an_indirect_jump_target_from_its_commits() {
-    let pipeline = Config::minimal().pipeline;
+/// What SC-L-TAGE predicts for an indirect jump after twenty commits of it
+/// to `TARGET`.
+fn indirect_target_after_training(pipeline: &PipelineConfig) -> Option<u64> {
     let mut bp = Driver::new(ScLTagePredictor::new(
         &pipeline.tage,
         &pipeline.sc,
@@ -284,8 +287,27 @@ fn sc_l_tage_learns_an_indirect_jump_target_from_its_commits() {
         bp.unit.commit(seq);
         last_prediction = predicted;
     }
+    last_prediction
+}
 
-    assert_eq!(last_prediction, Some(TARGET));
+#[test]
+fn sc_l_tage_learns_an_indirect_jump_target_from_its_commits() {
+    let pipeline = Config::minimal().pipeline;
+
+    let prediction = indirect_target_after_training(&pipeline);
+
+    assert_eq!(prediction, Some(TARGET));
+}
+
+#[test]
+fn sc_l_tage_learns_an_indirect_jump_target_with_the_longest_ittage_history() {
+    let mut config = Config::minimal();
+    config.pipeline.ittage.history_lengths = vec![4, 8, 16, 32, 64, 128, 256, MAX_ITTAGE_HISTORY];
+    assert!(config.validate().is_ok());
+
+    let prediction = indirect_target_after_training(&config.pipeline);
+
+    assert_eq!(prediction, Some(TARGET));
 }
 
 /// An indirect jump that mispredicts teaches the BTB its real target.
