@@ -3,11 +3,11 @@
 Every aspect of the simulated machine is set through the `Config` class.
 Its parameters are flat keywords; caches, predictors, backends, memory
 controllers and the coherence fabric are small builder classes passed to
-them. A `Config` is serialised to the Rust core when a simulator is built,
-where it is validated as a whole: an unknown key, or a combination no
-machine can have (for example a BTB whose set count is not a power of two,
-or an exclusive L1/L2 with more than one core), raises `ValueError` before
-anything runs.
+them. The Rust core checks each `Config` as a whole as it is constructed:
+a value it cannot read, or a combination no machine can have (for example
+a BTB whose set count is not a power of two, or an exclusive L1/L2 with
+more than one core), raises `ValueError` naming the field before anything
+runs.
 
 ## Basic Usage
 
@@ -254,8 +254,8 @@ load-to-use. `None` disables a level.
     either is exhausted, or one MSHR holds `targets_per_mshr` requests, the
     cache blocks and later requests queue. `None` leaves the simulator
     default in place (8, 8 and 20); `mshr_count=1` gives a blocking cache
-    that serialises its misses. Each must be at least 1: `Cache` raises
-    `ValueError` for 0, and a config dict holding 0 is refused.
+    that serialises its misses. Each must be at least 1: a `Config` or
+    config dict holding 0 is refused.
 
 ### Replacement Policies
 
@@ -509,7 +509,8 @@ each private cache counts its snoops under
 
 ## What a configuration must satisfy
 
-Building a simulator checks the whole configuration, and
+The core checks the whole configuration when a `Config` is constructed,
+and again when a simulator is built from a `Config` or a config dict;
 `rvsim._core.check_config(config.to_dict())` runs the same checks on their
 own. A configuration that breaks a rule raises `ValueError` naming the
 field, rather than hanging, crashing or quietly building another machine:
