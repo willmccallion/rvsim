@@ -3,7 +3,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rvsim_core::config::Config;
+use rvsim_core::config::{ComponentDefaults, Config};
 
 use crate::conversion::{config_to_py_dict, py_dict_to_config};
 
@@ -26,6 +26,17 @@ pub fn default_config(py: Python<'_>) -> PyResult<PyObject> {
 #[pyfunction]
 pub fn minimal_config(py: Python<'_>) -> PyResult<PyObject> {
     config_to_py_dict(py, &Config::minimal())
+}
+
+/// Every configuration component at its own default, by name: what each
+/// builder of the Python API starts from.
+///
+/// # Errors
+///
+/// Fails only if a component cannot be written as JSON.
+#[pyfunction]
+pub fn component_defaults(py: Python<'_>) -> PyResult<PyObject> {
+    config_to_py_dict(py, &ComponentDefaults::default())
 }
 
 /// `config_dict` as the core reads it, with every field it has, once the

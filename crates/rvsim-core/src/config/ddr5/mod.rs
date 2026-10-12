@@ -127,10 +127,10 @@ impl Default for Ddr5Config {
 pub enum Ddr5SpeedBinName {
     /// DDR5-4800B (40-39-39).
     #[default]
-    #[serde(alias = "4800B", alias = "ddr5_4800b", alias = "DDR5-4800B")]
+    #[serde(rename = "4800B", alias = "Ddr5_4800B", alias = "ddr5_4800b", alias = "DDR5-4800B")]
     Ddr5_4800B,
     /// DDR5-5600B (46-45-45).
-    #[serde(alias = "5600B", alias = "ddr5_5600b", alias = "DDR5-5600B")]
+    #[serde(rename = "5600B", alias = "Ddr5_5600B", alias = "ddr5_5600b", alias = "DDR5-5600B")]
     Ddr5_5600B,
 }
 
