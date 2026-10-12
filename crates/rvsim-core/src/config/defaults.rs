@@ -157,7 +157,7 @@ pub const WRITE_BUFFERS: NonZeroUsize = non_zero(8);
 pub const TARGETS_PER_MSHR: NonZeroUsize = non_zero(20);
 
 /// `count` as a non-zero default, checked when the constant is evaluated.
-const fn non_zero(count: usize) -> NonZeroUsize {
+pub(super) const fn non_zero(count: usize) -> NonZeroUsize {
     match NonZeroUsize::new(count) {
         Some(count) => count,
         None => panic!("a default count must be non-zero"),

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `Config()`, and Rust's `Config::default()`, is a desktop out-of-order
+  core of the mid-2020s: 6 wide at 4 GHz with a 320-entry ROB, 128-entry
+  issue and load queues, a 72-entry store buffer, 224 integer and 192 FP
+  physical registers, three load and two store ports and the 64KB
+  TAGE-SC-L; a 32 KiB L1I, a 48 KiB L1D (5-cycle load-to-use), a 1 MiB L2
+  (14) and a 32 MiB L3 (50), all PLRU, with next-line, stream, load and
+  store prefetchers; a 2048-entry L2 TLB; VLEN 256; and two channels of
+  DDR5-5600 (81 ns). It was a 4-wide core with TAGE, 32 KiB L1s, a 256 KiB L2 and
+  fixed-latency memory. `Fu()` and each unit's defaults are its pool, and
+  `Backend.InOrder()` defaults to a dual-issue core's pool. `presets.basic()`
+  is still `Config()`. The default machine joins the conformance matrix
+  and its smoke set.
 - `Config()` asks the core to check the configuration as it is built, and
   every rule lives in the core: the Python builders no longer check their
   own arguments, so `Cache(mshr_count=0)` or an unknown TAGE rule is

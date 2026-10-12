@@ -6,7 +6,7 @@
 
 | Preset | What it is |
 |--------|------------|
-| `basic()` | `Config()`: a modest 4-wide out-of-order core with 32 KiB L1s and a 256 KiB L2 |
+| `basic()` | `Config()`, the default machine: a 6-wide out-of-order desktop core with three cache levels, every prefetcher and DDR5-5600 |
 | `fast()` | An Apple M4 P-core class core, the default core of the Linux system |
 | `rocket()`, `boom()` | Chipyard's Rocket and Medium BOOM as their RTL builds them ([Error against Rocket](../rtl-rocket.md), [Error against BOOM](../rtl-boom.md)) |
 | `linux(harts, core=...)` | A core placed in the system that boots the bundled Linux image |

@@ -309,7 +309,14 @@ fn every_cache_level_shares_one_line_size() {
 
 #[test]
 fn a_stride_prefetcher_table_is_a_power_of_two() {
-    let cache_side = refused(Config::default(), |c| c.cache.l1_d.prefetch_table_size = 100);
+    let cache_side = refused(Config::minimal(), |c| {
+        c.cache.l1_d = CacheConfig {
+            enabled: true,
+            prefetcher: PrefetcherKind::Stride,
+            prefetch_table_size: 100,
+            ..CacheConfig::default()
+        };
+    });
     let load_side = refused(Config::minimal(), |c| {
         c.cache.load_prefetcher = LoadPrefetcherConfig::Stride {
             table_size: 100,
