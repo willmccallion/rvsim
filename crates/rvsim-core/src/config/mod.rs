@@ -20,9 +20,9 @@ mod system;
 
 pub use bpred::{
     BhtConfig, BhtConfigError, BranchPredictorKind, GehlConfig, IttageConfig, LocalGehlConfig,
-    LoopConfig, MAX_GEHL_TABLES, MAX_LOCAL_HISTORIES, MAX_TAGE_BANKS, MAX_TAGE_HISTORY,
-    PerceptronConfig, ScConfig, ScConfigError, TageAllocation, TageBanking, TageConfig,
-    TageHashing, TageHistoryMode, TageUpdate, TournamentConfig,
+    LoopConfig, MAX_GEHL_TABLES, MAX_ITTAGE_HISTORY, MAX_LOCAL_HISTORIES, MAX_TAGE_BANKS,
+    MAX_TAGE_HISTORY, PerceptronConfig, ScConfig, ScConfigError, TageAllocation, TageBanking,
+    TageConfig, TageHashing, TageHistoryMode, TageUpdate, TournamentConfig,
 };
 pub use cache::{
     CacheConfig, CacheHierarchyConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind,
