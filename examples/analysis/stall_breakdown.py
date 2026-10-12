@@ -13,7 +13,7 @@ from rvsim import BranchPredictor, Config, Environment, Stats
 PROGRAMS = ["mandelbrot", "maze", "qsort", "merge_sort"]
 BP_MAP = {
     "Static": BranchPredictor.Static,
-    "TAGE": BranchPredictor.TAGE,
+    "Tage": BranchPredictor.Tage,
 }
 
 

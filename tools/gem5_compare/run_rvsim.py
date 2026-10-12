@@ -50,7 +50,7 @@ def branch_predictor(bp: dict):
             local_pred_bits=bp["local_pred_bits"],
         )
     if bp["kind"] == "tage":
-        return BranchPredictor.TAGE(
+        return BranchPredictor.Tage(
             num_banks=bp["tables"],
             table_size=2 ** bp["log_table_size"],
             reset_interval=2 ** bp["log_u_reset"],

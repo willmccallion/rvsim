@@ -50,13 +50,12 @@ __all__ = [
 #: The device tree's ``timebase-frequency``, in MHz.
 LINUX_TIMEBASE_MHZ = 10
 
-INTERCONNECTS = {
-    "crossbar": Interconnect.Crossbar,
-    "ring": Interconnect.Ring,
-    "mesh": Interconnect.Mesh,
-    "torus": Interconnect.Torus,
-    "hypercube": Interconnect.Hypercube,
-}
+#: The interconnects ``linux()`` builds, by the core's names.
+INTERCONNECTS = ("Crossbar", "Ring", "Mesh", "Torus", "Hypercube")
+
+#: The memory ``linux()`` builds: four channels of DDR5, or the core's own
+#: controller.
+MEMORIES = ("Ddr5", "Dram")
 
 
 def basic() -> Config:
@@ -159,7 +158,7 @@ def fast() -> Config:
             size="192KB",
             line="64B",
             ways=6,
-            policy=ReplacementPolicy.PLRU(),
+            policy=ReplacementPolicy.Plru(),
             latency=1,
             prefetcher=Prefetcher.NextLine(degree=3),
             mshr_count=10,
@@ -168,7 +167,7 @@ def fast() -> Config:
             size="128KB",
             line="64B",
             ways=8,
-            policy=ReplacementPolicy.PLRU(),
+            policy=ReplacementPolicy.Plru(),
             latency=3,
             prefetcher=Prefetcher.Stride(degree=4, table_size=512),
             mshr_count=20,
@@ -177,7 +176,7 @@ def fast() -> Config:
             size="4MB",
             line="64B",
             ways=16,
-            policy=ReplacementPolicy.PLRU(),
+            policy=ReplacementPolicy.Plru(),
             latency=12,
             prefetcher=Prefetcher.Stream(degree=4),
             mshr_count=32,
@@ -186,19 +185,19 @@ def fast() -> Config:
             size="36MB",
             line="64B",
             ways=16,
-            policy=ReplacementPolicy.PLRU(),
+            policy=ReplacementPolicy.Plru(),
             latency=35,
             prefetcher=Prefetcher.Tagged(degree=2),
             mshr_count=64,
         ),
-        inclusion_policy=Cache.NINE(),
+        inclusion_policy=Cache.Nine(),
         wcb_entries=16,
         # ── Memory ───────────────────────────────────────────────────────
         tlb_size=160,
         l2_tlb_size=4096,
         l2_tlb_ways=8,
         l2_tlb_latency=4,
-        memory_controller=MemoryController.DRAM(
+        memory_controller=MemoryController.Dram(
             t_cas=12,
             t_ras=12,
             t_pre=12,
@@ -211,9 +210,9 @@ def fast() -> Config:
 def linux(
     harts: int = 8,
     *,
-    memory: str = "ddr5",
-    speed_bin: str = "5600B",
-    interconnect: str = "mesh",
+    memory: str = "Ddr5",
+    speed_bin: str = "Ddr5_5600B",
+    interconnect: str = "Mesh",
     real_time: bool = True,
     core: Config | None = None,
 ) -> Config:
@@ -223,9 +222,9 @@ def linux(
 
     ``harts`` harts boot through OpenSBI's HSM into an SMP kernel; with
     more than one, the private caches are kept coherent by a snoop-filter
-    home agent over ``interconnect`` (``crossbar``, ``ring``, ``mesh``,
-    ``torus`` or ``hypercube``). ``memory`` is ``ddr5`` (JEDEC
-    command-level timing at ``speed_bin``, four channels) or ``dram`` (the
+    home agent over ``interconnect`` (``Crossbar``, ``Ring``, ``Mesh``,
+    ``Torus`` or ``Hypercube``). ``memory`` is ``Ddr5`` (JEDEC
+    command-level timing at ``speed_bin``, four channels) or ``Dram`` (the
     core config's own memory controller).
 
     With ``real_time`` the CLINT ticks at the device tree's 10 MHz
@@ -237,14 +236,14 @@ def linux(
     base = core if core is not None else fast()
     if interconnect not in INTERCONNECTS:
         raise ValueError(
-            f"interconnect must be one of {sorted(INTERCONNECTS)}, got {interconnect!r}"
+            f"interconnect must be one of {INTERCONNECTS}, got {interconnect!r}"
         )
-    if memory == "ddr5":
-        controller = MemoryController.DDR5(speed_bin=speed_bin, channels=4)
-    elif memory == "dram":
+    if memory == "Ddr5":
+        controller = MemoryController.Ddr5(speed_bin=speed_bin, channels=4)
+    elif memory == "Dram":
         controller = base.memory_controller
     else:
-        raise ValueError(f"memory must be 'ddr5' or 'dram', got {memory!r}")
+        raise ValueError(f"memory must be one of {MEMORIES}, got {memory!r}")
     return base.replace(
         ram_size=256 * 1024 * 1024,
         ram_base=0x80000000,
@@ -257,7 +256,7 @@ def linux(
         hart_count=harts,
         coherence=Coherence(
             home_agent=HomeAgent.SnoopFilter(),
-            interconnect=INTERCONNECTS[interconnect](),
+            interconnect=getattr(Interconnect, interconnect)(),
         ),
         memory_controller=controller,
     )
@@ -414,7 +413,7 @@ def boom() -> Config:
                 ]
             ),
         ),
-        branch_predictor=BranchPredictor.TAGE(
+        branch_predictor=BranchPredictor.Tage(
             num_banks=6,
             table_size=1024,
             reset_interval=2048,

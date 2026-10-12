@@ -32,7 +32,7 @@ from rvsim import Config, BranchPredictor, Cache, Environment
 
 config = Config(
     width=4,
-    branch_predictor=BranchPredictor.TAGE(),
+    branch_predictor=BranchPredictor.Tage(),
     l1d=Cache("32KB", ways=8, latency=1, mshr_count=8),
     l2=Cache("256KB", ways=8, latency=10),
 )
@@ -108,7 +108,7 @@ CLINT timer, PLIC interrupt controller, 16550A UART, VirtIO MMIO block device, G
 from rvsim import BranchPredictor, Config, Environment, Stats
 
 rows = {}
-for name, bp in [("GShare", BranchPredictor.GShare()), ("TAGE", BranchPredictor.TAGE())]:
+for name, bp in [("GShare", BranchPredictor.GShare()), ("Tage", BranchPredictor.Tage())]:
     r = Environment("program.elf", Config(branch_predictor=bp)).run()
     rows[name] = r.stats
 

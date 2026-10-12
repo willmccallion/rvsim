@@ -80,7 +80,7 @@ Serial port compatible with the NS16550A register interface:
   interrupts rise 225 ns after their cause, as in gem5's `Uart8250`
 
 `console` connects the UART to stdout (the default), stderr, nothing
-(`"quiet"`), or an in-memory buffer (`"captured"`) that the host reads with
+(`"Quiet"`), or an in-memory buffer (`"Captured"`) that the host reads with
 `read_console()` and writes input to with `write_console()`; Linux sessions
 use the captured console to type commands at the shell.
 

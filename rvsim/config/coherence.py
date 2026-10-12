@@ -85,20 +85,6 @@ class Interconnect:
         kind = "Hypercube"
 
 
-# The core's names for the home agents and interconnects.
-_HOME_AGENTS = {"Broadcast": HomeAgent.Broadcast, "SnoopFilter": HomeAgent.SnoopFilter}
-_INTERCONNECTS = {
-    kind.kind: kind
-    for kind in (
-        Interconnect.Crossbar,
-        Interconnect.Ring,
-        Interconnect.Mesh,
-        Interconnect.Torus,
-        Interconnect.Hypercube,
-    )
-}
-
-
 def _home_agent_from(home_agent: dict):
     """The home agent a core coherence dict names."""
     if home_agent["kind"] == "Broadcast":
@@ -110,7 +96,7 @@ def _home_agent_from(home_agent: dict):
 
 def _interconnect_from(interconnect: dict):
     """The interconnect a core coherence dict names."""
-    return _INTERCONNECTS[interconnect["kind"]](
+    return getattr(Interconnect, interconnect["kind"])(
         hop_latency=interconnect["hop_latency"],
         bytes_per_cycle=interconnect["bytes_per_cycle"],
     )
@@ -130,7 +116,7 @@ class Coherence:
         | None = None,
         txn_entries: int = _COHERENCE["txn_entries"],
     ):
-        self.protocol = "MESI"
+        self.protocol = "Mesi"
         self.home_agent = (
             home_agent
             if home_agent is not None

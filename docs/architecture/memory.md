@@ -382,7 +382,7 @@ at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
 
 ### DDR5 Controller
 
-`MemoryController.DDR5()` is a command-level model of a DDR5 memory
+`MemoryController.Ddr5()` is a command-level model of a DDR5 memory
 subsystem in the style of gem5's `MemCtrl` / `DRAMInterface`. Every request
 becomes a sequence of JEDEC commands scheduled against per-bank state, and
 every command must clear the timing constraints of JESD79-5B.
@@ -398,7 +398,7 @@ and are converted through `cpu_clock_mhz`; responses are converted back. Set
 `banks_per_group`. Physical addresses are split into these coordinates by
 the `address_mapping` interleave; rows are `64 << column_bits` bytes.
 
-**Timing.** A speed bin (`4800B`, `5600B`) carries each JEDEC parameter as
+**Timing.** A speed bin (`Ddr5_4800B`, `Ddr5_5600B`) carries each JEDEC parameter as
 "the larger of N clocks and T ns" and resolves it for the bin's clock,
 rounding up as the standard does. Enforced per command: tRCD, tRP, tRAS,
 tRC, tRRD_S/L, tCCD_S/L, tCCD_L_WR, tFAW (four-activate window per rank),

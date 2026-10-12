@@ -13,7 +13,7 @@ its own statistics region on the configuration under study (see
 rvsim bench                                  # every benchmark, fast preset, 8 harts
 rvsim bench coremark dhrystone --harts 1     # two of them on one hart
 rvsim bench --config my_core.py --warm       # your core, each benchmark warmed first
-rvsim bench --memory dram --interconnect ring --json out.json
+rvsim bench --memory Dram --interconnect Ring --json out.json
 rvsim bench --list                           # the benchmarks and their commands
 ```
 
@@ -23,8 +23,8 @@ rvsim bench --list                           # the benchmarks and their commands
 | `--preset NAME` | Core configuration placed in the Linux system: `basic`, `fast` (default), `rocket` or `boom` |
 | `--config FILE` | A Python file whose `config` variable, `get_config()` or function named after the file gives the core to use instead |
 | `--harts N` | Harts (default 8) |
-| `--memory ddr5\|dram` | JEDEC DDR5 or the row-buffer DRAM model |
-| `--interconnect NAME` | `crossbar`, `ring`, `mesh` (default), `torus` or `hypercube` |
+| `--memory Ddr5\|Dram` | JEDEC DDR5 or the row-buffer DRAM model |
+| `--interconnect NAME` | `Crossbar`, `Ring`, `Mesh` (default), `Torus` or `Hypercube` |
 | `--warm` | Run each benchmark once unmeasured before measuring it |
 | `--json FILE` | Write every region's statistics and console output |
 | `--no-cache` | Boot even if a cached boot exists |

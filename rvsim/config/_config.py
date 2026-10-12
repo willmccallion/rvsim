@@ -19,7 +19,6 @@ from .branch import (
 )
 from .coherence import Coherence
 from .memory import (
-    _INCLUSION_POLICIES,
     Cache,
     LoadPrefetcher,
     StorePrefetcher,
@@ -29,18 +28,16 @@ from .memory import (
     _store_prefetcher_from,
 )
 
-# The core's names for the paging modes, by their lowercase spelling.
-_PAGING_MODES = {"bare": "Bare", "sv39": "Sv39", "sv48": "Sv48", "sv57": "Sv57"}
+_PAGING_MODES = ("Bare", "Sv39", "Sv48", "Sv57")
 
 
 def _validate_paging_mode(value: str) -> str:
-    """A paging-mode cap in any case, under the core's name for it."""
+    """Check a paging-mode cap: one of the core's paging modes."""
     if not isinstance(value, str):
         raise TypeError(f"paging_mode_max must be a string, got {type(value).__name__}")
-    normalized = _PAGING_MODES.get(value.lower())
-    if normalized is None:
-        raise ValueError(f"paging_mode_max={value!r} not in {tuple(_PAGING_MODES)}")
-    return normalized
+    if value not in _PAGING_MODES:
+        raise ValueError(f"paging_mode_max={value!r} not in {_PAGING_MODES}")
+    return value
 
 
 _GENERAL = MACHINE["general"]
@@ -59,7 +56,7 @@ _DEFAULT_L1I = _cache_from(_CACHES["l1_i"])
 _DEFAULT_L1D = _cache_from(_CACHES["l1_d"])
 _DEFAULT_L2 = _cache_from(_CACHES["l2"])
 _DEFAULT_L3 = _cache_from(_CACHES["l3"])
-_DEFAULT_INCLUSION_POLICY = _INCLUSION_POLICIES[_CACHES["inclusion_policy"]]()
+_DEFAULT_INCLUSION_POLICY = getattr(Cache, _CACHES["inclusion_policy"])()
 _DEFAULT_LOAD_PREFETCHER = _load_prefetcher_from(_CACHES["load_prefetcher"])
 _DEFAULT_STORE_PREFETCHER = _store_prefetcher_from(_CACHES["store_prefetcher"])
 _DEFAULT_MEMORY_CONTROLLER = _controller_from(_MEMORY)
@@ -75,7 +72,7 @@ class Config:
 
         cfg = Config(
             width=4,
-            branch_predictor=BranchPredictor.TAGE(),
+            branch_predictor=BranchPredictor.Tage(),
             l1i=Cache("128KB", ways=8, prefetcher=Prefetcher.NextLine(degree=2)),
             l1d=Cache("128KB", ways=8, prefetcher=Prefetcher.Stride(degree=2, table_size=128)),
             l2=Cache("4MB", ways=16, latency=12),
@@ -103,7 +100,7 @@ class Config:
         branch_predictor: BranchPredictor.Static
         | BranchPredictor.GShare
         | BranchPredictor.Bht
-        | BranchPredictor.TAGE
+        | BranchPredictor.Tage
         | BranchPredictor.ScLTage
         | BranchPredictor.Perceptron
         | BranchPredictor.Tournament = _DEFAULT_BRANCH_PREDICTOR,
@@ -284,7 +281,7 @@ class Config:
 
         Example::
 
-            base = Config(width=4, branch_predictor=BranchPredictor.TAGE())
+            base = Config(width=4, branch_predictor=BranchPredictor.Tage())
             wide = base.replace(width=8)
             ooo  = base.replace(backend=Backend.OutOfOrder(rob_size=128))
         """
@@ -320,7 +317,7 @@ class Config:
         return f"Config({', '.join(parts)})"
 
 
-_CONSOLES = ("stdout", "stderr", "quiet", "captured")
+_CONSOLES = ("Stdout", "Stderr", "Quiet", "Captured")
 
 
 def _config_to_dict(config) -> dict[str, Any]:

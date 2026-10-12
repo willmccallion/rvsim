@@ -17,7 +17,7 @@ PROGRAMS = ["mandelbrot", "maze", "qsort", "merge_sort"]
 PREDICTORS = {
     "Static": BranchPredictor.Static,
     "GShare": BranchPredictor.GShare,
-    "TAGE": BranchPredictor.TAGE,
+    "Tage": BranchPredictor.Tage,
     "ScLTage": BranchPredictor.ScLTage,
     "Perceptron": BranchPredictor.Perceptron,
     "Tournament": BranchPredictor.Tournament,

@@ -245,8 +245,8 @@ pub struct PipelineConfig {
     pub vec_store_buffer_size: usize,
 
     /// Forwarding policy for vector-store→load. O3 backend only. Default
-    /// `byte_mask` matches BOOM/Apple/Intel/AMD/ARM. `stall` matches Saturn.
-    /// `off` always stalls.
+    /// `ByteMask` matches BOOM/Apple/Intel/AMD/ARM. `Stall` matches Saturn.
+    /// `Off` always stalls.
     #[serde(default)]
     pub vec_store_forwarding: crate::config::VecStoreForwarding,
 }
@@ -698,7 +698,6 @@ const fn write_affects_execution(addr: u32) -> bool {
 
 /// Forwarding policy. Selects how `forward_load` reacts to in-flight vec stores.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
 pub enum VecStoreForwarding {
     /// Per-line byte-mask forwarding (BOOM/Apple/Intel/AMD/ARM pattern). Default.
     #[default]
