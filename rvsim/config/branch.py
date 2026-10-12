@@ -14,58 +14,6 @@ _PERCEPTRON = COMPONENTS["perceptron"]
 _TOURNAMENT = COMPONENTS["tournament"]
 _STORE_SET = COMPONENTS["store_set"]
 
-_GHR_MAX_BITS = 1024  # Must match GHR_MAX_WORDS * 64 in branch_predictor.rs
-
-
-_TAGE_RULES = ("TageBase", "Cbp5")
-
-
-_TAGE_HISTORY_MODES = ("Direction", "PcBits")
-
-
-_TAGE_MAX_HISTORY = 8192  # Must match MAX_TAGE_HISTORY in config.rs
-
-
-_TAGE_HASHINGS = ("TageBase", "TageScL")
-
-
-def _tage_hashing(hashing: str) -> str:
-    """Check a TAGE ``hashing`` name."""
-    if hashing not in _TAGE_HASHINGS:
-        raise ValueError(
-            f"TAGE hashing must be one of {_TAGE_HASHINGS}, got {hashing!r}"
-        )
-    return hashing
-
-
-def _tage_history_mode(mode: str) -> str:
-    """Check a TAGE ``history`` mode name."""
-    if mode not in _TAGE_HISTORY_MODES:
-        raise ValueError(
-            f"TAGE history must be one of {_TAGE_HISTORY_MODES}, got {mode!r}"
-        )
-    return mode
-
-
-def _tage_rule(rule: str, name: str) -> str:
-    """Check a TAGE ``allocation`` or ``update`` rule name."""
-    if rule not in _TAGE_RULES:
-        raise ValueError(f"TAGE {name} must be one of {_TAGE_RULES}, got {rule!r}")
-    return rule
-
-
-def _validate_history_lengths(
-    lengths: list[int], name: str, capacity: int = _GHR_MAX_BITS
-) -> None:
-    """Validate that no history length exceeds the history's capacity."""
-    max_len = max(lengths) if lengths else 0
-    if max_len > capacity:
-        raise ValueError(
-            f"{name}: maximum history length {max_len} exceeds the "
-            f"history capacity of {capacity} bits. "
-            f"All history lengths must be <= {capacity}."
-        )
-
 
 class BranchPredictor:
     """Namespace for branch predictor configurations."""
@@ -168,13 +116,13 @@ class BranchPredictor:
             self.use_alt_bits = use_alt_bits
             self.useful_bits = useful_bits
             self.max_allocations = max_allocations
-            self.allocation = _tage_rule(allocation, "allocation")
-            self.update = _tage_rule(update, "update")
-            self.history = _tage_history_mode(history)
+            self.allocation = allocation
+            self.update = update
+            self.history = history
             self.path_history_bits = path_history_bits
             self.bimodal_entries = bimodal_entries
             self.bimodal_hysteresis_share_log = bimodal_hysteresis_share_log
-            self.hashing = _tage_hashing(hashing)
+            self.hashing = hashing
             self.banking = (
                 banking
                 if banking is not None
@@ -189,9 +137,6 @@ class BranchPredictor:
             )
             self.tag_widths = (
                 tag_widths if tag_widths is not None else list(_TAGE["tag_widths"])
-            )
-            _validate_history_lengths(
-                self.history_lengths, "TAGE history_lengths", _TAGE_MAX_HISTORY
             )
 
         def __repr__(self) -> str:
@@ -419,13 +364,13 @@ class BranchPredictor:
             self.use_alt_bits = use_alt_bits
             self.useful_bits = useful_bits
             self.max_allocations = max_allocations
-            self.allocation = _tage_rule(allocation, "allocation")
-            self.update = _tage_rule(update, "update")
-            self.history = _tage_history_mode(history)
+            self.allocation = allocation
+            self.update = update
+            self.history = history
             self.path_history_bits = path_history_bits
             self.bimodal_entries = bimodal_entries
             self.bimodal_hysteresis_share_log = bimodal_hysteresis_share_log
-            self.hashing = _tage_hashing(hashing)
+            self.hashing = hashing
             self.banking = (
                 banking
                 if banking is not None
@@ -500,12 +445,6 @@ class BranchPredictor:
                 else list(_ITTAGE["tag_widths"])
             )
             self.ittage_reset_interval = ittage_reset_interval
-            _validate_history_lengths(
-                self.history_lengths, "ScLTage history_lengths", _TAGE_MAX_HISTORY
-            )
-            _validate_history_lengths(
-                self.ittage_history_lengths, "ScLTage ittage_history_lengths"
-            )
 
         def __repr__(self) -> str:
             return (

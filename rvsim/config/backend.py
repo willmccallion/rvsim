@@ -294,11 +294,6 @@ class Backend:
             self.prf_vpr_size = prf_vpr_size
             self.vec_chaining = vec_chaining
             self.vec_store_buffer_size = vec_store_buffer_size
-            if vec_store_forwarding not in ("ByteMask", "Stall", "Off"):
-                raise ValueError(
-                    f"vec_store_forwarding must be 'ByteMask', 'Stall', or 'Off'; "
-                    f"got {vec_store_forwarding!r}"
-                )
             self.vec_store_forwarding = vec_store_forwarding
 
         def __repr__(self) -> str:

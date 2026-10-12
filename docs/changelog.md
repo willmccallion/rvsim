@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- `Config()` asks the core to check the configuration as it is built, and
+  every rule lives in the core: the Python builders no longer check their
+  own arguments, so `Cache(mshr_count=0)` or an unknown TAGE rule is
+  refused when it goes into a `Config`, by the core's message naming the
+  field.
 - A config dict the core cannot read names the field at fault, as in
   `Invalid config at system.console: unknown variant ...`, instead of a
   column in the JSON it was sent as.
