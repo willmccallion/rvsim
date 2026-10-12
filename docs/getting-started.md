@@ -158,7 +158,7 @@ rows = {}
 for name, bp in [
     ("Static", BranchPredictor.Static()),
     ("GShare", BranchPredictor.GShare()),
-    ("TAGE", BranchPredictor.TAGE()),
+    ("Tage", BranchPredictor.Tage()),
 ]:
     r = Environment(
         "software/bin/programs/maze.elf",

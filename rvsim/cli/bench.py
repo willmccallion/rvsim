@@ -16,7 +16,7 @@ from typing import Any
 
 from .. import presets
 from ..config import load_config
-from ..presets import INTERCONNECTS
+from ..presets import INTERCONNECTS, MEMORIES
 from ..session import Region, Session
 from ..session.stops import LOGIN_SHELL
 
@@ -92,8 +92,8 @@ def _parser() -> argparse.ArgumentParser:
         help="Python config file whose core is placed in the Linux system",
     )
     parser.add_argument("--harts", type=int, default=8, help="harts (default 8)")
-    parser.add_argument("--memory", choices=["ddr5", "dram"], default="ddr5")
-    parser.add_argument("--interconnect", choices=sorted(INTERCONNECTS), default="mesh")
+    parser.add_argument("--memory", choices=MEMORIES, default="Ddr5")
+    parser.add_argument("--interconnect", choices=INTERCONNECTS, default="Mesh")
     parser.add_argument(
         "--warm",
         action="store_true",

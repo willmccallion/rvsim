@@ -73,17 +73,17 @@ rvsim exit
 ```bash
 make run-linux                         # eight cores
 make run-linux HARTS=1                 # one core
-rvsim tools/boot_linux.py --harts 2 --interconnect ring
-rvsim tools/boot_linux.py --memory dram          # row-buffer DRAM instead of DDR5
-rvsim tools/boot_linux.py --speed-bin 4800B      # a slower DDR5 bin
+rvsim tools/boot_linux.py --harts 2 --interconnect Ring
+rvsim tools/boot_linux.py --memory Dram          # row-buffer DRAM instead of DDR5
+rvsim tools/boot_linux.py --speed-bin Ddr5_4800B      # a slower DDR5 bin
 ```
 
 | Option | Meaning |
 |--------|---------|
 | `--harts N` | Cores to boot (default 8) |
-| `--interconnect NAME` | `crossbar`, `ring`, `mesh` (default), `torus` or `hypercube` |
-| `--memory ddr5\|dram` | JEDEC DDR5 with four channels (default), or the row-buffer DRAM model |
-| `--speed-bin BIN` | DDR5 speed bin, `4800B` or `5600B` (default) |
+| `--interconnect NAME` | `Crossbar`, `Ring`, `Mesh` (default), `Torus` or `Hypercube` |
+| `--memory Ddr5\|Dram` | JEDEC DDR5 with four channels (default), or the row-buffer DRAM model |
+| `--speed-bin BIN` | DDR5 speed bin, `Ddr5_4800B` or `Ddr5_5600B` (default) |
 | `--no-build` | Fail instead of building when the image is missing |
 | `--no-boot` | Build only |
 | `--rebuild` | Rebuild the image even if one exists |

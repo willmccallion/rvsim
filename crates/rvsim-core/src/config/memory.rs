@@ -20,7 +20,6 @@ pub enum MemoryControllerKind {
     ///
     /// Models DRAM timing including CAS, RAS, precharge latencies
     /// and row buffer hit/miss penalties for more accurate timing.
-    #[serde(alias = "DRAM")]
     Dram,
     /// DDR5 command-level controller (JEDEC-timed).
     ///
@@ -28,7 +27,6 @@ pub enum MemoryControllerKind {
     /// ranks, JEDEC timing from a speed bin, FR-FCFS scheduling, refresh,
     /// power-down and ECC scrubbing. Parameters come from
     /// [`MemoryConfig::ddr5`].
-    #[serde(alias = "DDR5")]
     Ddr5,
 }
 
@@ -124,35 +122,10 @@ pub struct MemoryConfig {
     ///
     /// Anything stronger than this is coerced to Bare on write. Lets test
     /// configurations pin the active mode without rebuilding the kernel
-    /// (e.g. force a Sv57-aware Linux to fall back to Sv39). Accepted JSON
-    /// values: `"bare"`, `"sv39"`, `"sv48"`, `"sv57"`. Default: Sv57 (no cap).
-    #[serde(
-        default = "MemoryConfig::default_paging_mode_max",
-        deserialize_with = "deserialize_paging_mode"
-    )]
+    /// (e.g. force a Sv57-aware Linux to fall back to Sv39): `"Bare"`,
+    /// `"Sv39"`, `"Sv48"` or `"Sv57"`, the default (no cap).
+    #[serde(default = "MemoryConfig::default_paging_mode_max")]
     pub paging_mode_max: crate::isa::privileged::PagingMode,
-}
-
-fn deserialize_paging_mode<'de, D>(
-    deserializer: D,
-) -> Result<crate::isa::privileged::PagingMode, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use crate::isa::privileged::PagingMode;
-    use serde::de::{Error, Unexpected};
-
-    let s = String::deserialize(deserializer)?;
-    match s.to_ascii_lowercase().as_str() {
-        "bare" => Ok(PagingMode::Bare),
-        "sv39" => Ok(PagingMode::Sv39),
-        "sv48" => Ok(PagingMode::Sv48),
-        "sv57" => Ok(PagingMode::Sv57),
-        _ => Err(D::Error::invalid_value(
-            Unexpected::Str(&s),
-            &"one of \"bare\", \"sv39\", \"sv48\", \"sv57\"",
-        )),
-    }
 }
 
 impl MemoryConfig {

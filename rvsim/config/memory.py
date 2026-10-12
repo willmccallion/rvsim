@@ -17,35 +17,25 @@ _STORE_PREFETCHER = COMPONENTS["store_prefetcher"]
 class ReplacementPolicy:
     """Namespace for cache replacement policies."""
 
-    class LRU:
+    class Lru:
         def __repr__(self) -> str:
-            return "ReplacementPolicy.LRU()"
+            return "ReplacementPolicy.Lru()"
 
-    class PLRU:
+    class Plru:
         def __repr__(self) -> str:
-            return "ReplacementPolicy.PLRU()"
+            return "ReplacementPolicy.Plru()"
 
-    class FIFO:
+    class Fifo:
         def __repr__(self) -> str:
-            return "ReplacementPolicy.FIFO()"
+            return "ReplacementPolicy.Fifo()"
 
     class Random:
         def __repr__(self) -> str:
             return "ReplacementPolicy.Random()"
 
-    class MRU:
+    class Mru:
         def __repr__(self) -> str:
-            return "ReplacementPolicy.MRU()"
-
-
-# The core's names for the replacement policies.
-_POLICIES = {
-    "LRU": ReplacementPolicy.LRU,
-    "PLRU": ReplacementPolicy.PLRU,
-    "FIFO": ReplacementPolicy.FIFO,
-    "RANDOM": ReplacementPolicy.Random,
-    "MRU": ReplacementPolicy.MRU,
-}
+            return "ReplacementPolicy.Mru()"
 
 
 class Prefetcher:
@@ -91,19 +81,9 @@ class Prefetcher:
             return f"Prefetcher.Tagged(degree={self.degree})"
 
 
-# The core's names for the cache-side prefetchers.
-_PREFETCHERS = {
-    "None": Prefetcher.Off,
-    "NextLine": Prefetcher.NextLine,
-    "Stride": Prefetcher.Stride,
-    "Stream": Prefetcher.Stream,
-    "Tagged": Prefetcher.Tagged,
-}
-
-
 def _prefetcher_from(cache: dict[str, Any]):
     """The cache-side prefetcher a core cache-level dict names."""
-    kind = _PREFETCHERS[cache["prefetcher"]]
+    kind = getattr(Prefetcher, cache["prefetcher"])
     if kind is Prefetcher.Off:
         return Prefetcher.Off()
     if kind is Prefetcher.Stride:
@@ -131,13 +111,6 @@ class PageBoundary:
             return "PageBoundary.CrossWithTlb()"
 
 
-# The core's names for the page boundary rules.
-_PAGE_BOUNDARIES = {
-    "Stop": PageBoundary.Stop,
-    "CrossWithTlb": PageBoundary.CrossWithTlb,
-}
-
-
 class LoadPrefetcher:
     """Namespace for the load/store unit's load prefetchers
     (``Config(load_prefetcher=...)``)."""
@@ -161,7 +134,7 @@ class LoadPrefetcher:
             self.page_boundary = (
                 page_boundary
                 if page_boundary is not None
-                else _PAGE_BOUNDARIES[_LOAD_PREFETCHER["page_boundary"]]()
+                else getattr(PageBoundary, _LOAD_PREFETCHER["page_boundary"])()
             )
 
         def __repr__(self) -> str:
@@ -216,7 +189,7 @@ class MemoryController:
                 f"bandwidth_gib_s={self.bandwidth_gib_s})"
             )
 
-    class DRAM:
+    class Dram:
         def __init__(
             self,
             t_cas: int = _MEMORY["t_cas"],
@@ -229,14 +202,14 @@ class MemoryController:
 
         def __repr__(self) -> str:
             return (
-                f"MemoryController.DRAM(t_cas={self.t_cas}, t_ras={self.t_ras}, "
+                f"MemoryController.Dram(t_cas={self.t_cas}, t_ras={self.t_ras}, "
                 f"t_pre={self.t_pre})"
             )
 
-    class DDR5:
+    class Ddr5:
         """Command-level DDR5 controller with JEDEC timing.
 
-        Timing comes from ``speed_bin`` (``"4800B"`` or ``"5600B"``) and may
+        Timing comes from ``speed_bin`` (``"Ddr5_4800B"`` or ``"Ddr5_5600B"``) and may
         be overridden per field with ``timing={"t_rcd": 40, ...}`` in DRAM
         command clocks. The controller runs at the DRAM clock; the core clock
         is ``Config(cpu_clock_mhz=...)``.
@@ -326,18 +299,10 @@ class MemoryController:
 
         def __repr__(self) -> str:
             return (
-                f"MemoryController.DDR5(speed_bin={self.speed_bin!r}, "
+                f"MemoryController.Ddr5(speed_bin={self.speed_bin!r}, "
                 f"channels={self.channels}, ranks_per_channel={self.ranks_per_channel}, "
                 f"scheduler={self.scheduler!r}, refresh={self.refresh!r})"
             )
-
-
-# The core's names for the memory controllers.
-_CONTROLLERS = {
-    "Simple": MemoryController.Simple,
-    "Dram": MemoryController.DRAM,
-    "Ddr5": MemoryController.DDR5,
-}
 
 
 def _resource_count(name: str, count: int | None) -> int | None:
@@ -352,11 +317,11 @@ def _resource_count(name: str, count: int | None) -> int | None:
 class Cache:
     """Single cache level configuration."""
 
-    class NINE:
+    class Nine:
         """No Inclusion, Non-Exclusive (default)."""
 
         def __repr__(self) -> str:
-            return "Cache.NINE()"
+            return "Cache.Nine()"
 
     class Inclusive:
         """Inclusive: L2 eviction back-invalidates matching L1 lines."""
@@ -375,11 +340,11 @@ class Cache:
         size: str | int = _CACHE["size_bytes"],
         line: str | int = _CACHE["line_bytes"],
         ways: int = _CACHE["ways"],
-        policy: ReplacementPolicy.LRU
-        | ReplacementPolicy.PLRU
-        | ReplacementPolicy.FIFO
+        policy: ReplacementPolicy.Lru
+        | ReplacementPolicy.Plru
+        | ReplacementPolicy.Fifo
         | ReplacementPolicy.Random
-        | ReplacementPolicy.MRU
+        | ReplacementPolicy.Mru
         | None = None,
         latency: int = _CACHE["latency"],
         prefetcher: Prefetcher.Off
@@ -396,7 +361,11 @@ class Cache:
         self.size_bytes = _parse_size(size)
         self.line_bytes = _parse_size(line)
         self.ways = ways
-        self.policy = policy if policy is not None else _POLICIES[_CACHE["policy"]]()
+        self.policy = (
+            policy
+            if policy is not None
+            else getattr(ReplacementPolicy, _CACHE["policy"])()
+        )
         self.latency = latency
         self.prefetcher = (
             prefetcher if prefetcher is not None else _prefetcher_from(_CACHE)
@@ -417,14 +386,6 @@ class Cache:
         )
 
 
-# The core's names for the inclusion policies.
-_INCLUSION_POLICIES = {
-    "Nine": Cache.NINE,
-    "Inclusive": Cache.Inclusive,
-    "Exclusive": Cache.Exclusive,
-}
-
-
 def _unless_default(level: dict[str, Any], field: str) -> int | None:
     """A cache resource count from a core level dict: None when it is the
     core's default, as a ``Cache`` built without it holds."""
@@ -439,7 +400,7 @@ def _cache_from(level: dict[str, Any]) -> Cache | None:
         size=level["size_bytes"],
         line=level["line_bytes"],
         ways=level["ways"],
-        policy=_POLICIES[level["policy"]](),
+        policy=getattr(ReplacementPolicy, level["policy"])(),
         latency=level["latency"],
         prefetcher=_prefetcher_from(level),
         mshr_count=_unless_default(level, "mshr_count"),
@@ -457,7 +418,7 @@ def _load_prefetcher_from(prefetcher: dict[str, Any]) -> LoadPrefetcher.Stride |
         table_size=prefetcher["table_size"],
         l1_lines=prefetcher["l1_lines"],
         l2_lines=prefetcher["l2_lines"],
-        page_boundary=_PAGE_BOUNDARIES[prefetcher["page_boundary"]](),
+        page_boundary=getattr(PageBoundary, prefetcher["page_boundary"])(),
     )
 
 
@@ -472,14 +433,14 @@ def _store_prefetcher_from(prefetcher: dict[str, Any]) -> StorePrefetcher.Stream
 
 def _controller_from(memory: dict[str, Any]):
     """The memory controller a core memory dict names."""
-    kind = _CONTROLLERS[memory["controller"]]
+    kind = getattr(MemoryController, memory["controller"])
     if kind is MemoryController.Simple:
         return MemoryController.Simple(
             latency=memory["simple_latency"],
             bandwidth_gib_s=memory["simple_bandwidth_gib_s"],
         )
-    if kind is MemoryController.DRAM:
-        return MemoryController.DRAM(
+    if kind is MemoryController.Dram:
+        return MemoryController.Dram(
             t_cas=memory["t_cas"], t_ras=memory["t_ras"], t_pre=memory["t_pre"]
         )
-    return MemoryController.DDR5(**memory["ddr5"])
+    return MemoryController.Ddr5(**memory["ddr5"])

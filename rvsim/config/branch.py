@@ -17,16 +17,16 @@ _STORE_SET = COMPONENTS["store_set"]
 _GHR_MAX_BITS = 1024  # Must match GHR_MAX_WORDS * 64 in branch_predictor.rs
 
 
-_TAGE_RULES = ("tage_base", "cbp5")
+_TAGE_RULES = ("TageBase", "Cbp5")
 
 
-_TAGE_HISTORY_MODES = ("direction", "pc_bits")
+_TAGE_HISTORY_MODES = ("Direction", "PcBits")
 
 
 _TAGE_MAX_HISTORY = 8192  # Must match MAX_TAGE_HISTORY in config.rs
 
 
-_TAGE_HASHINGS = ("tage_base", "tage_sc_l")
+_TAGE_HASHINGS = ("TageBase", "TageScL")
 
 
 def _tage_hashing(hashing: str) -> str:
@@ -142,7 +142,7 @@ class BranchPredictor:
                 f"first_long_bank={self.first_long_bank})"
             )
 
-    class TAGE:
+    class Tage:
         def __init__(
             self,
             num_banks: int = _TAGE["num_banks"],
@@ -196,7 +196,7 @@ class BranchPredictor:
 
         def __repr__(self) -> str:
             return (
-                f"BranchPredictor.TAGE(num_banks={self.num_banks}, "
+                f"BranchPredictor.Tage(num_banks={self.num_banks}, "
                 f"table_size={self.table_size}, "
                 f"reset_interval={self.reset_interval}, "
                 f"history_lengths={self.history_lengths}, "
@@ -328,7 +328,7 @@ class BranchPredictor:
         the defaults add TAGE-SC-L's own TAGE rules (``use_alt_counters=16``,
         CBP-5 ``allocation`` and ``update`` with 1-bit useful counters, two
         allocations, a ``reset_interval`` of 1024 allocation penalties,
-        ``pc_bits`` history with a 27-bit path, ``tage_sc_l`` hashing, and
+        ``PcBits`` history with a 27-bit path, ``TageScL`` hashing, and
         the 64KB TAGE-SC-L's 36 banked 1024-entry tables over history
         lengths 6 to 3000).
         The loop predictor, SC and ITTAGE have their own sub-configs; the
@@ -539,34 +539,16 @@ class MemDepPredictor:
             )
 
 
-# The core's names for the branch predictors.
-_PREDICTORS = {
-    "Static": BranchPredictor.Static,
-    "GShare": BranchPredictor.GShare,
-    "Bht": BranchPredictor.Bht,
-    "Tage": BranchPredictor.TAGE,
-    "Perceptron": BranchPredictor.Perceptron,
-    "Tournament": BranchPredictor.Tournament,
-    "ScLTage": BranchPredictor.ScLTage,
-}
-
-# The core's names for the memory dependence predictors.
-_MEM_DEP_PREDICTORS = {
-    "Blind": MemDepPredictor.Blind,
-    "StoreSet": MemDepPredictor.StoreSet,
-}
-
-
 def _tage_arguments(tage: dict) -> dict:
-    """``BranchPredictor.TAGE`` arguments from a core TAGE dict."""
+    """``BranchPredictor.Tage`` arguments from a core TAGE dict."""
     return {**tage, "banking": BranchPredictor.TageBanking.from_dict(tage["banking"])}
 
 
 def _branch_predictor_from(pipeline: dict):
     """The branch predictor a core pipeline dict describes."""
-    kind = _PREDICTORS[pipeline["branch_predictor"]]
-    if kind is BranchPredictor.TAGE:
-        return BranchPredictor.TAGE(**_tage_arguments(pipeline["tage"]))
+    kind = getattr(BranchPredictor, pipeline["branch_predictor"])
+    if kind is BranchPredictor.Tage:
+        return BranchPredictor.Tage(**_tage_arguments(pipeline["tage"]))
     if kind is BranchPredictor.ScLTage:
         sc = pipeline["sc"]
         gehl = BranchPredictor.ScGehl.from_dict

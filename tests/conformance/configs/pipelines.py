@@ -80,7 +80,7 @@ def _row(**fields) -> Config:
     base = {
         "width": 4,
         "backend": _o3(),
-        "branch_predictor": BranchPredictor.TAGE(),
+        "branch_predictor": BranchPredictor.Tage(),
         "btb_size": 4096,
         "btb_ways": 4,
         "l1i": Cache(
@@ -158,7 +158,7 @@ PIPELINES = [
                                  branch_predictor=BranchPredictor.Perceptron())),
     # TAGE with more banks and larger tables than the default.
     ("o3 w4 tage-wide",     _row(width=4, backend=_o3(),
-                                 branch_predictor=BranchPredictor.TAGE(
+                                 branch_predictor=BranchPredictor.Tage(
                                      num_banks=6, table_size=4096,
                                      reset_interval=2000,
                                      history_lengths=[5, 15, 44, 130, 320, 800],
@@ -364,31 +364,31 @@ PIPELINES = [
     # ── Cache replacement policies ─────────────────────────────────────────────
     ("o3 w4 plru",          _row(width=4, backend=_o3(),
                                  l1i=Cache("32KB", ways=4, latency=1,
-                                           policy=ReplacementPolicy.PLRU(),
+                                           policy=ReplacementPolicy.Plru(),
                                            prefetcher=Prefetcher.NextLine(degree=1)),
                                  l1d=Cache("32KB", ways=4, latency=1, mshr_count=8,
-                                           policy=ReplacementPolicy.PLRU(),
+                                           policy=ReplacementPolicy.Plru(),
                                            prefetcher=Prefetcher.Stride(degree=1, table_size=64)),
                                  l2=Cache("256KB", ways=8, latency=10,
-                                          policy=ReplacementPolicy.PLRU()))),
+                                          policy=ReplacementPolicy.Plru()))),
     ("o3 w4 fifo",          _row(width=4, backend=_o3(),
                                  l1i=Cache("32KB", ways=4, latency=1,
-                                           policy=ReplacementPolicy.FIFO(),
+                                           policy=ReplacementPolicy.Fifo(),
                                            prefetcher=Prefetcher.NextLine(degree=1)),
                                  l1d=Cache("32KB", ways=4, latency=1, mshr_count=8,
-                                           policy=ReplacementPolicy.FIFO(),
+                                           policy=ReplacementPolicy.Fifo(),
                                            prefetcher=Prefetcher.Stride(degree=1, table_size=64)),
                                  l2=Cache("256KB", ways=8, latency=10,
-                                          policy=ReplacementPolicy.FIFO()))),
+                                          policy=ReplacementPolicy.Fifo()))),
     ("o3 w4 mru",           _row(width=4, backend=_o3(),
                                  l1i=Cache("32KB", ways=4, latency=1,
-                                           policy=ReplacementPolicy.MRU(),
+                                           policy=ReplacementPolicy.Mru(),
                                            prefetcher=Prefetcher.NextLine(degree=1)),
                                  l1d=Cache("32KB", ways=4, latency=1, mshr_count=8,
-                                           policy=ReplacementPolicy.MRU(),
+                                           policy=ReplacementPolicy.Mru(),
                                            prefetcher=Prefetcher.Stride(degree=1, table_size=64)),
                                  l2=Cache("256KB", ways=8, latency=10,
-                                          policy=ReplacementPolicy.MRU()))),
+                                          policy=ReplacementPolicy.Mru()))),
     ("o3 w4 random",        _row(width=4, backend=_o3(),
                                  l1i=Cache("32KB", ways=4, latency=1,
                                            policy=ReplacementPolicy.Random(),
@@ -401,23 +401,23 @@ PIPELINES = [
 
     # ── Memory controller ──────────────────────────────────────────────────────
     ("o3 w4 dram",          _row(width=4, backend=_o3(),
-                                 memory_controller=MemoryController.DRAM())),
+                                 memory_controller=MemoryController.Dram())),
     # Slow DRAM: a 78-cycle row conflict stresses long-latency miss paths.
     ("o3 w4 dram-slow",     _row(width=4, backend=_o3(),
-                                 memory_controller=MemoryController.DRAM(
+                                 memory_controller=MemoryController.Dram(
                                      t_cas=30, t_ras=36, t_pre=12,
                                  ))),
     # DDR5-4800 command-level controller at a 1:1 clock ratio.
     ("o3 w4 ddr5",          _row(width=4, backend=_o3(),
-                                 memory_controller=MemoryController.DDR5())),
+                                 memory_controller=MemoryController.Ddr5())),
     ("inorder w4 ddr5",     _row(width=4, backend=_in_order(),
-                                 memory_controller=MemoryController.DDR5())),
+                                 memory_controller=MemoryController.Ddr5())),
     # 3 GHz core over DDR5-5600 with same-bank refresh, power-down and
     # patrol scrubbing: every clock-domain and policy path exercised.
     ("o3 w4 ddr5-5600",     _row(width=4, backend=_o3(),
                                  cpu_clock_mhz=3000,
-                                 memory_controller=MemoryController.DDR5(
-                                     speed_bin="5600B", refresh="SameBank",
+                                 memory_controller=MemoryController.Ddr5(
+                                     speed_bin="Ddr5_5600B", refresh="SameBank",
                                      power_down_idle_ns=200, ecc="SecDed",
                                      patrol_scrub_ns=100_000,
                                  ))),
@@ -446,10 +446,10 @@ PIPELINES = [
     # tests use Sv39, so only the Linux-boot config and any kernel that
     # probes Sv57/Sv48 first will see different behaviour. Default is sv57
     # (no cap).
-    ("o3 w4 sv39-only",     _row(width=4, backend=_o3(), paging_mode_max="sv39")),
-    ("o3 w4 sv48-cap",      _row(width=4, backend=_o3(), paging_mode_max="sv48")),
-    ("inorder w4 sv39-only", _row(width=4, backend=_in_order(), paging_mode_max="sv39")),
-    ("inorder w4 sv48-cap", _row(width=4, backend=_in_order(), paging_mode_max="sv48")),
+    ("o3 w4 sv39-only",     _row(width=4, backend=_o3(), paging_mode_max="Sv39")),
+    ("o3 w4 sv48-cap",      _row(width=4, backend=_o3(), paging_mode_max="Sv48")),
+    ("inorder w4 sv39-only", _row(width=4, backend=_in_order(), paging_mode_max="Sv39")),
+    ("inorder w4 sv48-cap", _row(width=4, backend=_in_order(), paging_mode_max="Sv48")),
 
     # ── Reference machine configs ──────────────────────────────────────────────
     ("ref cortex-a72",      calibration.cortex_a72()),

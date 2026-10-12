@@ -77,7 +77,6 @@ impl Default for GeneralConfig {
 
 /// Where the UART console connects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
 pub enum Console {
     /// The host's stdout, with input read from its stdin.
     #[default]

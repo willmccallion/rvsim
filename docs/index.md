@@ -74,7 +74,7 @@ from rvsim import Config, BranchPredictor, Cache, Environment
 
 config = Config(
     width=4,
-    branch_predictor=BranchPredictor.TAGE(),
+    branch_predictor=BranchPredictor.Tage(),
     l1d=Cache("32KB", ways=8, latency=1, mshr_count=8),
     l2=Cache("256KB", ways=8, latency=10),
 )

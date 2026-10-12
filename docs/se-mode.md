@@ -166,7 +166,7 @@ the same values.
 
 The program's stdin, stdout and stderr are the simulator's console, as
 the UART is for a bare-metal program or a kernel, so `Config(console=...)`
-applies to them: `"quiet"` drops the output, `"captured"` keeps it for
+applies to them: `"Quiet"` drops the output, `"Captured"` keeps it for
 `read_console()` and makes `read` return what `write_console()` typed,
 and otherwise the host's stdin feeds `read`, which waits for it as it
 would under Linux. A bare-metal program printing through HTIF uses the

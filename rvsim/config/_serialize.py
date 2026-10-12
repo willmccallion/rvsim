@@ -6,19 +6,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .backend import _BACKENDS, _UNITS, Backend, Fu
-from .branch import _MEM_DEP_PREDICTORS, _PREDICTORS, BranchPredictor, MemDepPredictor
-from .coherence import _HOME_AGENTS, Coherence, HomeAgent, Interconnect
+from .backend import _UNITS, Backend, Fu
+from .branch import BranchPredictor, MemDepPredictor
+from .coherence import Coherence, HomeAgent, Interconnect
 from .memory import (
-    _CONTROLLERS,
-    _INCLUSION_POLICIES,
-    _PAGE_BOUNDARIES,
-    _POLICIES,
-    _PREFETCHERS,
     Cache,
     LoadPrefetcher,
     MemoryController,
+    PageBoundary,
     Prefetcher,
+    ReplacementPolicy,
     StorePrefetcher,
 )
 
@@ -26,12 +23,13 @@ if TYPE_CHECKING:
     from ._config import Config
 
 
-def _name(names: dict[str, type], value: object) -> str:
-    """The core's name for ``value``'s kind, from a name-to-class table."""
-    for name, kind in names.items():
-        if type(value) is kind:
-            return name
-    raise TypeError(f"Unknown {type(value).__qualname__}: {value!r}")
+def _name(namespace: type, value: object) -> str:
+    """The core's name for ``value``'s kind: its class's name, which must be
+    one of ``namespace``'s kinds."""
+    name = type(value).__name__
+    if getattr(namespace, name, None) is not type(value):
+        raise TypeError(f"Unknown {namespace.__name__} kind: {value!r}")
+    return name
 
 
 def _console_name(cfg) -> str:
@@ -40,13 +38,13 @@ def _console_name(cfg) -> str:
     if cfg.console is not None:
         return cfg.console
     if cfg.uart_quiet:
-        return "quiet"
+        return "Quiet"
     if cfg.uart_to_stderr:
-        return "stderr"
-    return "stdout"
+        return "Stderr"
+    return "Stdout"
 
 
-def _tage_dict(bp: BranchPredictor.TAGE | BranchPredictor.ScLTage) -> dict[str, Any]:
+def _tage_dict(bp: BranchPredictor.Tage | BranchPredictor.ScLTage) -> dict[str, Any]:
     """A TAGE or TAGE-SC-L predictor's TAGE tables."""
     return {
         "num_banks": bp.num_banks,
@@ -122,10 +120,10 @@ def _tage_sc_l_dicts(bp: BranchPredictor.ScLTage) -> dict[str, Any]:
 def _predictor_dicts(bp) -> dict[str, Any]:
     """The pipeline fields the selected branch predictor sets: its name and
     its own tables."""
-    fields: dict[str, Any] = {"branch_predictor": _name(_PREDICTORS, bp)}
+    fields: dict[str, Any] = {"branch_predictor": _name(BranchPredictor, bp)}
     if isinstance(bp, BranchPredictor.ScLTage):
         fields.update(_tage_sc_l_dicts(bp))
-    elif isinstance(bp, BranchPredictor.TAGE):
+    elif isinstance(bp, BranchPredictor.Tage):
         fields["tage"] = _tage_dict(bp)
     elif isinstance(bp, BranchPredictor.Perceptron):
         fields["perceptron"] = {
@@ -150,7 +148,7 @@ def _predictor_dicts(bp) -> dict[str, Any]:
 
 def _mem_dep_dicts(mdp) -> dict[str, Any]:
     """The pipeline fields the memory dependence predictor sets."""
-    fields: dict[str, Any] = {"mem_dep_predictor": _name(_MEM_DEP_PREDICTORS, mdp)}
+    fields: dict[str, Any] = {"mem_dep_predictor": _name(MemDepPredictor, mdp)}
     if isinstance(mdp, MemDepPredictor.StoreSet):
         fields["store_set"] = {"ssit_size": mdp.ssit_size, "lfst_size": mdp.lfst_size}
     return fields
@@ -175,7 +173,7 @@ def _backend_dicts(be) -> dict[str, Any]:
     buffer, ports and vector store buffer, and the out-of-order backend's
     queues and register files."""
     fields: dict[str, Any] = {
-        "backend": _name(_BACKENDS, be),
+        "backend": _name(Backend, be),
         "fu_config": _fu_config_to_dict(be.fu_config),
         "rob_size": be.rob_size,
         "store_buffer_size": be.store_buffer_size,
@@ -210,10 +208,10 @@ def _cache_to_dict(c: Cache | None) -> dict[str, Any]:
         "size_bytes": c.size_bytes,
         "line_bytes": c.line_bytes,
         "ways": c.ways,
-        "policy": _name(_POLICIES, c.policy),
+        "policy": _name(ReplacementPolicy, c.policy),
         "latency": c.latency,
         "response_latency": c.response_latency,
-        "prefetcher": _name(_PREFETCHERS, pf),
+        "prefetcher": _name(Prefetcher, pf),
     }
     if not isinstance(pf, Prefetcher.Off):
         d["prefetch_degree"] = pf.degree
@@ -236,7 +234,7 @@ def _load_prefetcher_to_dict(p: LoadPrefetcher.Stride | None) -> dict[str, Any]:
         "table_size": p.table_size,
         "l1_lines": p.l1_lines,
         "l2_lines": p.l2_lines,
-        "page_boundary": _name(_PAGE_BOUNDARIES, p.page_boundary),
+        "page_boundary": _name(PageBoundary, p.page_boundary),
     }
 
 
@@ -251,13 +249,13 @@ def _store_prefetcher_to_dict(p: StorePrefetcher.Stream | None) -> dict[str, Any
 
 def _controller_dicts(mc) -> dict[str, Any]:
     """The memory fields the memory controller sets."""
-    fields: dict[str, Any] = {"controller": _name(_CONTROLLERS, mc)}
+    fields: dict[str, Any] = {"controller": _name(MemoryController, mc)}
     if isinstance(mc, MemoryController.Simple):
         fields["simple_latency"] = mc.latency
         fields["simple_bandwidth_gib_s"] = mc.bandwidth_gib_s
-    elif isinstance(mc, MemoryController.DRAM):
+    elif isinstance(mc, MemoryController.Dram):
         fields.update({"t_cas": mc.t_cas, "t_ras": mc.t_ras, "t_pre": mc.t_pre})
-    elif isinstance(mc, MemoryController.DDR5):
+    elif isinstance(mc, MemoryController.Ddr5):
         fields["ddr5"] = mc.to_dict()
     return fields
 
@@ -265,7 +263,7 @@ def _controller_dicts(mc) -> dict[str, Any]:
 def _coherence_to_dict(c: Coherence) -> dict[str, Any]:
     """The coherence fabric between the private caches."""
     home = c.home_agent
-    home_dict: dict[str, Any] = {"kind": _name(_HOME_AGENTS, home)}
+    home_dict: dict[str, Any] = {"kind": _name(HomeAgent, home)}
     if isinstance(home, HomeAgent.SnoopFilter):
         home_dict.update({"capacity_factor": home.capacity_factor, "ways": home.ways})
     ic = c.interconnect
@@ -323,7 +321,7 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "l1_d": _cache_to_dict(cfg.l1d),
         "l2": _cache_to_dict(cfg.l2),
         "l3": _cache_to_dict(cfg.l3),
-        "inclusion_policy": _name(_INCLUSION_POLICIES, cfg.inclusion_policy),
+        "inclusion_policy": _name(Cache, cfg.inclusion_policy),
         "wcb_entries": cfg.wcb_entries,
         "load_prefetcher": _load_prefetcher_to_dict(cfg.load_prefetcher),
         "store_prefetcher": _store_prefetcher_to_dict(cfg.store_prefetcher),
