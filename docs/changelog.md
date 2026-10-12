@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- A config dict the core cannot read names the field at fault, as in
+  `Invalid config at system.console: unknown variant ...`, instead of a
+  column in the JSON it was sent as.
 - An ITTAGE history longer than the 1024 bits the global history register
   holds is refused when the configuration is checked, rather than
   panicking as the predictor is built.
