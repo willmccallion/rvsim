@@ -7,38 +7,62 @@ import copy
 import inspect
 from typing import Any
 
+from ._core_defaults import MACHINE
 from ._serialize import _config_to_dict_impl
 from ._units import _parse_size
-from .backend import Backend
-from .branch import BranchPredictor, MemDepPredictor
+from .backend import Backend, _backend_from
+from .branch import (
+    BranchPredictor,
+    MemDepPredictor,
+    _branch_predictor_from,
+    _mem_dep_predictor_from,
+)
 from .coherence import Coherence
-from .memory import Cache, LoadPrefetcher, MemoryController, Prefetcher, StorePrefetcher
+from .memory import (
+    _INCLUSION_POLICIES,
+    Cache,
+    LoadPrefetcher,
+    StorePrefetcher,
+    _cache_from,
+    _controller_from,
+    _load_prefetcher_from,
+    _store_prefetcher_from,
+)
 
-_PAGING_MODES = ("bare", "sv39", "sv48", "sv57")
+# The core's names for the paging modes, by their lowercase spelling.
+_PAGING_MODES = {"bare": "Bare", "sv39": "Sv39", "sv48": "Sv48", "sv57": "Sv57"}
 
 
 def _validate_paging_mode(value: str) -> str:
-    """Normalize and validate a paging-mode-cap string for the Rust deserializer."""
+    """A paging-mode cap in any case, under the core's name for it."""
     if not isinstance(value, str):
         raise TypeError(f"paging_mode_max must be a string, got {type(value).__name__}")
-    normalized = value.lower()
-    if normalized not in _PAGING_MODES:
-        raise ValueError(f"paging_mode_max={value!r} not in {_PAGING_MODES}")
+    normalized = _PAGING_MODES.get(value.lower())
+    if normalized is None:
+        raise ValueError(f"paging_mode_max={value!r} not in {tuple(_PAGING_MODES)}")
     return normalized
 
 
-# Templates for Config's defaults; every Config stores its own copy.
-_DEFAULT_BRANCH_PREDICTOR = BranchPredictor.TAGE()
-_DEFAULT_BACKEND = Backend.OutOfOrder()
-_DEFAULT_MEM_DEP_PREDICTOR = MemDepPredictor.StoreSet()
-_DEFAULT_L1I = Cache(
-    "32KB", ways=4, latency=1, prefetcher=Prefetcher.NextLine(degree=1)
-)
-_DEFAULT_L1D = Cache(
-    "32KB", ways=4, latency=1, prefetcher=Prefetcher.Stride(degree=1, table_size=64)
-)
-_DEFAULT_L2 = Cache("256KB", ways=8, latency=10)
-_DEFAULT_INCLUSION_POLICY = Cache.NINE()
+_GENERAL = MACHINE["general"]
+_SYSTEM = MACHINE["system"]
+_MEMORY = MACHINE["memory"]
+_CACHES = MACHINE["cache"]
+_PIPELINE = MACHINE["pipeline"]
+_ISA = MACHINE["isa"]
+
+# The default machine's components, as templates: every Config stores its
+# own copy.
+_DEFAULT_BRANCH_PREDICTOR = _branch_predictor_from(_PIPELINE)
+_DEFAULT_BACKEND = _backend_from(_PIPELINE)
+_DEFAULT_MEM_DEP_PREDICTOR = _mem_dep_predictor_from(_PIPELINE)
+_DEFAULT_L1I = _cache_from(_CACHES["l1_i"])
+_DEFAULT_L1D = _cache_from(_CACHES["l1_d"])
+_DEFAULT_L2 = _cache_from(_CACHES["l2"])
+_DEFAULT_L3 = _cache_from(_CACHES["l3"])
+_DEFAULT_INCLUSION_POLICY = _INCLUSION_POLICIES[_CACHES["inclusion_policy"]]()
+_DEFAULT_LOAD_PREFETCHER = _load_prefetcher_from(_CACHES["load_prefetcher"])
+_DEFAULT_STORE_PREFETCHER = _store_prefetcher_from(_CACHES["store_prefetcher"])
+_DEFAULT_MEMORY_CONTROLLER = _controller_from(_MEMORY)
 
 
 class Config:
@@ -61,81 +85,82 @@ class Config:
     def __init__(
         self,
         # Pipeline
-        width: int = 4,
-        fetch_width: int | None = None,
-        decode_width: int | None = None,
-        rename_width: int | None = None,
-        issue_width: int | None = None,
-        commit_width: int | None = None,
-        writeback_width: int | None = None,
-        trap_latency: int = 13,
-        redirect_latency: int | None = None,
-        fetch_decode_latency: int = 1,
-        decode_rename_latency: int = 1,
-        rename_issue_latency: int = 2,
-        csr_squash: str | None = None,
-        fence_squash: bool = False,
-        store_forward_latency: int | None = None,
+        width: int = _PIPELINE["width"],
+        fetch_width: int | None = _PIPELINE["fetch_width"],
+        decode_width: int | None = _PIPELINE["decode_width"],
+        rename_width: int | None = _PIPELINE["rename_width"],
+        issue_width: int | None = _PIPELINE["issue_width"],
+        commit_width: int | None = _PIPELINE["commit_width"],
+        writeback_width: int | None = _PIPELINE["writeback_width"],
+        trap_latency: int = _PIPELINE["trap_latency"],
+        redirect_latency: int | None = _PIPELINE["redirect_latency"],
+        fetch_decode_latency: int = _PIPELINE["fetch_decode_latency"],
+        decode_rename_latency: int = _PIPELINE["decode_rename_latency"],
+        rename_issue_latency: int = _PIPELINE["rename_issue_latency"],
+        csr_squash: str | None = _PIPELINE["csr_squash"],
+        fence_squash: bool = _PIPELINE["fence_squash"],
+        store_forward_latency: int | None = _PIPELINE["store_forward_latency"],
         branch_predictor: BranchPredictor.Static
         | BranchPredictor.GShare
         | BranchPredictor.Bht
         | BranchPredictor.TAGE
+        | BranchPredictor.ScLTage
         | BranchPredictor.Perceptron
         | BranchPredictor.Tournament = _DEFAULT_BRANCH_PREDICTOR,
         backend: Backend.InOrder | Backend.OutOfOrder = _DEFAULT_BACKEND,
         mem_dep_predictor: MemDepPredictor.Blind
         | MemDepPredictor.StoreSet = _DEFAULT_MEM_DEP_PREDICTOR,
-        btb_size: int = 4096,
-        btb_ways: int = 4,
-        ras_size: int = 32,
+        btb_size: int = _PIPELINE["btb_size"],
+        btb_ways: int = _PIPELINE["btb_ways"],
+        ras_size: int = _PIPELINE["ras_size"],
         # Caches (None = disabled)
         l1i: Cache | None = _DEFAULT_L1I,
         l1d: Cache | None = _DEFAULT_L1D,
         l2: Cache | None = _DEFAULT_L2,
-        l3: Cache | None = None,
+        l3: Cache | None = _DEFAULT_L3,
         inclusion_policy: Any = _DEFAULT_INCLUSION_POLICY,
-        wcb_entries: int = 0,
-        load_prefetcher: LoadPrefetcher.Stride | None = None,
-        store_prefetcher: StorePrefetcher.Stream | None = None,
+        wcb_entries: int = _CACHES["wcb_entries"],
+        load_prefetcher: LoadPrefetcher.Stride | None = _DEFAULT_LOAD_PREFETCHER,
+        store_prefetcher: StorePrefetcher.Stream | None = _DEFAULT_STORE_PREFETCHER,
         # Memory
-        ram_size="256MB",
-        memory_controller=None,
-        tlb_size: int = 64,
-        tlb_ways: int = 0,
-        l2_tlb_size: int = 0,
-        l2_tlb_ways: int = 4,
-        l2_tlb_latency: int = 4,
-        misaligned_access_trap: bool = False,
-        paging_mode_max: str = "sv57",
+        ram_size: str | int = _MEMORY["ram_size"],
+        memory_controller: Any = _DEFAULT_MEMORY_CONTROLLER,
+        tlb_size: int = _MEMORY["tlb_size"],
+        tlb_ways: int = _MEMORY["tlb_ways"],
+        l2_tlb_size: int = _MEMORY["l2_tlb_size"],
+        l2_tlb_ways: int = _MEMORY["l2_tlb_ways"],
+        l2_tlb_latency: int = _MEMORY["l2_tlb_latency"],
+        misaligned_access_trap: bool = _MEMORY["misaligned_access_trap"],
+        paging_mode_max: str = _MEMORY["paging_mode_max"],
         # ISA extensions
-        isa: str | None = None,
-        svadu: bool = False,
+        isa: str | None = _ISA["string"],
+        svadu: bool = _ISA["svadu"],
         # Vector ISA
-        vlen: int = 128,
-        num_vec_lanes: int | None = None,
-        vector_mem_width: int | None = None,
+        vlen: int = _PIPELINE["vlen"],
+        num_vec_lanes: int | None = _PIPELINE["num_vec_lanes"],
+        vector_mem_width: int | None = _PIPELINE["vector_mem_width"],
         # General
-        trace: bool = False,
-        page_mode: str = "Sv39",
-        clock_hz: int = 1_000_000_000,
+        trace: bool = _GENERAL["trace_instructions"],
+        page_mode: str = _GENERAL["page_mode"],
+        clock_hz: int = _GENERAL["clock_hz"],
         # System (advanced)
-        ram_base: int = 0x8000_0000,
-        uart_base: int = 0x1000_0000,
-        disk_base: int = 0x9000_0000,
-        clint_base: int = 0x0200_0000,
-        syscon_base: int = 0x0010_0000,
-        kernel_offset: int = 0x0020_0000,
-        bus_width: int = 8,
-        bus_latency: int = 4,
-        clint_divider: int = 10,
-        cpu_clock_mhz: int = 2400,
-        device_latency_ns: int = 100,
+        ram_base: int = _SYSTEM["ram_base"],
+        uart_base: int = _SYSTEM["uart_base"],
+        disk_base: int = _SYSTEM["disk_base"],
+        clint_base: int = _SYSTEM["clint_base"],
+        syscon_base: int = _SYSTEM["syscon_base"],
+        kernel_offset: int = _SYSTEM["kernel_offset"],
+        bus_width: int = _SYSTEM["bus_width"],
+        bus_latency: int = _SYSTEM["bus_latency"],
+        clint_divider: int = _SYSTEM["clint_divider"],
+        cpu_clock_mhz: int = _SYSTEM["cpu_clock_mhz"],
+        device_latency_ns: int = _SYSTEM["device_latency_ns"],
         device_latency_ns_overrides: dict[str, int] | None = None,
-        rtc_epoch_seconds: int = 1_767_225_600,
+        rtc_epoch_seconds: int = _SYSTEM["rtc_epoch_seconds"],
         uart_to_stderr: bool = False,
         uart_quiet: bool = False,
         console: str | None = None,
-        hart_count: int = 1,
+        hart_count: int = _SYSTEM["hart_count"],
         coherence: Coherence | None = None,
     ):
         # Pipeline
@@ -184,10 +209,10 @@ class Config:
 
         # Memory
         self.ram_size = _parse_size(ram_size)
-        self.memory_controller = (
-            copy.deepcopy(memory_controller)
+        self.memory_controller = copy.deepcopy(
+            memory_controller
             if memory_controller is not None
-            else MemoryController.Simple()
+            else _DEFAULT_MEMORY_CONTROLLER
         )
         self.tlb_size = tlb_size
         self.tlb_ways = tlb_ways

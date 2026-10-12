@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Every default of the Python API comes from the core: `Config()` reads
+  the core's default machine, and each builder the default of its
+  component, through `rvsim._core.component_defaults()`, so no default is
+  written in Python. A configuration's dict names only what its Python
+  objects model, under the core's names, and the core fills in the rest;
+  every machine is unchanged, cycle for cycle. `Backend.InOrder()` takes
+  the ROB, store buffer, load and store ports and vector store buffer the
+  in-order backend reads, which were fixed.
 - Fixes in the pipelines: a load still waiting on memory when a trap
   flushed the pipeline no longer completes, where in the out-of-order
   backend it wrote the physical register the trap handler had been

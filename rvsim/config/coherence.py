@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from ._core_defaults import COMPONENTS
+
+_SNOOP_FILTER = COMPONENTS["snoop_filter"]
+_INTERCONNECT = COMPONENTS["interconnect"]
+_COHERENCE = COMPONENTS["coherence"]
+
 
 class HomeAgent:
     """Namespace for coherence home-agent policies (who must be snooped)."""
@@ -20,7 +26,11 @@ class HomeAgent:
         recalled from every holder.
         """
 
-        def __init__(self, capacity_factor: float = 1.5, ways: int = 8):
+        def __init__(
+            self,
+            capacity_factor: float = _SNOOP_FILTER["capacity_factor"],
+            ways: int = _SNOOP_FILTER["ways"],
+        ):
             self.capacity_factor = capacity_factor
             self.ways = ways
 
@@ -38,7 +48,11 @@ class Interconnect:
     class _Kind:
         kind = ""
 
-        def __init__(self, hop_latency: int = 2, bytes_per_cycle: int = 32):
+        def __init__(
+            self,
+            hop_latency: int = _INTERCONNECT["hop_latency"],
+            bytes_per_cycle: int = _INTERCONNECT["bytes_per_cycle"],
+        ):
             self.hop_latency = hop_latency
             self.bytes_per_cycle = bytes_per_cycle
 
@@ -71,6 +85,37 @@ class Interconnect:
         kind = "Hypercube"
 
 
+# The core's names for the home agents and interconnects.
+_HOME_AGENTS = {"Broadcast": HomeAgent.Broadcast, "SnoopFilter": HomeAgent.SnoopFilter}
+_INTERCONNECTS = {
+    kind.kind: kind
+    for kind in (
+        Interconnect.Crossbar,
+        Interconnect.Ring,
+        Interconnect.Mesh,
+        Interconnect.Torus,
+        Interconnect.Hypercube,
+    )
+}
+
+
+def _home_agent_from(home_agent: dict):
+    """The home agent a core coherence dict names."""
+    if home_agent["kind"] == "Broadcast":
+        return HomeAgent.Broadcast()
+    return HomeAgent.SnoopFilter(
+        capacity_factor=home_agent["capacity_factor"], ways=home_agent["ways"]
+    )
+
+
+def _interconnect_from(interconnect: dict):
+    """The interconnect a core coherence dict names."""
+    return _INTERCONNECTS[interconnect["kind"]](
+        hop_latency=interconnect["hop_latency"],
+        bytes_per_cycle=interconnect["bytes_per_cycle"],
+    )
+
+
 class Coherence:
     """Coherence fabric between the private caches, used when ``hart_count > 1``."""
 
@@ -83,14 +128,18 @@ class Coherence:
         | Interconnect.Torus
         | Interconnect.Hypercube
         | None = None,
-        txn_entries: int = 32,
+        txn_entries: int = _COHERENCE["txn_entries"],
     ):
         self.protocol = "MESI"
         self.home_agent = (
-            home_agent if home_agent is not None else HomeAgent.SnoopFilter()
+            home_agent
+            if home_agent is not None
+            else _home_agent_from(_COHERENCE["home_agent"])
         )
         self.interconnect = (
-            interconnect if interconnect is not None else Interconnect.Crossbar()
+            interconnect
+            if interconnect is not None
+            else _interconnect_from(_COHERENCE["interconnect"])
         )
         self.txn_entries = txn_entries
 
@@ -99,3 +148,12 @@ class Coherence:
             f"Coherence(home_agent={self.home_agent!r}, interconnect={self.interconnect!r}, "
             f"txn_entries={self.txn_entries})"
         )
+
+
+def _coherence_from(coherence: dict) -> Coherence:
+    """The coherence fabric a core coherence dict describes."""
+    return Coherence(
+        home_agent=_home_agent_from(coherence["home_agent"]),
+        interconnect=_interconnect_from(coherence["interconnect"]),
+        txn_entries=coherence["txn_entries"],
+    )
