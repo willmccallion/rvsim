@@ -14,6 +14,7 @@ pub fn vector_config(
     rs1_value: u64,
     rs2_value: u64,
     vlen: Vlen,
+    elen: usize,
     current_vl: u64,
 ) -> VectorConfig {
     let (avl, requested_vtype, rs1_is_zero) = match inst.ctrl.vec_op {
@@ -23,7 +24,14 @@ pub fn vector_config(
         }
         _ => (rs1_value, rs2_value, inst.rs1.is_zero()),
     };
-    let (vl, vtype) =
-        execute_vsetvl(avl, requested_vtype, inst.rd.is_zero(), rs1_is_zero, vlen, current_vl);
+    let (vl, vtype) = execute_vsetvl(
+        avl,
+        requested_vtype,
+        inst.rd.is_zero(),
+        rs1_is_zero,
+        vlen,
+        elen,
+        current_vl,
+    );
     VectorConfig { vtype, vl, vstart: 0 }
 }
