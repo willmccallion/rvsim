@@ -83,6 +83,14 @@ pub const fn mark_vector_retired(hart: &mut Hart) {
     hart.csrs.vstart = 0;
 }
 
+/// Leaves `vstart` zero at the end of a vector instruction (RVV 1.0
+/// §3.7), marking the vector state dirty when that changes it.
+pub const fn finish_vector_instruction(hart: &mut Hart) {
+    if hart.csrs.vstart != 0 {
+        mark_vector_retired(hart);
+    }
+}
+
 /// Accrues IEEE exception flags into `fflags`.
 pub const fn accrue_fp_flags(hart: &mut Hart, flags: u8) {
     if flags != 0 {
