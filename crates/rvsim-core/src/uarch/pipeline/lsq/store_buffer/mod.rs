@@ -21,6 +21,15 @@ use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
 use crate::uarch::pipeline::rob::RobTag;
 
+/// A resolved store that writes some of a load's bytes, over `start..end`.
+#[derive(Clone, Copy, Debug)]
+struct OverlappingStore {
+    rob_tag: RobTag,
+    start: u64,
+    end: u64,
+    data: Option<StoreData>,
+}
+
 /// Result of store-to-load forwarding check.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ForwardResult {
@@ -340,75 +349,79 @@ impl StoreBuffer {
         }
     }
 
-    /// Attempts store-to-load forwarding.
+    /// Attempts store-to-load forwarding from the youngest store older than
+    /// the load that writes any of its bytes.
     ///
-    /// Returns `Hit(data)` if a pending store fully covers the load,
-    /// `Stall` if a store partially overlaps (must wait for drain),
-    /// or `Miss` if no overlap exists.
-    ///
-    /// `load_rob_tag` is the ROB tag of the load instruction. Only stores
-    /// older than the load (lower tag) are considered for forwarding. Stores
-    /// newer than the load in program order are skipped.
+    /// Returns `Hit(data)` if that store fully covers the load, `Stall` if
+    /// it overlaps only part of it or its data has not arrived (the load
+    /// must wait for it to drain), or `Miss` if no older store overlaps.
+    /// Stores not strictly older than `load_rob_tag` come after the load in
+    /// program order and are skipped.
     pub fn forward_load(
         &self,
         paddr: PhysAddr,
         width: MemWidth,
         load_rob_tag: RobTag,
     ) -> ForwardResult {
+        let Some(store) = self.youngest_older_overlap(paddr, width, load_rob_tag) else {
+            return ForwardResult::Miss;
+        };
         let load_size = width_to_bytes(width);
         let load_start = paddr.val();
         let load_end = load_start + load_size as u64;
-
-        let mut idx = if self.tail == 0 { self.entries.len() - 1 } else { self.tail - 1 };
-
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid {
-                // Skip stores not strictly older than the load: they come after in program order.
-                if !entry.rob_tag.is_older_than(load_rob_tag) {
-                    if idx == 0 {
-                        idx = self.entries.len() - 1;
-                    } else {
-                        idx -= 1;
-                    }
-                    continue;
-                }
-
-                if let Some((store_paddr, data)) = entry.resolution.address() {
-                    let (store_start, store_end) = StoreData::span(data, store_paddr, entry.width);
-                    if load_start < store_end && load_end > store_start {
-                        let covers = store_start <= load_start && store_end >= load_end;
-                        // A store whose data has not arrived holds the load
-                        // until it does.
-                        return match data {
-                            Some(StoreData::Bytes(value)) if covers => {
-                                let offset = (load_start - store_start) as u32;
-                                let shifted = value >> (offset * 8);
-                                let mask = if load_size >= 8 {
-                                    u64::MAX
-                                } else {
-                                    (1u64 << (load_size * 8)) - 1
-                                };
-                                ForwardResult::Hit(shifted & mask)
-                            }
-                            Some(StoreData::Block(CboEffect::Zero)) if covers => {
-                                ForwardResult::Hit(0)
-                            }
-                            Some(StoreData::Bytes(_) | StoreData::Block(_)) | None => {
-                                ForwardResult::Stall
-                            }
-                        };
-                    }
-                }
+        let covers = store.start <= load_start && store.end >= load_end;
+        match store.data {
+            Some(StoreData::Bytes(value)) if covers => {
+                let offset = (load_start - store.start) as u32;
+                let shifted = value >> (offset * 8);
+                let mask = if load_size >= 8 { u64::MAX } else { (1u64 << (load_size * 8)) - 1 };
+                ForwardResult::Hit(shifted & mask)
             }
-            if idx == 0 {
-                idx = self.entries.len() - 1;
-            } else {
-                idx -= 1;
-            }
+            Some(StoreData::Block(CboEffect::Zero)) if covers => ForwardResult::Hit(0),
+            Some(StoreData::Bytes(_) | StoreData::Block(_)) | None => ForwardResult::Stall,
         }
+    }
 
-        ForwardResult::Miss
+    /// The youngest store older than `load_rob_tag` whose resolved address
+    /// writes any byte of the load; [`Self::forward_load`] answers from it.
+    #[must_use]
+    pub fn youngest_older_store_to(
+        &self,
+        paddr: PhysAddr,
+        width: MemWidth,
+        load_rob_tag: RobTag,
+    ) -> Option<RobTag> {
+        self.youngest_older_overlap(paddr, width, load_rob_tag).map(|store| store.rob_tag)
+    }
+
+    fn youngest_older_overlap(
+        &self,
+        paddr: PhysAddr,
+        width: MemWidth,
+        load_rob_tag: RobTag,
+    ) -> Option<OverlappingStore> {
+        let load_start = paddr.val();
+        let load_end = load_start + width_to_bytes(width) as u64;
+        self.youngest_first().filter(|entry| entry.rob_tag.is_older_than(load_rob_tag)).find_map(
+            |entry| {
+                let (store_paddr, data) = entry.resolution.address()?;
+                let (start, end) = StoreData::span(data, store_paddr, entry.width);
+                (load_start < end && load_end > start).then_some(OverlappingStore {
+                    rob_tag: entry.rob_tag,
+                    start,
+                    end,
+                    data,
+                })
+            },
+        )
+    }
+
+    /// Valid entries in reverse program order.
+    fn youngest_first(&self) -> impl Iterator<Item = &StoreBufferEntry> {
+        let cap = self.entries.len();
+        (1..=self.count)
+            .map(move |back| &self.entries[(self.tail + cap - back) % cap])
+            .filter(|entry| entry.valid)
     }
 
     /// True when a resolved store older than `load_rob_tag` writes any of

@@ -482,10 +482,11 @@ fn forward_span_from_pending_stores<E: ExecutionEngine>(
 }
 
 /// Forwards to a load from the stores before it that have not reached the
-/// cache: the store buffer's, which are the youngest, then the vector store
-/// buffer's, then the write-combining buffer's. A load whose bytes both of
-/// the last two hold waits, since their order is not known, and the WCB's
-/// line is sent.
+/// cache. The youngest older store in the store buffer or the vector store
+/// buffer that writes any of its bytes decides; failing both, the
+/// write-combining buffer's, which hold older stores. A load whose bytes a
+/// vector store and the WCB both hold waits, since their order is not
+/// known, and the WCB's line is sent.
 fn forward_from_pending_stores<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &E,
@@ -493,9 +494,13 @@ fn forward_from_pending_stores<E: ExecutionEngine>(
     paddr: PhysAddr,
     bytes: usize,
 ) -> ForwardResult {
-    let scalar = engine.store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag);
-    if scalar != ForwardResult::Miss {
-        return scalar;
+    let store_buffer = engine.store_buffer();
+    let scalar = store_buffer.youngest_older_store_to(paddr, ex.ctrl.width, ex.rob_tag);
+    let vector_is_younger = scalar.is_some_and(|scalar| {
+        engine.vec_store_buffer().writes_to_between(scalar, ex.rob_tag, paddr, bytes)
+    });
+    if scalar.is_some() && !vector_is_younger {
+        return store_buffer.forward_load(paddr, ex.ctrl.width, ex.rob_tag);
     }
     let wcb = &mut state.core_mut().wcb;
     let vector = engine.vec_store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag);

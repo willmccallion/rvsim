@@ -75,6 +75,14 @@ impl VsbLine {
         Self { line_addr, data: [0; VSB_LINE_BYTES], valid_mask: 0 }
     }
 
+    /// True when the line holds any byte in `start..end`.
+    fn holds_any_of(&self, start: u64, end: u64) -> bool {
+        (0..VSB_LINE_BYTES as u64).any(|i| {
+            let byte = self.line_addr + i;
+            self.valid_mask >> i & 1 == 1 && byte >= start && byte < end
+        })
+    }
+
     /// The line's valid bytes as naturally aligned writes of 1, 2, 4 or 8
     /// bytes, `(address, data, width)`, for a device that must see each.
     #[must_use]
@@ -351,13 +359,28 @@ impl VecStoreBuffer {
         let (start, end) = (paddr.val(), paddr.val() + bytes as u64);
         self.entries.iter().filter(|e| e.valid && e.rob_tag.is_older_than(rob_tag)).any(|e| {
             e.expected_elements != Some(e.resolved_elements)
-                || e.forwarding_lines().any(|line| {
-                    (0..VSB_LINE_BYTES as u64).any(|i| {
-                        let byte = line.line_addr + i;
-                        line.valid_mask >> i & 1 == 1 && byte >= start && byte < end
-                    })
-                })
+                || e.forwarding_lines().any(|line| line.holds_any_of(start, end))
         })
+    }
+
+    /// True when a vector store younger than `after` and older than
+    /// `load_rob_tag` holds any of the `bytes` bytes at `paddr`, so it,
+    /// not the scalar store `after`, is the load's youngest older writer.
+    #[must_use]
+    pub fn writes_to_between(
+        &self,
+        after: RobTag,
+        load_rob_tag: RobTag,
+        paddr: PhysAddr,
+        bytes: usize,
+    ) -> bool {
+        let (start, end) = (paddr.val(), paddr.val() + bytes as u64);
+        self.entries
+            .iter()
+            .filter(|e| e.valid && e.rob_tag.is_newer_than(after))
+            .filter(|e| e.rob_tag.is_older_than(load_rob_tag))
+            .flat_map(VecStoreBufferEntry::forwarding_lines)
+            .any(|line| line.holds_any_of(start, end))
     }
 
     /// Forwarding check for a younger load. Policy-dependent — see module doc.
