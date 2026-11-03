@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Fixes in the pipelines: a load still waiting on memory when a trap
+  flushed the pipeline no longer completes, where in the out-of-order
+  backend it wrote the physical register the trap handler had been
+  given; a load reads the youngest older store to its bytes whichever of
+  the scalar and vector store buffers holds it; and a register written
+  from Python (`regs[n] = v`) reaches the next instruction on the
+  out-of-order backend.
+- Privileged-architecture fixes: SFENCE.VMA traps in U-mode; CSRRS and
+  CSRRC with a non-x0 `rs1` are writes whatever `rs1` holds, so they trap
+  on read-only CSRs and dirty `mstatus.FS` for `fflags`; `hpmcounter3`
+  to `hpmcounter31` exist behind `mcounteren`/`scounteren`; PMP checks a
+  translation that needed a page walk over the access's own bytes; and a
+  locked TOR entry locks the `pmpaddr` below it.
+- Vector fixes: mask and whole-register loads and stores are not aligned
+  to LMUL, and whole-register ones are aligned to their register count;
+  every vector instruction leaves `vstart` zero; `vsetvl` sets `vill`
+  for reserved `vtype` bits and for SEW wider than the configured ELEN;
+  and under `vill` vtype-dependent instructions trap while whole-register
+  loads, stores and moves run.
+- Memory-system fixes: a cache whose full MSHR was re-issued for data
+  after losing its upgrade no longer stays blocked after the fill; FIFO
+  replacement evicts by insertion order, ignoring hits; and the PLIC holds
+  a claimed level-triggered source until its claim is completed.
+  Checkpoints are format version 9.
 - Building a simulator refuses configurations no machine can have, with a
   `ValueError` naming the field, where they used to hang, crash or quietly
   build another machine: zero widths, queues, ports, TLBs, clocks or
