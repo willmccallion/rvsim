@@ -318,3 +318,28 @@ fn an_all_ones_napot_entry_still_covers_all_of_physical_memory() {
 
     assert_eq!(top_of_physical_memory, PmpResult::Allow);
 }
+
+/// Priv. spec §3.7.1: a locked TOR entry also locks the `pmpaddr` below it,
+/// which holds its range's base.
+#[test]
+fn a_locked_tor_entry_ignores_writes_to_the_address_below_it() {
+    let mut pmp = Pmp::new();
+    pmp.set_addr(0, 0x1000 >> 2);
+    pmp.set_addr(1, 0x2000 >> 2);
+    pmp.set_cfg(1, L | A_TOR | R);
+
+    pmp.set_addr(0, 0);
+
+    assert_eq!(pmp.get_addr(0), 0x1000 >> 2);
+}
+
+#[test]
+fn a_locked_napot_entry_leaves_the_address_below_it_writable() {
+    let mut pmp = Pmp::new();
+    pmp.set_addr(0, 0x1000 >> 2);
+    pmp.set_cfg(1, L | A_NAPOT | R);
+
+    pmp.set_addr(0, 0);
+
+    assert_eq!(pmp.get_addr(0), 0);
+}
