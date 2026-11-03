@@ -67,6 +67,11 @@ const fn vmv1r(vd: u32, vs2: u32) -> u32 {
     (0b10_0111 << 26) | (1 << 25) | (vs2 << 20) | (0b011 << 12) | (vd << 7) | 0x57
 }
 
+/// `vfadd.vv vd, vs2, vs1`.
+const fn vfadd_vv(vd: u32, vs2: u32, vs1: u32) -> u32 {
+    (1 << 25) | (vs2 << 20) | (vs1 << 15) | (0b001 << 12) | (vd << 7) | 0x57
+}
+
 /// `vlm.v vd, (rs1)`.
 const fn vlm(vd: u32, rs1: u32) -> u32 {
     (1 << 25) | (0b01011 << 20) | (rs1 << 15) | (vd << 7) | 0x07
@@ -230,4 +235,11 @@ fn whole_register_load_and_store_under_vill_move_the_data() {
     let copied = BACKENDS.map(|b| run(b, &body).a4);
 
     assert_eq!(copied, [0x0807_0605_0403_0201; 2], "[InOrder, OutOfOrder]");
+}
+
+#[test]
+fn floating_point_add_at_sew_8_is_an_illegal_instruction() {
+    let outcomes = BACKENDS.map(|b| run(b, &[vsetvli(A2, E8M1), vfadd_vv(4, 2, 3)]));
+
+    assert!(outcomes.iter().all(trapped_illegal), "[InOrder, OutOfOrder]: {outcomes:?}");
 }
