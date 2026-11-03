@@ -348,9 +348,7 @@ impl ExecutionEngine for O3Engine {
         self.vec_mem_inflight.clear();
         self.vec_store_buffer.flush_speculative();
         self.execute_mem1.clear();
-        self.common.mem1_replay.clear();
-        self.common.coherence_violation = None;
-        self.common.pending_squash = None;
+        self.common.squash_all();
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
         self.common.flush_predictions(&mut state.core.branch_predictor);

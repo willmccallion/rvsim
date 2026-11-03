@@ -60,7 +60,8 @@ pub trait ExecutionEngine {
     /// short; the frontend retries it next cycle.
     fn rename(&mut self, state: &mut crate::uarch::ctx::StageCtx<'_>, id: IdExEntry) -> Renamed;
 
-    /// Flush all speculative state. Committed stores in the store buffer remain.
+    /// Flush all speculative state, in-flight loads and data walks included.
+    /// Committed stores in the store buffer remain.
     fn flush(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>);
 
     /// Sends the next write of a committed store still buffered, as the
@@ -641,17 +642,10 @@ impl<E: ExecutionEngine> Pipeline<E> {
         self.discard_frontend_speculation(state);
         let common = self.engine.common_mut();
         common.mailbox.clear();
-        common.outstanding_loads.clear();
+        // Fetch walks too, which the engine's flush leaves to the frontend.
         // Committed stores' writes are still in the memory system; their
         // acknowledgements free store-buffer slots.
         common.outstanding_walks.clear();
-        common.load_parts.clear();
-        common.mem1_replay.clear();
-        common.mem1_delayed.clear();
-        common.forwarded_loads.clear();
-        common.forwarded_results.clear();
-        common.coherence_violation = None;
-        common.pending_squash = None;
         common.trap = TrapProgress::None;
         self.engine.flush(state);
     }

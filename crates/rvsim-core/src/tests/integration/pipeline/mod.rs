@@ -15,6 +15,7 @@ pub mod pipeline_stats;
 pub mod rob_tag_wrap;
 pub mod serialized_issue;
 pub mod squashed_divide;
+pub mod squashed_load_after_trap;
 pub mod stage_widths;
 pub mod trap_latency;
 pub mod unit_status;
