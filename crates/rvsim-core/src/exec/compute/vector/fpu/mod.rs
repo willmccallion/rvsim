@@ -395,8 +395,20 @@ mod tests {
         dst_sew: Sew,
         frm: RoundingMode,
     ) -> (u64, FpFlags) {
+        convert_one_on(true, op, sew, (src_sew, src), dst_sew, frm)
+    }
+
+    /// [`convert_one`] on a unit with or without Zvfh.
+    fn convert_one_on(
+        zvfh: bool,
+        op: VectorOp,
+        sew: Sew,
+        (src_sew, src): (Sew, u64),
+        dst_sew: Sew,
+        frm: RoundingMode,
+    ) -> (u64, FpFlags) {
         let mut vpr = vpr128();
-        let ctx = VecExecCtx { zvfh: true, frm, ..make_ctx(sew, 1) };
+        let ctx = VecExecCtx { frm, zvfh, ..make_ctx(sew, 1) };
         let (v2, v4) = (VRegIdx::new(2), VRegIdx::new(4));
         vpr.write_element(v2, ElemIdx::new(0), src_sew, src);
         let flags = vec_fp_execute(op, &mut vpr, v4, v2, VecOperand::Vector(v2), &ctx).fp_flags;
@@ -405,6 +417,70 @@ mod tests {
 
     const F16_THREE_AND_A_HALF: u64 = 0x4300;
     const F16_MINUS_TWO: u64 = 0xc000;
+    const F16_MINUS_THREE: u64 = 0xc200;
+    const F16_THREE_HUNDRED: u64 = 0x5cb0;
+
+    #[test]
+    fn an_8_bit_integer_widens_to_its_half_precision_value() {
+        let (value, flags) =
+            convert_one(VectorOp::VFWCvtFX, Sew::E8, (Sew::E8, 0xfd), Sew::E16, RoundingMode::Rne);
+
+        assert_eq!((value, flags.bits()), (F16_MINUS_THREE, FpFlags::NONE.bits()));
+    }
+
+    #[test]
+    fn half_precision_narrowing_to_signed_8_bits_rounds_per_frm_and_is_inexact() {
+        let (value, flags) = convert_one(
+            VectorOp::VFNCvtXF,
+            Sew::E8,
+            (Sew::E16, F16_THREE_AND_A_HALF),
+            Sew::E8,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!((value, flags.bits()), (4, FpFlags::NX.bits()));
+    }
+
+    #[test]
+    fn half_precision_narrowing_past_unsigned_8_bits_saturates_and_is_invalid() {
+        let (value, flags) = convert_one(
+            VectorOp::VFNCvtXuF,
+            Sew::E8,
+            (Sew::E16, F16_THREE_HUNDRED),
+            Sew::E8,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!((value, flags.bits()), (255, FpFlags::NV.bits()));
+    }
+
+    #[test]
+    fn a_16_bit_integer_widens_to_single_precision_without_zvfh() {
+        let (value, _) = convert_one_on(
+            false,
+            VectorOp::VFWCvtFX,
+            Sew::E16,
+            (Sew::E16, 0xfffd),
+            Sew::E32,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!(value, u64::from((-3f32).to_bits()));
+    }
+
+    #[test]
+    fn single_precision_narrows_to_a_16_bit_integer_without_zvfh() {
+        let (value, _) = convert_one_on(
+            false,
+            VectorOp::VFNCvtXF,
+            Sew::E16,
+            (Sew::E32, u64::from((-3f32).to_bits())),
+            Sew::E16,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!(value, 0xfffd);
+    }
 
     #[test]
     fn a_zvfh_widening_conversion_to_signed_rounds_per_frm_and_is_inexact() {

@@ -2,7 +2,7 @@
 
 use super::convert::{
     f32_to_i32_frm, f32_to_i64_frm, f32_to_u32_frm, f32_to_u64_frm, f64_to_f32_round_to_odd,
-    f64_to_i16_frm, f64_to_i32_frm, f64_to_u16_frm, f64_to_u32_frm,
+    f64_to_i8_frm, f64_to_i16_frm, f64_to_i32_frm, f64_to_u8_frm, f64_to_u16_frm, f64_to_u32_frm,
 };
 use super::{elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::exact::{self, Exact, Format, on_host_f32, on_host_f64};
@@ -133,8 +133,21 @@ pub(super) fn exec_fp_widening(
             );
             flags = flags | f;
             vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
-        } else if ctx.sew == Sew::E16 && ctx.zvfh {
-            // Zvfh widening: SEW=16 (f16) -> wsew=E32 (f32)
+        } else if ctx.sew == Sew::E8 {
+            // Zvfh: an 8-bit integer to f16, which holds every one exactly.
+            let value = match op {
+                VectorOp::VFWCvtFXu => Some(f64::from(vs2_raw as u8)),
+                VectorOp::VFWCvtFX => Some(sign_extend(vs2_raw, Sew::E8) as f64),
+                _ => None,
+            };
+            if let Some(value) = value {
+                let (bits, f) = f64_to_f16(value, ctx.frm);
+                flags = flags | f;
+                vpr.write_element(vd_idx, ElemIdx::new(i), wsew, u64::from(bits));
+            }
+        } else if ctx.sew == Sew::E16 {
+            // SEW=16 -> wsew=E32: f16 sources need Zvfh, which the caller
+            // checked; 16-bit integers convert to f32 without it.
             // Handle integer-producing conversions
             if matches!(
                 op,
@@ -423,8 +436,9 @@ pub(super) fn exec_fp_narrowing(
                 }
                 _ => (0, FpFlags::NONE),
             }
-        } else if ctx.sew == Sew::E16 && ctx.zvfh {
-            // Zvfh narrowing: src_sew=E32 (f32) -> dst_sew=E16 (f16)
+        } else if ctx.sew == Sew::E16 {
+            // src_sew=E32 (f32) -> dst_sew=E16: f16 results need Zvfh, which
+            // the caller checked; 16-bit integer results do not.
             let a32 = elem_to_f32(vs2_raw);
             match op {
                 VectorOp::VFNCvtFF => {
@@ -470,6 +484,28 @@ pub(super) fn exec_fp_narrowing(
                     let (bits, f) =
                         f64_to_f16(sign_extend(vs2_raw, src_sew) as i32 as f64, ctx.frm);
                     (bits as u64, f)
+                }
+                _ => (0, FpFlags::NONE),
+            }
+        } else if ctx.sew == Sew::E8 {
+            // Zvfh: f16 to an 8-bit integer.
+            let a = f64::from(f16_to_f32(vs2_raw as u16));
+            match op {
+                VectorOp::VFNCvtXuF => {
+                    let (r, f) = f64_to_u8_frm(a, ctx.frm);
+                    (u64::from(r), f)
+                }
+                VectorOp::VFNCvtXF => {
+                    let (r, f) = f64_to_i8_frm(a, ctx.frm);
+                    (u64::from(r as u8), f)
+                }
+                VectorOp::VFNCvtRtzXuF => {
+                    let (r, f) = f64_to_u8_frm(a, RoundingMode::Rtz);
+                    (u64::from(r), f)
+                }
+                VectorOp::VFNCvtRtzXF => {
+                    let (r, f) = f64_to_i8_frm(a, RoundingMode::Rtz);
+                    (u64::from(r as u8), f)
                 }
                 _ => (0, FpFlags::NONE),
             }

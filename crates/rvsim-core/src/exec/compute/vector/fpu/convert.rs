@@ -31,37 +31,65 @@ pub(super) const fn round_f64_to_int_per_frm(a: f64, frm: RoundingMode) -> f64 {
     }
 }
 
-/// FRM-aware f64 → i16 conversion with saturation. Used by f16 vfcvt.x.f
-/// (the f16 element is upcast to f64 by the caller before rounding).
-pub(super) fn f64_to_i16_frm(a: f64, frm: RoundingMode) -> (i16, FpFlags) {
+/// FRM-aware f64 → signed `bits`-bit integer conversion with saturation:
+/// NaN and values past the range raise NV and give the nearest bound.
+fn f64_to_signed_frm(a: f64, frm: RoundingMode, bits: u32) -> (i64, FpFlags) {
+    let (min, max) = (-(1i64 << (bits - 1)), (1i64 << (bits - 1)) - 1);
     if a.is_nan() {
-        return (i16::MAX, FpFlags::NV);
+        return (max, FpFlags::NV);
     }
     let rounded = round_f64_to_int_per_frm(a, frm);
-    if rounded < i16::MIN as f64 {
-        return (i16::MIN, FpFlags::NV);
+    if rounded < min as f64 {
+        return (min, FpFlags::NV);
     }
-    if rounded > i16::MAX as f64 {
-        return (i16::MAX, FpFlags::NV);
+    if rounded > max as f64 {
+        return (max, FpFlags::NV);
     }
     let nx = if rounded == a { FpFlags::NONE } else { FpFlags::NX };
-    (rounded as i16, nx)
+    (rounded as i64, nx)
 }
 
-/// FRM-aware f64 → u16 conversion with saturation.
-pub(super) fn f64_to_u16_frm(a: f64, frm: RoundingMode) -> (u16, FpFlags) {
+/// FRM-aware f64 → unsigned `bits`-bit integer conversion with saturation.
+fn f64_to_unsigned_frm(a: f64, frm: RoundingMode, bits: u32) -> (u64, FpFlags) {
+    let max = (1u64 << bits) - 1;
     if a.is_nan() {
-        return (u16::MAX, FpFlags::NV);
+        return (max, FpFlags::NV);
     }
     let rounded = round_f64_to_int_per_frm(a, frm);
     if rounded < 0.0 {
         return (0, FpFlags::NV);
     }
-    if rounded > u16::MAX as f64 {
-        return (u16::MAX, FpFlags::NV);
+    if rounded > max as f64 {
+        return (max, FpFlags::NV);
     }
     let nx = if rounded == a { FpFlags::NONE } else { FpFlags::NX };
-    (rounded as u16, nx)
+    (rounded as u64, nx)
+}
+
+/// FRM-aware f64 → i16 conversion with saturation. Used by f16 vfcvt.x.f
+/// (the f16 element is upcast to f64 by the caller before rounding).
+pub(super) fn f64_to_i16_frm(a: f64, frm: RoundingMode) -> (i16, FpFlags) {
+    let (r, f) = f64_to_signed_frm(a, frm, 16);
+    (r as i16, f)
+}
+
+/// FRM-aware f64 → u16 conversion with saturation.
+pub(super) fn f64_to_u16_frm(a: f64, frm: RoundingMode) -> (u16, FpFlags) {
+    let (r, f) = f64_to_unsigned_frm(a, frm, 16);
+    (r as u16, f)
+}
+
+/// FRM-aware f64 → i8 conversion with saturation, for vfncvt.x.f.w from
+/// f16 (upcast to f64 by the caller).
+pub(super) fn f64_to_i8_frm(a: f64, frm: RoundingMode) -> (i8, FpFlags) {
+    let (r, f) = f64_to_signed_frm(a, frm, 8);
+    (r as i8, f)
+}
+
+/// FRM-aware f64 → u8 conversion with saturation.
+pub(super) fn f64_to_u8_frm(a: f64, frm: RoundingMode) -> (u8, FpFlags) {
+    let (r, f) = f64_to_unsigned_frm(a, frm, 8);
+    (r as u8, f)
 }
 
 /// FRM-aware f32 → i32 conversion with saturation and IEEE flag computation.
