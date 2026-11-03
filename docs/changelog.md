@@ -15,14 +15,19 @@ All notable changes to this project are documented here. The format is based on 
   CSRRC with a non-x0 `rs1` are writes whatever `rs1` holds, so they trap
   on read-only CSRs and dirty `mstatus.FS` for `fflags`; `hpmcounter3`
   to `hpmcounter31` exist behind `mcounteren`/`scounteren`; PMP checks a
-  translation that needed a page walk over the access's own bytes; and a
-  locked TOR entry locks the `pmpaddr` below it.
+  translation that needed a page walk over the access's own bytes; a
+  locked TOR entry locks the `pmpaddr` below it; and an illegal
+  compressed instruction's `mtval` holds its own 16 bits, not its
+  expansion.
 - Vector fixes: mask and whole-register loads and stores are not aligned
   to LMUL, and whole-register ones are aligned to their register count;
   every vector instruction leaves `vstart` zero; `vsetvl` sets `vill`
   for reserved `vtype` bits and for SEW wider than the configured ELEN;
-  and under `vill` vtype-dependent instructions trap while whole-register
-  loads, stores and moves run.
+  under `vill` vtype-dependent instructions trap while whole-register
+  loads, stores and moves run; FP instructions at a floating-point width
+  the unit lacks, such as SEW=8, trap instead of writing zeros; and
+  `vfwcvt.f.x[u].v` and `vfncvt.x[u].f.w` convert between 8-bit integers
+  and f16 under Zvfh and between 16-bit integers and f32 without it.
 - Memory-system fixes: a cache whose full MSHR was re-issued for data
   after losing its upgrade no longer stays blocked after the fill; FIFO
   replacement evicts by insertion order, ignoring hits; and the PLIC holds
