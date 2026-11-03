@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/rvsim)](https://pypi.org/project/rvsim/)
 [![crates.io](https://img.shields.io/crates/v/rvsim-core)](https://crates.io/crates/rvsim-core)
-[![ISA Tests](https://img.shields.io/badge/riscv--tests-134%2F134-brightgreen)](#isa--privileged-architecture)
+[![ISA Tests](https://img.shields.io/badge/riscv--tests-188%2F188-brightgreen)](#isa--privileged-architecture)
 [![ISA](https://img.shields.io/badge/ISA-RV64IMAFDCV-blue)](#isa--privileged-architecture)
 [![Boots Linux](https://img.shields.io/badge/Linux%206.6-boots%20to%20shell-blue)](#linux-boot)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#license)
@@ -13,7 +13,7 @@ Cycle-level RISC-V 64-bit system simulator with a composable Python API for arch
 
 ---
 
-rvsim models a complete superscalar processor cycle by cycle. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 134/134 [`riscv-tests`](https://github.com/riscv-software-src/riscv-tests). The chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite is cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
+rvsim models a complete superscalar processor cycle by cycle. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 188 [`riscv-tests`](https://github.com/riscv-software-src/riscv-tests). The chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite is cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
 
 > **Accuracy.** rvsim simulates every cycle, but it is not cycle-accurate to any one machine yet. It models how real cores behave and measures itself two ways: against gem5's O3 CPU, where compute- and branch-bound kernels are within a few percent and memory- and vector-bound ones are still 10 to 60% apart ([Error against gem5](https://willmccallion.github.io/rvsim/error/)), and against hardware, where configurations calibrated to the SiFive P550 and the Cortex-A72 reproduce their measured cache and memory latencies and the A72 one runs CoreMark within 6% of a Raspberry Pi 4 ([Linux Benchmarks](https://willmccallion.github.io/rvsim/examples/linux-benchmarks/)). We are working to close the remaining gaps.
 
@@ -73,12 +73,13 @@ Both backends enforce identical serialization semantics: system/CSR instructions
 
 ### Branch Prediction
 
-Six pluggable predictors with shared BTB, RAS, and global history register:
+Seven pluggable predictors with shared BTB, RAS, and global history register:
 
 | Predictor | Description |
 |-----------|-------------|
 | Static | Always not-taken (baseline) |
 | GShare | PC XOR global history, 2-bit counters |
+| BHT | Rocket's branch history table: counters indexed by the PC, with hashed global history above the PC bits |
 | Tournament | Local + global two-level adaptive with meta-predictor |
 | Perceptron | Neural predictor with weight vectors |
 | TAGE | Tagged geometric history lengths |
@@ -94,7 +95,7 @@ Multi-core systems (`Config(hart_count=N)`) give every hart its own core and pri
 
 The vector extension supports configurable VLEN (default 128) and ELEN=64. Implemented sub-extensions: Zvfh (half-precision FP), Zvbb / Zvbc (bit-manip and carryless multiply), Zvkn (AES, SHA-256 and SHA-512), Zvks (SM4 and SM3), Zvkg (GHASH). Vector ops are cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
 
-Passes all **134/134** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite.
+Passes all **188/188** tests in [`riscv-software-src/riscv-tests`](https://github.com/riscv-software-src/riscv-tests) and the chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite.
 
 ### SoC Devices
 
@@ -160,7 +161,7 @@ Ready-to-run design-space exploration in `examples/analysis/`:
 
 | Script | Description |
 |--------|-------------|
-| `branch_predict.py` | Accuracy comparison across all six predictors |
+| `branch_predict.py` | Accuracy comparison across all seven predictors |
 | `cache_sweep.py` | L1D size vs miss rate and IPC impact |
 | `design_space.py` | Multi-dimensional width x cache size sweep |
 | `o3_inorder.py` | Out-of-order vs in-order backend comparison |

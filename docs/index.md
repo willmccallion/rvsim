@@ -54,7 +54,7 @@ difference between them is a difference in timing alone.
   the Zvkn, Zvks and Zvkg vector crypto subsets; M, S and U privilege modes
   with Sv39, Sv48 and Sv57 paging, PMP, Sstc, Svadu and debug triggers
   (see [ISA](architecture/isa.md))
-- **Correctness**: passes all 134 `riscv-tests`; the chipsalliance
+- **Correctness**: passes all 188 `riscv-tests`; the chipsalliance
   `riscv-vector-tests` suite is cross-checked against spike
 - **Systems**: boots Linux 6.6 through OpenSBI to a BusyBox shell, on one
   core or several kept coherent by a MESI fabric
