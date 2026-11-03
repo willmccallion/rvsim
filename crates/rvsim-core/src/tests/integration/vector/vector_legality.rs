@@ -25,6 +25,7 @@ const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrde
 /// vtype immediates: `vlmul` in bits 2:0, `vsew` in bits 5:3.
 const E8M1: u32 = 0b000;
 const E8M2: u32 = 0b001;
+const RESERVED_LMUL: u32 = 0b100;
 
 /// `vsetvli x0, rs1, zimm`.
 const fn vsetvli(rs1: u32, zimm: u32) -> u32 {
@@ -59,6 +60,11 @@ const fn vle8(vd: u32, rs1: u32) -> u32 {
 /// `vse8.v vs3, (rs1)`.
 const fn vse8(vs3: u32, rs1: u32) -> u32 {
     0x0200_0027 | (vs3 << 7) | (rs1 << 15)
+}
+
+/// `vmv1r.v vd, vs2`.
+const fn vmv1r(vd: u32, vs2: u32) -> u32 {
+    (0b10_0111 << 26) | (1 << 25) | (vs2 << 20) | (0b011 << 12) | (vd << 7) | 0x57
 }
 
 /// `vlm.v vd, (rs1)`.
@@ -194,4 +200,34 @@ fn vsetivli_sets_the_vtype_it_names() {
     let vtypes = BACKENDS.map(|b| run(b, &body).a3);
 
     assert_eq!(vtypes, [u64::from(E8M2); 2], "[InOrder, OutOfOrder]");
+}
+
+#[test]
+fn unit_stride_load_under_vill_is_an_illegal_instruction() {
+    let outcomes = BACKENDS.map(|b| run(b, &[vsetvli(A2, RESERVED_LMUL), vle8(1, A0)]));
+
+    assert!(outcomes.iter().all(trapped_illegal), "[InOrder, OutOfOrder]: {outcomes:?}");
+}
+
+#[test]
+fn whole_register_move_under_vill_executes() {
+    let outcomes = BACKENDS.map(|b| run(b, &[vsetvli(A2, RESERVED_LMUL), vmv1r(2, 1)]));
+
+    assert!(outcomes.iter().all(ran_cleanly), "[InOrder, OutOfOrder]: {outcomes:?}");
+}
+
+#[test]
+fn whole_register_load_and_store_under_vill_move_the_data() {
+    let i = InstructionBuilder::new;
+    let body = [
+        vsetvli(A2, RESERVED_LMUL),
+        vl_re8(1, 1, A0),
+        i().addi(A3, A0, 64).build(),
+        vs1r(1, A3),
+        i().ld(A4, A3, 0).build(),
+    ];
+
+    let copied = BACKENDS.map(|b| run(b, &body).a4);
+
+    assert_eq!(copied, [0x0807_0605_0403_0201; 2], "[InOrder, OutOfOrder]");
 }

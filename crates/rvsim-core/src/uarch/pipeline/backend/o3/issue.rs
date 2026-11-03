@@ -363,7 +363,7 @@ fn vector_dest(entry: &RenameIssueEntry, is_vec_mem: bool) -> Option<VecDest> {
     );
     if is_vec_mem {
         let vtype = parse_vtype(entry.vec_vtype);
-        if !vtype.vill {
+        if !vtype.vill || !ctrl.vec_op.depends_on_vtype() {
             groups.vd =
                 vec_mem_dst_count(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
         }
