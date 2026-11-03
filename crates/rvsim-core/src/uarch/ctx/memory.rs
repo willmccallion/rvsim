@@ -61,15 +61,11 @@ pub(super) fn translate_continue(
     state: WalkState,
     raw_pte: u64,
     bus_transit_cycles: u64,
+    size: u64,
 ) -> TranslateOutcome {
     let vaddr = state.vaddr;
     let access = state.access;
     let effective_priv = state.privilege;
-    // The walk state carries its own size context only for fault reporting;
-    // PMP needs the access size. Translation post-checks size against PMP
-    // again once the leaf PTE resolves, but the walk itself reads 8 bytes
-    // per PTE which is what `start_walk` / `continue_walk` enforce.
-    let size = 8u64;
     let outcome =
         core.mmu.continue_walk(state, raw_pte, &hart.csrs, Some(&hart.pmp), bus_transit_cycles);
     finalize_outcome(hart, uncore, outcome, vaddr, access, size, effective_priv)
@@ -207,13 +203,23 @@ impl CoreCtx<'_> {
         Ok(())
     }
 
-    /// Resumes a walk that was parked waiting on a PTE response.
+    /// Resumes a walk that was parked waiting on a PTE response, for an
+    /// access of `size` bytes.
     pub fn translate_continue(
         &mut self,
         state: WalkState,
         raw_pte: u64,
         bus_transit_cycles: u64,
+        size: u64,
     ) -> TranslateOutcome {
-        translate_continue(self.core, self.hart, self.uncore, state, raw_pte, bus_transit_cycles)
+        translate_continue(
+            self.core,
+            self.hart,
+            self.uncore,
+            state,
+            raw_pte,
+            bus_transit_cycles,
+            size,
+        )
     }
 }

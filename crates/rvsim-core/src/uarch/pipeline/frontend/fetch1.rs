@@ -166,6 +166,9 @@ fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: u64,
     common.fetch_resume_pc = Some(pc);
 }
 
+/// Fetch translates a half-word at a time, the smallest instruction.
+const FETCH_TRANSLATION_BYTES: u64 = 2;
+
 /// A latch entry for an instruction that faulted before it could be fetched.
 const fn fault_entry(seq: InstSeq, pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
     Fetch1Fetch2Entry {
@@ -199,6 +202,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
         req_id,
         OutstandingWalk {
             state: walk_state,
+            access_size: FETCH_TRANSLATION_BYTES,
             continuation: WalkContinuation::Fetch { fetch_seq, entry },
         },
     );
@@ -342,7 +346,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
 
         // 1. Translate the PC.
         let translated = if fetch_trap.is_none() {
-            state.translate(VirtAddr::new(current_pc), AccessType::Fetch, 2)
+            state.translate(VirtAddr::new(current_pc), AccessType::Fetch, FETCH_TRANSLATION_BYTES)
         } else {
             TranslateOutcome::Ready(crate::arch::translation::TranslationResult::success(
                 PhysAddr::new(0),
@@ -423,7 +427,11 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             let upper_va = current_pc.wrapping_add(2);
             let crosses_page = (current_pc >> 12) != (upper_va >> 12);
             let upper_phys = if crosses_page {
-                match state.translate(VirtAddr::new(upper_va), AccessType::Fetch, 2) {
+                match state.translate(
+                    VirtAddr::new(upper_va),
+                    AccessType::Fetch,
+                    FETCH_TRANSLATION_BYTES,
+                ) {
                     TranslateOutcome::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
                         hold_fetch(state, engine, current_pc, r.cycles);
                         break;

@@ -200,12 +200,14 @@ impl<'a> StageCtx<'a> {
         prefetches
     }
 
-    /// Resumes a walk that was parked waiting on a PTE response.
+    /// Resumes a walk that was parked waiting on a PTE response, for an
+    /// access of `size` bytes.
     pub fn translate_continue(
         &mut self,
         state: WalkState,
         raw_pte: u64,
         bus_transit_cycles: u64,
+        size: u64,
     ) -> TranslateOutcome {
         memory::translate_continue(
             self.core,
@@ -214,6 +216,7 @@ impl<'a> StageCtx<'a> {
             state,
             raw_pte,
             bus_transit_cycles,
+            size,
         )
     }
 

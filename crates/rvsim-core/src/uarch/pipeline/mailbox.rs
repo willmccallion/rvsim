@@ -178,7 +178,7 @@ fn complete_walk<E: ExecutionEngine>(
     let raw_pte = PartRead::of(data).value;
     let bus_transit = state.bus.calculate_transit_time(8);
     let walked_page = walk.state.vaddr.val() >> PAGE_SHIFT;
-    let outcome = state.translate_continue(walk.state, raw_pte, bus_transit);
+    let outcome = state.translate_continue(walk.state, raw_pte, bus_transit, walk.access_size);
     match outcome {
         TranslateOutcome::Ready(result) => {
             if let Some(update) = result.accessed_update {
@@ -191,7 +191,11 @@ fn complete_walk<E: ExecutionEngine>(
             let req_id = common.alloc_req_id();
             let _ = common.outstanding_walks.insert(
                 req_id,
-                OutstandingWalk { state: walk_state, continuation: walk.continuation },
+                OutstandingWalk {
+                    state: walk_state,
+                    access_size: walk.access_size,
+                    continuation: walk.continuation,
+                },
             );
             emit_pte_req(pipeline, state, req_id, pte_addr);
         }

@@ -201,6 +201,9 @@ pub struct OutstandingStore {
 pub struct OutstandingWalk {
     /// PTW state being advanced.
     pub state: WalkState,
+    /// Bytes of the access the walk translates, which PMP checks once it
+    /// has a physical address.
+    pub access_size: u64,
     /// What to do once the walk completes.
     pub continuation: WalkContinuation,
 }
