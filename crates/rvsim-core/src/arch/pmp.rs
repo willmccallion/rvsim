@@ -145,17 +145,22 @@ impl Pmp {
         }
     }
 
-    /// Sets the address register for entry `idx`.
+    /// Sets the address register for entry `idx`, unless it is locked.
     ///
     /// `addr` is in the pmpaddr format: physical address >> 2. Only bits
     /// 53:0 are kept.
     pub fn set_addr(&mut self, idx: usize, addr: u64) {
-        if idx < self.entries.len() {
-            if self.entries[idx].cfg & PMP_L != 0 {
-                return;
-            }
+        if idx < self.entries.len() && !self.addr_is_locked(idx) {
             self.entries[idx].addr = addr & PMPADDR_MASK;
         }
+    }
+
+    /// True when `pmpaddr[idx]` ignores writes: its own entry is locked, or
+    /// the next is a locked TOR entry, whose base it holds (priv. §3.7.1).
+    fn addr_is_locked(&self, idx: usize) -> bool {
+        let locks_base =
+            |next: &PmpEntry| next.is_locked() && next.match_mode() == PmpAddrMatch::Tor;
+        self.entries[idx].is_locked() || self.entries.get(idx + 1).is_some_and(locks_base)
     }
 
     /// Reads the configuration byte for entry `idx`.
