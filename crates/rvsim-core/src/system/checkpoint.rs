@@ -28,7 +28,7 @@ use crate::system::simulator::Simulator;
 
 const MAGIC: &str = "rvsim-checkpoint";
 /// The checkpoint format this build writes and restores.
-pub const VERSION: u64 = 9;
+pub const VERSION: u64 = 1;
 
 /// RAM is saved in pages of this many bytes; pages of zeros are skipped.
 const PAGE_BYTES: usize = 4096;
