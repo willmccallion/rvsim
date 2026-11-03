@@ -106,7 +106,8 @@ class PipelineSnapshot:
 
 @final
 class Registers:
-    """A hart's integer registers, indexed 0-31."""
+    """A hart's integer registers, indexed 0-31. Writing one drops what the
+    pipeline has in flight, so the next instruction reads the new value."""
 
     def __getitem__(self, idx: int, /) -> int: ...
     def __setitem__(self, idx: int, value: int, /) -> None: ...

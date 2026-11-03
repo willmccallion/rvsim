@@ -19,6 +19,9 @@ pub mod utils;
 /// Register, CSR, and memory view bindings.
 pub mod views;
 
+#[cfg(test)]
+mod tests;
+
 /// Registers all public classes and functions onto the Python module.
 ///
 /// # Errors

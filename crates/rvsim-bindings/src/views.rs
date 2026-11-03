@@ -66,7 +66,8 @@ fn csr_name_to_addr(name: &str) -> Option<u32> {
 
 /// Subscript register access returned by `cpu.regs` and `cpu.harts[n].regs`.
 ///
-/// ``cpu.harts[0].regs[10]`` reads x10. ``cpu.harts[0].regs[10] = v`` writes x10.
+/// ``cpu.harts[0].regs[10]`` reads x10. ``cpu.harts[0].regs[10] = v`` writes x10
+/// and drops what the pipeline has in flight, as setting the PC does.
 #[pyclass(name = "Registers", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Registers {
@@ -89,7 +90,7 @@ impl Registers {
         if idx >= 32 {
             return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
         }
-        self.cpu.borrow_mut(py).inner.hart_mut(self.hart).regs.write(RegIdx::new(idx as u8), value);
+        self.cpu.borrow_mut(py).inner.set_reg(self.hart, RegIdx::new(idx as u8), value);
         Ok(())
     }
 

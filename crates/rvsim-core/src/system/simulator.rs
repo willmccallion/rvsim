@@ -294,7 +294,8 @@ impl Simulator {
     }
 
     /// Hart `hart`'s architectural state, to change it. Use
-    /// [`Self::set_pc`] for the PC, which the pipeline must hear about.
+    /// [`Self::set_pc`] for the PC and [`Self::set_reg`] for an integer
+    /// register, which the pipeline must hear about.
     ///
     /// # Panics
     ///
@@ -640,10 +641,26 @@ impl Simulator {
     /// everything its pipeline had in flight is dropped.
     pub fn set_pc(&mut self, hart: usize, pc: u64) {
         self.state.harts[hart].pc = pc;
+        self.restart_from_architectural_state(hart);
+    }
+
+    /// Writes integer register `reg` of `hart`. Everything its pipeline had
+    /// in flight is dropped, so the next instruction to run reads `value`.
+    pub fn set_reg(&mut self, hart: usize, reg: reg::RegIdx, value: u64) {
+        self.state.harts[hart].regs.write(reg, value);
+        self.restart_from_architectural_state(hart);
+    }
+
+    /// Drops everything `hart`'s pipeline has in flight and resumes it from
+    /// the hart's architectural registers and PC.
+    fn restart_from_architectural_state(&mut self, hart: usize) {
         let hart_id = self.state.harts[hart].hart_id;
         let Some(core) = self.state.topology.core_of_hart(hart_id) else { return };
         let (pipeline, mut ctx) = self.state.pipeline_ctx(core.as_index());
         pipeline.flush(&mut ctx);
+        if let PipelineDispatch::OutOfOrder(p) = pipeline {
+            p.engine.sync_arch_regs(&ctx);
+        }
     }
 
     /// Runs at least one cycle, then until one of `stop`'s conditions
