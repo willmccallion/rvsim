@@ -1,6 +1,6 @@
 # Branch Prediction
 
-rvsim implements six pluggable branch predictors with shared infrastructure. The predictor is consulted during Fetch1 for the control instructions the BTB holds, and at decode for the rest, to steer the instruction stream speculatively.
+rvsim implements seven pluggable branch predictors with shared infrastructure. The predictor is consulted during Fetch1 for the control instructions the BTB holds, and at decode for the rest, to steer the instruction stream speculatively.
 
 ## Prediction Unit
 
@@ -102,6 +102,10 @@ Always predicts not-taken. Useful as a baseline for measuring how much a predict
 
 XOR of the branch PC and the global history register indexes into a table of 2-bit saturating counters. Simple and effective for workloads with strong global correlation.
 
+### BHT
+
+Rocket's branch history table: saturating counters indexed by the fetch PC, with a hash of the global history placed above the PC bits. The Rocket preset uses it as Rocket does: 512 one-bit counters and 8 bits of history hashed to 3.
+
 ### Tournament
 
 gem5's `TournamentBP`, the Alpha 21264 predictor, with three components:
@@ -153,21 +157,22 @@ Configurable parameters: all TAGE parameters plus the `loop_*` loop predictor pa
 
 `examples/analysis/branch_predict.py` runs every predictor over four of
 the bundled programs. With the default configuration at width 4 (the
-out-of-order backend, 32 KiB L1s, a 256 KiB L2), measured in October 2026:
+out-of-order backend, 32 KiB L1s, a 256 KiB L2), measured in November 2026:
 
 | Predictor | Committed accuracy | IPC | Mispredictions | Speedup over Static |
 |-----------|-------------------:|----:|---------------:|--------------------:|
-| Static | 41.0% | 0.52 | 2,199,871 | 1.00× |
-| GShare | 87.6% | 1.21 | 463,877 | 2.25× |
-| Tournament | 88.4% | 1.24 | 431,322 | 2.29× |
-| TAGE | 89.3% | 1.27 | 397,772 | 2.31× |
-| Perceptron | 89.5% | 1.28 | 392,954 | 2.32× |
-| SC-L-TAGE | 90.1% | 1.29 | 370,322 | 2.34× |
+| Static | 44.6% | 0.60 | 2,204,029 | 1.00× |
+| BHT | 85.9% | 1.27 | 562,405 | 1.96× |
+| GShare | 88.4% | 1.37 | 463,215 | 2.09× |
+| Tournament | 89.1% | 1.41 | 435,089 | 2.14× |
+| TAGE | 89.9% | 1.44 | 401,013 | 2.18× |
+| Perceptron | 90.0% | 1.45 | 397,593 | 2.16× |
+| SC-L-TAGE | 90.6% | 1.47 | 372,798 | 2.21× |
 
 Accuracy, IPC and mispredictions are aggregated over the four programs;
 the speedup is the geometric mean of each program's cycle ratio. On
 `qsort`, whose data-dependent comparisons dominate, SC-L-TAGE makes 7% fewer
-mispredictions than TAGE and 19% fewer than GShare. The programs are small,
+mispredictions than TAGE and 18% fewer than GShare. The programs are small,
 so the larger predictors have little time to warm up; longer workloads
 separate them further. Regenerate the numbers for your own programs and
 widths:
