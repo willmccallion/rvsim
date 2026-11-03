@@ -9,7 +9,7 @@ use crate::exec::retire;
 use crate::exec::signals::ControlFlow;
 use crate::isa::csr;
 use crate::isa::op::pseudo::PseudoOp;
-use crate::isa::op::{MemWidth, SystemOp};
+use crate::isa::op::{MemWidth, SystemOp, VectorOp};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 use crate::soc::uncore::SimOp;
@@ -265,6 +265,9 @@ fn write_destinations(
             registers.retire_vec(state.hart.regs.vpr_mut(), entry, i, vreg);
         }
         retire::mark_vector_retired(state.hart);
+    }
+    if entry.ctrl.vec_op != VectorOp::None {
+        retire::finish_vector_instruction(state.hart);
     }
 }
 
