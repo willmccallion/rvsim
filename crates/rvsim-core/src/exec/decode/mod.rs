@@ -86,6 +86,10 @@ pub fn decode_inst(inst: u32, pc: u64, vtype_bits: u64) -> DecodedInst {
     DecodedInst { fields, ctrl, trap }
 }
 
+const fn is_whole_register_access(op: VectorOp) -> bool {
+    matches!(op, VectorOp::VLoadWholeReg | VectorOp::VStoreWholeReg)
+}
+
 /// Whether a vector instruction's register groups break RVV 1.0 §3.4.2
 /// under `vtype`: each group must start at a multiple of its size and fit
 /// within v0..v31. Memory operations align each field's group and must fit
@@ -101,7 +105,10 @@ fn vector_groups_misaligned(ctrl: &ControlSignals, vtype: VtypeFields) -> bool {
             vec_mem_dst_count(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
         let (data_emul, index_emul) =
             vec_mem_emul_regs(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul);
-        let vd_misaligned = data_emul > 1 && !vd.is_multiple_of(data_emul);
+        // A whole-register access's registers must start at a multiple of
+        // their count (RVV 1.0 §7.9).
+        let alignment = if is_whole_register_access(ctrl.vec_op) { total } else { data_emul };
+        let vd_misaligned = alignment > 1 && !vd.is_multiple_of(alignment);
         return vd_misaligned || vd.saturating_add(total) > 32 || misaligned(vs2, index_emul);
     }
     let groups = ctrl.vec_op.operand_groups(
