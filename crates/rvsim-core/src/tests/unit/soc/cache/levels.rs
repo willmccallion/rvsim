@@ -493,6 +493,21 @@ fn requests_queue_while_mshrs_are_full_and_retry_after_a_fill() {
 }
 
 #[test]
+fn fifo_evicts_the_oldest_line_even_after_a_hit_on_it() {
+    let config = CacheConfig { policy: ReplacementPolicyKind::Fifo, ..test_config() };
+    let mut bench = Bench::new(cache_with(&config));
+    bench.install(1, 0x1000, MemOp::Read);
+    bench.install(2, 0x1080, MemOp::Read);
+    bench.read(3, 0x1000);
+    let _ = bench.drain();
+
+    bench.install(4, 0x1100, MemOp::Read);
+
+    let kept = [0x1000, 0x1080, 0x1100].map(|addr| bench.cache.contains(addr));
+    assert_eq!(kept, [false, true, true], "0x1000 went in first, so it goes out first");
+}
+
+#[test]
 fn an_mshr_holding_its_target_limit_blocks_the_cache_until_its_fill() {
     let mut config = test_config();
     config.targets_per_mshr = count(2);
