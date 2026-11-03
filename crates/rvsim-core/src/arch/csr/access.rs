@@ -70,5 +70,6 @@ impl Hart {
         ) || (raw >= csr::PMPADDR0.as_u32() && raw <= csr::PMPADDR15.as_u32())
             || (raw >= csr::MHPMEVENT3.as_u32() && raw <= csr::MHPMEVENT31.as_u32())
             || (raw >= csr::MHPMCOUNTER3.as_u32() && raw <= csr::MHPMCOUNTER31.as_u32())
+            || (raw >= csr::HPMCOUNTER3.as_u32() && raw <= csr::HPMCOUNTER31.as_u32())
     }
 }
