@@ -61,15 +61,15 @@ pub fn fetch2_stage(
 
         let phys_addr = f1.paddr.val();
         let half_word = read_inst_half(state, phys_addr);
-        let is_compressed =
-            instruction_size(half_word, state.hart().csrs.misa) == InstSize::Compressed;
+        let size = instruction_size(half_word, state.hart().csrs.misa);
+        let is_compressed = matches!(size, InstSize::Compressed(_));
 
         let (inst, step, inst_trap) = if is_compressed {
             let expanded = expand(half_word);
             if expanded == 0 {
-                (0, InstSize::Compressed, Some(Trap::IllegalInstruction(half_word as u32)))
+                (0, size, Some(Trap::IllegalInstruction(half_word as u32)))
             } else {
-                (expanded, InstSize::Compressed, None)
+                (expanded, size, None)
             }
         } else {
             let upper_paddr = f1.upper_paddr.unwrap_or_else(|| PhysAddr::new(phys_addr + 2));
