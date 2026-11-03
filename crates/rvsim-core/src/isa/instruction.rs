@@ -10,8 +10,9 @@ use crate::isa::reg::RegIdx;
 /// The size of an instruction in bytes (2 for compressed RVC, 4 for standard RV64).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum InstSize {
-    /// 16-bit compressed instruction (RVC).
-    Compressed,
+    /// 16-bit compressed instruction (RVC), with its encoding: the pipeline
+    /// runs its 32-bit expansion, but a trap reports the bits fetched.
+    Compressed(u16),
     /// 32-bit standard instruction.
     #[default]
     Standard,
@@ -22,7 +23,7 @@ impl InstSize {
     #[must_use]
     pub const fn as_u64(self) -> u64 {
         match self {
-            Self::Compressed => 2,
+            Self::Compressed(_) => 2,
             Self::Standard => 4,
         }
     }
@@ -41,7 +42,7 @@ pub const fn is_compressed(low_half: u16) -> bool {
 #[must_use]
 pub const fn instruction_size(low_half: u16, misa: u64) -> InstSize {
     if misa & MISA_EXT_C != 0 && is_compressed(low_half) {
-        InstSize::Compressed
+        InstSize::Compressed(low_half)
     } else {
         InstSize::Standard
     }

@@ -7,6 +7,7 @@ use crate::arch::translation::PteUpdate;
 use crate::common::PhysAddr;
 use crate::exec::retire;
 use crate::isa::fence::Fence;
+use crate::isa::instruction::InstSize;
 use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::privileged::Trap;
 use crate::system::process::ThreadNotice;
@@ -233,7 +234,18 @@ fn take_fault(
     }
     // Faulting entry was popped before the post-trap flush, so reclaim its phys_dst here.
     registers.reclaim_faulted(&entry);
-    schedule_trap(state, common, the_trap.clone(), entry.pc)
+    schedule_trap(state, common, as_fetched(the_trap, entry.inst_size), entry.pc)
+}
+
+/// `trap` as the hart reports it: an illegal compressed instruction's
+/// `tval` is its 16 bits, not the expansion the pipeline ran.
+fn as_fetched(trap: &Trap, size: InstSize) -> Trap {
+    match (trap, size) {
+        (Trap::IllegalInstruction(_), InstSize::Compressed(bits)) => {
+            Trap::IllegalInstruction(u32::from(bits))
+        }
+        _ => trap.clone(),
+    }
 }
 
 /// True when the LR at the ROB head read its line before another hart

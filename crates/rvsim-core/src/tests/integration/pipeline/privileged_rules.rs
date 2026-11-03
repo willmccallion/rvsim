@@ -23,6 +23,10 @@ const RAN: u64 = 99;
 const PMP_TOR_RWX: u8 = 0b0000_1111;
 /// `sfence.vma x0, x0`.
 const SFENCE_VMA: u32 = 0x1200_0073;
+/// `c.fld f8, 0(x8)` then `c.nop`: an RV64C encoding of a D instruction.
+const C_FLD_THEN_C_NOP: u32 = 0x0001_2000;
+const C_FLD: u64 = 0x2000;
+const JAL_SELF: u32 = 0x0000_006F;
 const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrder];
 
 /// What a run left behind: `mcause` and `mtval` as the handler recorded
@@ -40,10 +44,11 @@ fn handler() -> Vec<u32> {
     vec![i().csrrs(A2, MCAUSE, 0).build(), i().csrrs(A3, MTVAL, 0).build(), i().jal(0, 0).build()]
 }
 
-fn context(backend: BackendKind, program: &[u32]) -> TestContext {
+fn context(backend: BackendKind, isa: Option<&str>, program: &[u32]) -> TestContext {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
+    config.isa.string = isa.map(str::to_owned);
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     for (n, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(HANDLER + 4 * n as u64), u64::from(*word), 4);
@@ -66,7 +71,7 @@ fn run(mut ctx: TestContext) -> Outcome {
 fn run_at(backend: BackendKind, privilege: PrivilegeMode, inst: u32) -> Outcome {
     let i = InstructionBuilder::new;
     let program = [inst, i().addi(A1, 0, RAN as i32).build(), i().jal(0, 0).build()];
-    let mut ctx = context(backend, &program);
+    let mut ctx = context(backend, None, &program);
     let hart = &mut ctx.sim.state.harts[0];
     hart.pmp.set_addr(0, u64::MAX >> 10);
     hart.pmp.set_cfg(0, PMP_TOR_RWX);
@@ -114,7 +119,7 @@ fn fs_after_zero_valued_csrrs_of_fflags(backend: BackendKind) -> u64 {
     let i = InstructionBuilder::new;
     let csrrs = i().csrrs(0, FFLAGS, T1).build();
     let program = [csrrs, i().addi(A1, 0, RAN as i32).build(), i().jal(0, 0).build()];
-    let mut ctx = context(backend, &program);
+    let mut ctx = context(backend, None, &program);
     let mstatus = &mut ctx.sim.state.harts[0].csrs.mstatus;
     *mstatus = (*mstatus & !MSTATUS_FS) | MSTATUS_FS_INIT;
     ctx.sim.sync_arch_regs();
@@ -145,4 +150,14 @@ fn hpmcounter3_is_illegal_in_user_mode_while_mcounteren_hides_it() {
     let mcauses = BACKENDS.map(|backend| run_at(backend, PrivilegeMode::User, read).mcause);
 
     assert_eq!(mcauses, [ILLEGAL_INSTRUCTION; 2], "[InOrder, OutOfOrder]");
+}
+
+#[test]
+fn mtval_of_an_illegal_compressed_instruction_holds_its_sixteen_bits() {
+    let traps = BACKENDS.map(|backend| {
+        let outcome = run(context(backend, Some("RV64IMAFC"), &[C_FLD_THEN_C_NOP, JAL_SELF]));
+        (outcome.mcause, outcome.mtval)
+    });
+
+    assert_eq!(traps, [(ILLEGAL_INSTRUCTION, C_FLD); 2], "[InOrder, OutOfOrder]");
 }

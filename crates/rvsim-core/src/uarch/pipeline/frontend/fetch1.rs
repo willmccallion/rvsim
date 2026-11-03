@@ -397,7 +397,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let mut line = LineAddr::from_phys(paddr, line_bytes);
         let half_word = read_inst_half(state, phys_addr);
         let step = instruction_size(half_word, state.hart().csrs.misa);
-        let is_compressed = step == InstSize::Compressed;
+        let is_compressed = matches!(step, InstSize::Compressed(_));
 
         // A 32-bit instruction whose upper half lies in the next line
         // completes only when that line arrives: it heads a group that
