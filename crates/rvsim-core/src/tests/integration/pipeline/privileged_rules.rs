@@ -17,6 +17,7 @@ const MCAUSE: u32 = 0x342;
 const MTVAL: u32 = 0x343;
 const CYCLE: u32 = 0xC00;
 const FFLAGS: u32 = 0x001;
+const HPMCOUNTER3: u32 = 0xC03;
 const ILLEGAL_INSTRUCTION: u64 = 2;
 const RAN: u64 = 99;
 const PMP_TOR_RWX: u8 = 0b0000_1111;
@@ -126,4 +127,22 @@ fn csrrs_with_a_zero_valued_rs1_other_than_x0_still_writes_fflags() {
     let fs = BACKENDS.map(fs_after_zero_valued_csrrs_of_fflags);
 
     assert_eq!(fs, [MSTATUS_FS_DIRTY; 2], "[InOrder, OutOfOrder]: the write dirties FS");
+}
+
+#[test]
+fn hpmcounter3_reads_in_machine_mode_when_zihpm_is_advertised() {
+    let read = InstructionBuilder::new().csrrs(A2, HPMCOUNTER3, 0).build();
+
+    let outcomes = BACKENDS.map(|backend| run_at(backend, PrivilegeMode::Machine, read));
+
+    assert!(outcomes.iter().all(|o| o.ran_on), "[InOrder, OutOfOrder]: {outcomes:?}");
+}
+
+#[test]
+fn hpmcounter3_is_illegal_in_user_mode_while_mcounteren_hides_it() {
+    let read = InstructionBuilder::new().csrrs(A2, HPMCOUNTER3, 0).build();
+
+    let mcauses = BACKENDS.map(|backend| run_at(backend, PrivilegeMode::User, read).mcause);
+
+    assert_eq!(mcauses, [ILLEGAL_INSTRUCTION; 2], "[InOrder, OutOfOrder]");
 }

@@ -308,20 +308,15 @@ const fn csr_op_writes(op: CsrOp, rs1_field: u8) -> bool {
     }
 }
 
-/// True when `mcounteren`/`scounteren` hide the CYCLE, TIME or INSTRET
-/// counter `id` reads from the current privilege level.
+/// True when `mcounteren`/`scounteren` hide the user-level counter `inst`
+/// reads (`cycle`, `time`, `instret` or an `hpmcounter`) from the current
+/// privilege level; counter `n` is enabled by bit `n`.
 fn counter_access_denied(state: &impl ArchState, inst: &Inst) -> bool {
-    let addr = inst.ctrl.csr_addr;
-    let bit = if addr == csr::CYCLE {
-        0
-    } else if addr == csr::TIME {
-        1
-    } else if addr == csr::INSTRET {
-        2
-    } else {
+    let raw = inst.ctrl.csr_addr.as_u32();
+    if !(csr::CYCLE.as_u32()..=csr::HPMCOUNTER31.as_u32()).contains(&raw) {
         return false;
-    };
-    let mask = 1u64 << bit;
+    }
+    let mask = 1u64 << (raw - csr::CYCLE.as_u32());
     let csrs = &state.hart().csrs;
     match state.hart().privilege {
         PrivilegeMode::Supervisor => csrs.mcounteren & mask == 0,

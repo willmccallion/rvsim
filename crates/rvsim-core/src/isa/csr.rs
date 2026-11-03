@@ -262,6 +262,12 @@ pub const MHPMCOUNTER3: CsrAddr = CsrAddr::from_u32(0xB03);
 /// Last machine hardware performance-monitoring counter (mhpmcounter31).
 pub const MHPMCOUNTER31: CsrAddr = CsrAddr::from_u32(0xB1F);
 
+/// First user-level view of a performance counter (hpmcounter3).
+pub const HPMCOUNTER3: CsrAddr = CsrAddr::from_u32(0xC03);
+
+/// Last user-level view of a performance counter (hpmcounter31).
+pub const HPMCOUNTER31: CsrAddr = CsrAddr::from_u32(0xC1F);
+
 /// Supervisor status register CSR address.
 pub const SSTATUS: CsrAddr = CsrAddr::from_u32(0x100);
 
