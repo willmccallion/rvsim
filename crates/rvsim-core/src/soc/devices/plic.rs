@@ -66,6 +66,9 @@ pub struct Plic {
     priorities: Vec<u32>,
     /// Pending interrupt bits (bitmap).
     pending: Vec<u32>,
+    /// Sources claimed and not yet completed (bitmap). Their gateways
+    /// forward nothing new until completion, however their lines stand.
+    claimed: Vec<u32>,
     /// Interrupt enable bits per context: enables[ctx][word].
     enables: Vec<Vec<u32>>,
     /// Priority thresholds per context.
@@ -88,6 +91,8 @@ pub struct PlicState {
     pub priorities: Vec<u32>,
     /// Pending bitmap words.
     pub pending: Vec<u32>,
+    /// Claimed-and-not-completed bitmap words.
+    pub claimed: Vec<u32>,
     /// Per-context enable words.
     pub enables: Vec<Vec<u32>>,
     /// Per-context thresholds.
@@ -103,6 +108,7 @@ impl Plic {
         PlicState {
             priorities: self.priorities.clone(),
             pending: self.pending.clone(),
+            claimed: self.claimed.clone(),
             enables: self.enables.clone(),
             thresholds: self.thresholds.clone(),
             claims: self.claims.clone(),
@@ -119,6 +125,7 @@ impl Plic {
         }
         copy(&mut self.priorities, &state.priorities);
         copy(&mut self.pending, &state.pending);
+        copy(&mut self.claimed, &state.claimed);
         for (into, from) in self.enables.iter_mut().zip(&state.enables) {
             copy(into, from);
         }
@@ -134,6 +141,7 @@ impl Plic {
             base_addr,
             priorities: vec![0; NUM_SOURCES],
             pending: vec![0; NUM_SOURCES / 32],
+            claimed: vec![0; NUM_SOURCES / 32],
             enables: vec![vec![0u32; ENABLE_WORDS_PER_CONTEXT]; contexts],
             thresholds: vec![0; contexts],
             claims: vec![0; contexts],
@@ -188,7 +196,7 @@ impl Plic {
         let mut max_id = 0;
 
         for word in 0..num_words {
-            let active = self.pending[word] & self.enables[ctx][word];
+            let active = self.pending[word] & !self.claimed[word] & self.enables[ctx][word];
             if active == 0 {
                 continue;
             }
@@ -210,14 +218,34 @@ impl Plic {
     }
 
     fn clear_pending(&mut self, irq_id: u32) {
-        if irq_id > 0 && (irq_id as usize) < NUM_SOURCES {
-            let idx = irq_id as usize / 32;
-            let bit = 1u32 << (irq_id % 32);
-            if idx < self.pending.len() {
-                self.pending[idx] &= !bit;
-            }
+        if let Some((word, bit)) = source_bit(irq_id) {
+            self.pending[word] &= !bit;
         }
     }
+
+    /// Hands source `irq_id` to the context that claimed it.
+    fn claim(&mut self, irq_id: u32) {
+        if let Some((word, bit)) = source_bit(irq_id) {
+            self.pending[word] &= !bit;
+            self.claimed[word] |= bit;
+        }
+    }
+
+    /// Lets source `irq_id`'s gateway forward requests again.
+    fn complete(&mut self, irq_id: u32) {
+        if let Some((word, bit)) = source_bit(irq_id) {
+            self.claimed[word] &= !bit;
+        }
+    }
+}
+
+/// The bitmap word and bit of source `irq_id`; `None` for source 0, which
+/// does not exist, and ids past the last source.
+const fn source_bit(irq_id: u32) -> Option<(usize, u32)> {
+    if irq_id == 0 || irq_id as usize >= NUM_SOURCES {
+        return None;
+    }
+    Some((irq_id as usize / 32, 1 << (irq_id % 32)))
 }
 
 impl Plic {
@@ -249,7 +277,7 @@ impl Plic {
                 }
                 if reg == 4 {
                     let irq_id = self.claims[ctx];
-                    self.clear_pending(irq_id);
+                    self.claim(irq_id);
                     return irq_id;
                 }
             }
@@ -280,6 +308,7 @@ impl Plic {
                 }
                 if reg == 4 {
                     self.clear_pending(val);
+                    self.complete(val);
                     self.claims[ctx] = 0;
                 }
             }

@@ -1,7 +1,8 @@
 //! PLIC claim/complete flow tests.
 
-use crate::common::HartId;
+use crate::common::{HartId, PhysAddr};
 use crate::soc::devices::plic::Plic;
+use crate::tests::support::probe::{read, write};
 
 /// Recomputes the PLIC's outputs and lets them reach the harts: a change
 /// becomes visible three cycles after it is computed.
@@ -153,4 +154,50 @@ fn plic_lines_change_three_cycles_after_the_source() {
     plic.check_interrupts();
 
     assert!(plic.hart_lines(HartId::new(0)).meip, "visible on the fourth cycle");
+}
+
+/// One cycle of the bus driving a level-triggered source: the line's
+/// level, then the recomputed outputs.
+fn hold_line_high(plic: &mut Plic, source: u32) {
+    for _ in 0..4 {
+        plic.update_irqs(1 << source);
+        plic.check_interrupts();
+    }
+}
+
+const SOURCE: u32 = 1;
+const HART0_M_CLAIM: u64 = 0x20_0004;
+const HART1_M_CLAIM: u64 = 0x20_2004;
+
+/// Two harts' M contexts with `SOURCE` enabled at priority 1, its line high.
+fn two_harts_sharing_a_raised_source() -> Plic {
+    let mut plic = Plic::new(0, 2);
+    write(&mut plic, PhysAddr::new(4 * u64::from(SOURCE)), 1, 4);
+    write(&mut plic, PhysAddr::new(0x2000), 1 << SOURCE, 4);
+    write(&mut plic, PhysAddr::new(0x2000 + 2 * 0x80), 1 << SOURCE, 4);
+    hold_line_high(&mut plic, SOURCE);
+    plic
+}
+
+#[test]
+fn a_claimed_level_triggered_source_cannot_be_claimed_again_before_completion() {
+    let mut plic = two_harts_sharing_a_raised_source();
+    let first = read(&mut plic, PhysAddr::new(HART0_M_CLAIM), 4);
+
+    hold_line_high(&mut plic, SOURCE);
+    let second = read(&mut plic, PhysAddr::new(HART1_M_CLAIM), 4);
+
+    assert_eq!((first, second), (u64::from(SOURCE), 0), "(hart 0 claim, hart 1 claim)");
+}
+
+#[test]
+fn a_source_still_raised_after_completion_can_be_claimed_again() {
+    let mut plic = two_harts_sharing_a_raised_source();
+    let claimed = read(&mut plic, PhysAddr::new(HART0_M_CLAIM), 4);
+    write(&mut plic, PhysAddr::new(HART0_M_CLAIM), claimed, 4);
+
+    hold_line_high(&mut plic, SOURCE);
+    let again = read(&mut plic, PhysAddr::new(HART1_M_CLAIM), 4);
+
+    assert_eq!(again, u64::from(SOURCE));
 }
