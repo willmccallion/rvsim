@@ -75,7 +75,11 @@ pub fn decode_inst(inst: u32, pc: u64, vtype_bits: u64) -> DecodedInst {
         ctrl.reg_write = true;
     }
     let vtype = parse_vtype(vtype_bits);
-    if ctrl.vec_op != VectorOp::None && !ctrl.vec_op.is_config() && !vtype.vill {
+    if trap.is_none() && vtype.vill && ctrl.vec_op.depends_on_vtype() {
+        ctrl = ControlSignals::default();
+        trap = Some(Trap::IllegalInstruction(inst));
+    }
+    if ctrl.vec_op != VectorOp::None && !ctrl.vec_op.is_config() {
         ctrl.vec_lmul_regs = vtype.vlmul.group_regs().regs();
         ctrl.vec_lmul_is_fractional = vtype.vlmul.is_fractional();
         if trap.is_none() && vector_groups_misaligned(&ctrl, vtype) {

@@ -81,7 +81,7 @@ impl O3Engine {
         let is_mem = is_vec_load(id.inst.ctrl.vec_op) || is_vec_store(id.inst.ctrl.vec_op);
         if is_mem {
             let vtype = parse_vtype(vector.vtype);
-            if !vtype.vill {
+            if !vtype.vill || !id.inst.ctrl.vec_op.depends_on_vtype() {
                 grp.vd = vec_mem_dst_count(
                     id.inst.ctrl.vec_op,
                     id.inst.ctrl.vec_eew,

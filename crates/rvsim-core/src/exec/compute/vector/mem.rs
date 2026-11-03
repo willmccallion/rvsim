@@ -210,7 +210,7 @@ pub fn element_accesses<V: VectorRegFile>(
     vec_op: VectorOp,
 ) -> Vec<ElementAccess> {
     let vtype = parse_vtype(vtype_bits);
-    if vtype.vill {
+    if vtype.vill && vec_op.depends_on_vtype() {
         return Vec::new();
     }
 

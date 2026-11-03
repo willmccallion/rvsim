@@ -529,6 +529,26 @@ impl VectorOp {
         matches!(self, Self::Vsetvli | Self::Vsetivli | Self::Vsetvl)
     }
 
+    /// True for every vector op `vtype` governs, which therefore traps
+    /// while `vtype.vill` is set (RVV 1.0 §3.4.4): all but the
+    /// configuration ops and the whole-register loads, stores and moves.
+    #[must_use]
+    pub const fn depends_on_vtype(self) -> bool {
+        !matches!(
+            self,
+            Self::None
+                | Self::Vsetvli
+                | Self::Vsetivli
+                | Self::Vsetvl
+                | Self::VLoadWholeReg
+                | Self::VStoreWholeReg
+                | Self::VMv1r
+                | Self::VMv2r
+                | Self::VMv4r
+                | Self::VMv8r
+        )
+    }
+
     /// True for the ops that execute even when `vstart` ≥ `vl`: those that
     /// write an `x` or `f` register, and the whole-register moves, which
     /// ignore `vl`. Every other op then updates no destination element.

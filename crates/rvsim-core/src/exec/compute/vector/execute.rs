@@ -70,10 +70,10 @@ const fn build_operand1(inst: &Inst) -> VecOperand {
 /// vector instruction that depends on vtype will raise an illegal-instruction
 /// exception."
 #[inline]
-const fn check_vill(inst: u32, vtype_bits: u64, elen: usize) -> Result<(), Trap> {
+const fn check_vill(inst: &Inst, vtype_bits: u64, elen: usize) -> Result<(), Trap> {
     let vtype = parse_vtype_with_elen(vtype_bits, elen);
-    if vtype.vill {
-        return Err(Trap::IllegalInstruction(inst));
+    if vtype.vill && inst.ctrl.vec_op.depends_on_vtype() {
+        return Err(Trap::IllegalInstruction(inst.bits));
     }
     Ok(())
 }
@@ -169,7 +169,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     zvfh: bool,
     inst: &Inst,
 ) -> Result<VecExecResult, Trap> {
-    check_vill(inst.bits, vtype_bits, elen)?;
+    check_vill(inst, vtype_bits, elen)?;
     let vtype = parse_vtype_with_elen(vtype_bits, elen);
     check_widening_lmul(inst.bits, inst.ctrl.vec_op, vtype.vlmul)?;
 

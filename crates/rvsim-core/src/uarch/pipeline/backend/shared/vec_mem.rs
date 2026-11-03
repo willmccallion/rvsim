@@ -164,7 +164,7 @@ pub fn expected_load_micro_ops(
     vlen: Vlen,
     width: usize,
 ) -> usize {
-    if parse_vtype(config.vtype).vill {
+    if parse_vtype(config.vtype).vill && ctrl.vec_op.depends_on_vtype() {
         return 1;
     }
     let body = config.vl.saturating_sub(config.vstart) as usize;
