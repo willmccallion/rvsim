@@ -482,7 +482,7 @@ impl Cache {
         let tag = self.tag_of(addr);
         self.lines[set_index * self.ways + way] =
             CacheLine { tag, state, upper: 0, prefetched: false };
-        self.policy.update(set_index, way);
+        self.policy.insert(set_index, way);
     }
 
     /// True when this cache, exclusive of the caches above it, fetched the
@@ -577,7 +577,7 @@ impl Cache {
             mshr.prefetch && mshr.targets.is_empty() && mshr.deferred.is_empty();
         let prefetched = unrequested_prefetch || kept.is_some_and(|line| line.prefetched);
         self.lines[index] = CacheLine { tag, state, upper, prefetched };
-        self.policy.update(set_index, way);
+        self.policy.insert(set_index, way);
         state
     }
 

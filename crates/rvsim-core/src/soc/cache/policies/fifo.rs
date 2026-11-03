@@ -1,16 +1,17 @@
 //! First-In, First-Out (FIFO) Replacement Policy.
 //!
-//! This policy evicts the oldest cache line in a set, regardless of how recently
-//! it was accessed. It operates as a circular buffer (Round-Robin) for each set.
-//! When a replacement is needed, the pointer advances to the next way.
+//! This policy evicts the line installed longest ago in a set, however
+//! recently it was accessed: hits do not change the order, only fills do.
+//! A way refilled out of turn, as after an invalidation, becomes the
+//! newest line of its set.
 //!
 //! # Performance
 //!
 //! - **Time Complexity:**
-//!   - `update()`: O(1)
-//!   - `get_victim()`: O(1)
-//! - **Space Complexity:** O(S) where S is the number of sets
-//! - **Hardware Cost:** Minimal - single counter per set
+//!   - `update()`, `insert()`: O(1)
+//!   - `get_victim()`: O(W) where W is the associativity
+//! - **Space Complexity:** O(S × W) where S is the number of sets
+//! - **Hardware Cost:** An insertion order per set
 //! - **Best Case:** Streaming accesses where all lines have equal importance
 //! - **Worst Case:** Workloads with strong temporal locality (may evict frequently-used lines)
 
@@ -19,8 +20,11 @@ use super::ReplacementPolicy;
 /// FIFO Policy state.
 #[derive(Debug)]
 pub struct FifoPolicy {
-    /// Tracks the next way to be evicted for each set.
-    next_way: Vec<usize>,
+    /// When each way's line was installed, as `inserted_at[set * ways + way]`;
+    /// 0 for a way never filled.
+    inserted_at: Vec<u64>,
+    /// The stamp the next installed line gets.
+    next_stamp: u64,
     /// Number of ways in the cache.
     ways: usize,
 }
@@ -33,26 +37,24 @@ impl FifoPolicy {
     /// * `sets` - The number of sets in the cache.
     /// * `ways` - The associativity (number of ways) of the cache.
     pub fn new(sets: usize, ways: usize) -> Self {
-        Self { next_way: vec![0; sets], ways }
+        Self { inserted_at: vec![0; sets * ways], next_stamp: 1, ways }
     }
 }
 
 impl ReplacementPolicy for FifoPolicy {
-    /// Updates the policy state.
-    ///
-    /// For FIFO, if the accessed way matches the current eviction pointer,
-    /// the pointer is advanced. This ensures the "first-in" order is maintained
-    /// as lines are filled.
-    fn update(&mut self, set: usize, way: usize) {
-        if self.next_way[set] == way {
-            self.next_way[set] = (self.next_way[set] + 1) % self.ways;
-        }
+    /// A hit leaves the insertion order as it is.
+    fn update(&mut self, _set: usize, _way: usize) {}
+
+    /// Makes `way`'s line the newest of its set.
+    fn insert(&mut self, set: usize, way: usize) {
+        self.inserted_at[set * self.ways + way] = self.next_stamp;
+        self.next_stamp += 1;
     }
 
-    /// Identifies the victim way to evict.
-    ///
-    /// Returns the current round-robin pointer for the specified set.
+    /// Identifies the victim way to evict: the one installed longest ago,
+    /// the lowest-numbered among ways never filled.
     fn get_victim(&mut self, set: usize) -> usize {
-        self.next_way[set]
+        let stamps = &self.inserted_at[set * self.ways..(set + 1) * self.ways];
+        (0..self.ways).min_by_key(|&way| stamps[way]).unwrap_or(0)
     }
 }

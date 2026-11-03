@@ -40,6 +40,12 @@ pub trait ReplacementPolicy: Send + Sync {
     /// * `way` - The way index within the set that was accessed.
     fn update(&mut self, set: usize, way: usize);
 
+    /// Updates the policy state when a line is installed in `way`; for a
+    /// policy that orders lines by use, the same as an access.
+    fn insert(&mut self, set: usize, way: usize) {
+        self.update(set, way);
+    }
+
     /// Selects a victim line to evict from a specific set.
     ///
     /// # Arguments

@@ -109,65 +109,44 @@ fn lru_two_way() {
     assert_eq!(policy.get_victim(0), 1);
 }
 
-/// FIFO pointer starts at 0 and advances through all ways round-robin.
+/// Filling every way in order evicts them in the same order.
 #[test]
-fn fifo_round_robin_eviction_order() {
+fn fifo_evicts_in_insertion_order() {
     let mut policy = FifoPolicy::new(1, 4);
+    let mut victims = Vec::new();
 
-    // Simulate 4 fills: get_victim returns current pointer, update advances it.
-    assert_eq!(policy.get_victim(0), 0);
-    policy.update(0, 0);
+    for _ in 0..5 {
+        let victim = policy.get_victim(0);
+        victims.push(victim);
+        policy.insert(0, victim);
+    }
 
-    assert_eq!(policy.get_victim(0), 1);
-    policy.update(0, 1);
-
-    assert_eq!(policy.get_victim(0), 2);
-    policy.update(0, 2);
-
-    assert_eq!(policy.get_victim(0), 3);
-    policy.update(0, 3);
-
-    // Wraps around to 0.
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(victims, [0, 1, 2, 3, 0]);
 }
 
-/// Accessing a way that is NOT the current pointer does not advance it.
+/// A hit, even on the oldest line, does not change the order.
 #[test]
-fn fifo_access_non_head_ignored() {
-    let mut policy = FifoPolicy::new(1, 4);
-
-    // Pointer at 0. Accessing way 2 (a hit) doesn't advance.
-    policy.update(0, 2);
-    assert_eq!(policy.get_victim(0), 0);
-
-    policy.update(0, 3);
-    assert_eq!(policy.get_victim(0), 0);
-}
-
-/// Accessing the current pointer advances it (simulates cache fill at that way).
-#[test]
-fn fifo_access_head_advances_pointer() {
-    let mut policy = FifoPolicy::new(1, 4);
-
-    // Pointer at 0. Fill way 0 → pointer moves to 1.
-    policy.update(0, 0);
-    assert_eq!(policy.get_victim(0), 1);
-
-    // Hit on way 0 again → pointer stays at 1.
-    policy.update(0, 0);
-    assert_eq!(policy.get_victim(0), 1);
-}
-
-/// FIFO wraps correctly for small associativity.
-#[test]
-fn fifo_wraps_two_way() {
+fn fifo_ignores_hits() {
     let mut policy = FifoPolicy::new(1, 2);
+    policy.insert(0, 0);
+    policy.insert(0, 1);
+
+    policy.update(0, 0);
 
     assert_eq!(policy.get_victim(0), 0);
-    policy.update(0, 0);
+}
+
+/// A way refilled out of turn, as after an invalidation, becomes the newest.
+#[test]
+fn fifo_counts_a_refilled_way_as_newest() {
+    let mut policy = FifoPolicy::new(1, 3);
+    for way in 0..3 {
+        policy.insert(0, way);
+    }
+
+    policy.insert(0, 0);
+
     assert_eq!(policy.get_victim(0), 1);
-    policy.update(0, 1);
-    assert_eq!(policy.get_victim(0), 0); // wrap
 }
 
 /// PLRU: initial state has all bits 0, so victim is way 0 (first unset bit).
