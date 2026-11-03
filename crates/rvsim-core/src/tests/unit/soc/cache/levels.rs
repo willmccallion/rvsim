@@ -1786,6 +1786,40 @@ mod coherent {
     }
 
     #[test]
+    fn a_full_upgrade_mshr_reissued_for_data_unblocks_the_cache_once_its_data_arrives() {
+        let config = CacheConfig { targets_per_mshr: count(2), ..test_config() };
+        let mut cache = Cache::new(CacheId::new(0), CacheLevel::L2, &config, "test");
+        cache.set_downstream(DOWNSTREAM);
+        cache.add_upstream(UPSTREAM);
+        cache.set_coherent(CORE);
+        let mut bench = Bench::new(cache);
+        bench.install_coherent(1, 0x1000, MemOp::Read, MesiState::Shared);
+        bench.write(2, 0x1000);
+        bench.write(3, 0x1008);
+        let upgrade = requests(&bench.drain());
+        bench.snoop(0x1000, SnoopKind::Unique);
+        let sent = probes(&bench.drain());
+        bench
+            .deliver(Packet::ProbeResp { txn: sent[0].1, had_copy: false, dirty: false }, UPSTREAM);
+        let _ = bench.drain();
+        bench.complete(upgrade[0].0, 0x1000, MesiState::Modified, false);
+        let retry = requests(&bench.drain());
+        bench.complete(retry[0].0, 0x1000, MesiState::Modified, true);
+        let answered = responses_to(&bench.drain(), PIPELINE).len();
+
+        bench.read(4, 0x2000);
+
+        let next = requests(&bench.drain());
+        assert_eq!(answered, 2, "both writers are answered");
+        assert_eq!(
+            next.iter().map(|r| (r.1, r.2)).collect::<Vec<_>>(),
+            vec![(ReqKind::ReadShared, 0x2000)],
+            "a later miss is sent, not left blocked ({} blocked)",
+            bench.cache.blocked_requests()
+        );
+    }
+
+    #[test]
     fn a_dirty_victim_is_written_back_and_a_clean_one_reported() {
         let mut bench = coherent_l2(true);
         // Set 0 has two ways: 0x1000, 0x1080 and 0x1100 all map to it.
