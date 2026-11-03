@@ -27,7 +27,8 @@ All notable changes to this project are documented here. The format is based on 
   after losing its upgrade no longer stays blocked after the fill; FIFO
   replacement evicts by insertion order, ignoring hits; and the PLIC holds
   a claimed level-triggered source until its claim is completed.
-  Checkpoints are format version 9.
+- The checkpoint format is numbered from 1; checkpoints written before
+  it do not restore.
 - Building a simulator refuses configurations no machine can have, with a
   `ValueError` naming the field, where they used to hang, crash or quietly
   build another machine: zero widths, queues, ports, TLBs, clocks or
@@ -99,8 +100,7 @@ All notable changes to this project are documented here. The format is based on 
   rather than taking a guard it never got.
 - `Simulator.exit_codes` holds one exit code per SE program, in the
   order the programs were given, where it held one per hart: a hart
-  without a program no longer has a `None` entry. Checkpoints are format
-  version 8.
+  without a program no longer has a `None` entry.
 - GDB watchpoints: `watch`, `rwatch` and `awatch` stop once a load or
   store to the range has retired, as a hardware trigger with "after"
   timing does, and GDB shows the old and new values.
@@ -124,7 +124,7 @@ All notable changes to this project are documented here. The format is based on 
   system the configuration shares; the run ends when the last exits, with
   the first non-zero exit code in hart order, and `Simulator.exit_codes`
   holds each hart's. A program's `getpid` is 1, 2, ... by hart.
-  Checkpoints carry every program (format version 7).
+  Checkpoints carry every program.
 - More of gem5's m5ops: `m5_rpns` (`rvsim_time_ns()` in `rvsim.h`) gives
   the simulated time in nanoseconds, `m5_sum` adds its arguments,
   `m5_debug_break` and `m5_switch_cpu` stop the host's run, and
