@@ -218,17 +218,21 @@ pub struct CsrRequest {
     pub op: CsrOp,
     /// The source operand: `rs1`'s value or the immediate.
     pub src: u64,
+    /// Whether the form writes the CSR, which its encoding decides.
+    pub writes: bool,
 }
 
 impl CsrRequest {
     /// The operation `inst` requests.
     #[must_use]
     pub const fn of(inst: &Inst) -> Self {
-        let src = match inst.ctrl.csr_op {
+        let op = inst.ctrl.csr_op;
+        let src = match op {
             CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => (inst.rs1.as_u8() & 0x1f) as u64,
             _ => inst.rv1,
         };
-        Self { pc: inst.pc, addr: inst.ctrl.csr_addr, op: inst.ctrl.csr_op, src }
+        let writes = csr_op_writes(op, inst.rs1.as_u8() & 0x1f);
+        Self { pc: inst.pc, addr: inst.ctrl.csr_addr, op, src, writes }
     }
 }
 
@@ -250,8 +254,7 @@ pub struct CsrAccess {
 /// The illegal-instruction trap when the access is not permitted.
 pub fn csr_access_permitted(state: &impl ArchState, inst: &Inst) -> Result<(), Trap> {
     let addr = inst.ctrl.csr_addr;
-    let request = CsrRequest::of(inst);
-    let writes = csr_op_writes(request.op, request.src);
+    let writes = CsrRequest::of(inst).writes;
     let privilege = state.hart().privilege;
 
     let satp_trapped = addr == csr::SATP
@@ -271,7 +274,7 @@ pub fn csr_access_permitted(state: &impl ArchState, inst: &Inst) -> Result<(), T
 
 /// Reads the CSR `request` names and computes the write it makes.
 pub fn perform_csr_access(state: &impl ArchState, request: &CsrRequest) -> CsrAccess {
-    let CsrRequest { pc, addr, op, src } = *request;
+    let CsrRequest { pc, addr, op, src, writes } = *request;
     let old = state.csr_read(addr);
     let base = state.csr_read_for_update(addr);
     let new = match op {
@@ -280,7 +283,6 @@ pub fn perform_csr_access(state: &impl ArchState, request: &CsrRequest) -> CsrAc
         CsrOp::Rc | CsrOp::Rci => base & !src,
         CsrOp::None => old,
     };
-    let writes = csr_op_writes(op, src);
     trace_csr!(state.tracing();
         op        = "write-deferred",
         pc        = %crate::common::trace::Hex(pc),
@@ -295,12 +297,13 @@ pub fn perform_csr_access(state: &impl ArchState, request: &CsrRequest) -> CsrAc
     CsrAccess { old, update }
 }
 
-/// Whether the CSR form writes: CSRRS/CSRRC with rs1=x0 and CSRRSI/CSRRCI
-/// with uimm=0 only read.
-const fn csr_op_writes(op: CsrOp, src: u64) -> bool {
+/// Whether the CSR form writes, given its `rs1` field: CSRRS/CSRRC with
+/// rs1=x0 and CSRRSI/CSRRCI with uimm=0 only read. A non-x0 `rs1` writes
+/// even when it holds zero (Zicsr).
+const fn csr_op_writes(op: CsrOp, rs1_field: u8) -> bool {
     match op {
         CsrOp::Rw | CsrOp::Rwi => true,
-        CsrOp::Rs | CsrOp::Rc | CsrOp::Rsi | CsrOp::Rci => src != 0,
+        CsrOp::Rs | CsrOp::Rc | CsrOp::Rsi | CsrOp::Rci => rs1_field != 0,
         CsrOp::None => false,
     }
 }
