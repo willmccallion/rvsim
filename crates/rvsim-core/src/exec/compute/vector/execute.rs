@@ -8,7 +8,7 @@
 //! returns the side effects for commit-time application.
 
 use crate::exec::compute::vector::alu::vec_execute;
-use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, widen_sew};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::compute::vector::{crypto, fpu, mask, permute, reduction};
 use crate::exec::inst::Inst;
@@ -16,7 +16,7 @@ use crate::isa::encoding::rvv::encoding as v_enc;
 use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::{VecClass, VecSrcEncoding, VectorOp};
 use crate::isa::privileged::Trap;
-use crate::isa::rvv::{Vlmul, Vxrm, parse_vtype_with_elen};
+use crate::isa::rvv::{Sew, Vlmul, Vxrm, parse_vtype_with_elen};
 
 /// Build operand1 from pipeline latch data based on source encoding.
 ///
@@ -119,6 +119,53 @@ const fn check_widening_lmul(inst: u32, op: VectorOp, vlmul: Vlmul) -> Result<()
     Ok(())
 }
 
+/// Whether the unit computes in every floating-point width `op` uses at
+/// element width `sew`: f16 needs Zvfh and f64 an ELEN of 64, there is no
+/// f8, and an integer operand twice SEW wide must fit in ELEN.
+fn fp_widths_supported(op: VectorOp, sew: Sew, zvfh: bool, elen: usize) -> bool {
+    let fp = |width: Option<Sew>| match width {
+        Some(Sew::E16) => zvfh,
+        Some(Sew::E32) => true,
+        Some(Sew::E64) => elen >= 64,
+        Some(Sew::E8) | None => false,
+    };
+    let int = |width: Option<Sew>| width.is_some_and(|w| w.bits() <= elen);
+    let wide = widen_sew(sew);
+    match op {
+        VectorOp::VFWCvtXuF
+        | VectorOp::VFWCvtXF
+        | VectorOp::VFWCvtRtzXuF
+        | VectorOp::VFWCvtRtzXF
+        | VectorOp::VFNCvtFXu
+        | VectorOp::VFNCvtFX => fp(Some(sew)) && int(wide),
+        VectorOp::VFWCvtFXu
+        | VectorOp::VFWCvtFX
+        | VectorOp::VFNCvtXuF
+        | VectorOp::VFNCvtXF
+        | VectorOp::VFNCvtRtzXuF
+        | VectorOp::VFNCvtRtzXF => fp(wide),
+        VectorOp::VFWAdd
+        | VectorOp::VFWSub
+        | VectorOp::VFWMul
+        | VectorOp::VFWAddW
+        | VectorOp::VFWSubW
+        | VectorOp::VFWMacc
+        | VectorOp::VFWNMacc
+        | VectorOp::VFWMSac
+        | VectorOp::VFWNMSac
+        | VectorOp::VFWCvtFF
+        | VectorOp::VFWRedOSum
+        | VectorOp::VFWRedUSum
+        | VectorOp::VFNCvtFF
+        | VectorOp::VFNCvtRodFF => fp(Some(sew)) && fp(wide),
+        VectorOp::VFRedMax | VectorOp::VFRedMin | VectorOp::VFRedOSum | VectorOp::VFRedUSum => {
+            fp(Some(sew))
+        }
+        _ if fpu::is_vec_fp(op) => fp(Some(sew)),
+        _ => true,
+    }
+}
+
 /// Build execution context from raw CSR values (no `SystemState` reference needed).
 const fn build_ctx_from_csrs(
     vtype_bits: u64,
@@ -172,6 +219,9 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     check_vill(inst, vtype_bits, elen)?;
     let vtype = parse_vtype_with_elen(vtype_bits, elen);
     check_widening_lmul(inst.bits, inst.ctrl.vec_op, vtype.vlmul)?;
+    if !fp_widths_supported(inst.ctrl.vec_op, vtype.vsew, zvfh, elen) {
+        return Err(Trap::IllegalInstruction(inst.bits));
+    }
 
     let mut ctx = build_ctx_from_csrs(vtype_bits, vl, vstart, vxrm, frm, elen, zvfh);
     ctx.vm = inst.ctrl.vm;
@@ -318,5 +368,52 @@ mod tests {
         let _result = run(&mut vpr, VectorOp::VMv1r, 0, 0);
 
         assert_eq!(vd_elements(&vpr), vec![7, 0, 0, 0]);
+    }
+
+    /// Whether `vec_op` executes at element width `sew`, rather than
+    /// raising illegal-instruction, on a unit with `zvfh` and `elen`.
+    fn legal(vec_op: VectorOp, sew: Sew, zvfh: bool, elen: usize) -> bool {
+        let mut vpr = registers();
+        let vtype = u64::from(sew.to_encoding()) << 3;
+        let inst = vector_inst(vec_op);
+        execute_vec_op_on(&mut vpr, vtype, 1, 0, 0, 0, elen, zvfh, &inst).is_ok()
+    }
+
+    #[test]
+    fn floating_point_arithmetic_at_sew_8_is_illegal() {
+        assert!(!legal(VectorOp::VFAdd, Sew::E8, true, ELEN));
+    }
+
+    #[test]
+    fn half_precision_arithmetic_needs_zvfh() {
+        let legality = [false, true].map(|zvfh| legal(VectorOp::VFAdd, Sew::E16, zvfh, ELEN));
+
+        assert_eq!(legality, [false, true], "[without Zvfh, with Zvfh]");
+    }
+
+    #[test]
+    fn an_8_bit_integer_widens_to_half_precision_with_zvfh() {
+        let legality = [false, true].map(|zvfh| legal(VectorOp::VFWCvtFX, Sew::E8, zvfh, ELEN));
+
+        assert_eq!(legality, [false, true], "[without Zvfh, with Zvfh]");
+    }
+
+    #[test]
+    fn half_precision_narrows_to_an_8_bit_integer_with_zvfh() {
+        let legality = [false, true].map(|zvfh| legal(VectorOp::VFNCvtXF, Sew::E8, zvfh, ELEN));
+
+        assert_eq!(legality, [false, true], "[without Zvfh, with Zvfh]");
+    }
+
+    #[test]
+    fn a_16_bit_integer_widens_to_single_precision_without_zvfh() {
+        assert!(legal(VectorOp::VFWCvtFX, Sew::E16, false, ELEN));
+    }
+
+    #[test]
+    fn widening_single_precision_needs_an_elen_of_64() {
+        let legality = [32, 64].map(|elen| legal(VectorOp::VFWAdd, Sew::E32, true, elen));
+
+        assert_eq!(legality, [false, true], "[ELEN 32, ELEN 64]");
     }
 }
