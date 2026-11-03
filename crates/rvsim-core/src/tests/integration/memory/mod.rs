@@ -12,6 +12,7 @@ pub mod fill_latency;
 pub mod forward_latency;
 pub mod lsq_partial_overlap;
 pub mod mmio_loads;
+pub mod pmp_after_walk;
 pub mod store_completion;
 pub mod store_conditional;
 pub mod store_halves;

@@ -284,7 +284,7 @@ fn process_entry<E: ExecutionEngine>(
             }
             TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
                 let translations = PageTranslations { first: Some(first), second: None };
-                park_walk(state, engine, walk_state, pte_addr, ex, translations);
+                park_walk(state, engine, walk_state, pte_addr, 1, ex, translations);
                 return EntryOutcome::ParkedWalk;
             }
         }
@@ -398,7 +398,8 @@ fn translate_first_page<E: ExecutionEngine>(
         }
         TranslateOutcome::Ready(r) => FirstPage::Translated(ex, r),
         TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
-            park_walk(state, engine, walk_state, pte_addr, ex, PageTranslations::default());
+            let translations = PageTranslations::default();
+            park_walk(state, engine, walk_state, pte_addr, size, ex, translations);
             FirstPage::Waiting(EntryOutcome::ParkedWalk)
         }
     }
@@ -558,7 +559,8 @@ fn translate_cbo<E: ExecutionEngine>(
             (r.paddr, r.dirty_update)
         }
         TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
-            park_walk(state, engine, walk_state, pte_addr, ex, PageTranslations::default());
+            let translations = PageTranslations::default();
+            park_walk(state, engine, walk_state, pte_addr, CBOZ_BLOCK_SIZE, ex, translations);
             return EntryOutcome::ParkedWalk;
         }
     };
@@ -946,12 +948,14 @@ fn send_load_prefetches<E: ExecutionEngine>(
     }
 }
 
-/// Records the parked walk and issues the PTE `MemReq`.
+/// Records the parked walk for an access of `access_size` bytes and issues
+/// the PTE `MemReq`.
 fn park_walk<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
     walk_state: crate::uarch::mmu::ptw::WalkState,
     pte_addr: PhysAddr,
+    access_size: u64,
     ex: ExMem1Entry,
     translations: PageTranslations,
 ) {
@@ -963,6 +967,7 @@ fn park_walk<E: ExecutionEngine>(
         req_id,
         OutstandingWalk {
             state: walk_state,
+            access_size,
             continuation: WalkContinuation::LoadStore {
                 entry: ex,
                 translations: Box::new(translations),
