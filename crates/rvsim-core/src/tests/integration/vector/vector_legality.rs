@@ -12,9 +12,12 @@ const A0: u32 = 10;
 const A1: u32 = 11;
 const A2: u32 = 12;
 const A3: u32 = 13;
+const A4: u32 = 14;
 const T0: u32 = 5;
 const MCAUSE: u32 = 0x342;
 const VSTART: u32 = 0x008;
+const VTYPE: u32 = 0xC21;
+const VILL: u64 = 1 << 63;
 const ILLEGAL_INSTRUCTION: u64 = 2;
 const RAN: u64 = 99;
 const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrder];
@@ -26,6 +29,16 @@ const E8M2: u32 = 0b001;
 /// `vsetvli x0, rs1, zimm`.
 const fn vsetvli(rs1: u32, zimm: u32) -> u32 {
     (zimm << 20) | (rs1 << 15) | (0b111 << 12) | 0x57
+}
+
+/// `vsetvl rd, rs1, rs2`.
+const fn vsetvl(rd: u32, rs1: u32, rs2: u32) -> u32 {
+    (0b100_0000 << 25) | (rs2 << 20) | (rs1 << 15) | (0b111 << 12) | (rd << 7) | 0x57
+}
+
+/// `vsetivli x0, uimm, zimm`.
+const fn vsetivli(uimm: u32, zimm: u32) -> u32 {
+    (0b11 << 30) | (zimm << 20) | (uimm << 15) | (0b111 << 12) | 0x57
 }
 
 /// `vl<nf>re8.v vd, (rs1)`.
@@ -54,12 +67,13 @@ const fn vlm(vd: u32, rs1: u32) -> u32 {
 }
 
 /// What a run left behind: `mcause` as the handler recorded it (zero when
-/// nothing trapped), whether the marker after the body ran, and `a3`.
+/// nothing trapped), whether the marker after the body ran, and `a3`/`a4`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Outcome {
     mcause: u64,
     ran_on: bool,
     a3: u64,
+    a4: u64,
 }
 
 /// Points `a0` at `DATA`, sets `a2 = 16`, runs `body`, then sets the marker.
@@ -94,6 +108,7 @@ fn run(backend: BackendKind, body: &[u32]) -> Outcome {
         mcause: if ran_on { 0 } else { ctx.get_reg(A2 as usize) },
         ran_on,
         a3: ctx.get_reg(A3 as usize),
+        a4: ctx.get_reg(A4 as usize),
     }
 }
 
@@ -155,4 +170,28 @@ fn vstart_reads_zero_after_a_vector_store() {
     let vstarts = BACKENDS.map(|b| run(b, &body).a3);
 
     assert_eq!(vstarts, [0, 0], "[InOrder, OutOfOrder]");
+}
+
+#[test]
+fn vsetvl_with_a_reserved_vtype_bit_sets_vill() {
+    let i = InstructionBuilder::new;
+    let body =
+        [i().addi(T0, 0, 1 << 8).build(), vsetvl(A4, A2, T0), i().csrrs(A3, VTYPE, 0).build()];
+
+    let results = BACKENDS.map(|b| {
+        let outcome = run(b, &body);
+        (outcome.a3, outcome.a4)
+    });
+
+    assert_eq!(results, [(VILL, 0); 2], "[InOrder, OutOfOrder]: (vtype, vl)");
+}
+
+#[test]
+fn vsetivli_sets_the_vtype_it_names() {
+    let i = InstructionBuilder::new;
+    let body = [vsetivli(4, E8M2), i().csrrs(A3, VTYPE, 0).build()];
+
+    let vtypes = BACKENDS.map(|b| run(b, &body).a3);
+
+    assert_eq!(vtypes, [u64::from(E8M2); 2], "[InOrder, OutOfOrder]");
 }
