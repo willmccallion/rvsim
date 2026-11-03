@@ -118,9 +118,11 @@ pub const fn privileged_op_fault(hart: &Hart, inst: &Inst) -> Option<Trap> {
             PrivilegeMode::Supervisor => mstatus_bit(hart, MSTATUS_TW_BIT),
             PrivilegeMode::Machine => false,
         },
-        SystemOp::SfenceVma => {
-            matches!(privilege, PrivilegeMode::Supervisor) && mstatus_bit(hart, MSTATUS_TVM_BIT)
-        }
+        SystemOp::SfenceVma => match privilege {
+            PrivilegeMode::User => true,
+            PrivilegeMode::Supervisor => mstatus_bit(hart, MSTATUS_TVM_BIT),
+            PrivilegeMode::Machine => false,
+        },
         _ => false,
     };
     if illegal { Some(Trap::IllegalInstruction(inst.bits)) } else { None }
