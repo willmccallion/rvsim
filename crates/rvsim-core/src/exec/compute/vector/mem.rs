@@ -16,7 +16,8 @@ use crate::isa::rvv::{ElemIdx, Emul, Nf, Sew, VRegIdx, VtypeFields, parse_vtype}
 /// `data_emul_regs` is the destination (or stored value) register-group size
 /// in registers; `idx_emul_regs` is the index vector size in registers for
 /// indexed loads/stores (0 otherwise). Each is at least 1, mirroring the
-/// spec's `max(1, EEW × LMUL / SEW)` floor.
+/// spec's `max(1, EEW × LMUL / SEW)` floor. A whole-register access counts
+/// one register per field; [`vec_mem_dst_count`] gives all of them.
 #[must_use]
 pub fn vec_mem_emul_regs(
     op: VectorOp,
@@ -48,7 +49,12 @@ pub fn vec_mem_emul_regs(
             let emul = if num >= den { ((num / den) as u8).max(1) } else { 1 };
             (emul, 0)
         }
-        // Mask and whole-reg ops have fixed group sizes encoded elsewhere.
+        // Neither depends on LMUL: a mask is one register, and a
+        // whole-register access moves its NFIELDS registers one by one.
+        VectorOp::VLoadMask
+        | VectorOp::VStoreMask
+        | VectorOp::VLoadWholeReg
+        | VectorOp::VStoreWholeReg => (1, 0),
         _ => (lmul_regs, 0),
     }
 }
