@@ -319,6 +319,9 @@ impl Cache {
         mshr.upgrade = false;
         mshr.issued_at = ctx.cycle;
         let (req_id, line) = (mshr.req_id, mshr.line);
+        if self.full_mshr == Some(txn) {
+            self.full_mshr = Some(req_id);
+        }
         self.mshrs.allocate(mshr);
         ctx.scheduler.schedule(
             ctx.cycle + self.latency,
