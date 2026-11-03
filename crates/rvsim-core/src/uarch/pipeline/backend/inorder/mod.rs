@@ -518,8 +518,7 @@ impl ExecutionEngine for InOrderEngine {
         self.issuer.flush();
         self.pending.clear();
         self.execute_mem1.clear();
-        self.common.mem1_replay.clear();
-        self.common.pending_squash = None;
+        self.common.squash_all();
         self.common.data_cache_flush = DataCacheFlush::Idle;
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
