@@ -363,6 +363,19 @@ impl VecStoreBuffer {
         })
     }
 
+    /// True when a vector store older than `rob_tag` has a line still to
+    /// send holding any of the `bytes` bytes at `paddr`, so a write of
+    /// those bytes must wait for it to reach memory first.
+    #[must_use]
+    pub fn has_unsent_older_line_to(&self, paddr: PhysAddr, bytes: usize, rob_tag: RobTag) -> bool {
+        let (start, end) = (paddr.val(), paddr.val() + bytes as u64);
+        self.entries
+            .iter()
+            .filter(|e| e.valid && e.rob_tag.is_older_than(rob_tag))
+            .flat_map(|e| &e.lines)
+            .any(|line| line.holds_any_of(start, end))
+    }
+
     /// True when a vector store younger than `after` and older than
     /// `load_rob_tag` holds any of the `bytes` bytes at `paddr`, so it,
     /// not the scalar store `after`, is the load's youngest older writer.
@@ -559,6 +572,13 @@ impl VecStoreBuffer {
             }
         }
         ForwardResult::Miss
+    }
+
+    /// The line [`Self::take_drainable_line`] takes next.
+    #[must_use]
+    pub fn next_drainable_line(&self) -> Option<&VsbLine> {
+        let idx = self.oldest_drainable_entry_index()?;
+        self.entries[idx].lines.first()
     }
 
     /// Takes the next line to write: the first line of the oldest committed

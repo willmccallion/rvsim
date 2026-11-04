@@ -17,16 +17,25 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::{VSB_LINE_BYTES, VecStoreBuff
 use crate::uarch::pipeline::lsq::write_buffer::WcbLine;
 use crate::uarch::pipeline::outstanding::{OutstandingStore, StoreOwner};
 
-/// Sends the write of the oldest committed store not yet sent. The entry
-/// keeps its slot until the write is acknowledged. Returns true if a store
-/// was taken (so the caller does not also drain the vec-store buffer this
+/// Sends the write of the oldest committed store not yet sent, unless an
+/// older vector store has yet to send a line to its bytes. The entry keeps
+/// its slot until the write is acknowledged. Returns true if a store was
+/// taken (so the caller does not also drain the vec-store buffer this
 /// cycle).
 pub(super) fn try_drain_one_store(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     store_buffer: &mut StoreBuffer,
+    vec_store_buffer: &VecStoreBuffer,
 ) -> bool {
     let Some(write) = store_buffer.begin_write() else { return false };
+    let bytes = match write.data {
+        StoreData::Bytes(_) => width_to_bytes(write.width),
+        StoreData::Block(_) => CBOZ_BLOCK_SIZE as usize,
+    };
+    if vec_store_buffer.has_unsent_older_line_to(write.paddr, bytes, write.rob_tag) {
+        return false;
+    }
     let requests = match write.data {
         StoreData::Bytes(data) => send_data_store(state, common, write.paddr, data, write.width),
         StoreData::Block(effect) => {
@@ -140,7 +149,7 @@ pub fn send_one_write(
     vec_store_buffer: &mut VecStoreBuffer,
 ) {
     if !send_urgent_wcb_line(state, common)
-        && !try_drain_one_store(state, common, store_buffer)
+        && !try_drain_one_store(state, common, store_buffer, vec_store_buffer)
         && !drain_vec_store_line(state, common, vec_store_buffer)
     {
         send_oldest_wcb_line(state, common);
@@ -189,12 +198,18 @@ pub(super) fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon,
 
 /// Writes the next line of a committed vector store: to RAM as one masked
 /// line write, and to a device as the naturally aligned writes it must see.
-/// Returns whether a line went.
+/// The line follows the older stores the WCB holds for its bytes, which a
+/// younger store cannot have joined while the line was unsent. Returns
+/// whether a line went.
 pub(super) fn drain_vec_store_line(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     vec_store_buffer: &mut VecStoreBuffer,
 ) -> bool {
+    let Some(next) = vec_store_buffer.next_drainable_line() else { return false };
+    if state.core.wcb.request_send_masked(PhysAddr::new(next.line_addr), next.valid_mask) {
+        return false;
+    }
     let Some((rob_tag, line)) = vec_store_buffer.take_drainable_line() else { return false };
     let paddr = PhysAddr::new(line.line_addr);
     let owner = StoreOwner::VecStoreBuffer;

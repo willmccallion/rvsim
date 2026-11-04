@@ -192,14 +192,24 @@ impl WriteCombiningBuffer {
     /// to be sent, for an access that must follow them to the cache.
     /// Returns whether any held or unacknowledged store covers one of them.
     pub fn request_send(&mut self, paddr: PhysAddr, bytes: usize) -> bool {
-        let start = paddr.val();
-        let end = start + bytes as u64;
+        let (start, end) = (paddr.val(), paddr.val() + bytes as u64);
+        self.request_send_matching(|byte| byte >= start && byte < end)
+    }
+
+    /// [`Self::request_send`] for the bytes of the line at `line` that
+    /// `mask` selects, bit `i` standing for byte `line + i`.
+    pub fn request_send_masked(&mut self, line: PhysAddr, mask: u64) -> bool {
+        let base = line.val();
+        self.request_send_matching(|byte| {
+            byte.checked_sub(base).is_some_and(|i| i < u64::BITS.into() && mask >> i & 1 == 1)
+        })
+    }
+
+    /// [`Self::request_send`] for the bytes `wanted` accepts.
+    fn request_send_matching(&mut self, wanted: impl Fn(u64) -> bool) -> bool {
         let span = self.entry_bytes as u64;
         let covers = |line: &WcbLine| {
-            (0..span).filter(|&i| line.mask >> i & 1 == 1).any(|i| {
-                let byte = line.line_addr + i;
-                byte >= start && byte < end
-            })
+            (0..span).filter(|&i| line.mask >> i & 1 == 1).any(|i| wanted(line.line_addr + i))
         };
         let mut overlapped = self.in_flight.iter().any(|sent| covers(&sent.line));
         for entry in self.slots.iter_mut().flatten() {
@@ -304,6 +314,17 @@ mod tests {
 
         assert_eq!(sent.line_addr, 0x1000);
         assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 1), ForwardResult::Miss);
+    }
+
+    #[test]
+    fn a_masked_send_request_marks_only_lines_holding_the_selected_bytes() {
+        let mut wcb = wcb(2);
+        let _ = wcb.merge_store(PhysAddr::new(0x1000), 1, 8);
+
+        assert!(!wcb.request_send_masked(PhysAddr::new(0x1000), 0xFF00));
+        assert!(wcb.take_urgent().is_none());
+        assert!(wcb.request_send_masked(PhysAddr::new(0x1000), 0x80));
+        assert_eq!(wcb.take_urgent().map(|line| line.line_addr), Some(0x1000));
     }
 
     #[test]
