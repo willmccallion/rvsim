@@ -24,7 +24,7 @@ serde_json = "1.0"
 serde_path_to_error = "0.1"
 pyo3 = { version = "0.23.5" }
 libc = "0.2"
-object = { version = "0.36", default-features = false, features = ["read_core", "elf"] }
+object = { version = "0.40", default-features = false, features = ["read_core", "elf"] }
 thiserror = "2"
 
 # Panics unwind so that a panic inside the Python extension surfaces as a
