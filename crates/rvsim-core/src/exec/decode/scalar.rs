@@ -19,8 +19,19 @@ use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp};
 use crate::isa::privileged::Trap;
 
-/// Bit 5 of funct7 field indicating alternate encoding (e.g., SUB vs ADD).
-const FUNCT7_ALT_BIT: u32 = 0x20;
+/// JALR's only defined funct3.
+const JALR_FUNCT3: u32 = 0b000;
+
+/// funct6 (bits 31:26) of the 64-bit shift-immediate encodings, whose low
+/// six immediate bits are the shift amount.
+const SLLI_SRLI_FUNCT6: u32 = i_funct7::DEFAULT >> 1;
+const SRAI_FUNCT6: u32 = i_funct7::SRA >> 1;
+const RORI_FUNCT6: u32 = b_funct7::ROTATE_RIGHT >> 1;
+const BCLRI_FUNCT6: u32 = b_funct7::BCLR >> 1;
+const BEXTI_FUNCT6: u32 = b_funct7::BEXT >> 1;
+const BINVI_FUNCT6: u32 = b_funct7::BINV >> 1;
+const BSETI_FUNCT6: u32 = b_funct7::BSET >> 1;
+const SLLI_UW_FUNCT6: u32 = b_funct7::SLLI_UW >> 1;
 
 /// Floating-point width encoding for 16-bit half operations (Zfh).
 const FP_WIDTH_HALF: u32 = 0x1;
@@ -57,11 +68,25 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
             c.control_flow = ControlFlow::Jump;
         }
         i_opcodes::OP_JALR => {
+            if d.funct3 != JALR_FUNCT3 {
+                return Err(Trap::IllegalInstruction(inst));
+            }
             c.reg_write = true;
             c.control_flow = ControlFlow::Jump;
             c.alu = AluOp::Add;
         }
         i_opcodes::OP_BRANCH => {
+            if !matches!(
+                d.funct3,
+                i_funct3::BEQ
+                    | i_funct3::BNE
+                    | i_funct3::BLT
+                    | i_funct3::BGE
+                    | i_funct3::BLTU
+                    | i_funct3::BGEU
+            ) {
+                return Err(Trap::IllegalInstruction(inst));
+            }
             c.control_flow = ControlFlow::Branch;
             c.b_src = OpBSrc::Reg2;
         }
@@ -94,198 +119,25 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 _ => return Err(Trap::IllegalInstruction(inst)),
             };
         }
-        i_opcodes::OP_IMM | i_opcodes::OP_IMM_32 => {
+        i_opcodes::OP_IMM => {
             c.reg_write = true;
-            c.is_rv32 = d.opcode == i_opcodes::OP_IMM_32;
-            c.alu = match d.funct3 {
-                i_funct3::ADD_SUB => AluOp::Add,
-                i_funct3::SLT => AluOp::Slt,
-                i_funct3::SLTU => AluOp::Sltu,
-                i_funct3::XOR => AluOp::Xor,
-                i_funct3::OR => AluOp::Or,
-                i_funct3::AND => AluOp::And,
-                i_funct3::SLL => {
-                    // Shift-like encodings use funct7 to select the operation.
-                    // B-extension unary ops (clz, ctz, cpop, sext.*) encode
-                    // the operation in the full imm[11:0] field.
-                    let imm12 = (inst >> b_funct3::I_IMM_SHIFT) & 0xFFF;
-                    let top6 = d.funct7 >> 1; // bits 31:26
-                    if d.opcode == i_opcodes::OP_IMM {
-                        match imm12 {
-                            // Zbb: clz, ctz, cpop, sext.b, sext.h
-                            b_funct3::CLZ_IMM => AluOp::Clz,
-                            b_funct3::CTZ_IMM => AluOp::Ctz,
-                            b_funct3::CPOP_IMM => AluOp::Cpop,
-                            b_funct3::SEXT_B_IMM => AluOp::SextB,
-                            b_funct3::SEXT_H_IMM => AluOp::SextH,
-                            // Zbs: bclri (top 6 bits select, low 6 = shamt)
-                            _ if top6 == (b_funct7::BCLR >> 1) => AluOp::Bclr,
-                            // Zbs: binvi
-                            _ if top6 == (b_funct7::BINV >> 1) => AluOp::Binv,
-                            // Zbs: bseti
-                            _ if top6 == (b_funct7::BSET >> 1) => AluOp::Bset,
-                            // Base I: slli
-                            _ => AluOp::Sll,
-                        }
-                    } else {
-                        // OP_IMM_32
-                        let imm12_w = (inst >> b_funct3::I_IMM_SHIFT) & 0xFFF;
-                        match imm12_w {
-                            // Zbb: clzw, ctzw, cpopw
-                            b_funct3::CLZ_IMM => AluOp::Clz,
-                            b_funct3::CTZ_IMM => AluOp::Ctz,
-                            b_funct3::CPOP_IMM => AluOp::Cpop,
-                            _ => match top6 {
-                                // Zba: slli.uw (produces 64-bit result)
-                                _ if top6 == (b_funct7::SLLI_UW >> 1) => {
-                                    c.is_rv32 = false;
-                                    AluOp::SlliUw
-                                }
-                                // Base I: slliw
-                                _ => AluOp::Sll,
-                            },
-                        }
-                    }
-                }
-                i_funct3::SRL_SRA => {
-                    let imm12 = (inst >> b_funct3::I_IMM_SHIFT) & 0xFFF;
-                    let top6 = d.funct7 >> 1; // bits 31:26
-
-                    if d.opcode == i_opcodes::OP_IMM {
-                        match imm12 {
-                            // Zbb: orc.b, rev8 (full imm[11:0] selects)
-                            b_funct3::ORC_B_IMM => AluOp::OrcB,
-                            b_funct3::REV8_IMM => AluOp::Rev8,
-                            // Zbkb: brev8
-                            b_funct3::BREV8_IMM => AluOp::Brev8,
-                            // Zbb: rori
-                            _ if top6 == (b_funct7::ROTATE_RIGHT >> 1) => AluOp::Ror,
-                            // Zbs: bexti
-                            _ if top6 == (b_funct7::BEXT >> 1) => AluOp::Bext,
-                            // Base I: srai
-                            _ if (d.funct7 & FUNCT7_ALT_BIT) != 0 => AluOp::Sra,
-                            // Base I: srli
-                            _ => AluOp::Srl,
-                        }
-                    } else {
-                        // OP_IMM_32
-                        match top6 {
-                            // Zbb: roriw
-                            _ if top6 == (b_funct7::ROTATE_RIGHT >> 1) => AluOp::Ror,
-                            // Base I: sraiw
-                            _ if (d.funct7 & FUNCT7_ALT_BIT) != 0 => AluOp::Sra,
-                            // Base I: srliw
-                            _ => AluOp::Srl,
-                        }
-                    }
-                }
-                _ => return Err(Trap::IllegalInstruction(inst)),
-            };
+            c.alu = op_imm(inst, d).ok_or(Trap::IllegalInstruction(inst))?;
         }
-        i_opcodes::OP_REG | i_opcodes::OP_REG_32 => {
+        i_opcodes::OP_IMM_32 => {
             c.reg_write = true;
-            c.is_rv32 = d.opcode == i_opcodes::OP_REG_32;
+            c.alu = op_imm_32(inst, d).ok_or(Trap::IllegalInstruction(inst))?;
+            c.is_rv32 = !is_unsigned_word_op(c.alu);
+        }
+        i_opcodes::OP_REG => {
+            c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
-
-            if d.funct7 == m_opcodes::M_EXTENSION {
-                // M-extension: multiply / divide
-                c.alu = match d.funct3 {
-                    m_funct3::MUL => AluOp::Mul,
-                    m_funct3::MULH => AluOp::Mulh,
-                    m_funct3::MULHSU => AluOp::Mulhsu,
-                    m_funct3::MULHU => AluOp::Mulhu,
-                    m_funct3::DIV => AluOp::Div,
-                    m_funct3::DIVU => AluOp::Divu,
-                    m_funct3::REM => AluOp::Rem,
-                    m_funct3::REMU => AluOp::Remu,
-                    _ => return Err(Trap::IllegalInstruction(inst)),
-                };
-            } else {
-                c.alu = match (d.funct3, d.funct7) {
-                    // Base I-extension
-                    (i_funct3::ADD_SUB, i_funct7::DEFAULT) => AluOp::Add,
-                    (i_funct3::ADD_SUB, i_funct7::SUB) => AluOp::Sub,
-                    (i_funct3::SLL, i_funct7::DEFAULT) => AluOp::Sll,
-                    (i_funct3::SLT, i_funct7::DEFAULT) => AluOp::Slt,
-                    (i_funct3::SLTU, i_funct7::DEFAULT) => AluOp::Sltu,
-                    (i_funct3::XOR, i_funct7::DEFAULT) => AluOp::Xor,
-                    (i_funct3::SRL_SRA, i_funct7::DEFAULT) => AluOp::Srl,
-                    (i_funct3::SRL_SRA, i_funct7::SRA) => AluOp::Sra,
-                    (i_funct3::OR, i_funct7::DEFAULT) => AluOp::Or,
-                    (i_funct3::AND, i_funct7::DEFAULT) => AluOp::And,
-
-                    (b_funct3::SH1ADD, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Sh1Add
-                    }
-                    (b_funct3::SH2ADD, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Sh2Add
-                    }
-                    (b_funct3::SH3ADD, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Sh3Add
-                    }
-                    // add.uw (OP_REG_32 only, but produces a 64-bit result)
-                    (b_funct3::ADD_UW, b_funct7::ADD_UW) if d.opcode == i_opcodes::OP_REG_32 => {
-                        c.is_rv32 = false;
-                        AluOp::AddUw
-                    }
-                    // sh1add.uw / sh2add.uw / sh3add.uw (OP_REG_32, 64-bit result)
-                    (b_funct3::SH1ADD_UW, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG_32 => {
-                        c.is_rv32 = false;
-                        AluOp::Sh1AddUw
-                    }
-                    (b_funct3::SH2ADD_UW, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG_32 => {
-                        c.is_rv32 = false;
-                        AluOp::Sh2AddUw
-                    }
-                    (b_funct3::SH3ADD_UW, b_funct7::SH_ADD) if d.opcode == i_opcodes::OP_REG_32 => {
-                        c.is_rv32 = false;
-                        AluOp::Sh3AddUw
-                    }
-
-                    (b_funct3::ANDN, b_funct7::LOGICAL_NEG) => AluOp::Andn,
-                    (b_funct3::ORN, b_funct7::LOGICAL_NEG) => AluOp::Orn,
-                    (b_funct3::XNOR, b_funct7::LOGICAL_NEG) => AluOp::Xnor,
-                    (b_funct3::MAX, b_funct7::MIN_MAX) => AluOp::Max,
-                    (b_funct3::MAXU, b_funct7::MIN_MAX) => AluOp::Maxu,
-                    (b_funct3::MIN, b_funct7::MIN_MAX) => AluOp::Min,
-                    (b_funct3::MINU, b_funct7::MIN_MAX) => AluOp::Minu,
-                    (b_funct3::ROL, b_funct7::ROTATE) => AluOp::Rol,
-                    (b_funct3::ROR, b_funct7::ROTATE_RIGHT) => AluOp::Ror,
-                    (b_funct3::CLMUL, b_funct7::CLMUL) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Clmul
-                    }
-                    (b_funct3::CLMULH, b_funct7::CLMUL) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Clmulh
-                    }
-                    (b_funct3::CLMULR, b_funct7::CLMUL) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Clmulr
-                    }
-
-                    (b_funct3::BCLR, b_funct7::BCLR) => AluOp::Bclr,
-                    (b_funct3::BEXT, b_funct7::BEXT) => AluOp::Bext,
-                    (b_funct3::BINV, b_funct7::BINV) => AluOp::Binv,
-                    (b_funct3::BSET, b_funct7::BSET) => AluOp::Bset,
-
-                    (b_funct3::PACK, b_funct7::PACK) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Pack
-                    }
-                    (b_funct3::PACKH, b_funct7::PACK) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Packh
-                    }
-                    (b_funct3::PACKW, b_funct7::PACK) if d.opcode == i_opcodes::OP_REG_32 => {
-                        AluOp::Packw
-                    }
-
-                    (b_funct3::XPERM4, b_funct7::XPERM) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Xperm4
-                    }
-                    (b_funct3::XPERM8, b_funct7::XPERM) if d.opcode == i_opcodes::OP_REG => {
-                        AluOp::Xperm8
-                    }
-
-                    _ => return Err(Trap::IllegalInstruction(inst)),
-                };
-            }
+            c.alu = op(d).ok_or(Trap::IllegalInstruction(inst))?;
+        }
+        i_opcodes::OP_REG_32 => {
+            c.reg_write = true;
+            c.b_src = OpBSrc::Reg2;
+            c.alu = op_32(d).ok_or(Trap::IllegalInstruction(inst))?;
+            c.is_rv32 = !is_unsigned_word_op(c.alu);
         }
         a_opcodes::OP_AMO => {
             c.width = match d.funct3 {
@@ -310,6 +162,9 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 _ => return Err(Trap::IllegalInstruction(inst)),
             });
 
+            if c.atomic_op == Some(AtomicOp::Lr) && !d.rs2.is_zero() {
+                return Err(Trap::IllegalInstruction(inst));
+            }
             c.alu = AluOp::Add;
             c.a_src = OpASrc::Reg1;
             c.b_src = OpBSrc::Zero;
@@ -401,7 +256,9 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 f_funct7::FSUB | d_funct7::FSUB_D | h_funct7::FSUB_H => AluOp::FSub,
                 f_funct7::FMUL | d_funct7::FMUL_D | h_funct7::FMUL_H => AluOp::FMul,
                 f_funct7::FDIV | d_funct7::FDIV_D | h_funct7::FDIV_H => AluOp::FDiv,
-                f_funct7::FSQRT | d_funct7::FSQRT_D | h_funct7::FSQRT_H => AluOp::FSqrt,
+                f_funct7::FSQRT | d_funct7::FSQRT_D | h_funct7::FSQRT_H if d.rs2.is_zero() => {
+                    AluOp::FSqrt
+                }
                 f_funct7::FSGNJ | d_funct7::FSGNJ_D | h_funct7::FSGNJ_H => match d.funct3 {
                     f_funct3::FSGNJ => AluOp::FSgnJ,
                     f_funct3::FSGNJN => AluOp::FSgnJN,
@@ -425,7 +282,9 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                         _ => return Err(Trap::IllegalInstruction(inst)),
                     }
                 }
-                f_funct7::FCLASS_MV_X_F | d_funct7::FCLASS_MV_X_D | h_funct7::FCLASS_MV_X_H => {
+                f_funct7::FCLASS_MV_X_F | d_funct7::FCLASS_MV_X_D | h_funct7::FCLASS_MV_X_H
+                    if d.rs2.is_zero() =>
+                {
                     c.fp_reg_write = false;
                     c.reg_write = true;
                     c.rs1_fp = true;
@@ -435,7 +294,9 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                         _ => return Err(Trap::IllegalInstruction(inst)),
                     }
                 }
-                f_funct7::FMV_F_X | d_funct7::FMV_D_X | h_funct7::FMV_H_X => {
+                f_funct7::FMV_F_X | d_funct7::FMV_D_X | h_funct7::FMV_H_X
+                    if d.rs2.is_zero() && d.funct3 == f_funct3::FMV_X_W =>
+                {
                     c.rs1_fp = false;
                     c.fp_reg_write = true;
                     c.a_src = OpASrc::Reg1;
@@ -574,4 +435,148 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
         _ => return Err(Trap::IllegalInstruction(inst)),
     }
     Ok(())
+}
+
+/// The 12-bit I-type immediate, which selects the Zbb/Zbkb unary ops.
+const fn imm12(inst: u32) -> u32 {
+    (inst >> b_funct3::I_IMM_SHIFT) & 0xFFF
+}
+
+/// Zba's `.uw` ops sit in the W opcodes but produce a full 64-bit result.
+const fn is_unsigned_word_op(op: AluOp) -> bool {
+    matches!(op, AluOp::AddUw | AluOp::Sh1AddUw | AluOp::Sh2AddUw | AluOp::Sh3AddUw | AluOp::SlliUw)
+}
+
+/// The operation an OP-IMM word encodes, or `None` for a reserved one.
+const fn op_imm(inst: u32, d: &Decoded) -> Option<AluOp> {
+    let funct6 = d.funct7 >> 1;
+    Some(match d.funct3 {
+        i_funct3::ADD_SUB => AluOp::Add,
+        i_funct3::SLT => AluOp::Slt,
+        i_funct3::SLTU => AluOp::Sltu,
+        i_funct3::XOR => AluOp::Xor,
+        i_funct3::OR => AluOp::Or,
+        i_funct3::AND => AluOp::And,
+        i_funct3::SLL => match imm12(inst) {
+            b_funct3::CLZ_IMM => AluOp::Clz,
+            b_funct3::CTZ_IMM => AluOp::Ctz,
+            b_funct3::CPOP_IMM => AluOp::Cpop,
+            b_funct3::SEXT_B_IMM => AluOp::SextB,
+            b_funct3::SEXT_H_IMM => AluOp::SextH,
+            _ => match funct6 {
+                SLLI_SRLI_FUNCT6 => AluOp::Sll,
+                BCLRI_FUNCT6 => AluOp::Bclr,
+                BINVI_FUNCT6 => AluOp::Binv,
+                BSETI_FUNCT6 => AluOp::Bset,
+                _ => return None,
+            },
+        },
+        i_funct3::SRL_SRA => match imm12(inst) {
+            b_funct3::ORC_B_IMM => AluOp::OrcB,
+            b_funct3::REV8_IMM => AluOp::Rev8,
+            b_funct3::BREV8_IMM => AluOp::Brev8,
+            _ => match funct6 {
+                SLLI_SRLI_FUNCT6 => AluOp::Srl,
+                SRAI_FUNCT6 => AluOp::Sra,
+                RORI_FUNCT6 => AluOp::Ror,
+                BEXTI_FUNCT6 => AluOp::Bext,
+                _ => return None,
+            },
+        },
+        _ => return None,
+    })
+}
+
+/// The operation an OP-IMM-32 word encodes, or `None` for a reserved one.
+const fn op_imm_32(inst: u32, d: &Decoded) -> Option<AluOp> {
+    Some(match d.funct3 {
+        i_funct3::ADD_SUB => AluOp::Add,
+        i_funct3::SLL => match imm12(inst) {
+            b_funct3::CLZ_IMM => AluOp::Clz,
+            b_funct3::CTZ_IMM => AluOp::Ctz,
+            b_funct3::CPOP_IMM => AluOp::Cpop,
+            _ if d.funct7 == i_funct7::DEFAULT => AluOp::Sll,
+            _ if d.funct7 >> 1 == SLLI_UW_FUNCT6 => AluOp::SlliUw,
+            _ => return None,
+        },
+        i_funct3::SRL_SRA => match d.funct7 {
+            i_funct7::DEFAULT => AluOp::Srl,
+            i_funct7::SRA => AluOp::Sra,
+            b_funct7::ROTATE_RIGHT => AluOp::Ror,
+            _ => return None,
+        },
+        _ => return None,
+    })
+}
+
+/// The operation an OP word encodes, or `None` for a reserved one.
+const fn op(d: &Decoded) -> Option<AluOp> {
+    Some(match (d.funct7, d.funct3) {
+        (i_funct7::DEFAULT, i_funct3::ADD_SUB) => AluOp::Add,
+        (i_funct7::SUB, i_funct3::ADD_SUB) => AluOp::Sub,
+        (i_funct7::DEFAULT, i_funct3::SLL) => AluOp::Sll,
+        (i_funct7::DEFAULT, i_funct3::SLT) => AluOp::Slt,
+        (i_funct7::DEFAULT, i_funct3::SLTU) => AluOp::Sltu,
+        (i_funct7::DEFAULT, i_funct3::XOR) => AluOp::Xor,
+        (i_funct7::DEFAULT, i_funct3::SRL_SRA) => AluOp::Srl,
+        (i_funct7::SRA, i_funct3::SRL_SRA) => AluOp::Sra,
+        (i_funct7::DEFAULT, i_funct3::OR) => AluOp::Or,
+        (i_funct7::DEFAULT, i_funct3::AND) => AluOp::And,
+        (m_opcodes::M_EXTENSION, m_funct3::MUL) => AluOp::Mul,
+        (m_opcodes::M_EXTENSION, m_funct3::MULH) => AluOp::Mulh,
+        (m_opcodes::M_EXTENSION, m_funct3::MULHSU) => AluOp::Mulhsu,
+        (m_opcodes::M_EXTENSION, m_funct3::MULHU) => AluOp::Mulhu,
+        (m_opcodes::M_EXTENSION, m_funct3::DIV) => AluOp::Div,
+        (m_opcodes::M_EXTENSION, m_funct3::DIVU) => AluOp::Divu,
+        (m_opcodes::M_EXTENSION, m_funct3::REM) => AluOp::Rem,
+        (m_opcodes::M_EXTENSION, m_funct3::REMU) => AluOp::Remu,
+        (b_funct7::SH_ADD, b_funct3::SH1ADD) => AluOp::Sh1Add,
+        (b_funct7::SH_ADD, b_funct3::SH2ADD) => AluOp::Sh2Add,
+        (b_funct7::SH_ADD, b_funct3::SH3ADD) => AluOp::Sh3Add,
+        (b_funct7::LOGICAL_NEG, b_funct3::ANDN) => AluOp::Andn,
+        (b_funct7::LOGICAL_NEG, b_funct3::ORN) => AluOp::Orn,
+        (b_funct7::LOGICAL_NEG, b_funct3::XNOR) => AluOp::Xnor,
+        (b_funct7::MIN_MAX, b_funct3::MAX) => AluOp::Max,
+        (b_funct7::MIN_MAX, b_funct3::MAXU) => AluOp::Maxu,
+        (b_funct7::MIN_MAX, b_funct3::MIN) => AluOp::Min,
+        (b_funct7::MIN_MAX, b_funct3::MINU) => AluOp::Minu,
+        (b_funct7::ROTATE, b_funct3::ROL) => AluOp::Rol,
+        (b_funct7::ROTATE_RIGHT, b_funct3::ROR) => AluOp::Ror,
+        (b_funct7::CLMUL, b_funct3::CLMUL) => AluOp::Clmul,
+        (b_funct7::CLMUL, b_funct3::CLMULH) => AluOp::Clmulh,
+        (b_funct7::CLMUL, b_funct3::CLMULR) => AluOp::Clmulr,
+        (b_funct7::BCLR, b_funct3::BCLR) => AluOp::Bclr,
+        (b_funct7::BEXT, b_funct3::BEXT) => AluOp::Bext,
+        (b_funct7::BINV, b_funct3::BINV) => AluOp::Binv,
+        (b_funct7::BSET, b_funct3::BSET) => AluOp::Bset,
+        (b_funct7::PACK, b_funct3::PACK) => AluOp::Pack,
+        (b_funct7::PACK, b_funct3::PACKH) => AluOp::Packh,
+        (b_funct7::XPERM, b_funct3::XPERM4) => AluOp::Xperm4,
+        (b_funct7::XPERM, b_funct3::XPERM8) => AluOp::Xperm8,
+        _ => return None,
+    })
+}
+
+/// The operation an OP-32 word encodes, or `None` for a reserved one.
+const fn op_32(d: &Decoded) -> Option<AluOp> {
+    Some(match (d.funct7, d.funct3) {
+        (i_funct7::DEFAULT, i_funct3::ADD_SUB) => AluOp::Add,
+        (i_funct7::SUB, i_funct3::ADD_SUB) => AluOp::Sub,
+        (i_funct7::DEFAULT, i_funct3::SLL) => AluOp::Sll,
+        (i_funct7::DEFAULT, i_funct3::SRL_SRA) => AluOp::Srl,
+        (i_funct7::SRA, i_funct3::SRL_SRA) => AluOp::Sra,
+        (m_opcodes::M_EXTENSION, m_funct3::MUL) => AluOp::Mul,
+        (m_opcodes::M_EXTENSION, m_funct3::DIV) => AluOp::Div,
+        (m_opcodes::M_EXTENSION, m_funct3::DIVU) => AluOp::Divu,
+        (m_opcodes::M_EXTENSION, m_funct3::REM) => AluOp::Rem,
+        (m_opcodes::M_EXTENSION, m_funct3::REMU) => AluOp::Remu,
+        (b_funct7::ADD_UW, b_funct3::ADD_UW) => AluOp::AddUw,
+        (b_funct7::SH_ADD, b_funct3::SH1ADD_UW) => AluOp::Sh1AddUw,
+        (b_funct7::SH_ADD, b_funct3::SH2ADD_UW) => AluOp::Sh2AddUw,
+        (b_funct7::SH_ADD, b_funct3::SH3ADD_UW) => AluOp::Sh3AddUw,
+        (b_funct7::ROTATE, b_funct3::ROL) => AluOp::Rol,
+        (b_funct7::ROTATE_RIGHT, b_funct3::ROR) => AluOp::Ror,
+        (b_funct7::PACK, b_funct3::PACKW) => AluOp::Packw,
+        _ => return None,
+    })
 }

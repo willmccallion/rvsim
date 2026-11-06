@@ -370,3 +370,110 @@ fn each_system_instruction_decodes_to_its_system_or_csr_operation() {
 fn ebreak_raises_a_breakpoint_at_its_pc() {
     assert_eq!(decode(0x0010_0073).trap, Some(Trap::Breakpoint(PC)));
 }
+
+/// An R-type word.
+const fn r_type(opcode: u32, funct3: u32, funct7: u32) -> u32 {
+    const RD: u32 = 10;
+    const RS1: u32 = 11;
+    const RS2: u32 = 12;
+    (funct7 << 25) | (RS2 << 20) | (RS1 << 15) | (funct3 << 12) | (RD << 7) | opcode
+}
+
+/// An I-type word with the whole 12-bit immediate given.
+const fn i_type(opcode: u32, funct3: u32, imm12: u32) -> u32 {
+    const RD: u32 = 10;
+    const RS1: u32 = 11;
+    (imm12 << 20) | (RS1 << 15) | (funct3 << 12) | (RD << 7) | opcode
+}
+
+/// A B-type word with a zero offset.
+const fn b_type(funct3: u32) -> u32 {
+    const BRANCH: u32 = 0x63;
+    (12 << 20) | (11 << 15) | (funct3 << 12) | BRANCH
+}
+
+/// `word` with its rs2 field cleared.
+const fn without_rs2(word: u32) -> u32 {
+    word & !(0x1F << 20)
+}
+
+const OP_IMM: u32 = 0x13;
+const OP_IMM_32: u32 = 0x1b;
+const OP: u32 = 0x33;
+const OP_32: u32 = 0x3b;
+const JALR: u32 = 0x67;
+const OP_FP: u32 = 0x53;
+const AMO: u32 = 0x2f;
+
+/// Encodings the ratified extensions leave reserved. The names are what
+/// the word would be if its extension had defined it.
+#[rustfmt::skip]
+const RESERVED: &[(&str, u32)] = &[
+    ("sltw", r_type(OP_32, 2, 0x00)),
+    ("sltuw", r_type(OP_32, 3, 0x00)),
+    ("xorw", r_type(OP_32, 4, 0x00)),
+    ("orw", r_type(OP_32, 6, 0x00)),
+    ("andw", r_type(OP_32, 7, 0x00)),
+    ("mulhw", r_type(OP_32, 1, 0x01)),
+    ("mulhsuw", r_type(OP_32, 2, 0x01)),
+    ("mulhuw", r_type(OP_32, 3, 0x01)),
+    ("xnorw", r_type(OP_32, 4, 0x20)),
+    ("ornw", r_type(OP_32, 6, 0x20)),
+    ("andnw", r_type(OP_32, 7, 0x20)),
+    ("minw", r_type(OP_32, 4, 0x05)),
+    ("minuw", r_type(OP_32, 5, 0x05)),
+    ("maxw", r_type(OP_32, 6, 0x05)),
+    ("maxuw", r_type(OP_32, 7, 0x05)),
+    ("clmulw", r_type(OP_32, 1, 0x05)),
+    ("bclrw", r_type(OP_32, 1, 0x24)),
+    ("bextw", r_type(OP_32, 5, 0x24)),
+    ("binvw", r_type(OP_32, 1, 0x34)),
+    ("bsetw", r_type(OP_32, 1, 0x14)),
+    ("packhw", r_type(OP_32, 7, 0x04)),
+    ("sub with funct3=1", r_type(OP, 1, 0x20)),
+    ("add.uw on OP", r_type(OP, 0, 0x04)),
+    ("sltiw", i_type(OP_IMM_32, 2, 5)),
+    ("sltiuw", i_type(OP_IMM_32, 3, 5)),
+    ("xoriw", i_type(OP_IMM_32, 4, 5)),
+    ("oriw", i_type(OP_IMM_32, 6, 5)),
+    ("andiw", i_type(OP_IMM_32, 7, 5)),
+    ("slliw with shamt[5] set", i_type(OP_IMM_32, 1, 0x020)),
+    ("srliw with shamt[5] set", i_type(OP_IMM_32, 5, 0x020)),
+    ("sraiw with shamt[5] set", i_type(OP_IMM_32, 5, 0x420)),
+    ("roriw with shamt[5] set", i_type(OP_IMM_32, 5, 0x620)),
+    ("bclriw", i_type(OP_IMM_32, 1, 0x480)),
+    ("bsetiw", i_type(OP_IMM_32, 1, 0x280)),
+    ("binviw", i_type(OP_IMM_32, 1, 0x680)),
+    ("bextiw", i_type(OP_IMM_32, 5, 0x480)),
+    ("slli with funct6=1", i_type(OP_IMM, 1, 0x043)),
+    ("srli with funct6=1", i_type(OP_IMM, 5, 0x043)),
+    ("srai with funct6=0x11", i_type(OP_IMM, 5, 0x443)),
+    ("an undefined Zbb unary op", i_type(OP_IMM, 1, 0x603)),
+    ("slli.uw on OP-IMM", i_type(OP_IMM, 1, 0x085)),
+    ("branch with funct3=2", b_type(2)),
+    ("branch with funct3=3", b_type(3)),
+    ("jalr with funct3=1", i_type(JALR, 1, 8)),
+    ("jalr with funct3=7", i_type(JALR, 7, 8)),
+    ("load with funct3=7", i_type(0x03, 7, 8)),
+    ("fsqrt.s with rs2 set", r_type(OP_FP, 0, 0x2c)),
+    ("fclass.d with rs2 set", r_type(OP_FP, 1, 0x71)),
+    ("fmv.x.w with rs2 set", r_type(OP_FP, 0, 0x70)),
+    ("fmv.w.x with rs2 set", r_type(OP_FP, 0, 0x78)),
+    ("fmv.w.x with funct3=1", without_rs2(r_type(OP_FP, 1, 0x78))),
+    ("fcvt.s.d with rs2=3", without_rs2(r_type(OP_FP, 0, 0x20)) | (3 << 20)),
+    ("fadd.q", r_type(OP_FP, 0, 0x03)),
+    ("lr.w with rs2 set", r_type(AMO, 2, 0b00010 << 2)),
+];
+
+#[test]
+fn reserved_encodings_raise_illegal_instruction() {
+    let wrong: Vec<String> = RESERVED
+        .iter()
+        .filter_map(|(name, word)| {
+            let trap = decode(*word).trap;
+            (trap != Some(Trap::IllegalInstruction(*word)))
+                .then(|| format!("{name} ({word:#010x}): {trap:?}"))
+        })
+        .collect();
+    assert!(wrong.is_empty(), "{} reserved words do not trap:\n{}", wrong.len(), wrong.join("\n"));
+}
