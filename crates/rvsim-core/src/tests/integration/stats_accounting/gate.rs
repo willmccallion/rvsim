@@ -1,10 +1,10 @@
 //! Every stat the simulator registers is checked by an accounting check, so
 //! a stat cannot be added, or keep counting, without one.
 
+use crate::tests::support::harness::build_simulator;
 use std::collections::BTreeSet;
 
 use super::{Recorder, caches, coherence, commit, ddr5, fu, pipeline, predictors};
-use crate::Simulator;
 use crate::config::{Config, MemoryControllerKind};
 
 /// Every accounting check.
@@ -60,7 +60,7 @@ fn registered() -> BTreeSet<String> {
     [1, 2]
         .into_iter()
         .flat_map(|harts| {
-            let sim = Simulator::build(&every_component(harts), "");
+            let sim = build_simulator(&every_component(harts));
             sim.stats().meta.keys().map(|id| normalized(id.path())).collect::<Vec<_>>()
         })
         .collect()

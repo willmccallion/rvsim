@@ -65,7 +65,8 @@ fn context(backend: BackendKind, latency: u64) -> TestContext {
     config.memory.controller = MemoryControllerKind::Simple;
     config.memory.simple_latency = latency;
     config.system.bus_latency = 0;
-    let mut state = SystemState::new(&config, "", Arc::new(AtomicU64::new(u64::MAX)));
+    let mut state = SystemState::new(&config, "", Arc::new(AtomicU64::new(u64::MAX)))
+        .expect("the test machine builds");
     for hart in &mut state.harts {
         hart.csrs.mstatus |= MSTATUS_FS_INIT | MSTATUS_VS_INIT;
     }

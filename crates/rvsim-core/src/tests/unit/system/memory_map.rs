@@ -27,3 +27,17 @@ fn every_device_sits_at_its_configured_region() {
 
     assert_eq!(built, expected);
 }
+
+#[test]
+fn a_ram_the_host_cannot_map_fails_the_build() {
+    let mut config = Config::minimal();
+    config.memory.ram_size = usize::MAX;
+
+    let built = crate::Simulator::build(&config, "");
+
+    assert!(
+        matches!(built, Err(crate::common::SimError::RamAllocation { bytes: usize::MAX, .. })),
+        "{:?}",
+        built.err()
+    );
+}

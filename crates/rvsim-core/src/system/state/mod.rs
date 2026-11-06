@@ -10,7 +10,7 @@ use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
-use crate::common::{HartId, PhysAddr};
+use crate::common::{HartId, PhysAddr, SimError};
 use crate::config::{Config, InclusionPolicy, MemoryControllerKind};
 use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{ComponentId, MemCtrlId};
@@ -143,14 +143,22 @@ impl SystemState {
     /// signal `Arc` with other components before construction.
     pub fn build(config: &Config, disk_path: &str) -> Self {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        Self::new(config, disk_path, exit_signal)
+        Self::new(config, disk_path, exit_signal).expect("the test machine builds")
     }
 
     /// Constructs the system: bus and devices, memory controller, LLC, and
     /// `config.system.hart_count` cores each hosting one hart. `exit_signal`
     /// is cloned into bus-resident devices (`SysCon`, HTIF) so they can
     /// write the harness termination value when triggered.
-    pub fn new(config: &Config, disk_path: &str, exit_signal: Arc<AtomicU64>) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM.
+    pub fn new(
+        config: &Config,
+        disk_path: &str,
+        exit_signal: Arc<AtomicU64>,
+    ) -> Result<Self, SimError> {
         use crate::isa::csr::MSTATUS_DEFAULT_RV64;
 
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
@@ -161,6 +169,8 @@ impl SystemState {
 
         let ram_base = config.system.ram_base;
         let ram_size = config.memory.ram_size;
+        let ram = Ram::new(ram_base, ram_size)
+            .map_err(|source| SimError::RamAllocation { bytes: ram_size, source })?;
 
         let terminal = Terminal::shared(config.system.console);
         let uart =
@@ -323,7 +333,7 @@ impl SystemState {
             })
             .collect();
 
-        Self {
+        Ok(Self {
             harts,
             cores,
             uncore: Uncore {
@@ -338,11 +348,7 @@ impl SystemState {
                 mem_controller,
                 l3_cache,
                 coherence,
-                memory: GlobalMemory::new(
-                    Some(Ram::new(ram_base, ram_size)),
-                    hart_count,
-                    write_log_line_bytes,
-                ),
+                memory: GlobalMemory::new(Some(ram), hart_count, write_log_line_bytes),
                 config: config.clone(),
                 per_hart_debug: (0..hart_count).map(|_| HartDebug::default()).collect(),
                 panic_detected_at_cycle: None,
@@ -361,7 +367,7 @@ impl SystemState {
                 pending_sim_ops: Vec::new(),
                 hart_stat_paths,
             },
-        }
+        })
     }
 
     /// Puts the coherence fabric between every core's L2 and the LLC: the

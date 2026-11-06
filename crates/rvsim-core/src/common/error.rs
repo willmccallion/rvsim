@@ -67,6 +67,14 @@ pub enum SimError {
         /// What about it.
         reason: String,
     },
+    /// The host could not map the configured RAM.
+    #[error("could not map {bytes} bytes of RAM: {source}")]
+    RamAllocation {
+        /// The RAM size asked for.
+        bytes: usize,
+        /// The host's error.
+        source: std::io::Error,
+    },
     /// RAM could not hold the process.
     #[error("the program's memory could not be set up: {0:?}")]
     ProcessMemory(crate::system::process::SpaceError),
