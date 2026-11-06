@@ -32,11 +32,11 @@ use crate::soc::topology::Topology;
 use crate::soc::uncore::debug::HartDebug;
 use crate::soc::uncore::{SimOp, StatsDump, StatsEpoch, TraceControl, Uncore};
 use crate::system::host_files::HostFiles;
+use crate::system::loader::load_binary;
 use crate::system::process::Processes;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::{Core, CoreUnits};
-use std::fs;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -141,9 +141,9 @@ impl SystemState {
     /// Convenience constructor: allocates a fresh `exit_signal` slot and
     /// builds the system. Use this when the caller doesn't need to share the
     /// signal `Arc` with other components before construction.
-    pub fn build(config: &Config, disk_path: &str) -> Self {
+    pub fn build(config: &Config) -> Self {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        Self::new(config, disk_path, exit_signal).expect("the test machine builds")
+        Self::new(config, None, exit_signal).expect("the test machine builds")
     }
 
     /// Constructs the system: bus and devices, memory controller, LLC, and
@@ -153,10 +153,11 @@ impl SystemState {
     ///
     /// # Errors
     ///
-    /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM.
+    /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM,
+    /// and [`SimError::FileRead`] when `disk` names an image it cannot read.
     pub fn new(
         config: &Config,
-        disk_path: &str,
+        disk: Option<&str>,
         exit_signal: Arc<AtomicU64>,
     ) -> Result<Self, SimError> {
         use crate::isa::csr::MSTATUS_DEFAULT_RV64;
@@ -178,12 +179,9 @@ impl SystemState {
         let clint = Clint::new(config.system.clint_base, config.system.clint_divider, hart_count);
         let plic = Plic::new(crate::config::PLIC_BASE, hart_count);
 
-        let mut disk = VirtioBlock::new(config.system.disk_base);
-        if !disk_path.is_empty()
-            && let Ok(disk_data) = fs::read(disk_path)
-            && !disk_data.is_empty()
-        {
-            disk.load(disk_data);
+        let mut disk_device = VirtioBlock::new(config.system.disk_base);
+        if let Some(path) = disk {
+            disk_device.load(load_binary(path)?);
         }
 
         let syscon = SysCon::new(config.system.syscon_base, exit_signal.clone());
@@ -194,7 +192,7 @@ impl SystemState {
         );
 
         bus.add_device(Box::new(uart));
-        bus.add_device(Box::new(disk));
+        bus.add_device(Box::new(disk_device));
         bus.add_device(Box::new(clint));
         bus.add_device(Box::new(plic));
         bus.add_device(Box::new(syscon));
@@ -412,7 +410,7 @@ mod tests {
     #[test]
     fn test_cpu_reservation() {
         let config = Config::minimal();
-        let mut sys = SystemState::build(&config, "");
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         state.set_reservation(PhysAddr::new(0x1000));
@@ -427,7 +425,7 @@ mod tests {
     #[test]
     fn a_hart_displays_its_pc_and_registers() {
         let config = Config::minimal();
-        let state = SystemState::build(&config, "");
+        let state = SystemState::build(&config);
         let text = state.harts[0].to_string();
         assert!(text.starts_with("PC = 0x0000000080000000\n"), "{text}");
         assert_eq!(text.lines().count(), 17, "{text}");
@@ -436,7 +434,7 @@ mod tests {
     #[test]
     fn test_cpu_take_exit() {
         let config = Config::minimal();
-        let state = SystemState::build(&config, "");
+        let state = SystemState::build(&config);
 
         assert_eq!(state.take_exit(), None);
         state.signal_exit(42);
@@ -448,7 +446,7 @@ mod tests {
     fn every_core_gets_its_own_hart_and_caches() {
         let mut config = Config::minimal();
         config.system.hart_count = 2;
-        let sys = SystemState::build(&config, "");
+        let sys = SystemState::build(&config);
         assert_eq!(sys.harts.len(), 2);
         assert_eq!(sys.cores.len(), 2);
         assert_eq!(sys.harts[1].hart_id, HartId::new(1));

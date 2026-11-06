@@ -22,7 +22,7 @@ const ETIMEDOUT: u64 = 110;
 fn table(harts: usize) -> (SystemState, Processes, ThreadRef) {
     let mut config = Config::minimal();
     config.system.hart_count = harts;
-    let mut sys = SystemState::build(&config, "");
+    let mut sys = SystemState::build(&config);
     let split = PhysAddr::new(RAM_BASE + (1 << 20));
     let mut frames = FrameAllocator::new(PhysAddr::new(RAM_BASE), split);
     let space = AddressSpace::new(PagingMode::Sv39, &mut sys.uncore.memory, &mut frames)

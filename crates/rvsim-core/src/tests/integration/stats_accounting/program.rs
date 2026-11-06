@@ -56,7 +56,7 @@ pub fn system_with_configured_latency(
     program: &[u32],
     handler: &[u32],
 ) -> TestContext {
-    let ctx = TestContext { sim: Simulator::new(SystemState::build(config, "")) };
+    let ctx = TestContext { sim: Simulator::new(SystemState::build(config)) };
     prepare(ctx, program, handler)
 }
 

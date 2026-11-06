@@ -154,10 +154,11 @@ impl Simulator {
     ///
     /// # Errors
     ///
-    /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM.
-    pub fn build(config: &Config, disk_path: &str) -> Result<Self, SimError> {
+    /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM,
+    /// and [`SimError::FileRead`] when `disk` names an image it cannot read.
+    pub fn build(config: &Config, disk: Option<&str>) -> Result<Self, SimError> {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        Ok(Self::new(SystemState::new(config, disk_path, exit_signal)?))
+        Ok(Self::new(SystemState::new(config, disk, exit_signal)?))
     }
 
     /// Loads the ELF image `data` as the program to run: its segments go

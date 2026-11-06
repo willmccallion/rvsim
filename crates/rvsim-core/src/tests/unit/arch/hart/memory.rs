@@ -12,7 +12,7 @@ use crate::uarch::mmu::TranslateOutcome;
 
 fn create_test_cpu() -> SystemState {
     let config = Config::minimal();
-    SystemState::build(&config, "")
+    SystemState::build(&config)
 }
 
 #[test]

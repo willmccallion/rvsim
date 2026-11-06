@@ -40,7 +40,7 @@ fn system(backend: BackendKind) -> TestContext {
     config.pipeline.backend = backend;
     config.system.console = Console::Captured;
     config.system.bus_latency = DEVICE_LATENCY;
-    let sim = Simulator::new(SystemState::build(&config, ""));
+    let sim = Simulator::new(SystemState::build(&config));
     TestContext { sim }.load_program(PROGRAM_BASE, &printing_then_exiting())
 }
 

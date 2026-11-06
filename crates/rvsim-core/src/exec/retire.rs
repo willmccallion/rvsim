@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn no_interrupt_is_taken_when_none_is_pending() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config);
         let state = sys.core_ctx(0);
 
         assert!(pending_interrupt(state.hart).is_none());
@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn a_pending_enabled_machine_interrupt_is_taken_in_machine_mode() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config);
         let state = sys.core_ctx(0);
 
         state.hart.csrs.mip = csr::MIP_MEIP;
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn a_delegated_interrupt_is_taken_in_supervisor_mode() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config);
         let state = sys.core_ctx(0);
 
         state.hart.csrs.mip = csr::MIP_SEIP;

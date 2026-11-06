@@ -175,13 +175,13 @@ impl PySimulator {
         kernel_path: Option<String>,
         firmware_path: Option<String>,
         dtb_path: Option<String>,
-        disk_path: Option<String>,
+        disk_path: Option<&str>,
         script_path: Option<String>,
         outdir: Option<String>,
     ) -> PyResult<Self> {
         let config = py_dict_to_config(py, config_dict)?;
         config.validate().map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        let mut sim = Simulator::build(&config, &disk_path.unwrap_or_default())
+        let mut sim = Simulator::build(&config, disk_path)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         if let Some(script) = script_path {
             sim.set_script_file(&script).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;

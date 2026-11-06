@@ -24,7 +24,7 @@ fn copied_after_python_write(backend: BackendKind) -> u64 {
         let mut config = Config::minimal();
         config.pipeline.backend = backend;
         config.system.console = Console::Quiet;
-        let mut inner = Simulator::build(&config, "").expect("the test machine builds");
+        let mut inner = Simulator::build(&config, None).expect("the test machine builds");
         for (n, word) in [COPY_A0_TO_A1, JAL_SELF].into_iter().enumerate() {
             inner.probe_mem_store(PhysAddr::new(PROGRAM_BASE + 4 * n as u64), u64::from(word), 4);
         }

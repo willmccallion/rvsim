@@ -11,7 +11,7 @@ use crate::system::SystemState;
 
 fn create_test_cpu() -> SystemState {
     let config = Config::minimal();
-    SystemState::build(&config, "")
+    SystemState::build(&config)
 }
 
 #[test]

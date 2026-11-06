@@ -17,7 +17,7 @@ const LINE2: PhysAddr = PhysAddr::new(0x8000_0080);
 fn two_hart_system() -> SystemState {
     let mut config = Config::minimal();
     config.system.hart_count = 2;
-    SystemState::build(&config, "")
+    SystemState::build(&config)
 }
 
 #[test]
