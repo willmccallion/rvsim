@@ -20,7 +20,7 @@ use crate::exec::state::ArchState;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpFlags, Rounding, RoundingMode};
 use crate::isa::op::{AluOp, CsrOp, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
@@ -55,13 +55,34 @@ const fn vs_off(hart: &Hart) -> bool {
     hart.csrs.mstatus & csr::MSTATUS_VS == 0
 }
 
+/// True when `inst` decodes but cannot execute in the hart's current state:
+/// it needs a unit `mstatus` has switched Off, or rounds by `frm` while
+/// `frm` holds a reserved mode.
+pub const fn illegal_in_current_state(hart: &Hart, inst: &Inst) -> bool {
+    unit_disabled(hart, inst) || rounds_by_reserved_frm(hart, inst)
+}
+
+/// The rounding mode `fcsr.frm` selects, or `None` when it holds a
+/// reserved one.
+const fn frm_mode(hart: &Hart) -> Option<RoundingMode> {
+    RoundingMode::from_bits(hart.csrs.frm as u8)
+}
+
+/// True when `inst` rounds by `frm`, as every vector FP instruction does,
+/// and `frm` holds a reserved mode.
+const fn rounds_by_reserved_frm(hart: &Hart, inst: &Inst) -> bool {
+    let dynamic =
+        matches!(inst.ctrl.fp_rm, Some(Rounding::Dynamic)) || is_vector_fp(inst.ctrl.vec_op);
+    dynamic && frm_mode(hart).is_none()
+}
+
 /// True when `id` needs a unit `mstatus` has switched Off.
 ///
 /// Any vector instruction while VS is Off, and anything touching the FP
 /// registers or doing vector floating-point arithmetic while FS is Off.
 /// Checked here rather than at decode because `mstatus` writes apply at
 /// commit.
-pub const fn unit_disabled(hart: &Hart, inst: &Inst) -> bool {
+const fn unit_disabled(hart: &Hart, inst: &Inst) -> bool {
     let is_vector = !matches!(inst.ctrl.vec_op, VectorOp::None);
     let is_fp = inst.ctrl.fp_reg_write
         || inst.ctrl.rs1_fp
@@ -327,7 +348,11 @@ fn counter_access_denied(state: &impl ArchState, inst: &Inst) -> bool {
 
 /// Evaluates `id`'s ALU or FPU operation and returns `(result, fp_flags)`.
 pub fn evaluate(state: &impl ArchState, inst: &Inst, op_a: u64, op_b: u64) -> (u64, u8) {
-    let fp_rm = inst.ctrl.fp_rm.or_else(|| RoundingMode::from_bits(state.hart().csrs.frm as u8));
+    let fp_rm = match inst.ctrl.fp_rm {
+        Some(Rounding::Static(mode)) => Some(mode),
+        Some(Rounding::Dynamic) => frm_mode(state.hart()),
+        None => None,
+    };
     compute_alu(inst.ctrl.alu, op_a, op_b, inst.rv3, inst.ctrl.is_f16, inst.ctrl.is_rv32, fp_rm)
 }
 

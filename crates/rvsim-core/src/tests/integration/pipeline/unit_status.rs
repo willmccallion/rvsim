@@ -1,6 +1,7 @@
 //! `mstatus.FS` and `mstatus.VS` gate their units: with the field Off, an
 //! instruction or CSR access that needs the unit is illegal; with it on,
-//! the same instruction runs.
+//! the same instruction runs. Likewise an instruction that rounds by `frm`
+//! is illegal while `frm` holds a reserved mode.
 
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
@@ -30,6 +31,16 @@ const VADD_VV: u32 = 0x0221_80D7;
 const VFADD_VV: u32 = 0x0221_90D7;
 /// `vle8.v v1, (a0)`.
 const VLE8_V: u32 = 0x0205_0087;
+/// `fadd.s f1, f2, f3, dyn`.
+const FADD_S_DYN: u32 = 0x0031_70D3;
+/// `fadd.s f1, f2, f3, rne`.
+const FADD_S_RNE: u32 = 0x0031_00D3;
+/// `fsgnj.s f1, f2, f3`, which does not round.
+const FSGNJ_S: u32 = 0x2031_00D3;
+/// `frm` value for round to nearest, ties to even.
+const FRM_RNE: u64 = 0;
+/// The `frm` values the F extension leaves reserved.
+const RESERVED_FRMS: [u64; 3] = [5, 6, 7];
 
 /// Which units `mstatus` has on.
 #[derive(Clone, Copy, Debug)]
@@ -47,7 +58,7 @@ fn handler() -> Vec<u32> {
 }
 
 /// Runs `inst` followed by a marker write; returns `(mcause, mtval, marker)`.
-fn run(backend: BackendKind, units: Units, inst: u32) -> (u64, u64, u64) {
+fn run(backend: BackendKind, units: Units, frm: u64, inst: u32) -> (u64, u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
@@ -66,6 +77,7 @@ fn run(backend: BackendKind, units: Units, inst: u32) -> (u64, u64, u64) {
     if units.vector {
         csrs.mstatus |= MSTATUS_VS_INIT;
     }
+    csrs.frm = frm;
     csrs.vtype = VTYPE_E32_M1;
     csrs.vl = 4;
     ctx.set_reg(A0 as usize, DATA);
@@ -78,12 +90,12 @@ fn run(backend: BackendKind, units: Units, inst: u32) -> (u64, u64, u64) {
 /// `inst` is illegal with `off` and runs to the marker with both units on.
 fn check(inst: u32, off: Units) {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let (mcause, mtval, marker) = run(backend, off, inst);
+        let (mcause, mtval, marker) = run(backend, off, FRM_RNE, inst);
         assert_eq!(mcause, ILLEGAL_INSTRUCTION, "{backend:?} {inst:#010x} {off:?}: illegal");
         assert_eq!(mtval, u64::from(inst), "{backend:?} {inst:#010x}: tval holds the instruction");
         assert_eq!(marker, 0, "{backend:?} {inst:#010x}: nothing after the fault retired");
 
-        let (mcause, _, marker) = run(backend, BOTH_ON, inst);
+        let (mcause, _, marker) = run(backend, BOTH_ON, FRM_RNE, inst);
         assert_eq!(mcause, 0, "{backend:?} {inst:#010x}: legal with both units on");
         assert_eq!(marker, 1, "{backend:?} {inst:#010x}: ran on with both units on");
     }
@@ -112,4 +124,52 @@ fn fp_csr_access_is_illegal_with_fs_off() {
 #[test]
 fn vector_csr_access_is_illegal_with_vs_off() {
     check(InstructionBuilder::new().csrrs(A1, VL, 0).build(), Units { fp: true, vector: false });
+}
+
+/// `inst` is illegal with every reserved `frm` and runs with `frm` = RNE.
+fn check_reserved_frm_is_illegal(inst: u32) {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        for frm in RESERVED_FRMS {
+            let (mcause, mtval, marker) = run(backend, BOTH_ON, frm, inst);
+            assert_eq!(mcause, ILLEGAL_INSTRUCTION, "{backend:?} {inst:#010x} frm={frm}: illegal");
+            assert_eq!(
+                mtval,
+                u64::from(inst),
+                "{backend:?} {inst:#010x}: tval holds the instruction"
+            );
+            assert_eq!(marker, 0, "{backend:?} {inst:#010x}: nothing after the fault retired");
+        }
+        let (mcause, _, marker) = run(backend, BOTH_ON, FRM_RNE, inst);
+        assert_eq!((mcause, marker), (0, 1), "{backend:?} {inst:#010x}: runs with frm=RNE");
+    }
+}
+
+/// `inst` runs with every reserved `frm`.
+fn check_reserved_frm_is_ignored(inst: u32) {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        for frm in RESERVED_FRMS {
+            let (mcause, _, marker) = run(backend, BOTH_ON, frm, inst);
+            assert_eq!((mcause, marker), (0, 1), "{backend:?} {inst:#010x} frm={frm}: runs");
+        }
+    }
+}
+
+#[test]
+fn dynamic_rounding_is_illegal_with_a_reserved_frm() {
+    check_reserved_frm_is_illegal(FADD_S_DYN);
+}
+
+#[test]
+fn vector_floating_point_is_illegal_with_a_reserved_frm() {
+    check_reserved_frm_is_illegal(VFADD_VV);
+}
+
+#[test]
+fn static_rounding_ignores_a_reserved_frm() {
+    check_reserved_frm_is_ignored(FADD_S_RNE);
+}
+
+#[test]
+fn an_op_that_does_not_round_ignores_a_reserved_frm() {
+    check_reserved_frm_is_ignored(FSGNJ_S);
 }

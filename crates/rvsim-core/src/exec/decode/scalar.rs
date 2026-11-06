@@ -14,7 +14,7 @@ use crate::isa::encoding::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcode
 use crate::isa::encoding::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
 use crate::isa::encoding::rv64zfh::funct7 as h_funct7;
 use crate::isa::encoding::zicboz;
-use crate::isa::fp::RoundingMode;
+use crate::isa::fp::Rounding;
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp};
 use crate::isa::privileged::Trap;
@@ -243,9 +243,6 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 return Err(Trap::IllegalInstruction(inst));
             }
 
-            // Decode rounding mode from funct3. 0b111 = dynamic (use fcsr.frm).
-            c.fp_rm = RoundingMode::from_bits(d.funct3 as u8);
-
             c.rs1_fp = true;
             c.rs2_fp = true;
             c.fp_reg_write = true;
@@ -359,6 +356,9 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 }
                 _ => return Err(Trap::IllegalInstruction(inst)),
             };
+            if rounds(c.alu) {
+                c.fp_rm = Some(rounding(inst, d)?);
+            }
         }
         d_opcodes::OP_FMADD | d_opcodes::OP_FMSUB | d_opcodes::OP_FNMADD | d_opcodes::OP_FNMSUB => {
             c.rs1_fp = true;
@@ -373,7 +373,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
             if !c.is_rv32 && !c.is_f16 && !is_double {
                 return Err(Trap::IllegalInstruction(inst));
             }
-            c.fp_rm = RoundingMode::from_bits(d.funct3 as u8);
+            c.fp_rm = Some(rounding(inst, d)?);
 
             c.alu = match d.opcode {
                 d_opcodes::OP_FMADD => AluOp::FMAdd,
@@ -579,4 +579,39 @@ const fn op_32(d: &Decoded) -> Option<AluOp> {
         (b_funct7::PACK, b_funct3::PACKW) => AluOp::Packw,
         _ => return None,
     })
+}
+
+/// The rounding `d`'s rounding-mode field selects; a reserved mode makes
+/// the instruction illegal.
+const fn rounding(inst: u32, d: &Decoded) -> Result<Rounding, Trap> {
+    match Rounding::from_field(d.funct3) {
+        Some(rounding) => Ok(rounding),
+        None => Err(Trap::IllegalInstruction(inst)),
+    }
+}
+
+/// True for the OP-FP operations whose funct3 is a rounding mode.
+const fn rounds(op: AluOp) -> bool {
+    matches!(
+        op,
+        AluOp::FAdd
+            | AluOp::FSub
+            | AluOp::FMul
+            | AluOp::FDiv
+            | AluOp::FSqrt
+            | AluOp::FCvtWS
+            | AluOp::FCvtWUS
+            | AluOp::FCvtLS
+            | AluOp::FCvtLUS
+            | AluOp::FCvtSW
+            | AluOp::FCvtSWU
+            | AluOp::FCvtSL
+            | AluOp::FCvtSLU
+            | AluOp::FCvtDS
+            | AluOp::FCvtDH
+            | AluOp::FCvtSD
+            | AluOp::FCvtSH
+            | AluOp::FCvtHS
+            | AluOp::FCvtHD
+    )
 }

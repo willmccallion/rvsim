@@ -4,6 +4,7 @@
 
 use crate::exec::decode::{DecodedInst, decode_inst};
 use crate::exec::signals::ControlFlow;
+use crate::isa::fp::{Rounding, RoundingMode};
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp};
 use crate::isa::privileged::Trap;
 
@@ -463,6 +464,9 @@ const RESERVED: &[(&str, u32)] = &[
     ("fcvt.s.d with rs2=3", without_rs2(r_type(OP_FP, 0, 0x20)) | (3 << 20)),
     ("fadd.q", r_type(OP_FP, 0, 0x03)),
     ("lr.w with rs2 set", r_type(AMO, 2, 0b00010 << 2)),
+    ("fadd.s with rm=5", r_type(OP_FP, 5, 0x00)),
+    ("fcvt.w.s with rm=6", without_rs2(r_type(OP_FP, 6, 0x60))),
+    ("fmadd.s with rm=5", r_type(0x43, 5, 0x00)),
 ];
 
 #[test]
@@ -476,4 +480,19 @@ fn reserved_encodings_raise_illegal_instruction() {
         })
         .collect();
     assert!(wrong.is_empty(), "{} reserved words do not trap:\n{}", wrong.len(), wrong.join("\n"));
+}
+
+#[test]
+fn a_rounding_mode_field_decodes_to_static_or_dynamic_rounding() {
+    let fadd_s = |rm: u32| r_type(OP_FP, rm, 0x00);
+
+    assert_eq!(decode(fadd_s(0b001)).ctrl.fp_rm, Some(Rounding::Static(RoundingMode::Rtz)));
+    assert_eq!(decode(fadd_s(0b111)).ctrl.fp_rm, Some(Rounding::Dynamic));
+}
+
+#[test]
+fn an_op_that_does_not_round_carries_no_rounding_mode() {
+    let fsgnjx_s = r_type(OP_FP, 2, 0x10);
+
+    assert_eq!(decode(fsgnjx_s).ctrl.fp_rm, None);
 }

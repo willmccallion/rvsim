@@ -4,7 +4,7 @@
 //! accesses memory and what system action it takes.
 
 use crate::isa::csr::CsrAddr;
-use crate::isa::fp::RoundingMode;
+use crate::isa::fp::Rounding;
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp, VecSrcEncoding, VectorOp};
 use crate::isa::rvv::{Sew, VRegIdx};
 
@@ -88,9 +88,9 @@ pub struct ControlSignals {
     pub csr_addr: CsrAddr,
     /// CSR operation type.
     pub csr_op: CsrOp,
-    /// Floating-point rounding mode for FP arithmetic and conversions.
-    /// `None` means use `fcsr.frm` (dynamic). Set during decode from funct3.
-    pub fp_rm: Option<RoundingMode>,
+    /// How an FP arithmetic op or conversion rounds; `None` for every
+    /// instruction whose result does not depend on a rounding mode.
+    pub fp_rm: Option<Rounding>,
     /// `rs1` is a floating-point register.
     pub rs1_fp: bool,
     /// `rs2` is a floating-point register.

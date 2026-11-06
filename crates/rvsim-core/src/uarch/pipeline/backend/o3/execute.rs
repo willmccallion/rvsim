@@ -5,7 +5,7 @@
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
 use crate::exec::execute::{
-    SystemEffect, evaluate, operands, perform_csr_access, system_effect, unit_disabled,
+    SystemEffect, evaluate, illegal_in_current_state, operands, perform_csr_access, system_effect,
 };
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
@@ -61,7 +61,7 @@ pub fn execute_one(
         "EX: begin"
     );
 
-    if unit_disabled(state.hart(), &id.inst) {
+    if illegal_in_current_state(state.hart(), &id.inst) {
         return faulted(state, id, Trap::IllegalInstruction(id.inst.bits));
     }
 
