@@ -35,6 +35,33 @@ impl RoundingMode {
     }
 }
 
+/// The rounding an instruction's rounding-mode field selects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rounding {
+    /// The mode the field names.
+    Static(RoundingMode),
+    /// The mode `fcsr.frm` holds when the instruction executes.
+    Dynamic,
+}
+
+impl Rounding {
+    /// The field value that selects `fcsr.frm`.
+    const DYNAMIC_FIELD: u32 = 0b111;
+
+    /// The rounding a 3-bit rounding-mode field selects, or `None` for the
+    /// reserved 0b101 and 0b110.
+    #[must_use]
+    pub const fn from_field(field: u32) -> Option<Self> {
+        if field == Self::DYNAMIC_FIELD {
+            return Some(Self::Dynamic);
+        }
+        match RoundingMode::from_bits(field as u8) {
+            Some(mode) => Some(Self::Static(mode)),
+            None => None,
+        }
+    }
+}
+
 /// Floating-point exception flags (RISC-V `fcsr.fflags`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FpFlags(u8);

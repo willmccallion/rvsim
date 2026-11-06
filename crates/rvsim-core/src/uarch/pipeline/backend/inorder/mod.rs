@@ -16,7 +16,7 @@ mod rename;
 use crate::config::Config;
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::ElementWrite;
-use crate::exec::execute::unit_disabled;
+use crate::exec::execute::illegal_in_current_state;
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::components::{CacheId, PipelineId};
@@ -212,7 +212,7 @@ impl InOrderEngine {
         use crate::exec::compute::vector::mem::{
             check_vec_mem_emul, element_accesses, vec_mem_dst_count,
         };
-        if unit_disabled(state.hart, &entry.inst) {
+        if illegal_in_current_state(state.hart, &entry.inst) {
             let trap = Trap::IllegalInstruction(entry.inst.bits);
             self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
             return;

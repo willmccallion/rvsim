@@ -6,7 +6,9 @@
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::shadow::ShadowVpr;
-use crate::exec::execute::{SystemEffect, evaluate, operands, system_effect, unit_disabled};
+use crate::exec::execute::{
+    SystemEffect, evaluate, illegal_in_current_state, operands, system_effect,
+};
 use crate::isa::extension::Extension;
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
@@ -101,7 +103,7 @@ fn execute_one(
         return executed;
     }
 
-    if unit_disabled(state.hart(), &id.inst) {
+    if illegal_in_current_state(state.hart(), &id.inst) {
         return faulted(state, id, Trap::IllegalInstruction(id.inst.bits));
     }
 
