@@ -95,6 +95,21 @@ fn an_empty_system_breaks_no_invariant() {
 }
 
 #[test]
+fn a_line_in_two_ways_of_a_set_is_one_duplicate_tag() {
+    let mut sim = two_cores();
+    l2(&mut sim, CORE_0).plant_line(0, ADDR, MesiState::Shared);
+    l2(&mut sim, CORE_0).plant_line(1, ADDR, MesiState::Shared);
+    grant(&mut sim, CORE_0, MesiState::Shared);
+    let l2_id = l2(&mut sim, CORE_0).id;
+
+    assert_eq!(coherence_faults(&sim), vec![ViolationKind::DuplicateTag(l2_id)]);
+    assert_eq!(
+        cache_faults(&sim),
+        vec![ViolationKind::Bookkeeping { cache: l2_id, fault: BookkeepingFault::DuplicateTag }]
+    );
+}
+
+#[test]
 fn an_l1d_line_its_l2_lacks_breaks_coherence_and_inclusion() {
     let mut sim = two_cores();
     hold(l1d(&mut sim, CORE_0), MesiState::Shared);
