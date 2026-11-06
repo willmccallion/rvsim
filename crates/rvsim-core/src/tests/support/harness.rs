@@ -1,6 +1,6 @@
 use crate::Simulator;
 use crate::common::PhysAddr;
-use crate::config::{Config, MemoryControllerKind};
+use crate::config::{Config, MemoryControllerKind, ValidConfig};
 use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
 use crate::isa::reg::RegIdx;
 use crate::system::SystemState;
@@ -10,7 +10,12 @@ use std::sync::atomic::AtomicU64;
 
 /// A simulator for `config` with no disk.
 pub fn build_simulator(config: &Config) -> Simulator {
-    Simulator::build(config, None).expect("the test machine builds")
+    Simulator::build(&valid(config), None).expect("the test machine builds")
+}
+
+/// `config`, which the test expects [`Config::validate`] to accept.
+pub fn valid(config: &Config) -> ValidConfig {
+    ValidConfig::try_from(config.clone()).expect("the test config is valid")
 }
 
 pub struct TestContext {
@@ -47,7 +52,7 @@ impl TestContext {
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
         let mut state =
-            SystemState::new(&config, None, exit_signal).expect("the test machine builds");
+            SystemState::new(&valid(&config), None, exit_signal).expect("the test machine builds");
         // What a bare-metal program's start-up does before main: switch the
         // FPU and the vector unit on, so test programs can use them.
         for hart in &mut state.harts {

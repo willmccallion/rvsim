@@ -525,3 +525,13 @@ fn degenerate_but_working_machines_validate() {
         assert!(result.is_ok(), "{name}: {result:?}");
     }
 }
+
+#[test]
+fn a_config_validation_refuses_cannot_become_a_valid_config() {
+    let mut config = Config::minimal();
+    config.system.hart_count = 0;
+
+    let checked = crate::config::ValidConfig::try_from(config);
+
+    assert!(matches!(checked, Err(ConfigError::Zero("system.hart_count"))), "{:?}", checked.err());
+}

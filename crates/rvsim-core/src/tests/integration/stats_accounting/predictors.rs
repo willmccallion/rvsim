@@ -270,6 +270,8 @@ fn prefetching(backend: BackendKind, page_boundary: PageBoundary) -> crate::conf
     config.cache.load_prefetcher =
         LoadPrefetcherConfig::Stride { table_size: 64, l1_lines: 2, l2_lines: 4, page_boundary };
     config.memory.ram_size = RAM_SIZE;
+    // No kernel boots, but the offset it would load at must lie in RAM.
+    config.system.kernel_offset = 0;
     config
 }
 

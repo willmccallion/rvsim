@@ -212,7 +212,7 @@ fn test_setup_kernel_load_different_ram_bases() {
     config1.system.ram_base = 0x80000000;
 
     let mut config2 = Config::minimal();
-    config2.system.ram_base = 0x90000000;
+    config2.system.ram_base = 0xA000_0000;
 
     let mut cpu1 = SystemState::build(&config1);
     loader::setup_kernel_load(&mut cpu1, &config1, &loader::KernelBoot::default()).unwrap();
@@ -222,7 +222,7 @@ fn test_setup_kernel_load_different_ram_bases() {
 
     // PC should match the respective RAM bases
     assert_eq!(cpu1.harts[0].pc, 0x80000000);
-    assert_eq!(cpu2.harts[0].pc, 0x90000000);
+    assert_eq!(cpu2.harts[0].pc, 0xA000_0000);
 }
 
 #[test]

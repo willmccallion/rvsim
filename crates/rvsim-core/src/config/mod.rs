@@ -421,6 +421,28 @@ pub enum ConfigError {
     },
 }
 
+/// A [`Config`] that [`Config::validate`] accepted: the only kind the
+/// simulator builds a machine from.
+#[derive(Debug, Clone)]
+pub struct ValidConfig(Config);
+
+impl TryFrom<Config> for ValidConfig {
+    type Error = ConfigError;
+
+    fn try_from(config: Config) -> Result<Self, ConfigError> {
+        config.validate()?;
+        Ok(Self(config))
+    }
+}
+
+impl std::ops::Deref for ValidConfig {
+    type Target = Config;
+
+    fn deref(&self) -> &Config {
+        &self.0
+    }
+}
+
 impl Config {
     /// The hart's `misa`: what the ISA string names, otherwise RV64IMAFDC
     /// with B, plus V when the vector unit is the full V extension.
