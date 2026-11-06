@@ -12,7 +12,7 @@ pub struct PhysReg(pub u16);
 
 impl PhysRegister for PhysReg {
     #[inline]
-    fn is_zero(self) -> bool {
+    fn is_hardwired(self) -> bool {
         self.0 == 0
     }
 

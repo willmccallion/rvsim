@@ -12,7 +12,6 @@ use crate::exec::compute::vector::mem::{
 };
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlFlow;
-use crate::isa::op::VectorOp;
 use crate::isa::rvv::{VRegIdx, VectorConfig, parse_vtype};
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
@@ -258,11 +257,11 @@ impl O3Engine {
             vec_src1_count,
             vec_src2_count,
             vec_src3_count,
-            mask_phys: if !id.inst.ctrl.vm && id.inst.ctrl.vec_op != VectorOp::None {
-                self.rename_map.get_vec(VRegIdx::new(0))
-            } else {
-                VecPhysReg::ZERO
-            },
+            mask: id
+                .inst
+                .ctrl
+                .is_masked_vector_op()
+                .then(|| self.rename_map.get_vec(VRegIdx::new(0))),
             // Snapshot vector CSRs so execute uses dispatch-time context even after vsetvl.
             vec_vtype: vector.vtype,
             vec_vl: vector.vl,

@@ -139,6 +139,12 @@ pub struct ControlSignals {
 }
 
 impl ControlSignals {
+    /// True for a vector instruction masked by v0 (`vm` clear); the
+    /// configuration instructions have no mask.
+    pub const fn is_masked_vector_op(&self) -> bool {
+        !self.vm && !matches!(self.vec_op, VectorOp::None) && !self.vec_op.is_config()
+    }
+
     /// True for anything that reads memory: a scalar load, LR, an AMO, or a
     /// vector load, which decodes without `mem_read`.
     pub const fn reads_memory(&self) -> bool {

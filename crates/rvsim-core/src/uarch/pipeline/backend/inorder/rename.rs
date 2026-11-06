@@ -104,7 +104,7 @@ impl InOrderEngine {
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
-            mask_phys: VecPhysReg::ZERO,
+            mask: None,
             vec_vtype: vector.vtype,
             vec_vl: vector.vl,
             vec_vstart: vector.vstart,

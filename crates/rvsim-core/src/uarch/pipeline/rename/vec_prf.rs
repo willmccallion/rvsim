@@ -1,8 +1,8 @@
 //! Vector Physical Register File for out-of-order execution.
 //!
 //! Each vector physical register stores VLEN bits of data plus a ready bit.
-//! VecPhysReg(0) is not hardwired (vectors have no zero register), but slot 0
-//! is used as a sentinel for "no allocation" and is always ready.
+//! Vectors have no hardwired register: slot 0 holds v0 from reset and is
+//! renamed and reclaimed like any other.
 //!
 //! `VecPrfView` implements [`VectorRegFile`] by translating architectural
 //! `VRegIdx` to physical `VecPhysReg` via a mapping table, enabling the VPU
@@ -18,7 +18,8 @@ use crate::uarch::pipeline::rename::free_list::PhysRegister;
 pub struct VecPhysReg(u16);
 
 impl VecPhysReg {
-    /// The zero physical register (no allocation).
+    /// Physical register 0, which also fills the unused slots of a
+    /// register group.
     pub const ZERO: Self = Self(0);
 
     /// Create a new vector physical register index.
@@ -38,18 +39,12 @@ impl VecPhysReg {
     pub const fn as_usize(self) -> usize {
         self.0 as usize
     }
-
-    /// Returns true if this is the zero register.
-    #[inline(always)]
-    pub const fn is_zero(self) -> bool {
-        self.0 == 0
-    }
 }
 
 impl PhysRegister for VecPhysReg {
     #[inline]
-    fn is_zero(self) -> bool {
-        self.0 == 0
+    fn is_hardwired(self) -> bool {
+        false
     }
 
     #[inline]
@@ -75,13 +70,8 @@ impl VecPhysRegFile {
     /// Create a new vector PRF.
     ///
     /// `total` = total physical registers (including architectural slots 0..32).
-    /// VecPhysReg(0) is always ready (sentinel for "no allocation").
     pub fn new(total: usize, vlen: Vlen) -> Self {
-        let mut ready = vec![false; total];
-        if total > 0 {
-            ready[0] = true;
-        }
-        Self { data: vec![0u8; total * vlen.bytes()], ready, vlen, total }
+        Self { data: vec![0u8; total * vlen.bytes()], ready: vec![false; total], vlen, total }
     }
 
     /// Read a single element from a physical register.
