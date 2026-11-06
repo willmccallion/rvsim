@@ -1008,7 +1008,7 @@ impl Simulator {
         Some(SimError::CacheInvariant {
             cycle: self.state.cycle,
             line: violation.line.val(),
-            what: violation.what,
+            what: violation.kind.to_string(),
         })
     }
 

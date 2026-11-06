@@ -10,7 +10,7 @@ use crate::config::InclusionPolicy;
 use crate::sim::packet::Packet;
 use crate::soc::cache::Cache;
 use crate::soc::coherence::fabric::CoherenceFabric;
-use crate::system::coherence_audit::{self, Violation};
+use crate::system::coherence_audit::{self, InclusionFault, Violation, ViolationKind};
 use crate::system::state::SystemState;
 
 /// Every broken invariant (empty when all hold).
@@ -66,10 +66,10 @@ fn lines_on_their_way(state: &SystemState) -> Vec<LineAddr> {
 
 /// `cache`'s own bookkeeping faults.
 fn bookkeeping(cache: &Cache) -> impl Iterator<Item = Violation> + '_ {
-    cache
-        .bookkeeping_faults()
-        .into_iter()
-        .map(|(line, what)| Violation { line, what: format!("cache {:?}: {what}", cache.id) })
+    cache.bookkeeping_faults().into_iter().map(|(line, fault)| Violation {
+        line,
+        kind: ViolationKind::Bookkeeping { cache: cache.id, fault },
+    })
 }
 
 /// What `lower` and the `uppers` directly above it break of the lower
@@ -90,23 +90,19 @@ fn level_faults(
                 continue;
             }
             let below = lower.contains(line.val());
-            let what = match (policy, below) {
+            let fault = match (policy, below) {
                 (InclusionPolicy::Inclusive, false) => {
-                    Some("held above a level inclusive of it that does not hold it")
+                    Some(InclusionFault::MissingFromInclusiveLevel)
                 }
-                (InclusionPolicy::Exclusive, true) => {
-                    Some("held both above and in a level exclusive of it")
-                }
+                (InclusionPolicy::Exclusive, true) => Some(InclusionFault::InExclusiveLevel),
                 (_, true) if !lower.recorded_holders(line).contains(&upper.component()) => {
-                    Some("held above a level that does not record the copy")
+                    Some(InclusionFault::UnrecordedCopy)
                 }
                 _ => None,
             };
-            if let Some(what) = what {
-                violations.push(Violation {
-                    line,
-                    what: format!("caches {:?} and {:?}: {what}", upper.id, lower.id),
-                });
+            if let Some(fault) = fault {
+                let kind = ViolationKind::Inclusion { upper: upper.id, lower: lower.id, fault };
+                violations.push(Violation { line, kind });
             }
         }
     }

@@ -26,6 +26,7 @@ mod writeback;
 
 use std::collections::{BTreeSet, VecDeque};
 
+pub use self::audit::BookkeepingFault;
 use self::mshr::MshrTable;
 use self::policies::{
     FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy,
