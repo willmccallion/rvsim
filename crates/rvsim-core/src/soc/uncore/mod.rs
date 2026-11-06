@@ -28,6 +28,10 @@ use crate::soc::topology::Topology;
 use crate::uarch::pipeline::trace::{Departure, PipelineTrace, Stage};
 use debug::HartDebug;
 
+/// Cycles the guest keeps running after printing "kernel panic", so the
+/// rest of its panic message reaches the console before the run stops.
+pub const KERNEL_PANIC_GRACE_CYCLES: u64 = 10_000;
+
 /// What the trace macros print once tracing is armed.
 ///
 /// Every event, or only those of some harts, inside a cycle window, or for
@@ -339,7 +343,7 @@ impl Uncore {
 
         if self.bus.check_kernel_panic() {
             let detected_at = *self.panic_detected_at_cycle.get_or_insert(self.cycle);
-            if self.cycle.saturating_sub(detected_at) >= 10_000 {
+            if self.cycle.saturating_sub(detected_at) >= KERNEL_PANIC_GRACE_CYCLES {
                 return Err(SimError::KernelPanic { cycle: detected_at });
             }
         }
