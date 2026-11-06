@@ -165,6 +165,7 @@ fn place(
     }
 
     let mut process = Process::new(space, image_end.page_ceil(), clock_hz, terminal);
+    process.program = args.argv.first().cloned();
     let stack_bytes = process.stack_bytes();
     let stack_bottom = process.stack_top().wrapping_sub(stack_bytes);
     process

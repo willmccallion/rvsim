@@ -461,9 +461,10 @@ impl Sys<'_> {
     fn readlinkat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, size: u64) -> Result {
         let path_bytes = self.read_path(path)?;
         let target: Vec<u8> = if path_bytes == b"/proc/self/exe" {
-            std::env::current_exe()
+            let program = self.process.program.as_deref().ok_or(-errno::ENOENT)?;
+            std::path::absolute(program)
                 .map(|p| p.to_string_lossy().into_owned().into_bytes())
-                .unwrap_or_default()
+                .map_err(|e| io_errno(&e))?
         } else {
             let host = self.process.files.resolve(dirfd, &path_bytes)?;
             std::fs::read_link(&host)
