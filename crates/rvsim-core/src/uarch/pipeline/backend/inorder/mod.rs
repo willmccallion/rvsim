@@ -617,7 +617,7 @@ mod tests {
         let config = Config::minimal();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut sys = crate::system::SystemState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         engine.flush(&mut state);

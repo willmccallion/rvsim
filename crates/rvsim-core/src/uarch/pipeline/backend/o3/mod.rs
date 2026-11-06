@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn test_o3_engine_new_and_flush() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         let mut engine = O3Engine::new(
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn test_o3_engine_sync_arch_regs() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config);
         let state = sys.core_ctx(0);
         let mut engine = O3Engine::new(
             &config,

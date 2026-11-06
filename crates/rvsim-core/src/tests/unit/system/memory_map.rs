@@ -8,7 +8,7 @@ use crate::system::SystemState;
 #[test]
 fn every_device_sits_at_its_configured_region() {
     let config = Config::minimal();
-    let sys = SystemState::build(&config, "");
+    let sys = SystemState::build(&config);
 
     let mut built: Vec<_> = sys
         .uncore
@@ -33,10 +33,23 @@ fn a_ram_the_host_cannot_map_fails_the_build() {
     let mut config = Config::minimal();
     config.memory.ram_size = usize::MAX;
 
-    let built = crate::Simulator::build(&config, "");
+    let built = crate::Simulator::build(&config, None);
 
     assert!(
         matches!(built, Err(crate::common::SimError::RamAllocation { bytes: usize::MAX, .. })),
+        "{:?}",
+        built.err()
+    );
+}
+
+#[test]
+fn a_disk_image_that_cannot_be_read_fails_the_build() {
+    const MISSING: &str = "/nonexistent/rvsim-test-disk.img";
+
+    let built = crate::Simulator::build(&Config::minimal(), Some(MISSING));
+
+    assert!(
+        matches!(&built, Err(crate::common::SimError::FileRead { path, .. }) if path == MISSING),
         "{:?}",
         built.err()
     );

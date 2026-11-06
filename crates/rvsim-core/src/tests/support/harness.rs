@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicU64;
 
 /// A simulator for `config` with no disk.
 pub fn build_simulator(config: &Config) -> Simulator {
-    Simulator::build(config, "").expect("the test machine builds")
+    Simulator::build(config, None).expect("the test machine builds")
 }
 
 pub struct TestContext {
@@ -47,7 +47,7 @@ impl TestContext {
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
         let mut state =
-            SystemState::new(&config, "", exit_signal).expect("the test machine builds");
+            SystemState::new(&config, None, exit_signal).expect("the test machine builds");
         // What a bare-metal program's start-up does before main: switch the
         // FPU and the vector unit on, so test programs can use them.
         for hart in &mut state.harts {

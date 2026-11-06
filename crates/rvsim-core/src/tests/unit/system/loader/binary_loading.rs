@@ -16,7 +16,7 @@ use tempfile::NamedTempFile;
 /// Helper function to create a test CPU instance.
 fn create_test_cpu() -> SystemState {
     let config = Config::minimal();
-    SystemState::build(&config, "")
+    SystemState::build(&config)
 }
 
 /// Helper function to create a temporary binary file for testing.
@@ -214,10 +214,10 @@ fn test_setup_kernel_load_different_ram_bases() {
     let mut config2 = Config::minimal();
     config2.system.ram_base = 0x90000000;
 
-    let mut cpu1 = SystemState::build(&config1, "");
+    let mut cpu1 = SystemState::build(&config1);
     loader::setup_kernel_load(&mut cpu1, &config1, &loader::KernelBoot::default()).unwrap();
 
-    let mut cpu2 = SystemState::build(&config2, "");
+    let mut cpu2 = SystemState::build(&config2);
     loader::setup_kernel_load(&mut cpu2, &config2, &loader::KernelBoot::default()).unwrap();
 
     // PC should match the respective RAM bases

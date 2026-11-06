@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn test_do_mret() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.mepc = 0x2000;
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn test_do_sret() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config, "");
+        let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.sepc = 0x3000;
