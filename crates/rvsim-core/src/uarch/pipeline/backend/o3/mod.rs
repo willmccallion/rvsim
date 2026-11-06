@@ -26,7 +26,7 @@ use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::checkpoint::CheckpointTable;
-use crate::uarch::pipeline::rename::free_list::FreeList;
+use crate::uarch::pipeline::rename::free_list::{FreeList, PhysRegister};
 use crate::uarch::pipeline::rename::map::RenameMap;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
@@ -39,6 +39,12 @@ use crate::uarch::vector::lane_model::NumLanes;
 use self::fu_pool::FuPool;
 use self::issue_queue::IssueQueue;
 use self::squash::older_violation;
+
+/// Physical registers the integer and floating-point architectural state
+/// holds: slots 0..32 are the GPRs, 32..64 the FPRs.
+const ARCH_SCALAR_REGS: usize = 64;
+/// Physical vector registers the architectural v0..v31 hold.
+const ARCH_VECTOR_REGS: usize = 32;
 
 /// A result a functional unit is still producing. Its dependents wake, and
 /// its ROB entry completes, when `complete_cycle` arrives.
@@ -183,11 +189,8 @@ impl O3Engine {
         let prf_gpr_size = config.pipeline.prf_gpr_size;
         let prf_fpr_size = config.pipeline.prf_fpr_size;
         let prf_total = prf_gpr_size + prf_fpr_size;
-        // Slots 0..32 = GPR, 32..64 = FPR; free list starts at slot 64.
-        let num_arch = 64;
-
         let mut prf = PhysRegFile::new(prf_total);
-        prf.mark_arch_ready(num_arch);
+        prf.mark_arch_ready(ARCH_SCALAR_REGS);
 
         let fu_pool = FuPool::new(&config.pipeline.fu_config);
 
@@ -196,7 +199,7 @@ impl O3Engine {
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),
             load_queue: LoadQueue::new(config.pipeline.load_queue_size),
             prf,
-            free_list: FreeList::new(prf_total, num_arch),
+            free_list: FreeList::new(prf_total, ARCH_SCALAR_REGS),
             rename_map: RenameMap::new(),
             committed_rename_map: RenameMap::new(),
             issue_queue: IssueQueue::new(config.pipeline.issue_queue_size),
@@ -226,10 +229,10 @@ impl O3Engine {
             vec_prf: {
                 let prf_vpr_size = config.pipeline.prf_vpr_size;
                 let mut vprf = VecPhysRegFile::new(prf_vpr_size, config.pipeline.vlen);
-                vprf.mark_arch_ready(32); // identity-mapped arch slots 0..31
+                vprf.mark_arch_ready(ARCH_VECTOR_REGS);
                 vprf
             },
-            vec_free_list: FreeList::new(config.pipeline.prf_vpr_size, 32),
+            vec_free_list: FreeList::new(config.pipeline.prf_vpr_size, ARCH_VECTOR_REGS),
             vec_pending: Vec::new(),
             num_vec_lanes: NumLanes::new(config.pipeline.vector_lanes()),
             vec_mem_pending: std::collections::VecDeque::new(),
@@ -266,6 +269,29 @@ impl O3Engine {
             let bytes = state.hart.regs.vpr().read_bytes(vreg);
             self.vec_prf.write_bytes(self.committed_rename_map.get_vec(vreg), bytes);
         }
+    }
+
+    /// Checks that every physical register is free, holds architectural
+    /// state, or is the destination of an instruction still in the ROB.
+    fn debug_assert_registers_conserved(&self) {
+        if !cfg!(debug_assertions) {
+            return;
+        }
+        let in_flight = self.rob.iter_all().filter(|entry| !entry.phys_dst.is_zero()).count();
+        debug_assert_eq!(
+            self.free_list.available() + ARCH_SCALAR_REGS + in_flight,
+            self.prf.capacity(),
+            "PRF register leak: {} free + {ARCH_SCALAR_REGS} architectural + {in_flight} in flight",
+            self.free_list.available(),
+        );
+        let vec_in_flight: usize =
+            self.rob.iter_all().map(|entry| usize::from(entry.vec_dst_count)).sum();
+        debug_assert_eq!(
+            self.vec_free_list.available() + ARCH_VECTOR_REGS + vec_in_flight,
+            self.vec_prf.capacity(),
+            "vector PRF register leak: {} free + {ARCH_VECTOR_REGS} architectural + {vec_in_flight} in flight",
+            self.vec_free_list.available(),
+        );
     }
 }
 
@@ -352,22 +378,7 @@ impl ExecutionEngine for O3Engine {
         self.mem1_mem2.clear();
         self.mem2_wb.clear();
         self.common.flush_predictions(&mut state.core.branch_predictor);
-
-        // Conservation invariant: every phys reg is either free or held by the committed map.
-        debug_assert_eq!(
-            self.free_list.available() + 64,
-            self.prf.capacity(),
-            "PRF register leak detected: free={} + 64 mapped != {} total",
-            self.free_list.available(),
-            self.prf.capacity(),
-        );
-        debug_assert_eq!(
-            self.vec_free_list.available() + 32,
-            self.vec_prf.capacity(),
-            "Vec PRF register leak detected: free={} + 32 mapped != {} total",
-            self.vec_free_list.available(),
-            self.vec_prf.capacity(),
-        );
+        self.debug_assert_registers_conserved();
     }
 
     fn rob(&self) -> &Rob {

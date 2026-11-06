@@ -231,5 +231,6 @@ impl O3Engine {
         *redirect = Some(squash.redirect.target);
         let now = state.cycle;
         self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
+        self.debug_assert_registers_conserved();
     }
 }
