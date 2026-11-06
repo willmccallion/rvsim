@@ -30,6 +30,18 @@ const LEAST_VECTOR_REGISTERS: usize = 32 + 8;
 /// Physical integer and floating-point registers the architectural state
 /// occupies.
 const ARCHITECTURAL_REGISTERS: usize = 64;
+/// Physical registers a 16-bit `PhysReg` or `VecPhysReg` can number.
+const MAX_PHYSICAL_REGISTERS: usize = 1 << u16::BITS;
+/// Checkpoints an 8-bit `CheckpointId` can number.
+const MAX_CHECKPOINTS: usize = 1 << u8::BITS;
+/// Store sets a 16-bit `StoreSetId` can number.
+const MAX_STORE_SETS: usize = 1 << u16::BITS;
+/// SSIT entries a 32-bit `SsitIndex` can take a PC modulo.
+const MAX_SSIT_ENTRIES: usize = u32::MAX as usize;
+/// Bits of a loop-predictor tag or iteration count, held in 16-bit fields.
+const MAX_LOOP_FIELD_BITS: usize = 16;
+/// Bits of a loop-predictor confidence or age counter, held in 8-bit fields.
+const MAX_LOOP_COUNTER_BITS: usize = 8;
 /// The granule RAM is sized in.
 const PAGE_BYTES: usize = 4096;
 
@@ -243,6 +255,13 @@ fn check_pipeline(pipeline: &PipelineConfig, misa: Misa) -> Result<(), ConfigErr
         if pipeline.prf_vpr_size < LEAST_VECTOR_REGISTERS {
             return Err(ConfigError::VectorRegisters(pipeline.prf_vpr_size));
         }
+        at_most(
+            "pipeline.prf_gpr_size + pipeline.prf_fpr_size",
+            pipeline.prf_gpr_size + pipeline.prf_fpr_size,
+            MAX_PHYSICAL_REGISTERS,
+        )?;
+        at_most("pipeline.prf_vpr_size", pipeline.prf_vpr_size, MAX_PHYSICAL_REGISTERS)?;
+        at_most("pipeline.checkpoint_count", pipeline.checkpoint_count, MAX_CHECKPOINTS)?;
     }
     check_units(pipeline, misa)
 }
@@ -295,9 +314,21 @@ fn check_predictors(pipeline: &PipelineConfig) -> Result<(), ConfigError> {
     ] {
         at_most(field, bits, MAX_TOURNAMENT_TABLE_BITS)?;
     }
-    at_most("loop_predictor log_size", pipeline.loop_predictor.log_size, MAX_LOOP_TABLE_BITS)?;
-    at_least_one("store_set ssit_size", pipeline.store_set.ssit_size)?;
-    at_least_one("store_set lfst_size", pipeline.store_set.lfst_size)
+    let loop_predictor = &pipeline.loop_predictor;
+    at_most("loop_predictor log_size", loop_predictor.log_size, MAX_LOOP_TABLE_BITS)?;
+    at_most("loop_predictor tag_bits", loop_predictor.tag_bits, MAX_LOOP_FIELD_BITS)?;
+    at_most("loop_predictor iter_bits", loop_predictor.iter_bits, MAX_LOOP_FIELD_BITS)?;
+    at_most(
+        "loop_predictor confidence_bits",
+        loop_predictor.confidence_bits,
+        MAX_LOOP_COUNTER_BITS,
+    )?;
+    at_most("loop_predictor age_bits", loop_predictor.age_bits, MAX_LOOP_COUNTER_BITS)?;
+    let store_set = &pipeline.store_set;
+    at_least_one("store_set ssit_size", store_set.ssit_size)?;
+    at_most("store_set ssit_size", store_set.ssit_size, MAX_SSIT_ENTRIES)?;
+    at_least_one("store_set lfst_size", store_set.lfst_size)?;
+    at_most("store_set lfst_size", store_set.lfst_size, MAX_STORE_SETS)
 }
 
 const fn check_bank_list(
