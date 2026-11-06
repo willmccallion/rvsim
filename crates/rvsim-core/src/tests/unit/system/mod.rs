@@ -1,5 +1,6 @@
 //! The whole system: execution, program loading, device tree, external writes.
 
+pub mod audits;
 pub mod dtb;
 pub mod execution;
 pub mod external_writes;

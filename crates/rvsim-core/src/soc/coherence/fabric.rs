@@ -184,6 +184,13 @@ impl CoherenceFabric {
         self.tracking.exact_holders(line)
     }
 
+    /// Records `core` as granted `line` in `state`, bypassing the protocol,
+    /// so audit tests can plant a fault.
+    #[cfg(test)]
+    pub fn plant_grant(&mut self, line: LineAddr, core: CoreId, state: MesiState) {
+        self.tracking.on_grant(line, core, state, 0);
+    }
+
     /// Tells the home that every core dropped every line, after the caches
     /// were emptied behind its back (a checkpoint restore).
     pub fn forget_cached_lines(&mut self) {
