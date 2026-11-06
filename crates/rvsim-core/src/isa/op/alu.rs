@@ -1,7 +1,7 @@
 //! The ALU and FPU operations an instruction decodes to.
 
 /// ALU operation types for integer and floating-point instructions.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AluOp {
     /// Default value (no operation).
     #[default]

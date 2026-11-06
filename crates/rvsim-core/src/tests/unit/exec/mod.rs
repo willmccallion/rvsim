@@ -2,5 +2,6 @@
 
 pub mod alu;
 pub mod amo;
+pub mod decode;
 pub mod fpu;
 pub mod misaligned;
