@@ -73,7 +73,8 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_syscon_base")]
     pub syscon_base: u64,
 
-    /// Kernel load offset from RAM base
+    /// Where a kernel image is loaded, from RAM base. With `fw_jump`
+    /// firmware it must be where that firmware was built to jump.
     #[serde(default = "SystemConfig::default_kernel_offset")]
     pub kernel_offset: u64,
 
