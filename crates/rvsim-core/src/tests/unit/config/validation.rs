@@ -535,3 +535,54 @@ fn a_config_validation_refuses_cannot_become_a_valid_config() {
 
     assert!(matches!(checked, Err(ConfigError::Zero("system.hart_count"))), "{:?}", checked.err());
 }
+
+/// A machine whose `field` is one more than the type holding it can count.
+fn too_large(field: &'static str, set: impl Fn(&mut Config)) {
+    let mut config = Config::minimal();
+    config.pipeline.backend = BackendKind::OutOfOrder;
+    set(&mut config);
+
+    let checked = config.validate();
+
+    assert!(
+        matches!(checked, Err(ConfigError::TooLarge { field: f, .. }) if f == field),
+        "{field}: {checked:?}"
+    );
+}
+
+#[test]
+fn physical_register_files_larger_than_their_numbering_are_refused() {
+    too_large("pipeline.prf_gpr_size + pipeline.prf_fpr_size", |c| {
+        c.pipeline.prf_gpr_size = 1 << 15;
+        c.pipeline.prf_fpr_size = (1 << 15) + 1;
+    });
+    too_large("pipeline.prf_vpr_size", |c| c.pipeline.prf_vpr_size = (1 << 16) + 1);
+}
+
+#[test]
+fn more_checkpoints_than_an_id_can_number_are_refused() {
+    too_large("pipeline.checkpoint_count", |c| c.pipeline.checkpoint_count = 257);
+}
+
+#[test]
+fn store_set_tables_larger_than_their_ids_are_refused() {
+    too_large("store_set lfst_size", |c| c.pipeline.store_set.lfst_size = (1 << 16) + 1);
+}
+
+#[test]
+fn loop_predictor_fields_wider_than_their_storage_are_refused() {
+    too_large("loop_predictor tag_bits", |c| c.pipeline.loop_predictor.tag_bits = 17);
+    too_large("loop_predictor iter_bits", |c| c.pipeline.loop_predictor.iter_bits = 17);
+    too_large("loop_predictor confidence_bits", |c| c.pipeline.loop_predictor.confidence_bits = 9);
+    too_large("loop_predictor age_bits", |c| c.pipeline.loop_predictor.age_bits = 9);
+}
+
+#[test]
+fn the_largest_numberable_sizes_are_accepted() {
+    let mut config = Config::minimal();
+    config.pipeline.backend = BackendKind::OutOfOrder;
+    config.pipeline.checkpoint_count = 256;
+    config.pipeline.store_set.lfst_size = 1 << 16;
+
+    assert!(config.validate().is_ok());
+}
