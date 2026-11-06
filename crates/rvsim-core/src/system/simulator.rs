@@ -151,9 +151,13 @@ impl Simulator {
     /// Convenience constructor: builds the exit-signal `Arc`, the `SystemState`,
     /// and the `Simulator` together. Use this when the caller doesn't need
     /// to touch the state between construction and pipeline start.
-    pub fn build(config: &Config, disk_path: &str) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM.
+    pub fn build(config: &Config, disk_path: &str) -> Result<Self, SimError> {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        Self::new(SystemState::new(config, disk_path, exit_signal))
+        Ok(Self::new(SystemState::new(config, disk_path, exit_signal)?))
     }
 
     /// Loads the ELF image `data` as the program to run: its segments go

@@ -6,10 +6,11 @@ use crate::Simulator;
 use crate::config::Config;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
+use crate::tests::support::harness::build_simulator;
 
 fn create_test_sim() -> Simulator {
     let config = Config::minimal();
-    Simulator::build(&config, "")
+    build_simulator(&config)
 }
 
 #[test]

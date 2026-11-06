@@ -5,6 +5,7 @@ use crate::Simulator;
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::tests::support::harness::build_simulator;
 
 /// Where multi-hart test programs are loaded; every hart starts here.
 pub const PROGRAM_BASE: u64 = 0x8000_0000;
@@ -24,7 +25,7 @@ impl MultiHart {
         config.system.hart_count = hart_count;
         config.system.console = crate::config::Console::Quiet;
         config.pipeline.backend = backend;
-        let mut sim = Simulator::build(&config, "");
+        let mut sim = build_simulator(&config);
         for (index, word) in program.iter().enumerate() {
             let addr = PROGRAM_BASE + (index as u64) * 4;
             sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), 4);
@@ -56,7 +57,7 @@ impl MultiHart {
     /// Like [`MultiHart::new`], with the caller's configuration (its hart
     /// count included).
     pub fn with_config(config: &Config, program: &[u32]) -> Self {
-        let mut sim = Simulator::build(config, "");
+        let mut sim = build_simulator(config);
         for (index, word) in program.iter().enumerate() {
             let addr = PROGRAM_BASE + (index as u64) * 4;
             sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), 4);

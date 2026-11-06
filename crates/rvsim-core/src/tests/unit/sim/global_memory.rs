@@ -15,7 +15,7 @@ const WORD: PhysAddr = PhysAddr::new(0x100);
 
 /// Two harts' memory over `RAM_BYTES` of RAM at address zero.
 fn memory() -> GlobalMemory {
-    GlobalMemory::new(Some(Ram::new(0, RAM_BYTES)), 2, 64)
+    GlobalMemory::new(Some(Ram::new(0, RAM_BYTES).expect("test RAM maps")), 2, 64)
 }
 
 fn value(response: &MemRespData) -> u64 {

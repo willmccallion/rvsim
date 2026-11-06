@@ -1,12 +1,12 @@
 //! A bare-metal image starts as under spike's boot ROM: every hart at the
 //! entry in machine mode, its id in `a0`, the system's device tree in `a1`.
 
-use crate::Simulator;
 use crate::common::PhysAddr;
 use crate::config::{Config, Console};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
 use crate::system::simulator::{DTB_RESERVE, ProcessArgs};
+use crate::tests::support::harness::build_simulator;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const CODE_OFFSET: u64 = 0x1000;
@@ -52,7 +52,7 @@ fn every_hart_starts_at_the_entry_with_its_id_and_the_device_tree() {
     let mut config = Config::minimal();
     config.system.hart_count = 3;
     config.system.console = Console::Quiet;
-    let mut sim = Simulator::build(&config, "");
+    let mut sim = build_simulator(&config);
 
     sim.load_program(&bare_elf(&[0x0000_006f]), &ProcessArgs::default()).expect("the image loads");
 

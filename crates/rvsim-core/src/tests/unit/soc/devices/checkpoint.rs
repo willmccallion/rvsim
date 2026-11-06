@@ -1,7 +1,6 @@
 //! Each device's registers survive a checkpoint: what it reports after a
 //! restore is what it reported before.
 
-use crate::Simulator;
 use crate::common::{HartId, PhysAddr};
 use crate::config::Config;
 use crate::config::Console;
@@ -11,6 +10,7 @@ use crate::soc::devices::plic::Plic;
 use crate::soc::devices::uart::Uart;
 use crate::soc::devices::virtio_disk::VirtioBlock;
 use crate::soc::terminal::Terminal;
+use crate::tests::support::harness::build_simulator;
 
 const CLINT_BASE: u64 = 0x0200_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;
@@ -102,7 +102,7 @@ fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
     let mut config = Config::minimal();
     config.system.hart_count = 2;
     config.system.console = Console::Quiet;
-    let mut sim = Simulator::build(&config, "");
+    let mut sim = build_simulator(&config);
     sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 0x4008), 1234, 8);
     sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 4 * 10), 3, 4);
     for _ in 0..8 {
@@ -110,7 +110,7 @@ fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
     }
     let before = sim.state.bus.checkpoint_devices();
 
-    let mut fresh = Simulator::build(&config, "");
+    let mut fresh = build_simulator(&config);
     fresh.state.bus.restore_devices(&before).expect("a fresh system takes every device's state");
 
     assert_eq!(fresh.state.bus.checkpoint_devices(), before);

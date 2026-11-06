@@ -3,6 +3,7 @@
 //! bare-metal image, a user program under SE mode and a paged supervisor
 //! alike, reaching the memory through the hart's own translation.
 
+use crate::tests::support::harness::build_simulator;
 use std::fs;
 
 use tempfile::TempDir;
@@ -184,7 +185,7 @@ fn run_bare(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext,
 /// Runs `program` as a user process on `backend` with `host`'s files and
 /// returns the exit code.
 fn run_se(backend: BackendKind, host: &Host, program: &[u32]) -> (Simulator, Option<u64>) {
-    let mut sim = Simulator::build(&config(backend), "");
+    let mut sim = build_simulator(&config(backend));
     let args = ProcessArgs { argv: vec!["prog".to_string()], envp: vec![] };
     sim.load_process(&user_elf(program, ET_EXEC), &args).expect("the program loads");
     host.attach(&mut sim);

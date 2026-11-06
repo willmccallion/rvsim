@@ -1,6 +1,7 @@
 //! Physical RAM: a zeroed byte image mapped at a base address.
 
 use std::fmt;
+use std::io;
 use std::ptr::NonNull;
 
 use crate::common::PhysAddr;
@@ -18,12 +19,11 @@ pub struct Ram {
 impl Ram {
     /// `size` zeroed bytes at `base`.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the host cannot map `size` bytes.
-    #[must_use]
-    pub fn new(base: u64, size: usize) -> Self {
-        Self { bytes: ZeroedBytes::new(size), base }
+    /// Returns the host's error when it cannot map `size` bytes.
+    pub fn new(base: u64, size: usize) -> io::Result<Self> {
+        Ok(Self { bytes: ZeroedBytes::new(size)?, base })
     }
 
     /// The first physical address of the image.
@@ -99,15 +99,15 @@ unsafe impl Send for ZeroedBytes {}
 unsafe impl Sync for ZeroedBytes {}
 
 impl ZeroedBytes {
-    fn new(len: usize) -> Self {
+    fn new(len: usize) -> io::Result<Self> {
         if len == 0 {
-            return Self { ptr: NonNull::dangling(), len };
+            return Ok(Self { ptr: NonNull::dangling(), len });
         }
-        Self { ptr: Self::allocate(len), len }
+        Ok(Self { ptr: Self::allocate(len)?, len })
     }
 
     #[cfg(unix)]
-    fn allocate(len: usize) -> NonNull<u8> {
+    fn allocate(len: usize) -> io::Result<NonNull<u8>> {
         // SAFETY: an anonymous private mapping has no file or address
         // requirements; the arguments are the documented flags for one.
         let raw = unsafe {
@@ -120,14 +120,16 @@ impl ZeroedBytes {
                 0,
             )
         };
-        assert!(raw != libc::MAP_FAILED, "cannot map {len} bytes of RAM");
-        NonNull::new(raw.cast::<u8>()).unwrap_or(NonNull::dangling())
+        if raw == libc::MAP_FAILED {
+            return Err(io::Error::last_os_error());
+        }
+        NonNull::new(raw.cast::<u8>()).ok_or_else(|| io::Error::other("mmap returned null"))
     }
 
     #[cfg(not(unix))]
-    fn allocate(len: usize) -> NonNull<u8> {
-        let raw = Box::into_raw(vec![0u8; len].into_boxed_slice());
-        NonNull::new(raw.cast::<u8>()).unwrap_or(NonNull::dangling())
+    fn allocate(len: usize) -> io::Result<NonNull<u8>> {
+        let bytes: &mut [u8] = Box::leak(vec![0u8; len].into_boxed_slice());
+        Ok(NonNull::from(bytes).cast::<u8>())
     }
 
     const fn as_slice(&self) -> &[u8] {

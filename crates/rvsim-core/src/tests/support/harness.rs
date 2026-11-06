@@ -8,6 +8,11 @@ use crate::tests::support::mocks::memory::MockMemory;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
+/// A simulator for `config` with no disk.
+pub fn build_simulator(config: &Config) -> Simulator {
+    Simulator::build(config, "").expect("the test machine builds")
+}
+
 pub struct TestContext {
     pub sim: Simulator,
 }
@@ -41,7 +46,8 @@ impl TestContext {
         config.system.bus_latency = 0;
 
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        let mut state = SystemState::new(&config, "", exit_signal);
+        let mut state =
+            SystemState::new(&config, "", exit_signal).expect("the test machine builds");
         // What a bare-metal program's start-up does before main: switch the
         // FPU and the vector unit on, so test programs can use them.
         for hart in &mut state.harts {

@@ -11,6 +11,7 @@ use crate::soc::cache::writeback_buffer::{Writeback, WritebackCause};
 use crate::soc::cache::{BookkeepingFault, Cache};
 use crate::soc::coherence::protocol::CoreSet;
 use crate::system::coherence_audit::{InclusionFault, ViolationKind};
+use crate::tests::support::harness::build_simulator;
 
 /// The address every test plants its fault at.
 const ADDR: u64 = 0x8000_1000;
@@ -24,7 +25,7 @@ fn machine(hart_count: usize, inclusion_policy: InclusionPolicy) -> Simulator {
     config.system.hart_count = hart_count;
     config.system.console = Console::Quiet;
     config.cache.inclusion_policy = inclusion_policy;
-    Simulator::build(&config, "")
+    build_simulator(&config)
 }
 
 fn two_cores() -> Simulator {
@@ -291,7 +292,7 @@ fn two_mshrs_fetching_one_line_are_reported() {
 fn an_mshr_over_its_target_limit_is_reported() {
     let mut config = Config::default();
     config.cache.l1_d.targets_per_mshr = std::num::NonZeroUsize::new(2).expect("2 is nonzero");
-    let mut sim = Simulator::build(&config, "");
+    let mut sim = build_simulator(&config);
     let cache = l1d(&mut sim, CORE_0);
     let fetch = mshr(cache, 0, ADDR, 3);
     cache.plant_mshr(fetch);
@@ -306,7 +307,7 @@ fn an_mshr_over_its_target_limit_is_reported() {
 fn more_mshrs_than_the_cache_has_are_reported() {
     let mut config = Config::default();
     config.cache.l1_d.mshr_count = std::num::NonZeroUsize::new(2).expect("2 is nonzero");
-    let mut sim = Simulator::build(&config, "");
+    let mut sim = build_simulator(&config);
     let cache = l1d(&mut sim, CORE_0);
     let line_bytes = cache.line_bytes() as u64;
     for seq in 0..3 {
@@ -338,7 +339,7 @@ fn a_line_written_back_twice_at_once_is_reported() {
 fn more_writebacks_than_the_buffer_has_are_reported() {
     let mut config = Config::default();
     config.cache.l1_d.write_buffers = std::num::NonZeroUsize::new(2).expect("2 is nonzero");
-    let mut sim = Simulator::build(&config, "");
+    let mut sim = build_simulator(&config);
     let cache = l1d(&mut sim, CORE_0);
     let line_bytes = cache.line_bytes() as u64;
     for seq in 0..3 {

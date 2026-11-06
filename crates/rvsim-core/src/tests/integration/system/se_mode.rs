@@ -9,6 +9,7 @@ use crate::system::checkpoint::CheckpointError;
 use crate::system::process::loader::PIE_BASE;
 use crate::system::simulator::{ProcessArgs, ProgramImage, ProgramKind, StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::harness::build_simulator;
 
 const ECALL: u32 = 0x0000_0073;
 const SYS_EXIT: i32 = 93;
@@ -90,7 +91,7 @@ fn config(backend: BackendKind) -> Config {
 
 /// A simulator on `config` with `code` loaded as a process with `argv`.
 fn simulator_on(config: &Config, code: &[u32], argv: &[&str]) -> Simulator {
-    let mut sim = Simulator::build(config, "");
+    let mut sim = build_simulator(config);
     let args = ProcessArgs { argv: argv.iter().map(ToString::to_string).collect(), envp: vec![] };
     sim.load_process(&user_elf(code, ET_EXEC), &args).expect("the program loads");
     sim
@@ -438,7 +439,7 @@ fn a_fault_ends_the_program_with_the_signals_exit_status() {
 #[test]
 fn a_static_position_independent_executable_loads_and_runs() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let mut sim = Simulator::build(&config(backend), "");
+        let mut sim = build_simulator(&config(backend));
 
         sim.load_process(&user_elf(&exit_with(3), ET_DYN), &ProcessArgs::default())
             .expect("a static PIE loads");
@@ -567,7 +568,7 @@ fn simulator_with_programs_in(
     hart_count: usize,
 ) -> Simulator {
     config.system.hart_count = hart_count;
-    let mut sim = Simulator::build(&config, "");
+    let mut sim = build_simulator(&config);
     let args = ProcessArgs { argv: vec!["prog".to_string()], envp: vec![] };
     let images: Vec<Vec<u8>> = programs.iter().map(|code| user_elf(code, ET_EXEC)).collect();
     let loaded: Vec<ProgramImage<'_>> =
@@ -716,7 +717,7 @@ fn a_programs_first_thread_has_the_programs_id() {
 #[test]
 fn more_programs_than_harts_are_refused() {
     let config = config(BackendKind::InOrder);
-    let mut sim = Simulator::build(&config, "");
+    let mut sim = build_simulator(&config);
     let args = ProcessArgs::default();
     let a = user_elf(&exit_with(0), ET_EXEC);
     let programs = [ProgramImage { data: &a, args: &args }, ProgramImage { data: &a, args: &args }];

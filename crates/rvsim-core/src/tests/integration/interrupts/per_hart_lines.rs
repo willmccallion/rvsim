@@ -4,6 +4,7 @@ use crate::Simulator;
 use crate::common::PhysAddr;
 use crate::config::Config;
 use crate::isa::csr::{MIP_MEIP, MIP_MSIP, MIP_MTIP};
+use crate::tests::support::harness::build_simulator;
 
 const CLINT_BASE: u64 = 0x0200_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;
@@ -13,7 +14,7 @@ fn two_hart_sim() -> Simulator {
     let mut config = Config::minimal();
     config.system.hart_count = 2;
     config.system.console = crate::config::Console::Quiet;
-    let mut sim = Simulator::build(&config, "");
+    let mut sim = build_simulator(&config);
     sim.probe_mem_store(PhysAddr::new(config.system.ram_base), 0x0000_006F, 4);
     sim
 }
