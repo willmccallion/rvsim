@@ -1424,3 +1424,44 @@ fn the_cpu_list_files_are_read_only() {
         assert_eq!(stop, StopReason::Exited(EACCES), "{machine:?}");
     }
 }
+
+/// Reads the link `/proc/self/exe` into the stack and exits with its
+/// length, or with the `errno` the read failed with.
+fn read_proc_self_exe() -> Vec<u32> {
+    const SYS_READLINKAT: i32 = 78;
+    const BUFFER_BYTES: i32 = 255;
+    let i = InstructionBuilder::new;
+    let mut lines = vec![
+        inst(i().addi(A0, 0, AT_FDCWD).build()),
+        Line::AddressOf(A1, "path"),
+        inst(i().addi(A2, SP, -BUFFER_BYTES - 1).build()),
+        inst(i().addi(A3, 0, BUFFER_BYTES).build()),
+    ];
+    lines.extend(syscall(SYS_READLINKAT));
+    lines.extend([Line::To(Jump::Blt(A0, 0), "failed")]);
+    lines.extend(syscall(SYS_EXIT));
+    lines.extend([Line::Label("failed"), inst(i().sub(A0, 0, A0).build())]);
+    lines.extend(syscall(SYS_EXIT));
+    lines.push(Line::Label("path"));
+    let mut bytes = b"/proc/self/exe".to_vec();
+    bytes.resize(bytes.len().next_multiple_of(4) + 4, 0);
+    lines.extend(
+        bytes.chunks(4).map(|word| inst(u32::from_le_bytes([word[0], word[1], word[2], word[3]]))),
+    );
+    assemble(&lines)
+}
+
+/// `/proc/self/exe` names the program the process runs, by the absolute
+/// path its `argv[0]` gives.
+#[test]
+fn proc_self_exe_names_the_guest_program() {
+    for argv0 in ["/opt/guest/program", "guest-program"] {
+        let absolute = std::path::absolute(argv0).expect("the test's working directory exists");
+        let expected = absolute.as_os_str().len() as u64;
+        for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+            let stop = run(backend, &read_proc_self_exe(), &[argv0]);
+
+            assert_eq!(stop, StopReason::Exited(expected), "{backend:?} {argv0}");
+        }
+    }
+}

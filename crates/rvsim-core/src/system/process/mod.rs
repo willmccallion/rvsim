@@ -51,6 +51,9 @@ pub struct Process {
     file_maps: BTreeMap<VirtAddr, u64>,
     /// How many syscalls were served, by number.
     pub syscall_counts: BTreeMap<u64, u64>,
+    /// The path it was started from, its `argv[0]`, which `/proc/self/exe`
+    /// names.
+    pub(crate) program: Option<String>,
 }
 
 /// A process's state in a checkpoint: everything but its host files,
@@ -65,6 +68,8 @@ pub struct ProcessState {
     random: u64,
     file_maps: BTreeMap<VirtAddr, u64>,
     syscall_counts: BTreeMap<u64, u64>,
+    #[serde(default)]
+    program: Option<String>,
 }
 
 const NANOS_PER_SECOND: u128 = 1_000_000_000;
@@ -108,6 +113,7 @@ impl Process {
             random: 0x9E37_79B9_7F4A_7C15,
             file_maps: BTreeMap::new(),
             syscall_counts: BTreeMap::new(),
+            program: None,
         }
     }
 
@@ -123,6 +129,7 @@ impl Process {
             random: self.random,
             file_maps: self.file_maps.clone(),
             syscall_counts: self.syscall_counts.clone(),
+            program: self.program.clone(),
         }
     }
 
@@ -139,6 +146,7 @@ impl Process {
             random: state.random,
             file_maps: state.file_maps,
             syscall_counts: state.syscall_counts,
+            program: state.program,
         }
     }
 
