@@ -17,7 +17,7 @@
 
 use crate::arch::Hart;
 use crate::common::{AccessType, PhysAddr, SimError, VirtAddr};
-use crate::config::Config;
+use crate::config::ValidConfig;
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg;
@@ -156,7 +156,7 @@ impl Simulator {
     ///
     /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM,
     /// and [`SimError::FileRead`] when `disk` names an image it cannot read.
-    pub fn build(config: &Config, disk: Option<&str>) -> Result<Self, SimError> {
+    pub fn build(config: &ValidConfig, disk: Option<&str>) -> Result<Self, SimError> {
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
         Ok(Self::new(SystemState::new(config, disk, exit_signal)?))
     }

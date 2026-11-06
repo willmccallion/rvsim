@@ -11,7 +11,7 @@ use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
 use crate::common::{HartId, PhysAddr, SimError};
-use crate::config::{Config, InclusionPolicy, MemoryControllerKind};
+use crate::config::{Config, InclusionPolicy, MemoryControllerKind, ValidConfig};
 use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
@@ -142,8 +142,9 @@ impl SystemState {
     /// builds the system. Use this when the caller doesn't need to share the
     /// signal `Arc` with other components before construction.
     pub fn build(config: &Config) -> Self {
+        let config = ValidConfig::try_from(config.clone()).expect("the test config is valid");
         let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
-        Self::new(config, None, exit_signal).expect("the test machine builds")
+        Self::new(&config, None, exit_signal).expect("the test machine builds")
     }
 
     /// Constructs the system: bus and devices, memory controller, LLC, and
@@ -156,7 +157,7 @@ impl SystemState {
     /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM,
     /// and [`SimError::FileRead`] when `disk` names an image it cannot read.
     pub fn new(
-        config: &Config,
+        config: &ValidConfig,
         disk: Option<&str>,
         exit_signal: Arc<AtomicU64>,
     ) -> Result<Self, SimError> {
@@ -347,7 +348,7 @@ impl SystemState {
                 l3_cache,
                 coherence,
                 memory: GlobalMemory::new(Some(ram), hart_count, write_log_line_bytes),
-                config: config.clone(),
+                config: Config::clone(config),
                 per_hart_debug: (0..hart_count).map(|_| HartDebug::default()).collect(),
                 panic_detected_at_cycle: None,
                 #[cfg(feature = "commit-log")]

@@ -75,6 +75,8 @@ pub use crate::common::IrqId;
 pub use crate::common::SimError;
 /// Root configuration type: `Config::default()`, `Config::minimal()`, or deserialized from the Python API's JSON.
 pub use crate::config::Config;
+/// A configuration checked by `Config::validate`, which machines are built from.
+pub use crate::config::ValidConfig;
 /// 12-bit CSR address newtype; prevents mixing raw `u32` constants with address values.
 pub use crate::isa::csr::CsrAddr;
 /// 5-bit architectural register index (0–31); prevents mixing with arbitrary `usize` values.

@@ -2,6 +2,7 @@
 
 use crate::config::Config;
 use crate::system::SystemState;
+use crate::tests::support::harness::valid;
 
 /// The bus maps every device at the register window the configuration
 /// gives it, so validation and the device tree describe the bus as built.
@@ -30,13 +31,16 @@ fn every_device_sits_at_its_configured_region() {
 
 #[test]
 fn a_ram_the_host_cannot_map_fails_the_build() {
+    /// More than any host's user address space, and clear of every device.
+    const HUGE: usize = 1 << 62;
     let mut config = Config::minimal();
-    config.memory.ram_size = usize::MAX;
+    config.system.ram_base = HUGE as u64;
+    config.memory.ram_size = HUGE;
 
-    let built = crate::Simulator::build(&config, None);
+    let built = crate::Simulator::build(&valid(&config), None);
 
     assert!(
-        matches!(built, Err(crate::common::SimError::RamAllocation { bytes: usize::MAX, .. })),
+        matches!(built, Err(crate::common::SimError::RamAllocation { bytes: HUGE, .. })),
         "{:?}",
         built.err()
     );
@@ -46,7 +50,7 @@ fn a_ram_the_host_cannot_map_fails_the_build() {
 fn a_disk_image_that_cannot_be_read_fails_the_build() {
     const MISSING: &str = "/nonexistent/rvsim-test-disk.img";
 
-    let built = crate::Simulator::build(&Config::minimal(), Some(MISSING));
+    let built = crate::Simulator::build(&valid(&Config::minimal()), Some(MISSING));
 
     assert!(
         matches!(&built, Err(crate::common::SimError::FileRead { path, .. }) if path == MISSING),

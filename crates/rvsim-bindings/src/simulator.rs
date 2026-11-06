@@ -11,11 +11,11 @@ use crate::stats::PyStats;
 use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory, Width};
 use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use rvsim_core::Simulator;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader::KernelBoot;
 use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramImage, ProgramKind};
+use rvsim_core::{Simulator, ValidConfig};
 
 /// A user program as Python hands it over: its ELF bytes, `argv` and `envp`.
 type PyProgram = (Vec<u8>, Vec<String>, Vec<String>);
@@ -179,8 +179,8 @@ impl PySimulator {
         script_path: Option<String>,
         outdir: Option<String>,
     ) -> PyResult<Self> {
-        let config = py_dict_to_config(py, config_dict)?;
-        config.validate().map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let config = ValidConfig::try_from(py_dict_to_config(py, config_dict)?)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         let mut sim = Simulator::build(&config, disk_path)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         if let Some(script) = script_path {

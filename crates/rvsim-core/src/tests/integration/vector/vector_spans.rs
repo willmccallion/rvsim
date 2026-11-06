@@ -135,6 +135,8 @@ fn a_fault_inside_a_span_reports_the_first_element_that_faults() {
     for backend in BACKENDS {
         let mut config = config(backend, None);
         config.memory.ram_size = 0x4000;
+        // No kernel boots, but the offset it would load at must lie in RAM.
+        config.system.kernel_offset = 0;
         let mut ctx = TestContext::new_with_config(&config)
             .load_program(PROGRAM_BASE, &load_past_the_end_of_ram());
 
