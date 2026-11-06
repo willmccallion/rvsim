@@ -16,7 +16,11 @@ use crate::system::state::SystemState;
 /// Every broken invariant (empty when all hold).
 #[must_use]
 pub(crate) fn audit(state: &SystemState) -> Vec<Violation> {
-    let mut violations = coherence_audit::audit(state);
+    // Each cache's bookkeeping below reports its duplicate tags.
+    let mut violations: Vec<Violation> = coherence_audit::audit(state)
+        .into_iter()
+        .filter(|violation| !matches!(violation.kind, ViolationKind::DuplicateTag(_)))
+        .collect();
     let llc = &state.uncore.l3_cache;
     let mut in_flight =
         state.uncore.coherence.as_ref().map(CoherenceFabric::lines_in_flight).unwrap_or_default();
