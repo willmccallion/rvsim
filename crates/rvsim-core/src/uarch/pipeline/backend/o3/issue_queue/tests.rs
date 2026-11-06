@@ -46,7 +46,7 @@ fn make_entry(rob_tag: u32) -> RenameIssueEntry {
         vec_src1_count: 0,
         vec_src2_count: 0,
         vec_src3_count: 0,
-        mask_phys: crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO,
+        mask: None,
         vec_vtype: 0,
         vec_vl: 0,
         vec_vstart: 0,
@@ -90,9 +90,7 @@ fn ready_entry(rob_tag: u32, ctrl: ControlSignals) -> IssueQueueEntry {
         vec_src2: VecOperandState::default(),
         vec_src3: VecOperandState::default(),
         mem_dep: MemDepState::None,
-        mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
-        needs_mask: false,
         store_issue: StoreIssue::Whole,
     }
 }
@@ -176,9 +174,7 @@ fn test_dispatch_and_select_ready() {
         vec_src2: VecOperandState::default(),
         vec_src3: VecOperandState::default(),
         mem_dep: MemDepState::None,
-        mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
-        needs_mask: false,
         store_issue: StoreIssue::Whole,
     });
     iq.count = 1;
@@ -207,9 +203,7 @@ fn test_wakeup_phys_chain() {
         vec_src2: VecOperandState::default(),
         vec_src3: VecOperandState::default(),
         mem_dep: MemDepState::None,
-        mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
-        needs_mask: false,
         store_issue: StoreIssue::Whole,
     });
     iq.count = 1;
@@ -242,9 +236,7 @@ fn test_oldest_first_select() {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
-            mask_phys: VecPhysReg::ZERO,
             mask_ready: true,
-            needs_mask: false,
             store_issue: StoreIssue::Whole,
         });
     }
@@ -275,9 +267,7 @@ fn test_flush() {
         vec_src2: VecOperandState::default(),
         vec_src3: VecOperandState::default(),
         mem_dep: MemDepState::None,
-        mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
-        needs_mask: false,
         store_issue: StoreIssue::Whole,
     });
     iq.slots[5] = Some(IssueQueueEntry {
@@ -289,9 +279,7 @@ fn test_flush() {
         vec_src2: VecOperandState::default(),
         vec_src3: VecOperandState::default(),
         mem_dep: MemDepState::None,
-        mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
-        needs_mask: false,
         store_issue: StoreIssue::Whole,
     });
     iq.count = 2;
@@ -314,9 +302,7 @@ fn test_flush_after() {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
-            mask_phys: VecPhysReg::ZERO,
             mask_ready: true,
-            needs_mask: false,
             store_issue: StoreIssue::Whole,
         });
     }
@@ -346,9 +332,7 @@ fn test_queue_snapshot_sorted() {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
-            mask_phys: VecPhysReg::ZERO,
             mask_ready: true,
-            needs_mask: false,
             store_issue: StoreIssue::Whole,
         });
     }
@@ -400,9 +384,7 @@ fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
         vec_src2: VecOperandState::default(),
         vec_src3: VecOperandState::default(),
         mem_dep: MemDepState::None,
-        mask_phys: VecPhysReg::ZERO,
         mask_ready: true,
-        needs_mask: false,
         store_issue: StoreIssue::Whole,
     });
     iq.count = 1;
@@ -436,9 +418,7 @@ fn test_port_limits() {
             vec_src2: VecOperandState::default(),
             vec_src3: VecOperandState::default(),
             mem_dep: MemDepState::None,
-            mask_phys: VecPhysReg::ZERO,
             mask_ready: true,
-            needs_mask: false,
             store_issue: StoreIssue::Whole,
         });
     }

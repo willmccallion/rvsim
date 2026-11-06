@@ -8,7 +8,7 @@
 //! - **Select**: each cycle, the oldest entries with all operands ready are
 //!   selected for execution (up to `width`).
 
-use crate::isa::op::{SystemOp, VectorOp};
+use crate::isa::op::SystemOp;
 use crate::isa::reg::RegIdx;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::mdp::MemDepState;
@@ -122,12 +122,9 @@ pub struct IssueQueueEntry {
     pub vec_src3: VecOperandState,
     /// Cached memory dependency state (set once at dispatch).
     pub mem_dep: MemDepState,
-    /// Physical register for v0 mask (tracked for masked vector ops).
-    pub mask_phys: VecPhysReg,
-    /// Whether the mask register v0 is ready.
+    /// Whether the v0 mask a masked vector op needs is ready; true for
+    /// an unmasked one.
     pub mask_ready: bool,
-    /// Whether this instruction requires a ready mask register (vm=0 for vector ops).
-    pub needs_mask: bool,
     /// How far a plain store's two halves have issued.
     pub store_issue: StoreIssue,
 }
@@ -345,12 +342,8 @@ impl IssueQueue {
             vec_src3.check_ready(vprf);
         }
 
-        // Track v0 mask register dependency for masked vector ops (vm=0).
-        let needs_mask = !entry.inst.ctrl.vm
-            && entry.inst.ctrl.vec_op != VectorOp::None
-            && !entry.inst.ctrl.vec_op.is_config();
-        let mask_phys = if needs_mask { entry.mask_phys } else { VecPhysReg::ZERO };
-        let mask_ready = !needs_mask || vec_prf.is_none_or(|vprf| vprf.is_ready(mask_phys));
+        let mask_ready =
+            entry.mask.is_none_or(|mask| vec_prf.is_none_or(|vprf| vprf.is_ready(mask)));
 
         let store_issue = if entry.inst.ctrl.splits_store() && entry.trap.is_none() {
             StoreIssue::Unissued
@@ -366,9 +359,7 @@ impl IssueQueue {
             vec_src2,
             vec_src3,
             mem_dep,
-            mask_phys,
             mask_ready,
-            needs_mask,
             store_issue,
         };
 
@@ -397,14 +388,11 @@ impl IssueQueue {
     /// Called when a vector destination register becomes ready (chaining wakeup).
     /// Re-checks each `VecOperandState` group that contains `p`.
     pub fn wakeup_vec_phys(&mut self, p: VecPhysReg, vec_prf: &VecPhysRegFile) {
-        if p.is_zero() {
-            return;
-        }
         for iq in self.slots.iter_mut().flatten() {
             iq.vec_src1.wakeup_check(p, vec_prf);
             iq.vec_src2.wakeup_check(p, vec_prf);
             iq.vec_src3.wakeup_check(p, vec_prf);
-            if iq.needs_mask && !iq.mask_ready && iq.mask_phys == p {
+            if !iq.mask_ready && iq.entry.mask == Some(p) {
                 iq.mask_ready = vec_prf.is_ready(p);
             }
         }

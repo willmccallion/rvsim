@@ -157,9 +157,7 @@ impl CommitRegisters<'_> {
             free_list.reclaim(entry.phys_dst);
         }
         for i in 0..entry.vec_dst_count as usize {
-            if !entry.vec_phys_dst[i].is_zero() {
-                vec_free_list.reclaim(entry.vec_phys_dst[i]);
-            }
+            vec_free_list.reclaim(entry.vec_phys_dst[i]);
         }
     }
 

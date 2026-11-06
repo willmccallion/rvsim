@@ -10,8 +10,8 @@ use std::collections::VecDeque;
 
 /// Trait for physical register types usable with the free list.
 pub trait PhysRegister: Copy + Eq + std::fmt::Debug {
-    /// Returns true if this is the zero/sentinel register (never reclaimed).
-    fn is_zero(self) -> bool;
+    /// True for a hardwired register, which is never renamed or reclaimed.
+    fn is_hardwired(self) -> bool;
     /// Construct a physical register from a raw index.
     fn from_index(idx: u16) -> Self;
 }
@@ -41,7 +41,7 @@ impl<R: PhysRegister> FreeList<R> {
 
     /// Return a physical register to the free list.
     pub fn reclaim(&mut self, p: R) {
-        if !p.is_zero() {
+        if !p.is_hardwired() {
             self.queue.push_back(p);
         }
     }
@@ -160,10 +160,12 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_phys_reg_reclaim_zero_noop() {
+    fn vector_register_zero_is_reclaimed_like_any_other() {
         let mut fl = FreeList::<VecPhysReg>::new(8, 4);
         let initial = fl.available();
+
         fl.reclaim(VecPhysReg::ZERO);
-        assert_eq!(fl.available(), initial);
+
+        assert_eq!(fl.available(), initial + 1);
     }
 }

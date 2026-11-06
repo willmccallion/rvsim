@@ -173,8 +173,8 @@ impl O3Engine {
                 }
             }
         }
-        if !entry.mask_phys.is_zero() {
-            mapping[0] = entry.mask_phys;
+        if let Some(mask) = entry.mask {
+            mapping[0] = mask;
         }
 
         let mut view = VecPrfView::new(&mut self.vec_prf, mapping);
@@ -249,8 +249,8 @@ impl O3Engine {
         let mut mapping = self.vec_rename_view();
         overlay(&mut mapping, ctrl.vs2, &entry.vs2_phys, entry.vec_src2_count);
         overlay(&mut mapping, ctrl.vd, &entry.vs3_phys, entry.vec_src3_count);
-        if !entry.mask_phys.is_zero() {
-            mapping[0] = entry.mask_phys;
+        if let Some(mask) = entry.mask {
+            mapping[0] = mask;
         }
         let micro_ops = route_to_phys(
             element_accesses(

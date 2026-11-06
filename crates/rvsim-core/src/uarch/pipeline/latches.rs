@@ -341,8 +341,8 @@ pub struct RenameIssueEntry {
     pub vec_src2_count: u8,
     /// Number of registers in vs3 LMUL group.
     pub vec_src3_count: u8,
-    /// Physical register for v0 mask (populated by rename for masked vector ops).
-    pub mask_phys: VecPhysReg,
+    /// The physical register holding v0 when a masked vector op was renamed.
+    pub mask: Option<VecPhysReg>,
     /// `vtype` CSR captured at dispatch time (O3: prevents stale reads when vsetvl is in-flight).
     pub vec_vtype: u64,
     /// `vl` CSR captured at dispatch time.
