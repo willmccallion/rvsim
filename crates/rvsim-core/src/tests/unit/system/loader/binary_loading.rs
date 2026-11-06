@@ -239,3 +239,24 @@ fn test_load_binary_content_integrity() {
         assert_eq!(byte, (i % 256) as u8, "Mismatch at byte {}", i);
     }
 }
+
+#[test]
+fn a_kernel_booted_by_firmware_is_loaded_at_the_configured_offset() {
+    const KERNEL_OFFSET: u64 = 0x40_0000;
+    const KERNEL_FIRST_BYTE: u8 = 0x13;
+    let mut config = Config::minimal();
+    config.system.kernel_offset = KERNEL_OFFSET;
+    let mut state = SystemState::build(&config);
+    let firmware = create_temp_binary(&[0x73, 0x00, 0x20, 0x30]);
+    let kernel = create_temp_binary(&[KERNEL_FIRST_BYTE, 0, 0, 0]);
+    let boot = loader::KernelBoot {
+        firmware: Some(firmware.path().to_str().unwrap().to_string()),
+        kernel: Some(kernel.path().to_str().unwrap().to_string()),
+        ..loader::KernelBoot::default()
+    };
+
+    loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
+
+    let kernel_addr = PhysAddr::new(config.system.ram_base + KERNEL_OFFSET);
+    assert_eq!(state.memory.read(kernel_addr, 1), Some(u64::from(KERNEL_FIRST_BYTE)));
+}

@@ -63,10 +63,14 @@ impl Firmware {
     }
 }
 
+/// Where a kernel boot places the device tree, from RAM base.
+const DTB_OFFSET: u64 = 0x0220_0000;
+
 /// Sets up kernel loading: places `OpenSBI`, kernel image, and DTB in RAM and initializes CPU state.
 ///
-/// If `OpenSBI` is found, loads it at `ram_base`, kernel at `ram_base + 0x200000`, DTB at `ram_base + 0x2200000`,
-/// and sets PC to `OpenSBI` with a0/a1/a2 for DTB. Otherwise uses an MRET trampoline at `ram_base` and sets MEPC to kernel.
+/// If `OpenSBI` is found, loads it at `ram_base`, the kernel at `kernel_offset`, the DTB at
+/// [`DTB_OFFSET`], and sets PC to `OpenSBI` with a0/a1/a2 for the DTB. Otherwise uses an MRET
+/// trampoline at `ram_base` and sets MEPC to the kernel.
 ///
 /// # Errors
 ///
@@ -79,8 +83,8 @@ pub(crate) fn setup_kernel_load(
     let ram_base = config.system.ram_base;
 
     let opensbi_addr = ram_base;
-    let kernel_addr = ram_base + 0x200000;
-    let dtb_addr = ram_base + 0x2200000;
+    let kernel_addr = ram_base + config.system.kernel_offset;
+    let dtb_addr = ram_base + DTB_OFFSET;
 
     if let Some(path) = &boot.dtb {
         let dtb_data = load_binary(path)?;
@@ -143,14 +147,12 @@ pub(crate) fn setup_kernel_load(
             }
         }
     } else {
-        let load_addr = ram_base + config.system.kernel_offset;
-
         state.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
         for core in 0..state.cores.len() {
             let mut ctx = state.core_ctx(core);
             ctx.hart.pc = ram_base;
             ctx.hart.privilege = PrivilegeMode::Machine;
-            ctx.csr_write(csr::MEPC, load_addr);
+            ctx.csr_write(csr::MEPC, kernel_addr);
             let hart_id = u64::from(ctx.hart.hart_id.val());
             ctx.hart.regs.write(reg::REG_A0, hart_id);
             ctx.hart.regs.write(reg::REG_A1, dtb_addr);
