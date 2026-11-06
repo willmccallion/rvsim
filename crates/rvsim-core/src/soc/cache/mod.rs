@@ -430,6 +430,28 @@ impl Cache {
         duplicates
     }
 
+    /// Writes `addr`'s line into `way` of its set, bypassing the protocol,
+    /// so audit tests can plant a fault.
+    #[cfg(test)]
+    pub fn plant_line(&mut self, way: usize, addr: u64, state: MesiState) {
+        let index = self.set_index(addr) * self.ways + way;
+        self.lines[index] =
+            CacheLine { tag: self.tag_of(addr), state, upper: 0, prefetched: false };
+    }
+
+    /// Adds `mshr` without the allocation checks, so audit tests can plant
+    /// a fault.
+    #[cfg(test)]
+    pub fn plant_mshr(&mut self, mshr: mshr::Mshr) {
+        self.mshrs.plant(mshr);
+    }
+
+    /// Records `writeback` as sent, so audit tests can plant a fault.
+    #[cfg(test)]
+    pub fn plant_writeback(&mut self, writeback: writeback_buffer::Writeback) {
+        self.writebacks.allocate(writeback);
+    }
+
     const fn line_of(&self, addr: u64) -> LineAddr {
         LineAddr::from_phys(PhysAddr::new(addr), self.line_bytes as u64)
     }

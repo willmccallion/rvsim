@@ -117,6 +117,12 @@ impl MshrTable {
         self.entries.push(mshr);
     }
 
+    /// Adds `mshr` without [`MshrTable::allocate`]'s checks.
+    #[cfg(test)]
+    pub fn plant(&mut self, mshr: Mshr) {
+        self.entries.push(mshr);
+    }
+
     /// Removes and returns the MSHR whose downstream request was `req_id`.
     pub fn take(&mut self, req_id: ReqId) -> Option<Mshr> {
         let index = self.entries.iter().position(|m| m.req_id == req_id)?;
