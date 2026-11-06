@@ -95,10 +95,7 @@ impl TestContext {
             if done(self) {
                 return Some(self.sim.state.cycle);
             }
-            if let Err(e) = self.sim.tick() {
-                eprintln!("CPU tick error: {}", e);
-                return None;
-            }
+            self.tick();
         }
         None
     }
@@ -106,13 +103,17 @@ impl TestContext {
     /// Run the CPU for a specific number of cycles.
     pub fn run(&mut self, cycles: u64) {
         for _ in 0..cycles {
-            if let Err(e) = self.sim.tick() {
-                eprintln!("CPU tick error: {}", e);
-                break;
-            }
+            self.tick();
             if self.sim.state.check_exit().is_some() {
                 break;
             }
+        }
+    }
+
+    /// Advances one cycle, failing the test at the cycle a simulator error occurs.
+    fn tick(&mut self) {
+        if let Err(e) = self.sim.tick() {
+            panic!("tick failed at cycle {}: {e}", self.sim.state.cycle);
         }
     }
 }

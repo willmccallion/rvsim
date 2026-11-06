@@ -4,9 +4,11 @@ use super::harness::TestContext;
 use super::mocks::interrupts::MockInterruptController;
 use super::mocks::memory::MockMemory;
 use crate::common::PhysAddr;
+use crate::config::Config;
 use crate::exec::signals::ControlSignals;
 use crate::isa::encoding::rv64i::opcodes::*;
 use crate::isa::reg::RegIdx;
+use crate::soc::uncore::KERNEL_PANIC_GRACE_CYCLES;
 
 #[test]
 fn builder_add_encodes_r_type() {
@@ -304,6 +306,32 @@ fn harness_set_and_get_reg() {
     let mut ctx = TestContext::new();
     ctx.set_reg(5, 0xDEAD);
     assert_eq!(ctx.get_reg(5), 0xDEAD);
+}
+
+/// A context spinning on `j .` whose UART has printed "Kernel panic", so a
+/// tick fails once the panic grace period ends.
+fn context_heading_for_a_kernel_panic() -> TestContext {
+    let spin = InstructionBuilder::new().jal(0, 0).build();
+    let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &[spin]);
+    let uart = PhysAddr::new(Config::minimal().system.uart_base);
+    for byte in b"Kernel panic" {
+        ctx.sim.probe_mem_store(uart, u64::from(*byte), 1);
+    }
+    ctx
+}
+
+#[test]
+#[should_panic(expected = "tick failed at cycle")]
+fn harness_run_fails_the_test_when_a_tick_errors() {
+    let mut ctx = context_heading_for_a_kernel_panic();
+    ctx.run(2 * KERNEL_PANIC_GRACE_CYCLES);
+}
+
+#[test]
+#[should_panic(expected = "tick failed at cycle")]
+fn harness_run_until_fails_the_test_when_a_tick_errors() {
+    let mut ctx = context_heading_for_a_kernel_panic();
+    let _ = ctx.run_until(2 * KERNEL_PANIC_GRACE_CYCLES, |_| false);
 }
 
 #[test]
