@@ -52,8 +52,8 @@ impl PhysRegFile {
     /// [`PhysReg::ZERO`] starts ready, holding 0.
     pub fn new(total: usize) -> Self {
         let mut ready = vec![false; total];
-        if total > 0 {
-            ready[0] = true; // PhysReg::ZERO always ready
+        if let Some(zero) = ready.get_mut(PhysReg::ZERO.index()) {
+            *zero = true;
         }
         Self { values: vec![0u64; total], ready }
     }
@@ -98,13 +98,14 @@ impl PhysRegFile {
     }
 
     /// Mark a physical register as not-ready (result pending).
-    /// Called at rename time when a new instruction is allocated this register.
+    /// Called at rename time when a new instruction is allocated this
+    /// register; [`PhysReg::ZERO`] stays ready.
     #[inline]
     pub fn allocate(&mut self, p: PhysReg) {
-        let idx = p.0 as usize;
-        if idx == 0 {
-            return; // PhysReg::ZERO always ready
+        if p == PhysReg::ZERO {
+            return;
         }
+        let idx = p.index();
         if idx < self.ready.len() {
             self.ready[idx] = false;
         }
