@@ -21,6 +21,7 @@ mod arith;
 mod compare;
 mod convert;
 mod estimate;
+mod float;
 mod fma;
 mod moves;
 mod widen;
@@ -36,6 +37,7 @@ use crate::isa::op::{IntRounding, Signedness, VecClass, VecFpOp, VectorOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use arith::{StandardOp, exec_fp_standard};
 use compare::exec_fp_comparison;
+pub(super) use float::{SoftF16, VecFloat};
 use fma::exec_fp_fma;
 use moves::{SlideDirection, exec_fp_merge, exec_fp_slide1};
 use widen::{exec_fp_narrowing, exec_fp_widen_convert, exec_fp_widening, exec_fp_widening_fma};
@@ -176,12 +178,6 @@ const fn elem_to_f32(val: u64) -> f32 {
 const fn elem_to_f64(val: u64) -> f64 {
     f64::from_bits(val)
 }
-
-/// Bit mask for the sign bit in a 32-bit IEEE 754 float.
-const F32_SIGN_BIT: u32 = 0x8000_0000;
-
-/// Bit mask for the sign bit in a 64-bit IEEE 754 float.
-const F64_SIGN_BIT: u64 = 0x8000_0000_0000_0000;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]

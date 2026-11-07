@@ -1,16 +1,24 @@
 //! Fused multiply-add.
+//!
+//! RVV FMA conventions:
+//! - `vfmacc.vv`: vd[i] = vs1[i]*vs2[i] + vd[i]
+//! - `vfnmacc.vv`: vd[i] = -(vs1[i]*vs2[i]) - vd[i]
+//! - `vfmsac.vv`: vd[i] = vs1[i]*vs2[i] - vd[i]
+//! - `vfnmsac.vv`: vd[i] = -(vs1[i]*vs2[i]) + vd[i]
+//! - `vfmadd.vv`: vd[i] = vs1[i]*vd[i] + vs2[i]
+//! - `vfnmadd.vv`: vd[i] = -(vs1[i]*vd[i]) - vs2[i]
+//! - `vfmsub.vv`: vd[i] = vs1[i]*vd[i] - vs2[i]
+//! - `vfnmsub.vv`: vd[i] = -(vs1[i]*vd[i]) + vs2[i]
 
-use super::{elem_to_f32, elem_to_f64};
-use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
-use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, fused_is_invalid, is_snan_f16};
-use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
+use super::float::{SoftF16, VecFloat};
 use crate::exec::compute::vector::context::FillTarget;
-use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, read_op1};
+use crate::exec::compute::vector::context::{
+    FpSew, VecExecCtx, VecExecResult, VecOperand, read_op1,
+};
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
+use crate::isa::fp::FpFlags;
 use crate::isa::op::{FmaAddend, FmaSigns};
-use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
-use std::hint::black_box;
+use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
 
 /// The multiplicands and addend of an FMA, `a × b + c`, as the RVV ops take
 /// them from `vs1` (or the scalar), `vs2` and `vd`.
@@ -32,42 +40,27 @@ pub(super) fn fma_operands<T: std::ops::Neg<Output = T>>(
     }
 }
 
-/// Compute FMA for f16 element (Zvfh). The f64 fused result can be inexact
-/// and then rounds twice, so an inexact one is rounded from the exact value.
-pub(super) fn compute_fma_f16(
-    op: (FmaSigns, FmaAddend),
-    vs2_bits: u64,
-    op1_bits: u64,
-    vd_bits: u64,
-    rm: RoundingMode,
-) -> (u64, FpFlags) {
-    let ha = vs2_bits as u16;
-    let hb = op1_bits as u16;
-    let hc = vd_bits as u16;
-    let (a, b, c) = fma_operands(
-        op,
-        f64::from(f16_to_f32(hb)),
-        f64::from(f16_to_f32(ha)),
-        f64::from(f16_to_f32(hc)),
-    );
-    let signaling_nan = is_snan_f16(ha) || is_snan_f16(hb) || is_snan_f16(hc);
-    let nv = if signaling_nan || fused_is_invalid(a, b, c) { FpFlags::NV } else { FpFlags::NONE };
-
-    let (bits, flags) = f64_to_f16(a.mul_add(b, c), rm);
-    if flags.contains(FpFlags::NX) && a.is_finite() && b.is_finite() && c.is_finite() {
-        let exact = exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c));
-        let (bits, flags) = exact::round(exact, FpFormat::Half, rm);
-        return (bits, flags | nv);
-    }
-    (u64::from(bits), flags | nv)
-}
-
 /// FMA operations: vd is both source (accumulator) and destination.
 pub(super) fn exec_fp_fma(
-    op: (FmaSigns, FmaAddend),
+    form: (FmaSigns, FmaAddend),
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
+    operand1: VecOperand,
+    ctx: &VecExecCtx,
+) -> VecExecResult {
+    match FpSew::of(ctx.sew, ctx.zvfh) {
+        Some(FpSew::F16) => fma_loop::<SoftF16>(form, vpr, (vd_idx, vs2_idx), operand1, ctx),
+        Some(FpSew::F32) => fma_loop::<f32>(form, vpr, (vd_idx, vs2_idx), operand1, ctx),
+        Some(FpSew::F64) => fma_loop::<f64>(form, vpr, (vd_idx, vs2_idx), operand1, ctx),
+        None => VecExecResult::default(),
+    }
+}
+
+fn fma_loop<F: VecFloat>(
+    form: (FmaSigns, FmaAddend),
+    vpr: &mut impl VectorRegFile,
+    (vd_idx, vs2_idx): (VRegIdx, VRegIdx),
     operand1: VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
@@ -79,65 +72,16 @@ pub(super) fn exec_fp_fma(
             continue;
         }
 
-        let vs2_val = vpr.read_element(vs2_idx, ElemIdx::new(i), ctx.sew);
-        let op1_val = read_op1(vpr, &operand1, i, ctx.sew);
-        let vd_val = vpr.read_element(vd_idx, ElemIdx::new(i), ctx.sew);
+        let element = |bits: u64| F::from_elem(bits);
+        let vs2 = element(vpr.read_element(vs2_idx, ElemIdx::new(i), ctx.sew));
+        let op1 = element(read_op1(vpr, &operand1, i, ctx.sew));
+        let vd = element(vpr.read_element(vd_idx, ElemIdx::new(i), ctx.sew));
 
-        let (result, f) = match ctx.sew {
-            Sew::E32 => compute_fma_f32(op, vs2_val, op1_val, vd_val, ctx.frm),
-            Sew::E64 => compute_fma_f64(op, vs2_val, op1_val, vd_val, ctx.frm),
-            Sew::E16 if ctx.zvfh => compute_fma_f16(op, vs2_val, op1_val, vd_val, ctx.frm),
-            _ => (0, FpFlags::NONE),
-        };
+        let (a, b, c) = fma_operands(form, op1, vs2, vd);
+        let (result, f) = a.mul_add(b, c, ctx.frm);
         flags = flags | f;
-        vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
+        vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result.canonical_elem_bits());
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
-}
-
-/// Compute FMA for f32 element.
-///
-/// RVV FMA conventions:
-/// - `vfmacc.vv`: vd[i] = vs1[i]*vs2[i] + vd[i]
-/// - `vfnmacc.vv`: vd[i] = -(vs1[i]*vs2[i]) - vd[i]
-/// - `vfmsac.vv`: vd[i] = vs1[i]*vs2[i] - vd[i]
-/// - `vfnmsac.vv`: vd[i] = -(vs1[i]*vs2[i]) + vd[i]
-/// - `vfmadd.vv`: vd[i] = vs1[i]*vd[i] + vs2[i]
-/// - `vfnmadd.vv`: vd[i] = -(vs1[i]*vd[i]) - vs2[i]
-/// - `vfmsub.vv`: vd[i] = vs1[i]*vd[i] - vs2[i]
-/// - `vfnmsub.vv`: vd[i] = -(vs1[i]*vd[i]) + vs2[i]
-pub(super) fn compute_fma_f32(
-    op: (FmaSigns, FmaAddend),
-    vs2_bits: u64,
-    op1_bits: u64,
-    vd_bits: u64,
-    rm: RoundingMode,
-) -> (u64, FpFlags) {
-    let (a, b, c) =
-        fma_operands(op, elem_to_f32(op1_bits), elem_to_f32(vs2_bits), elem_to_f32(vd_bits));
-    let (r, flags) = on_host_f32(
-        rm,
-        || black_box(a).mul_add(black_box(b), black_box(c)),
-        || exact::mul_add(Exact::of_f32(a), Exact::of_f32(b), Exact::of_f32(c)),
-    );
-    (box_f32_canon(r), flags)
-}
-
-/// Compute FMA for f64 element.
-pub(super) fn compute_fma_f64(
-    op: (FmaSigns, FmaAddend),
-    vs2_bits: u64,
-    op1_bits: u64,
-    vd_bits: u64,
-    rm: RoundingMode,
-) -> (u64, FpFlags) {
-    let (a, b, c) =
-        fma_operands(op, elem_to_f64(op1_bits), elem_to_f64(vs2_bits), elem_to_f64(vd_bits));
-    let (r, flags) = on_host_f64(
-        rm,
-        || black_box(a).mul_add(black_box(b), black_box(c)),
-        || exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c)),
-    );
-    (canonicalize_f64_bits(r), flags)
 }

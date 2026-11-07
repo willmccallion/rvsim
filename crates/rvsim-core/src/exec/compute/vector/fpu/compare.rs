@@ -1,14 +1,14 @@
 //! Floating-point comparisons into mask registers.
 
-use super::{elem_to_f32, elem_to_f64};
-use crate::exec::compute::fpu::half::{f16_to_f32, is_snan_f16};
-use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
+use super::float::{SoftF16, VecFloat};
 use crate::exec::compute::vector::context::FillTarget;
-use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, read_op1};
+use crate::exec::compute::vector::context::{
+    FpSew, VecExecCtx, VecExecResult, VecOperand, read_op1,
+};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::FpCompareOp;
-use crate::isa::rvv::{ElemIdx, Sew, VRegIdx};
+use crate::isa::rvv::{ElemIdx, VRegIdx};
 
 /// FP comparison loop: writes mask bits to vd.
 ///
@@ -23,6 +23,21 @@ pub(super) fn exec_fp_comparison(
     operand1: VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
+    match FpSew::of(ctx.sew, ctx.zvfh) {
+        Some(FpSew::F16) => compare_loop::<SoftF16>(op, vpr, (vd_idx, vs2_idx), operand1, ctx),
+        Some(FpSew::F32) => compare_loop::<f32>(op, vpr, (vd_idx, vs2_idx), operand1, ctx),
+        Some(FpSew::F64) => compare_loop::<f64>(op, vpr, (vd_idx, vs2_idx), operand1, ctx),
+        None => VecExecResult::default(),
+    }
+}
+
+fn compare_loop<F: VecFloat>(
+    op: FpCompareOp,
+    vpr: &mut impl VectorRegFile,
+    (vd_idx, vs2_idx): (VRegIdx, VRegIdx),
+    operand1: VecOperand,
+    ctx: &VecExecCtx,
+) -> VecExecResult {
     // Mask registers hold VLEN bits; the tail extends from vl to VLEN-1.
     let vlen_bits = vpr.vlen().bits();
     let mut flags = FpFlags::NONE;
@@ -32,74 +47,33 @@ pub(super) fn exec_fp_comparison(
             continue;
         }
 
-        let vs2_val = vpr.read_element(vs2_idx, ElemIdx::new(i), ctx.sew);
-        let op1_val = read_op1(vpr, &operand1, i, ctx.sew);
-
-        let (result, f) = match ctx.sew {
-            Sew::E32 => {
-                let a = elem_to_f32(vs2_val);
-                let b = elem_to_f32(op1_val);
-                // NaN comparisons: FLT/FLE/FGT/FGE raise NV on any NaN;
-                // FEQ/FNE raise NV only on sNaN
-                let nv = match op {
-                    FpCompareOp::Eq | FpCompareOp::Ne => is_snan_f32(a) || is_snan_f32(b),
-                    _ => a.is_nan() || b.is_nan(),
-                };
-                let f = if nv { FpFlags::NV } else { FpFlags::NONE };
-                let cmp = match op {
-                    FpCompareOp::Eq => a == b,
-                    FpCompareOp::Ne => a != b,
-                    FpCompareOp::Lt => a < b,
-                    FpCompareOp::Le => a <= b,
-                    FpCompareOp::Gt => a > b,
-                    FpCompareOp::Ge => a >= b,
-                };
-                (cmp, f)
-            }
-            Sew::E64 => {
-                let a = elem_to_f64(vs2_val);
-                let b = elem_to_f64(op1_val);
-                let nv = match op {
-                    FpCompareOp::Eq | FpCompareOp::Ne => is_snan_f64(a) || is_snan_f64(b),
-                    _ => a.is_nan() || b.is_nan(),
-                };
-                let f = if nv { FpFlags::NV } else { FpFlags::NONE };
-                let cmp = match op {
-                    FpCompareOp::Eq => a == b,
-                    FpCompareOp::Ne => a != b,
-                    FpCompareOp::Lt => a < b,
-                    FpCompareOp::Le => a <= b,
-                    FpCompareOp::Gt => a > b,
-                    FpCompareOp::Ge => a >= b,
-                };
-                (cmp, f)
-            }
-            Sew::E16 if ctx.zvfh => {
-                let a16 = vs2_val as u16;
-                let b16 = op1_val as u16;
-                let a = f16_to_f32(a16);
-                let b = f16_to_f32(b16);
-                let nv = match op {
-                    FpCompareOp::Eq | FpCompareOp::Ne => is_snan_f16(a16) || is_snan_f16(b16),
-                    _ => a.is_nan() || b.is_nan(),
-                };
-                let f = if nv { FpFlags::NV } else { FpFlags::NONE };
-                let cmp = match op {
-                    FpCompareOp::Eq => a == b,
-                    FpCompareOp::Ne => a != b,
-                    FpCompareOp::Lt => a < b,
-                    FpCompareOp::Le => a <= b,
-                    FpCompareOp::Gt => a > b,
-                    FpCompareOp::Ge => a >= b,
-                };
-                (cmp, f)
-            }
-            _ => (false, FpFlags::NONE),
-        };
-
+        let vs2 = F::from_elem(vpr.read_element(vs2_idx, ElemIdx::new(i), ctx.sew));
+        let op1 = F::from_elem(read_op1(vpr, &operand1, i, ctx.sew));
+        let (result, f) = compare(op, vs2, op1);
         flags = flags | f;
         vpr.write_mask_bit(vd_idx, ElemIdx::new(i), result);
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
+}
+
+/// Whether `a op b` holds, with the flags: equality raises NV only on a
+/// signaling NaN, the orderings on any NaN.
+fn compare<F: VecFloat>(op: FpCompareOp, a: F, b: F) -> (bool, FpFlags) {
+    let (x, y) = (a.to_f64(), b.to_f64());
+    let is_invalid = match op {
+        FpCompareOp::Eq | FpCompareOp::Ne => a.is_signaling_nan() || b.is_signaling_nan(),
+        FpCompareOp::Lt | FpCompareOp::Le | FpCompareOp::Gt | FpCompareOp::Ge => {
+            x.is_nan() || y.is_nan()
+        }
+    };
+    let holds = match op {
+        FpCompareOp::Eq => x == y,
+        FpCompareOp::Ne => x != y,
+        FpCompareOp::Lt => x < y,
+        FpCompareOp::Le => x <= y,
+        FpCompareOp::Gt => x > y,
+        FpCompareOp::Ge => x >= y,
+    };
+    (holds, if is_invalid { FpFlags::NV } else { FpFlags::NONE })
 }
