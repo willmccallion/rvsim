@@ -415,9 +415,11 @@ impl ExecutionEngine for InOrderEngine {
             &state.stage(),
             &mut self.mem1_mem2,
             &mut self.mem2_wb,
-            &mut self.store_buffer,
-            None,
-            Some(&mut self.vec_store_buffer),
+            memory2::MemoryQueues {
+                store_buffer: &mut self.store_buffer,
+                load_queue: None,
+                vec_store_buffer: &mut self.vec_store_buffer,
+            },
         );
         forward_loads(&mut self.rob, &self.mem2_wb);
 

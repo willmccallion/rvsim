@@ -35,7 +35,19 @@ use crate::uarch::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
 use crate::uarch::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry, VecMemTarget};
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
+use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rob::RobTag;
+
+/// The queues Memory2 resolves stores and checks load ordering in; the
+/// in-order backend has no load queue.
+pub struct MemoryQueues<'a> {
+    /// Scalar stores awaiting commit.
+    pub store_buffer: &'a mut StoreBuffer,
+    /// Executed loads, checked for ordering violations.
+    pub load_queue: Option<&'a mut LoadQueue>,
+    /// Vector stores awaiting commit.
+    pub vec_store_buffer: &'a mut VecStoreBuffer,
+}
 
 /// Executes the Memory2 stage.
 ///
@@ -45,12 +57,9 @@ pub fn memory2_stage(
     state: &StageCtx<'_>,
     input: &mut Vec<Mem1Mem2Entry>,
     output: &mut Vec<Mem2WbEntry>,
-    store_buffer: &mut StoreBuffer,
-    mut load_queue: Option<&mut LoadQueue>,
-    mut vec_store_buffer: Option<
-        &mut crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer,
-    >,
+    queues: MemoryQueues<'_>,
 ) -> Option<(RobTag, u64)> {
+    let MemoryQueues { store_buffer, mut load_queue, vec_store_buffer } = queues;
     let mut violation: Option<(RobTag, u64)> = None;
     let mut entries = std::mem::take(input);
 
@@ -103,9 +112,7 @@ pub fn memory2_stage(
             // A scalar store resolved in memory1; a vector store element
             // resolves here and checks the load queue for ordering violations.
             for (paddr, data, width) in vector_store_elements(&mem) {
-                if let Some(vsb) = vec_store_buffer.as_deref_mut() {
-                    vsb.resolve_element(mem.rob_tag, paddr, data, width);
-                }
+                vec_store_buffer.resolve_element(mem.rob_tag, paddr, data, width);
                 if let Some(ref lq) = load_queue
                     && let Some(violating_tag) =
                         lq.check_ordering_violation(paddr, width, mem.rob_tag)
