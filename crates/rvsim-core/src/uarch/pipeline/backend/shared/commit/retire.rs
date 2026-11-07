@@ -509,7 +509,7 @@ fn retire_fence(state: &mut CoreCtx<'_>, entry: &RobEntry) -> Option<CommitEvent
         state.clear_reservation();
         return Some(squash_younger);
     }
-    if entry.ctrl.system_op == SystemOp::Fence && state.config.pipeline.fence_squash {
+    if matches!(entry.ctrl.system_op, SystemOp::Fence(_)) && state.config.pipeline.fence_squash {
         return Some(squash_younger);
     }
     None

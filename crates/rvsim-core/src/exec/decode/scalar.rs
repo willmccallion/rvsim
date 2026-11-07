@@ -15,6 +15,7 @@ use crate::isa::encoding::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcode
 use crate::isa::encoding::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
 use crate::isa::encoding::rv64zfh::funct7 as h_funct7;
 use crate::isa::encoding::zicboz;
+use crate::isa::fence::Fence;
 use crate::isa::fp::{FpFormat, Rounding};
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp};
@@ -423,7 +424,7 @@ fn decode_system(c: &mut ControlSignals, inst: u32, pc: VirtAddr, d: &Decoded) -
 /// The MISC-MEM operation `d` encodes: a fence or a cache-block operation.
 const fn misc_mem_op(d: &Decoded) -> Option<SystemOp> {
     Some(match d.funct3 {
-        i_funct3::FENCE => SystemOp::Fence,
+        i_funct3::FENCE => SystemOp::Fence(Fence::decode(d.raw)),
         i_funct3::FENCE_I => SystemOp::FenceI,
         i_funct3::CBO if d.rd.is_zero() => match d.imm {
             zicboz::CBO_ZERO_IMM => SystemOp::CboZero,

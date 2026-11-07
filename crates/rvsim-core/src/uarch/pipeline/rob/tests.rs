@@ -159,6 +159,13 @@ fn encode_fence(pred: u8, succ: u8) -> u32 {
     0x0F | ((pred as u32 & 0xF) << 24) | ((succ as u32 & 0xF) << 20)
 }
 
+/// Allocates a FENCE with the `pred` and `succ` sets.
+fn alloc_fence(rob: &mut Rob, pred: u8, succ: u8) -> Option<RobTag> {
+    let bits = encode_fence(pred, succ);
+    let system_op = crate::isa::op::SystemOp::Fence(crate::isa::fence::Fence::decode(bits));
+    alloc_with_inst(rob, bits, ControlSignals { system_op, ..Default::default() })
+}
+
 fn alloc_with_inst(rob: &mut Rob, inst: u32, ctrl: ControlSignals) -> Option<RobTag> {
     rob.allocate(
         &crate::exec::inst::Inst {
@@ -181,13 +188,11 @@ fn test_fence_pred_satisfied() {
     // Allocate: store (tag1), load (tag2), FENCE rw,rw (tag3)
     let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
     let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
-    let fence_ctrl =
-        ControlSignals { system_op: crate::isa::op::SystemOp::Fence, ..Default::default() };
 
     let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
     let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
     // FENCE rw,rw: pred=0b0011, succ=0b0011
-    let t_fence = alloc_with_inst(&mut rob, encode_fence(0b0011, 0b0011), fence_ctrl).unwrap();
+    let t_fence = alloc_fence(&mut rob, 0b0011, 0b0011).unwrap();
 
     // pred.r=true, pred.w=true: both older load and store must complete
     assert!(!rob.fence_pred_satisfied(t_fence, FenceSet::memory(true, true)));
@@ -209,13 +214,11 @@ fn test_has_fence_blocking() {
     let mut rob = Rob::new(8);
 
     // Allocate: FENCE w,r (tag1), load (tag2), store (tag3)
-    let fence_ctrl =
-        ControlSignals { system_op: crate::isa::op::SystemOp::Fence, ..Default::default() };
     let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
     let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
 
     // FENCE w,r: pred=0b0001 (W), succ=0b0010 (R)
-    let _t_fence = alloc_with_inst(&mut rob, encode_fence(0b0001, 0b0010), fence_ctrl).unwrap();
+    let _t_fence = alloc_fence(&mut rob, 0b0001, 0b0010).unwrap();
     let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
     let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
 
@@ -252,10 +255,8 @@ fn a_fence_waits_for_an_older_vector_store() {
     let mut rob = Rob::new(8);
     let vector_store =
         ControlSignals { vec_op: crate::isa::op::VectorOp::VStoreUnit, ..Default::default() };
-    let fence_ctrl =
-        ControlSignals { system_op: crate::isa::op::SystemOp::Fence, ..Default::default() };
     let t_store = alloc_with_inst(&mut rob, 0, vector_store).unwrap();
-    let t_fence = alloc_with_inst(&mut rob, encode_fence(0b0001, 0b0001), fence_ctrl).unwrap();
+    let t_fence = alloc_fence(&mut rob, 0b0001, 0b0001).unwrap();
 
     assert!(!rob.fence_pred_satisfied(t_fence, FenceSet::memory(false, true)));
     rob.complete(t_store, 0);
@@ -292,13 +293,11 @@ fn test_fence_tso_blocking() {
     let mut rob = Rob::new(8);
 
     // FENCE.TSO = FENCE rw,rw
-    let fence_ctrl =
-        ControlSignals { system_op: crate::isa::op::SystemOp::Fence, ..Default::default() };
     let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
     let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
 
     // FENCE rw,rw: pred=0b0011, succ=0b0011
-    let _t_fence = alloc_with_inst(&mut rob, encode_fence(0b0011, 0b0011), fence_ctrl).unwrap();
+    let _t_fence = alloc_fence(&mut rob, 0b0011, 0b0011).unwrap();
     let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
     let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
 

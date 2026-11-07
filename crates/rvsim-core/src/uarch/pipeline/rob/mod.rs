@@ -29,7 +29,7 @@ use crate::exec::execute::{CsrRequest, CsrWrite};
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::csr::CsrAddr;
-use crate::isa::fence::{Fence, FenceSet};
+use crate::isa::fence::FenceSet;
 use crate::isa::fp::FpFlags;
 use crate::isa::instruction::InstSize;
 use crate::isa::privileged::Trap;
@@ -749,8 +749,8 @@ impl Rob {
         accesses.has_memory()
             && self.older_than(tag).any(|entry| {
                 (accesses.r && entry.ctrl.acquire && entry.state == RobState::Issued)
-                    || (entry.ctrl.system_op == SystemOp::Fence
-                        && Fence::decode(entry.bits).succ.orders(accesses))
+                    || matches!(entry.ctrl.system_op,
+                        SystemOp::Fence(fence) if fence.succ.orders(accesses))
             })
     }
 }
