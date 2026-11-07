@@ -257,7 +257,7 @@ part of interest, leaving the whole run's statistics intact:
 
 - **Let the guest mark it.** Software issues the dump
   [pseudo-operation](../pseudo-ops.md) for labelled snapshots;
-  `cpu.stats_dumps()` returns them and `cpu.stats_between(start, end)`
+  `cpu.stats_dumps` holds them and `cpu.stats_between(start, end)`
   subtracts a pair. `Session.measure()` and `rvsim bench` measure a Linux
   command this way, bracketing its whole process lifetime.
 - **Reset.** `cpu.reset_stats()`, or the guest's reset command, zeroes the
@@ -364,9 +364,9 @@ across parallel subjects (all cores, all cache levels, all memctrls), which the
 two-wildcard pattern language covers. Arithmetic across queries lives in
 Python, where the user already has pandas and numpy.
 
-Malformed patterns are errors, not silent empty results — a wrong pattern is
-almost always a typo, and returning zero would recreate the "counter silently
-reads zero" problem that started this refactor.
+A pattern that matches nothing gives an empty result rather than an
+error, so check `.paths()` when a typo is possible: summing an empty
+result reads zero.
 
 ## Derived metrics as first-class stats
 

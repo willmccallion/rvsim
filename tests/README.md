@@ -29,7 +29,7 @@ presets), a sample of every vector instruction class against spike on an
 in-order and an out-of-order config, and the multi-hart programs at 2 harts
 on every multicore config and at 4 harts on four of them. It takes about
 three minutes on four cores. spike, riscv-tests and the vector generator are
-pinned to fixed commits in the `Makefile`. Each test runs in a subprocess
+pinned to fixed commits in `conformance/sources.mk`. Each test runs in a subprocess
 (`conformance/_worker.py`), so a hang or crash in one test cannot take down
 the run.
 

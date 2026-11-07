@@ -56,7 +56,7 @@ ends it, or exchanges files with the host with
 `software/include/rvsim.h` wraps as `rvsim_dump_stats`,
 `rvsim_reset_stats`, `rvsim_break`, `rvsim_exit`, `rvsim_read_file` and
 `rvsim_write_file`. The dumps come back through
-`Simulator.stats_dumps()`, the stops through `run_to` and the Session
+`Simulator.stats_dumps`, the stops through `run_to` and the Session
 API's markers; the files come from `Simulator(script=...)` and go to
 `Simulator(outdir=...)`.
 

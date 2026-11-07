@@ -290,9 +290,9 @@ impl Memory {
 
 /// Subscript memory access with virtual-to-physical translation via the MMU.
 ///
-/// ``cpu.vmem64[addr]`` translates `addr` through the current page tables
-/// (using SATP), then reads the resulting physical address.
-/// Returns 0 if translation fails (page fault).
+/// ``cpu.vmem64[addr]`` translates `addr` through hart 0's page tables
+/// (its SATP), then reads the resulting physical address. A failed
+/// translation raises ``ValueError``.
 #[pyclass(name = "VirtualMemory", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct VirtualMemory {
