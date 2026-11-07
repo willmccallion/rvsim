@@ -2,9 +2,18 @@
 
 use super::CoreCtx;
 use crate::isa::csr;
-use crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT;
-use crate::isa::privileged::{PrivilegeMode, Trap};
+use crate::isa::privileged::{PrivilegeMode, Trap, TrapCause};
 use crate::trace_trap;
+
+/// Where a trap with `cause` enters through `tvec`: its base, plus four
+/// bytes per interrupt code in vectored mode.
+const fn handler_pc(tvec: u64, cause: TrapCause) -> u64 {
+    let base = tvec & !3;
+    match cause {
+        TrapCause::Interrupt(code) if tvec & 1 != 0 => base + 4 * code,
+        _ => base,
+    }
+}
 
 impl CoreCtx<'_> {
     /// Handles a trap (exception or interrupt).
@@ -24,8 +33,7 @@ impl CoreCtx<'_> {
             };
             tracing::error!(target: "rvsim::trap", ?cause, pc = %crate::common::trace::Hex(epc), "the program faulted in SE mode");
             // Left for a post-mortem: what faulted, where, and on what.
-            let (_, code) = cause.cause();
-            self.hart.csrs.mcause = code;
+            self.hart.csrs.mcause = cause.cause().code();
             self.hart.csrs.mepc = epc;
             self.hart.csrs.mtval = match *cause {
                 Trap::InstructionAddressMisaligned(a)
@@ -45,7 +53,7 @@ impl CoreCtx<'_> {
             return;
         }
 
-        let (is_interrupt, code) = cause.cause();
+        let trap_cause = cause.cause();
         {
             trace_trap!(self.trace_trap_enabled(cause);
                 event      = "taken",
@@ -58,9 +66,10 @@ impl CoreCtx<'_> {
             );
         }
 
-        let deleg_mask = if is_interrupt { self.hart.csrs.mideleg } else { self.hart.csrs.medeleg };
-        let delegate_to_s =
-            (self.hart.privilege <= PrivilegeMode::Supervisor) && ((deleg_mask >> code) & 1) != 0;
+        let deleg_mask =
+            if trap_cause.is_interrupt() { self.hart.csrs.mideleg } else { self.hart.csrs.medeleg };
+        let delegate_to_s = (self.hart.privilege <= PrivilegeMode::Supervisor)
+            && ((deleg_mask >> trap_cause.code()) & 1) != 0;
 
         let tval = match *cause {
             Trap::InstructionAddressMisaligned(a)
@@ -78,7 +87,7 @@ impl CoreCtx<'_> {
         };
 
         if delegate_to_s {
-            self.hart.csrs.scause = if is_interrupt { CAUSE_INTERRUPT_BIT | code } else { code };
+            self.hart.csrs.scause = cause.mcause_code();
 
             self.hart.csrs.sepc = epc;
             self.hart.csrs.stval = tval;
@@ -98,13 +107,9 @@ impl CoreCtx<'_> {
             self.hart.csrs.mstatus = mstatus;
 
             self.hart.privilege = PrivilegeMode::Supervisor;
-            let stvec_base = self.hart.csrs.stvec & !3;
-            let trap_handler_pc = stvec_base
-                + (if (self.hart.csrs.stvec & 1) != 0 && is_interrupt { 4 * code } else { 0 });
-
-            self.hart.pc = trap_handler_pc;
+            self.hart.pc = handler_pc(self.hart.csrs.stvec, trap_cause);
         } else {
-            self.hart.csrs.mcause = if is_interrupt { CAUSE_INTERRUPT_BIT | code } else { code };
+            self.hart.csrs.mcause = cause.mcause_code();
             self.hart.csrs.mepc = epc;
             self.hart.csrs.mtval = tval;
 
@@ -120,18 +125,14 @@ impl CoreCtx<'_> {
             self.hart.csrs.mstatus = mstatus;
 
             self.hart.privilege = PrivilegeMode::Machine;
-            let mtvec_base = self.hart.csrs.mtvec & !3;
-            let target_pc = mtvec_base
-                + (if (self.hart.csrs.mtvec & 1) != 0 && is_interrupt { 4 * code } else { 0 });
-            self.hart.pc = target_pc;
+            self.hart.pc = handler_pc(self.hart.csrs.mtvec, trap_cause);
         }
 
         #[cfg(feature = "commit-log")]
         if let Some(log) = self.uncore.commit_log.as_mut() {
-            let cause_bits = if is_interrupt { CAUSE_INTERRUPT_BIT | code } else { code };
             let _ = crate::uarch::pipeline::commit_log::write_trap(
                 log,
-                cause_bits,
+                cause.mcause_code(),
                 epc,
                 tval,
                 self.uncore.cycle,

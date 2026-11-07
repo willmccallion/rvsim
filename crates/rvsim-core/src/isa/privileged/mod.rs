@@ -9,4 +9,4 @@ mod trap;
 
 pub use mode::PrivilegeMode;
 pub use paging::PagingMode;
-pub use trap::Trap;
+pub use trap::{Trap, TrapCause};

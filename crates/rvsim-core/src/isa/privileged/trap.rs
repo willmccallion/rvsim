@@ -4,6 +4,32 @@ use std::fmt;
 
 use crate::common::AccessType;
 
+/// What a trap's `xcause` register records: its kind and code, without the
+/// interrupt bit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrapCause {
+    /// A synchronous exception.
+    Exception(u64),
+    /// An interrupt.
+    Interrupt(u64),
+}
+
+impl TrapCause {
+    /// The exception or interrupt code.
+    #[must_use]
+    pub const fn code(self) -> u64 {
+        match self {
+            Self::Exception(code) | Self::Interrupt(code) => code,
+        }
+    }
+
+    /// Whether this is an interrupt.
+    #[must_use]
+    pub const fn is_interrupt(self) -> bool {
+        matches!(self, Self::Interrupt(_))
+    }
+}
+
 /// RISC-V trap types representing exceptions and interrupts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Trap {
@@ -115,56 +141,78 @@ impl Trap {
         }
     }
 
-    /// `(is_interrupt, code)` as `mcause` encodes it, without the interrupt bit.
+    /// Whether this is an interrupt, and its code without the interrupt bit.
     #[must_use]
-    pub const fn cause(&self) -> (bool, u64) {
+    pub const fn cause(&self) -> TrapCause {
         use crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT;
         use crate::isa::privileged::cause::{exception, interrupt};
         match *self {
             Self::InstructionAddressMisaligned(_) => {
-                (false, exception::INSTRUCTION_ADDRESS_MISALIGNED)
+                TrapCause::Exception(exception::INSTRUCTION_ADDRESS_MISALIGNED)
             }
-            Self::InstructionAccessFault(_) => (false, exception::INSTRUCTION_ACCESS_FAULT),
-            Self::IllegalInstruction(_) => (false, exception::ILLEGAL_INSTRUCTION),
-            Self::Breakpoint(_) => (false, exception::BREAKPOINT),
-            Self::LoadAddressMisaligned(_) => (false, exception::LOAD_ADDRESS_MISALIGNED),
-            Self::LoadAccessFault(_) => (false, exception::LOAD_ACCESS_FAULT),
-            Self::StoreAddressMisaligned(_) => (false, exception::STORE_ADDRESS_MISALIGNED),
-            Self::StoreAccessFault(_) => (false, exception::STORE_ACCESS_FAULT),
-            Self::EnvironmentCallFromUMode => (false, exception::ENVIRONMENT_CALL_FROM_U_MODE),
-            Self::EnvironmentCallFromSMode => (false, exception::ENVIRONMENT_CALL_FROM_S_MODE),
-            Self::EnvironmentCallFromMMode => (false, exception::ENVIRONMENT_CALL_FROM_M_MODE),
-            Self::InstructionPageFault(_) => (false, exception::INSTRUCTION_PAGE_FAULT),
-            Self::LoadPageFault(_) => (false, exception::LOAD_PAGE_FAULT),
-            Self::StorePageFault(_) => (false, exception::STORE_PAGE_FAULT),
-            Self::UserSoftwareInterrupt => (true, interrupt::USER_SOFTWARE & !CAUSE_INTERRUPT_BIT),
+            Self::InstructionAccessFault(_) => {
+                TrapCause::Exception(exception::INSTRUCTION_ACCESS_FAULT)
+            }
+            Self::IllegalInstruction(_) => TrapCause::Exception(exception::ILLEGAL_INSTRUCTION),
+            Self::Breakpoint(_) => TrapCause::Exception(exception::BREAKPOINT),
+            Self::LoadAddressMisaligned(_) => {
+                TrapCause::Exception(exception::LOAD_ADDRESS_MISALIGNED)
+            }
+            Self::LoadAccessFault(_) => TrapCause::Exception(exception::LOAD_ACCESS_FAULT),
+            Self::StoreAddressMisaligned(_) => {
+                TrapCause::Exception(exception::STORE_ADDRESS_MISALIGNED)
+            }
+            Self::StoreAccessFault(_) => TrapCause::Exception(exception::STORE_ACCESS_FAULT),
+            Self::EnvironmentCallFromUMode => {
+                TrapCause::Exception(exception::ENVIRONMENT_CALL_FROM_U_MODE)
+            }
+            Self::EnvironmentCallFromSMode => {
+                TrapCause::Exception(exception::ENVIRONMENT_CALL_FROM_S_MODE)
+            }
+            Self::EnvironmentCallFromMMode => {
+                TrapCause::Exception(exception::ENVIRONMENT_CALL_FROM_M_MODE)
+            }
+            Self::InstructionPageFault(_) => {
+                TrapCause::Exception(exception::INSTRUCTION_PAGE_FAULT)
+            }
+            Self::LoadPageFault(_) => TrapCause::Exception(exception::LOAD_PAGE_FAULT),
+            Self::StorePageFault(_) => TrapCause::Exception(exception::STORE_PAGE_FAULT),
+            Self::UserSoftwareInterrupt => {
+                TrapCause::Interrupt(interrupt::USER_SOFTWARE & !CAUSE_INTERRUPT_BIT)
+            }
             Self::SupervisorSoftwareInterrupt => {
-                (true, interrupt::SUPERVISOR_SOFTWARE & !CAUSE_INTERRUPT_BIT)
+                TrapCause::Interrupt(interrupt::SUPERVISOR_SOFTWARE & !CAUSE_INTERRUPT_BIT)
             }
             Self::MachineSoftwareInterrupt => {
-                (true, interrupt::MACHINE_SOFTWARE & !CAUSE_INTERRUPT_BIT)
+                TrapCause::Interrupt(interrupt::MACHINE_SOFTWARE & !CAUSE_INTERRUPT_BIT)
             }
             Self::SupervisorTimerInterrupt => {
-                (true, interrupt::SUPERVISOR_TIMER & !CAUSE_INTERRUPT_BIT)
+                TrapCause::Interrupt(interrupt::SUPERVISOR_TIMER & !CAUSE_INTERRUPT_BIT)
             }
-            Self::MachineTimerInterrupt => (true, interrupt::MACHINE_TIMER & !CAUSE_INTERRUPT_BIT),
-            Self::UserExternalInterrupt => (true, interrupt::USER_EXTERNAL & !CAUSE_INTERRUPT_BIT),
+            Self::MachineTimerInterrupt => {
+                TrapCause::Interrupt(interrupt::MACHINE_TIMER & !CAUSE_INTERRUPT_BIT)
+            }
+            Self::UserExternalInterrupt => {
+                TrapCause::Interrupt(interrupt::USER_EXTERNAL & !CAUSE_INTERRUPT_BIT)
+            }
             Self::SupervisorExternalInterrupt => {
-                (true, interrupt::SUPERVISOR_EXTERNAL & !CAUSE_INTERRUPT_BIT)
+                TrapCause::Interrupt(interrupt::SUPERVISOR_EXTERNAL & !CAUSE_INTERRUPT_BIT)
             }
             Self::MachineExternalInterrupt => {
-                (true, interrupt::MACHINE_EXTERNAL & !CAUSE_INTERRUPT_BIT)
+                TrapCause::Interrupt(interrupt::MACHINE_EXTERNAL & !CAUSE_INTERRUPT_BIT)
             }
-            Self::RequestedTrap(c) => (false, c),
-            Self::DoubleFault(_) => (false, exception::HARDWARE_ERROR),
+            Self::RequestedTrap(c) => TrapCause::Exception(c),
+            Self::DoubleFault(_) => TrapCause::Exception(exception::HARDWARE_ERROR),
         }
     }
 
     /// The full `mcause` value: the code with the interrupt bit set for interrupts.
     #[must_use]
     pub const fn mcause_code(&self) -> u64 {
-        let (is_interrupt, code) = self.cause();
-        if is_interrupt { code | crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT } else { code }
+        match self.cause() {
+            TrapCause::Exception(code) => code,
+            TrapCause::Interrupt(code) => code | crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT,
+        }
     }
 
     /// Timer interrupts and environment calls: the traps a running OS takes

@@ -5,7 +5,7 @@
 
 use crate::arch::translation::TranslationResult;
 use crate::common::PhysAddr;
-use crate::isa::privileged::Trap;
+use crate::isa::privileged::{Trap, TrapCause};
 
 #[test]
 fn test_trap_instruction_address_misaligned_display() {
@@ -273,6 +273,14 @@ fn mcause_code_sets_the_interrupt_bit_only_for_interrupts() {
     assert_eq!(Trap::EnvironmentCallFromSMode.mcause_code(), 9);
     assert_eq!(Trap::MachineTimerInterrupt.mcause_code(), (1 << 63) | 7);
     assert_eq!(Trap::LoadPageFault(0).mcause_code(), 13);
+}
+
+#[test]
+fn cause_separates_interrupts_from_exceptions() {
+    assert_eq!(Trap::MachineTimerInterrupt.cause(), TrapCause::Interrupt(7));
+    assert_eq!(Trap::SupervisorExternalInterrupt.cause(), TrapCause::Interrupt(9));
+    assert_eq!(Trap::IllegalInstruction(0).cause(), TrapCause::Exception(2));
+    assert_eq!(Trap::RequestedTrap(24).cause(), TrapCause::Exception(24));
 }
 
 #[test]
