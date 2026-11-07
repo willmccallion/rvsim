@@ -1,7 +1,7 @@
 //! The multi-letter extensions a hart implements, named as an ISA string,
 //! the device tree and Linux name them.
 
-use crate::isa::misa::{IsaStringError, Misa};
+use crate::isa::misa::{IsaStringError, Misa, MisaLetter};
 
 /// A multi-letter extension the hart can implement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -166,8 +166,8 @@ impl Extension {
 pub enum Requirement {
     /// The base ISA, which every hart has.
     Base,
-    /// The single-letter extension (lowercase) of `misa`.
-    Letter(char),
+    /// A single-letter extension of `misa`.
+    Letter(MisaLetter),
     /// Any one of these extensions, each of which has the instruction.
     AnyOf(Extensions),
 }
@@ -341,10 +341,10 @@ impl Isa {
 
     /// Whether the hart implements what an instruction needs.
     #[must_use]
-    pub fn permits(&self, requirement: Requirement) -> bool {
+    pub const fn permits(&self, requirement: Requirement) -> bool {
         match requirement {
             Requirement::Base => true,
-            Requirement::Letter(letter) => self.misa.has(letter),
+            Requirement::Letter(letter) => self.misa.has_letter(letter),
             Requirement::AnyOf(extensions) => self.extensions.intersects(extensions),
         }
     }
