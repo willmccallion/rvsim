@@ -401,6 +401,25 @@ mod tests {
         (vpr.read_element(v4, ElemIdx::new(0), dst_sew), flags)
     }
 
+    #[test]
+    fn a_widening_float_conversion_ignores_the_register_its_vs1_field_names() {
+        // vfwcvt.f.f.v holds the VFUNARY0 selector 0b01100 in its vs1 field,
+        // which decode passes on as the operand v12.
+        let mut vpr = vpr128();
+        let ctx = VecExecCtx::unmasked(Sew::E32, 1);
+        let (v2, v4, v12) = (VRegIdx::new(2), VRegIdx::new(4), VRegIdx::new(12));
+        vpr.write_element(v2, ElemIdx::new(0), Sew::E32, u64::from(1f32.to_bits()));
+        vpr.write_element(v12, ElemIdx::new(0), Sew::E32, F32_SIGNALING_NAN);
+
+        let flags =
+            vec_fp_execute(VectorOp::VFWCvtFF, &mut vpr, v4, v2, VecOperand::Vector(v12), &ctx)
+                .fp_flags;
+
+        assert_eq!(vpr.read_element(v4, ElemIdx::new(0), Sew::E64), 1f64.to_bits());
+        assert_eq!(flags, FpFlags::NONE);
+    }
+
+    const F32_SIGNALING_NAN: u64 = 0x7f80_0001;
     const F16_THREE_AND_A_HALF: u64 = 0x4300;
     const F16_MINUS_TWO: u64 = 0xc000;
     const F16_MINUS_THREE: u64 = 0xc200;
