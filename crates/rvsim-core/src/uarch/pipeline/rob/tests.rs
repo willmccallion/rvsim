@@ -313,8 +313,8 @@ fn test_control_outcome() {
     );
 
     let entry = rob.find_entry(t1).unwrap();
-    assert!(entry.control_resolved);
-    assert!(entry.bp_outcome.taken);
-    assert_eq!(entry.bp_target, Some(VirtAddr::new(0x2000)));
-    assert!(!entry.bp_outcome.mispredicted);
+    let control = entry.control.unwrap();
+    assert!(control.outcome.taken);
+    assert_eq!(control.target, Some(VirtAddr::new(0x2000)));
+    assert!(!control.outcome.mispredicted);
 }

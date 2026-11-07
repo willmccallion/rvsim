@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(0x1008)));
         assert!(redirect.is_some_and(|r| r.repair.is_some_and(|repair| repair.taken)));
         let entry = rob.find_entry(tag).unwrap();
-        assert!(entry.bp_outcome.mispredicted);
+        assert!(entry.control.is_some_and(|control| control.outcome.mispredicted));
     }
 
     #[test]

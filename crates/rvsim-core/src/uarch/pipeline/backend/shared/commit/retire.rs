@@ -157,9 +157,11 @@ fn apply_retirement(
 /// a taken branch's target, so an interrupt's EPC is right.
 fn advance_pc(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     let fall_through = entry.next_pc();
+    let target = entry.control.and_then(|control| control.target).unwrap_or(fall_through);
+    let is_taken = entry.control.is_some_and(|control| control.outcome.taken);
     state.hart.pc = match entry.ctrl.control_flow {
-        ControlFlow::Jump => entry.bp_target.unwrap_or(fall_through),
-        ControlFlow::Branch if entry.bp_outcome.taken => entry.bp_target.unwrap_or(fall_through),
+        ControlFlow::Jump => target,
+        ControlFlow::Branch if is_taken => target,
         _ => fall_through,
     };
 }
@@ -195,17 +197,17 @@ fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     state.stats.counter(hart_paths.retired_insts).inc();
     update_instruction_stats(state, entry);
 
-    if entry.control_resolved {
+    if let Some(control) = entry.control {
         trace_branch!(state.config.general.trace_instructions;
             event         = "retire",
             pc            = %crate::common::trace::Hex(entry.pc.val()),
             rob_tag       = %entry.tag,
-            actual_taken  = entry.bp_outcome.taken,
-            actual_target = %crate::common::trace::Hex(entry.bp_target.map_or(0, |target| target.val())),
-            mispredicted  = entry.bp_outcome.mispredicted,
+            actual_taken  = control.outcome.taken,
+            actual_target = %crate::common::trace::Hex(control.target.map_or(0, |target| target.val())),
+            mispredicted  = control.outcome.mispredicted,
             "CM: branch retired"
         );
-        if entry.bp_outcome.mispredicted {
+        if control.outcome.mispredicted {
             state.uncore.stats.counter(state.core.stat_paths.bp.committed_mispredicts).inc();
         } else {
             state.uncore.stats.counter(state.core.stat_paths.bp.committed_hits).inc();
