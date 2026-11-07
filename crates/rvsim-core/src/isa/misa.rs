@@ -13,10 +13,31 @@ use crate::isa::csr::{
 /// case-insensitively. S and U are always set because the hart implements
 /// both modes; B is set when the string names it, and
 /// [`Isa`](crate::isa::extension::Isa) settles it from Zba, Zbb and Zbs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// The default, zero, is a `misa` that reports nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "u64", into = "u64")]
 pub struct Misa(u64);
 
+impl From<u64> for Misa {
+    fn from(bits: u64) -> Self {
+        Self::from_bits(bits)
+    }
+}
+
+impl From<Misa> for u64 {
+    fn from(misa: Misa) -> Self {
+        misa.bits()
+    }
+}
+
 impl Misa {
+    /// The value `bits`, as a write to `misa` stores it.
+    #[must_use]
+    pub const fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
+
     /// RV64IMAFDC with B, S and U, plus V when `with_v`.
     #[must_use]
     pub const fn rv64gcb(with_v: bool) -> Self {
@@ -34,6 +55,12 @@ impl Misa {
     #[must_use]
     pub const fn with_b(self, on: bool) -> Self {
         if on { Self(self.0 | MISA_EXT_B) } else { Self(self.0 & !MISA_EXT_B) }
+    }
+
+    /// True when C is set, which makes IALIGN 16.
+    #[must_use]
+    pub const fn has_c(self) -> bool {
+        self.0 & MISA_EXT_C != 0
     }
 
     /// True when V is set.
