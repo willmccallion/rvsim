@@ -548,9 +548,11 @@ const VECTOR_IMMEDIATES: &[(&str, u32, VecSrcEncoding)] = &[
     ("vadd.vi v1, v2, -1", 0x022fb0d7, VecSrcEncoding::VI(-1)),
     ("vsll.vi v1, v2, 31", 0x962fb0d7, VecSrcEncoding::VI(31)),
     ("vror.vi v1, v2, 5", 0x5222b0d7, VecSrcEncoding::VI(5)),
+    // Bit 5 of vror's rotate is instruction bit 26, the low bit of funct6.
+    ("vror.vi v1, v2, 63", 0x562fb0d7, VecSrcEncoding::VI(63)),
 ];
 
 #[test]
-fn vector_immediates_decode_signed_or_unsigned_by_operation() {
+fn vector_immediates_decode_signed_unsigned_or_six_bits_by_operation() {
     check_rows(VECTOR_IMMEDIATES, |decoded, _| decoded.ctrl.vec_src_encoding);
 }

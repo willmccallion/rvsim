@@ -383,7 +383,7 @@ const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VNSRA => VectorOp::VNSra,
         v_f6::VNCLIPU => VectorOp::VNClipU,
         v_f6::VNCLIP => VectorOp::VNClip,
-        v_f6::VROR => VectorOp::VRor,
+        v_f6::VROR | v_f6::VROR_VI_ROTATE_HIGH => VectorOp::VRor,
         v_f6::VWSLL => VectorOp::VWsll,
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
