@@ -74,10 +74,6 @@ pub struct DecodedSlot {
     pub rd: RegIdx,
     /// The immediate.
     pub imm: i64,
-    /// The value read for `rs1`.
-    pub rv1: u64,
-    /// The value read for `rs2`.
-    pub rv2: u64,
 }
 
 /// A renamed instruction holding a reorder-buffer slot.
@@ -195,8 +191,6 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                     rs2: e.inst.rs2,
                     rd: e.inst.rd,
                     imm: e.inst.imm,
-                    rv1: e.inst.rv1,
-                    rv2: e.inst.rv2,
                 })
                 .collect(),
             rename_issue: latches.rename_issue.iter().map(renamed_slot).collect(),
