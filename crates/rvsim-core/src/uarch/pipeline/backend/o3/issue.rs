@@ -158,6 +158,11 @@ impl O3Engine {
         let mut mapping = self.vec_rename_view();
         overlay(&mut mapping, ctrl.vs2, &entry.vs2_phys, entry.vec_src2_count);
         overlay(&mut mapping, ctrl.vs1, &entry.vs1_phys, entry.vec_src1_count);
+        // Before the destination: a masked compare writing v0 writes the
+        // new register, reading each mask bit before it overwrites it.
+        if let Some(mask) = entry.mask {
+            mapping[0] = mask;
+        }
         if let Some(dest) = dest {
             let base = dest.reg.as_u8() as usize;
             for i in 0..dest.count as usize {
@@ -169,9 +174,6 @@ impl O3Engine {
                     mapping[base + i] = dest.phys[i];
                 }
             }
-        }
-        if let Some(mask) = entry.mask {
-            mapping[0] = mask;
         }
 
         let mut view = VecPrfView::new(&mut self.vec_prf, mapping);
