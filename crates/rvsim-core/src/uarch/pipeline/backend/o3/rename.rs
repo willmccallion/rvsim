@@ -105,6 +105,9 @@ impl O3Engine {
             }
         }
 
+        // Before vd is renamed: a masked compare may write v0 itself.
+        let mask = ctrl.is_masked_vector_op().then(|| self.rename_map.get_vec(VRegIdx::new(0)));
+
         // x0 stays unrenamed: hardwired zero, never freed at commit.
         let dest = ctrl.dest(id.inst.rd);
         let (rd_phys, old_phys_dst) = if let Some(dest) = dest {
@@ -223,11 +226,7 @@ impl O3Engine {
             vec_src1_count,
             vec_src2_count,
             vec_src3_count,
-            mask: id
-                .inst
-                .ctrl
-                .is_masked_vector_op()
-                .then(|| self.rename_map.get_vec(VRegIdx::new(0))),
+            mask,
             // Snapshot vector CSRs so execute uses dispatch-time context even after vsetvl.
             vector_config: vector,
             vector_rounding: state.hart().csrs.vector_rounding(),

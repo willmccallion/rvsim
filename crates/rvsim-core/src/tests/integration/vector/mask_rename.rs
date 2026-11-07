@@ -92,3 +92,40 @@ fn rewriting_v0_from_reset_returns_its_physical_register() {
         assert!(done.is_some(), "{backend:?}: the trap handler ran");
     }
 }
+
+/// `vmseq.vv v0, v2, v3, v0.t`: a masked compare may write its own mask.
+const VMSEQ_V0_V2_V3_MASKED: u32 = 0x6021_8057;
+
+/// v0's low four bits after the masked compare on `backend`.
+fn masked_compare_into_v0(backend: BackendKind) -> u8 {
+    let mut config = Config::minimal();
+    config.pipeline.backend = backend;
+    config.system.console = crate::config::Console::Quiet;
+    let i = InstructionBuilder::new;
+    let program = [
+        VSETIVLI_4_E32_M1,
+        VMSEQ_V0_V2_V3_MASKED,
+        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
+        i().jal(0, 0).build(),
+    ];
+    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let vpr = ctx.sim.state.harts[0].regs.vpr_mut();
+    vpr.write_bytes(VRegIdx::new(0), &elements([MASK, 0, 0, 0]));
+    vpr.write_bytes(VRegIdx::new(2), &elements([1, 1, 4, 5]));
+    vpr.write_bytes(VRegIdx::new(3), &elements([2, 1, 5, 5]));
+    ctx.sim.sync_arch_regs();
+
+    let done = ctx.run_until(10_000, |ctx| ctx.get_reg(DONE_REG) == DONE);
+
+    assert!(done.is_some(), "{backend:?}: the program finished");
+    ctx.cpu().harts[0].regs.vpr().read_bytes(VRegIdx::new(0))[0] & 0b1111
+}
+
+#[test]
+fn a_masked_compare_writing_v0_is_masked_by_the_v0_it_read() {
+    // Elements 1 and 3 are equal but inactive, so keep their old 0 bits;
+    // 0 and 2 are active and unequal.
+    for backend in BACKENDS {
+        assert_eq!(masked_compare_into_v0(backend), 0b0000, "{backend:?}");
+    }
+}
