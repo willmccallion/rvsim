@@ -4,19 +4,17 @@
 //! [`shared::execute`](crate::uarch::pipeline::backend::shared::execute). Vector
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
-use crate::exec::execute::{
-    SystemEffect, evaluate, illegal_in_current_state, operands, perform_csr_access, system_effect,
-};
+use crate::exec::execute::{evaluate, illegal_in_current_state, operands, perform_csr_access};
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::execute::{
-    fault, propagate_trap, resolve_control_flow,
+    SystemExecution, execute_system, faulted, propagate_trap, refetch_after, resolve_control_flow,
 };
 use crate::uarch::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rob::Rob;
-use crate::uarch::pipeline::squash::{Redirect, SquashCause};
+use crate::uarch::pipeline::squash::Redirect;
 use crate::uarch::pipeline::trace::Stage;
 use crate::{trace_execute, trace_trap};
 
@@ -64,6 +62,10 @@ pub fn execute_one(
         return faulted(state, id, Trap::IllegalInstruction(id.inst.bits));
     }
 
+    if let Some(executed) = execute_system_o3(state, id, rob) {
+        return executed;
+    }
+
     let inst = &id.inst;
     let (op_a, op_b) = operands(inst);
 
@@ -75,10 +77,6 @@ pub fn execute_one(
         return (ExMem1Entry::from_issue(id, op_a, id.inst.rv2), None);
     }
 
-    if let Some(executed) = execute_system(state, id, rob) {
-        return executed;
-    }
-
     let (alu_out, fp_flags) = evaluate(state, inst, op_a, op_b);
     let redirect = match resolve_control_flow(state, rob, id, op_a, op_b) {
         Ok(redirect) => redirect,
@@ -87,32 +85,20 @@ pub fn execute_one(
     (ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(id, alu_out, id.inst.rv2) }, redirect)
 }
 
-/// The instruction after `id` squashes and refetches.
-const fn refetch_after(id: &RenameIssueEntry) -> Redirect {
-    Redirect::to(id.inst.next_pc(), SquashCause::System)
-}
-
-fn faulted(
-    state: &StageCtx<'_>,
-    id: &RenameIssueEntry,
-    trap: Trap,
-) -> (ExMem1Entry, Option<Redirect>) {
-    (fault(state, id, trap), None)
-}
-
-/// Executes a system instruction; `None` for everything else, FENCE
-/// included (it orders memory in issue and at commit, not here).
-fn execute_system(
+/// Executes a system instruction; `None` for everything else. FENCE.I,
+/// MRET, SRET and WFI refetch what follows them at once, and FENCE.I's
+/// I-cache flush waits for commit, so older stores are visible before the
+/// refill. A CSR access is performed here: rename held everything younger
+/// until the ROB drained (serialize-after), so it reads what every older
+/// instruction wrote, and the write needs no squash.
+fn execute_system_o3(
     state: &StageCtx<'_>,
     id: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
-    let executed = match system_effect(state, &id.inst) {
-        SystemEffect::NotSystem => return None,
-        SystemEffect::Trap(trap) => faulted(state, id, trap),
-        // FENCE.I's I-cache flush waits for commit, so older stores are
-        // visible before the refill.
-        SystemEffect::AtRetire => {
+    Some(match execute_system(state, id)? {
+        SystemExecution::Done(result, redirect) => (result, redirect),
+        SystemExecution::AtRetire => {
             if matches!(id.inst.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
                 trace_trap!(state.config.general.trace_instructions;
                     event     = "return",
@@ -126,30 +112,14 @@ fn execute_system(
             }
             (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id)))
         }
-        // Commit drains the store buffer, flushes the TLBs and squashes.
-        SystemEffect::SfenceVma(sfence_vma) => {
-            let result = ExMem1Entry {
-                sfence_vma: Some(sfence_vma),
-                ..ExMem1Entry::from_issue(id, 0, id.inst.rv2)
-            };
-            (result, None)
-        }
-        // A CBO passes its operand to memory1, which translates the block;
-        // commit performs it. Younger loads wait for it in issue.
-        SystemEffect::Cbo => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
-        // Nothing younger is renamed until this commits (serialize-after),
-        // so the write needs no squash.
-        // Rename held everything younger until the ROB drained, so the
-        // access reads what every older instruction wrote.
-        SystemEffect::Csr(request) => {
+        SystemExecution::Csr(request) => {
             let access = perform_csr_access(state, &request);
             if let Some(update) = access.update {
                 rob.set_csr_update(id.rob_tag, update.into());
             }
             (ExMem1Entry::from_issue(id, access.old, id.inst.rv2), None)
         }
-    };
-    Some(executed)
+    })
 }
 
 #[cfg(test)]

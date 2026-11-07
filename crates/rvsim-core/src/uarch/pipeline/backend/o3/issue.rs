@@ -9,6 +9,7 @@ use crate::isa::extension::Extension;
 use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
+use crate::uarch::pipeline::backend::shared::execute::record_vector_flags;
 use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
 use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, micro_ops_for, moves_in_spans, plan_accesses, route_to_phys,
@@ -199,12 +200,7 @@ impl O3Engine {
         if let Some(fills) = fills {
             self.rob.set_vec_agnostic(result.rob_tag, fills);
         }
-        if !vec_result.fp_flags.is_empty() {
-            self.rob.set_fp_flags(result.rob_tag, vec_result.fp_flags);
-        }
-        if vec_result.vxsat {
-            self.rob.set_vxsat(result.rob_tag, true);
-        }
+        record_vector_flags(&mut self.rob, result.rob_tag, &vec_result);
 
         let first_ready = lane_model::first_group_ready(now, self.fu_pool.startup_latency(fu_type));
         if result.ctrl.vec_reg_write {

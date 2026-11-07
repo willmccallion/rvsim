@@ -4,14 +4,18 @@
 //! predictions. What an instruction computes is in
 //! [`crate::exec::execute`].
 
-use crate::exec::execute::{branch_taken, check_target_alignment, is_jalr, jump_target};
+use crate::exec::compute::vector::context::VecExecResult;
+use crate::exec::execute::{
+    CsrRequest, SystemEffect, branch_taken, check_target_alignment, is_jalr, jump_target,
+    system_effect,
+};
 use crate::exec::signals::ControlFlow;
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
-use crate::uarch::pipeline::rob::{BpOutcome, Rob};
-use crate::uarch::pipeline::squash::{BranchRepair, Redirect};
+use crate::uarch::pipeline::rob::{BpOutcome, Rob, RobTag};
+use crate::uarch::pipeline::squash::{BranchRepair, Redirect, SquashCause};
 use crate::{trace_branch, trace_trap};
 
 /// The result of an instruction that raised `trap`. The trap
@@ -26,6 +30,68 @@ pub fn fault(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -> ExMem1E
         "EX: instruction faulted"
     );
     ExMem1Entry { trap: Some(trap), ..ExMem1Entry::from_issue(id, 0, 0) }
+}
+
+/// [`fault`] with no redirect: commit takes the trap.
+pub fn faulted(
+    state: &StageCtx<'_>,
+    id: &RenameIssueEntry,
+    trap: Trap,
+) -> (ExMem1Entry, Option<Redirect>) {
+    (fault(state, id, trap), None)
+}
+
+/// The instruction after `id` squashes and refetches.
+pub const fn refetch_after(id: &RenameIssueEntry) -> Redirect {
+    Redirect::to(id.inst.next_pc(), SquashCause::System)
+}
+
+/// A system instruction's execution, or the two kinds the backends treat
+/// differently: what takes effect at retire and a CSR access.
+#[derive(Debug)]
+pub enum SystemExecution {
+    /// Executed alike on both backends.
+    Done(ExMem1Entry, Option<Redirect>),
+    /// FENCE.I, MRET, SRET or WFI, which take effect at commit.
+    AtRetire,
+    /// A CSR access.
+    Csr(CsrRequest),
+}
+
+/// Executes a system instruction as far as both backends agree; `None`
+/// for everything else, FENCE included (it orders memory in issue and at
+/// commit, not here).
+pub fn execute_system(state: &StageCtx<'_>, id: &RenameIssueEntry) -> Option<SystemExecution> {
+    Some(match system_effect(state, &id.inst) {
+        SystemEffect::NotSystem => return None,
+        SystemEffect::Trap(trap) => SystemExecution::Done(fault(state, id, trap), None),
+        SystemEffect::AtRetire => SystemExecution::AtRetire,
+        // Commit drains the store buffer, flushes the TLBs and squashes.
+        SystemEffect::SfenceVma(sfence_vma) => SystemExecution::Done(
+            ExMem1Entry {
+                sfence_vma: Some(sfence_vma),
+                ..ExMem1Entry::from_issue(id, 0, id.inst.rv2)
+            },
+            None,
+        ),
+        // A CBO passes its operand to memory1, which translates the block;
+        // commit performs it. Younger loads wait for it in issue.
+        SystemEffect::Cbo => {
+            SystemExecution::Done(ExMem1Entry::from_issue(id, id.inst.rv1, 0), None)
+        }
+        SystemEffect::Csr(request) => SystemExecution::Csr(request),
+    })
+}
+
+/// Files on `tag`'s ROB entry the FP flags and saturation a vector op
+/// raised.
+pub fn record_vector_flags(rob: &mut Rob, tag: RobTag, result: &VecExecResult) {
+    if !result.fp_flags.is_empty() {
+        rob.set_fp_flags(tag, result.fp_flags);
+    }
+    if result.vxsat {
+        rob.set_vxsat(tag, true);
+    }
 }
 
 /// The result of an instruction that arrived carrying a trap from an
