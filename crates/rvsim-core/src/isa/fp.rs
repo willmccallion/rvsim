@@ -47,6 +47,80 @@ pub enum FpFormat {
     Double,
 }
 
+impl FpFormat {
+    /// The widths of its exponent and fraction fields, in bits.
+    const fn field_bits(self) -> (u32, u32) {
+        match self {
+            Self::Half => (5, 10),
+            Self::Single => (8, 23),
+            Self::Double => (11, 52),
+        }
+    }
+}
+
+/// The class `FCLASS` reports a floating-point value in, numbered by the
+/// bit of its one-hot result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpClass {
+    /// −∞.
+    NegInfinity = 0,
+    /// A negative normal number.
+    NegNormal = 1,
+    /// A negative subnormal number.
+    NegSubnormal = 2,
+    /// −0.
+    NegZero = 3,
+    /// +0.
+    PosZero = 4,
+    /// A positive subnormal number.
+    PosSubnormal = 5,
+    /// A positive normal number.
+    PosNormal = 6,
+    /// +∞.
+    PosInfinity = 7,
+    /// A signaling NaN.
+    SignalingNan = 8,
+    /// A quiet NaN.
+    QuietNan = 9,
+}
+
+impl FpClass {
+    /// The class of the value whose `format` encoding is the low bits of
+    /// `bits`.
+    #[must_use]
+    pub const fn of(format: FpFormat, bits: u64) -> Self {
+        let (exp_bits, frac_bits) = format.field_bits();
+        let frac = bits & ((1 << frac_bits) - 1);
+        let exp = (bits >> frac_bits) & ((1 << exp_bits) - 1);
+        let is_negative = (bits >> (frac_bits + exp_bits)) & 1 != 0;
+        let exp_all_ones = (1 << exp_bits) - 1;
+        let is_quiet = (frac >> (frac_bits - 1)) & 1 != 0;
+        match (exp, frac, is_negative) {
+            (e, f, _) if e == exp_all_ones && f != 0 => {
+                if is_quiet {
+                    Self::QuietNan
+                } else {
+                    Self::SignalingNan
+                }
+            }
+            (e, _, true) if e == exp_all_ones => Self::NegInfinity,
+            (e, _, false) if e == exp_all_ones => Self::PosInfinity,
+            (0, 0, true) => Self::NegZero,
+            (0, 0, false) => Self::PosZero,
+            (0, _, true) => Self::NegSubnormal,
+            (0, _, false) => Self::PosSubnormal,
+            (_, _, true) => Self::NegNormal,
+            (_, _, false) => Self::PosNormal,
+        }
+    }
+
+    /// `FCLASS`'s one-hot result for the class.
+    #[must_use]
+    pub const fn mask(self) -> u64 {
+        1 << self as u64
+    }
+}
+
 /// The `frm` CSR: a rounding mode, or a reserved encoding (5 to 7) under
 /// which every dynamically rounded instruction is illegal.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

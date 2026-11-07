@@ -15,3 +15,4 @@ pub mod disasm;
 pub mod disasm_all_instructions;
 pub mod disasm_vec;
 pub mod fence;
+pub mod fp_class;

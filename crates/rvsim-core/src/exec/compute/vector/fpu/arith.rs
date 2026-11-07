@@ -7,8 +7,7 @@ use super::estimate::{vfrec7_16, vfrec7_32, vfrec7_64, vfrsqrt7_16, vfrsqrt7_32,
 use super::{F32_SIGN_BIT, F64_SIGN_BIT, elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{
-    CANONICAL_NAN_F16, classify_f16, f16_to_f32, f64_to_f16, is_snan_f16, product_is_invalid,
-    sum_is_invalid,
+    CANONICAL_NAN_F16, f16_to_f32, f64_to_f16, is_snan_f16, product_is_invalid, sum_is_invalid,
 };
 use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
@@ -18,61 +17,10 @@ use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpClass, FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use std::hint::black_box;
-
-/// RISC-V FCLASS for f32: returns 10-bit classification bitmask.
-pub(super) const fn classify_f32(val: u32) -> u64 {
-    let sign = (val >> 31) & 1;
-    let exp = (val >> 23) & 0xFF;
-    let frac = val & 0x007F_FFFF;
-
-    if exp == 0xFF && frac != 0 {
-        // NaN
-        if frac & 0x0040_0000 != 0 {
-            1 << 9 // qNaN
-        } else {
-            1 << 8 // sNaN
-        }
-    } else if exp == 0xFF {
-        if sign != 0 { 1 << 0 } else { 1 << 7 } // ±inf
-    } else if exp == 0 && frac == 0 {
-        if sign != 0 { 1 << 3 } else { 1 << 4 } // ±zero
-    } else if exp == 0 {
-        if sign != 0 { 1 << 2 } else { 1 << 5 } // ±subnormal
-    } else if sign != 0 {
-        1 << 1 // negative normal
-    } else {
-        1 << 6 // positive normal
-    }
-}
-
-/// RISC-V FCLASS for f64: returns 10-bit classification bitmask.
-pub(super) const fn classify_f64(val: u64) -> u64 {
-    let sign = (val >> 63) & 1;
-    let exp = (val >> 52) & 0x7FF;
-    let frac = val & 0x000F_FFFF_FFFF_FFFF;
-
-    if exp == 0x7FF && frac != 0 {
-        if frac & 0x0008_0000_0000_0000 != 0 {
-            1 << 9 // qNaN
-        } else {
-            1 << 8 // sNaN
-        }
-    } else if exp == 0x7FF {
-        if sign != 0 { 1 << 0 } else { 1 << 7 } // ±inf
-    } else if exp == 0 && frac == 0 {
-        if sign != 0 { 1 << 3 } else { 1 << 4 } // ±zero
-    } else if exp == 0 {
-        if sign != 0 { 1 << 2 } else { 1 << 5 } // ±subnormal
-    } else if sign != 0 {
-        1 << 1
-    } else {
-        1 << 6
-    }
-}
 
 pub(super) fn compute_f32(
     op: VectorOp,
@@ -162,7 +110,7 @@ pub(super) fn compute_f32(
             let r = f32::from_bits(a.to_bits() ^ (b.to_bits() & F32_SIGN_BIT));
             (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
         }
-        VectorOp::VFClass => (classify_f32(vs2_bits as u32), FpFlags::NONE),
+        VectorOp::VFClass => (FpClass::of(FpFormat::Single, vs2_bits).mask(), FpFlags::NONE),
         // Conversions: float -> unsigned int (uses dynamic FRM)
         VectorOp::VFCvtXuF => {
             let (r, f) = f32_to_u32_frm(a, frm);
@@ -297,7 +245,7 @@ pub(super) fn compute_f64(
             let r = f64::from_bits(a.to_bits() ^ (b.to_bits() & F64_SIGN_BIT));
             (r.to_bits(), FpFlags::NONE)
         }
-        VectorOp::VFClass => (classify_f64(vs2_bits), FpFlags::NONE),
+        VectorOp::VFClass => (FpClass::of(FpFormat::Double, vs2_bits).mask(), FpFlags::NONE),
         VectorOp::VFCvtXuF => {
             let (r, f) = f64_to_u64_frm(a, frm);
             (r, f)
@@ -427,7 +375,7 @@ pub(super) fn compute_f16(
         VectorOp::VFSgnj => ((ha & 0x7FFF) as u64 | (hb & 0x8000) as u64, FpFlags::NONE),
         VectorOp::VFSgnjn => ((ha & 0x7FFF) as u64 | (!hb & 0x8000) as u64, FpFlags::NONE),
         VectorOp::VFSgnjx => ((ha ^ (hb & 0x8000)) as u64, FpFlags::NONE),
-        VectorOp::VFClass => (classify_f16(ha), FpFlags::NONE),
+        VectorOp::VFClass => (FpClass::of(FpFormat::Half, u64::from(ha)).mask(), FpFlags::NONE),
         VectorOp::VFCvtXuF => {
             let (r, f) = f64_to_u16_frm(fa, rm);
             (r as u64, f)
