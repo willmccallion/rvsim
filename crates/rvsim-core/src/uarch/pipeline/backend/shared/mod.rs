@@ -6,6 +6,7 @@ pub mod flush_stats;
 pub mod issue_stats;
 pub mod memory1;
 pub mod memory2;
+pub mod ordering;
 pub mod vec_mem;
 pub mod vector_config;
 pub mod writeback;
