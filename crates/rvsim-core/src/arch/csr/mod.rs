@@ -12,7 +12,9 @@ use crate::isa::csr::{
     SENVCFG, SENVCFG_CBCFE, SENVCFG_CBZE, SEPC, SIE, SIP, SSCRATCH, SSTATUS, SSTATUS_VISIBLE,
     SSTATUS_WRITABLE, STVAL, STVEC, VCSR, VL, VLENB, VSTART, VTYPE, VXRM, VXSAT,
 };
+use crate::isa::fp::{FpFlags, Frm};
 use crate::isa::privileged::PagingMode;
+use crate::isa::rvv::Vxrm;
 
 /// The value a write of `val` leaves in an envcfg register whose
 /// implemented fields are `writable`: every other field reads as zero, and
@@ -212,10 +214,10 @@ pub struct Csrs {
     pub mcountinhibit: u64,
     /// Supervisor timer compare (for timer interrupt).
     pub stimecmp: u64,
-    /// Floating-point accrued exception flags (5 bits: NV, DZ, OF, UF, NX).
-    pub fflags: u64,
-    /// Floating-point dynamic rounding mode (3 bits).
-    pub frm: u64,
+    /// Floating-point accrued exception flags.
+    pub fflags: FpFlags,
+    /// Floating-point dynamic rounding mode.
+    pub frm: Frm,
     /// Machine counter-enable register.
     pub mcounteren: u64,
     /// Supervisor counter-enable register.
@@ -229,7 +231,7 @@ pub struct Csrs {
     /// Vector fixed-point saturation flag.
     pub vxsat: u64,
     /// Vector fixed-point rounding mode.
-    pub vxrm: u64,
+    pub vxrm: Vxrm,
     /// Vector length (set by vsetvl family only).
     pub vl: u64,
     /// Vector type (set by vsetvl family only).
@@ -253,14 +255,50 @@ impl Csrs {
         crate::isa::rvv::VectorConfig { vtype: self.vtype, vl: self.vl, vstart: self.vstart }
     }
 
+    /// `fflags` as the CSR reads.
+    #[must_use]
+    pub const fn fflags_bits(&self) -> u64 {
+        self.fflags.bits() as u64
+    }
+
+    /// `fcsr`: `frm` above `fflags`.
+    #[must_use]
+    pub const fn fcsr(&self) -> u64 {
+        (self.frm.bits() << 5) | self.fflags_bits()
+    }
+
+    /// Writes `fcsr`, which sets both `frm` and `fflags`.
+    pub const fn set_fcsr(&mut self, val: u64) {
+        self.fflags = FpFlags::from_bits(val as u8);
+        self.frm = Frm::from_bits(val >> 5);
+    }
+
+    /// `vxrm` as the CSR reads.
+    #[must_use]
+    pub const fn vxrm_bits(&self) -> u64 {
+        self.vxrm.to_bits() as u64
+    }
+
+    /// `vcsr`: `vxrm` above `vxsat`.
+    #[must_use]
+    pub const fn vcsr(&self) -> u64 {
+        (self.vxsat & 0x1) | (self.vxrm_bits() << 1)
+    }
+
+    /// Writes `vcsr`, which sets both `vxrm` and `vxsat`.
+    pub const fn set_vcsr(&mut self, val: u64) {
+        self.vxsat = val & 0x1;
+        self.vxrm = Vxrm::from_bits((val >> 1) as u8);
+    }
+
     /// The rounding modes `vxrm` and `frm` hold. A reserved `frm` reads as
     /// RNE: execute raises illegal-instruction for any vector FP
     /// instruction while `frm` is reserved, so nothing rounds by it.
     #[must_use]
     pub fn vector_rounding(&self) -> crate::isa::rvv::VectorRounding {
         crate::isa::rvv::VectorRounding {
-            vxrm: crate::isa::rvv::Vxrm::from_bits(self.vxrm as u8),
-            frm: crate::isa::fp::RoundingMode::from_bits(self.frm as u8).unwrap_or_default(),
+            vxrm: self.vxrm,
+            frm: self.frm.rounding_mode().unwrap_or_default(),
         }
     }
 
@@ -294,9 +332,9 @@ impl Csrs {
     /// Reads a CSR value by its address. Returns 0 for unrecognized addresses.
     pub const fn read(&self, addr: CsrAddr) -> u64 {
         match addr {
-            FFLAGS => self.fflags & 0x1F,
-            FRM => self.frm & 0x7,
-            FCSR => ((self.frm & 0x7) << 5) | (self.fflags & 0x1F),
+            FFLAGS => self.fflags_bits(),
+            FRM => self.frm.bits(),
+            FCSR => self.fcsr(),
             MSTATUS => with_state_dirty(self.mstatus),
             MISA => self.misa,
             MEDELEG => self.medeleg,
@@ -326,8 +364,8 @@ impl Csrs {
             SENVCFG => self.senvcfg,
             VSTART => self.vstart,
             VXSAT => self.vxsat & 0x1,
-            VXRM => self.vxrm & 0x3,
-            VCSR => (self.vxsat & 0x1) | ((self.vxrm & 0x3) << 1),
+            VXRM => self.vxrm_bits(),
+            VCSR => self.vcsr(),
             VL => self.vl,
             VTYPE => self.vtype,
             VLENB => self.vlenb,
@@ -338,12 +376,9 @@ impl Csrs {
     /// Writes a value to a CSR by its address.
     pub const fn write(&mut self, addr: CsrAddr, val: u64) {
         match addr {
-            FFLAGS => self.fflags = val & 0x1F,
-            FRM => self.frm = val & 0x7,
-            FCSR => {
-                self.fflags = val & 0x1F;
-                self.frm = (val >> 5) & 0x7;
-            }
+            FFLAGS => self.fflags = FpFlags::from_bits(val as u8),
+            FRM => self.frm = Frm::from_bits(val),
+            FCSR => self.set_fcsr(val),
             MSTATUS => self.mstatus = val,
             MISA => self.misa = val,
             MEDELEG => self.medeleg = val,
@@ -381,11 +416,8 @@ impl Csrs {
             SENVCFG => self.senvcfg = val,
             VSTART => self.vstart = val,
             VXSAT => self.vxsat = val & 0x1,
-            VXRM => self.vxrm = val & 0x3,
-            VCSR => {
-                self.vxsat = val & 0x1;
-                self.vxrm = (val >> 1) & 0x3;
-            }
+            VXRM => self.vxrm = Vxrm::from_bits(val as u8),
+            VCSR => self.set_vcsr(val),
             _ => {}
         }
     }

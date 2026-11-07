@@ -95,7 +95,7 @@ pub const fn finish_vector_instruction(hart: &mut Hart) {
 /// Accrues IEEE exception flags into `fflags`.
 pub const fn accrue_fp_flags(hart: &mut Hart, flags: FpFlags) {
     if !flags.is_empty() {
-        hart.csrs.fflags |= flags.bits() as u64;
+        hart.csrs.fflags = hart.csrs.fflags.union(flags);
         mark_fp_dirty(hart);
     }
 }

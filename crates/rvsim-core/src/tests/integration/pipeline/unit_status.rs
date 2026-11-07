@@ -7,6 +7,7 @@ use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
+use crate::isa::fp::Frm;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -77,7 +78,7 @@ fn run(backend: BackendKind, units: Units, frm: u64, inst: u32) -> (u64, u64, u6
     if units.vector {
         csrs.mstatus |= MSTATUS_VS_INIT;
     }
-    csrs.frm = frm;
+    csrs.frm = Frm::from_bits(frm);
     csrs.vtype = VTYPE_E32_M1;
     csrs.vl = 4;
     ctx.set_reg(A0 as usize, DATA);

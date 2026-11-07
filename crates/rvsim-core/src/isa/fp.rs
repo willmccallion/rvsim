@@ -36,6 +36,41 @@ impl RoundingMode {
     }
 }
 
+/// The `frm` CSR: a rounding mode, or a reserved encoding (5 to 7) under
+/// which every dynamically rounded instruction is illegal.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "u8", into = "u8")]
+pub struct Frm(u8);
+
+impl From<u8> for Frm {
+    fn from(bits: u8) -> Self {
+        Self::from_bits(u64::from(bits))
+    }
+}
+
+impl From<Frm> for u8 {
+    fn from(frm: Frm) -> Self {
+        frm.0
+    }
+}
+
+impl Frm {
+    /// Takes the low three bits of `bits`, as a CSR write does.
+    pub const fn from_bits(bits: u64) -> Self {
+        Self((bits & 0x7) as u8)
+    }
+
+    /// The 3-bit encoding.
+    pub const fn bits(self) -> u64 {
+        self.0 as u64
+    }
+
+    /// The mode it selects, or `None` for a reserved encoding.
+    pub const fn rounding_mode(self) -> Option<RoundingMode> {
+        RoundingMode::from_bits(self.0)
+    }
+}
+
 /// The rounding an instruction's rounding-mode field selects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rounding {
@@ -64,8 +99,21 @@ impl Rounding {
 }
 
 /// Floating-point exception flags (RISC-V `fcsr.fflags`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "u8", into = "u8")]
 pub struct FpFlags(u8);
+
+impl From<u8> for FpFlags {
+    fn from(bits: u8) -> Self {
+        Self::from_bits(bits)
+    }
+}
+
+impl From<FpFlags> for u8 {
+    fn from(flags: FpFlags) -> Self {
+        flags.bits()
+    }
+}
 
 impl FpFlags {
     /// No exceptions raised.

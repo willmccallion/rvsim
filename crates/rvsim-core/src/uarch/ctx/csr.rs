@@ -5,7 +5,9 @@ use crate::arch::Hart;
 use crate::arch::trigger;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
+use crate::isa::fp::{FpFlags, Frm};
 use crate::isa::privileged::{PagingMode, Trap};
+use crate::isa::rvv::Vxrm;
 use crate::soc::uncore::Uncore;
 
 /// The value a CSR read-modify-write starts from. `mip` reads SEIP as
@@ -25,9 +27,9 @@ pub(super) fn read_for_update(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u6
 /// Reads a value from a Control and Status Register (CSR).
 pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
     match addr {
-        csr::FFLAGS => hart.csrs.fflags & 0x1F,
-        csr::FRM => hart.csrs.frm & 0x7,
-        csr::FCSR => ((hart.csrs.frm & 0x7) << 5) | (hart.csrs.fflags & 0x1F),
+        csr::FFLAGS => hart.csrs.fflags_bits(),
+        csr::FRM => hart.csrs.frm.bits(),
+        csr::FCSR => hart.csrs.fcsr(),
         csr::MVENDORID | csr::MARCHID | csr::MIMPID => 0,
         csr::MHARTID => u64::from(hart.hart_id.val()),
         csr::MSTATUS => crate::arch::csr::with_state_dirty(hart.csrs.mstatus),
@@ -83,8 +85,8 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
         // Vector CSRs (read-only: VL, VTYPE, VLENB; read-write: VSTART, VXSAT, VXRM, VCSR)
         csr::VSTART => hart.csrs.vstart,
         csr::VXSAT => hart.csrs.vxsat & 0x1,
-        csr::VXRM => hart.csrs.vxrm & 0x3,
-        csr::VCSR => (hart.csrs.vxsat & 0x1) | ((hart.csrs.vxrm & 0x3) << 1),
+        csr::VXRM => hart.csrs.vxrm_bits(),
+        csr::VCSR => hart.csrs.vcsr(),
         csr::VL => hart.csrs.vl,
         csr::VTYPE => hart.csrs.vtype,
         csr::VLENB => hart.csrs.vlenb,
@@ -121,18 +123,17 @@ impl CoreCtx<'_> {
     pub fn csr_write(&mut self, addr: CsrAddr, val: u64) {
         match addr {
             csr::FFLAGS => {
-                self.hart.csrs.fflags = val & 0x1F;
+                self.hart.csrs.fflags = FpFlags::from_bits(val as u8);
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
             csr::FRM => {
-                self.hart.csrs.frm = val & 0x7;
+                self.hart.csrs.frm = Frm::from_bits(val);
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
             csr::FCSR => {
-                self.hart.csrs.fflags = val & 0x1F;
-                self.hart.csrs.frm = (val >> 5) & 0x7;
+                self.hart.csrs.set_fcsr(val);
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
@@ -280,11 +281,8 @@ impl CoreCtx<'_> {
             // Writable vector CSRs
             csr::VSTART => self.hart.csrs.vstart = val,
             csr::VXSAT => self.hart.csrs.vxsat = val & 0x1,
-            csr::VXRM => self.hart.csrs.vxrm = val & 0x3,
-            csr::VCSR => {
-                self.hart.csrs.vxsat = val & 0x1;
-                self.hart.csrs.vxrm = (val >> 1) & 0x3;
-            }
+            csr::VXRM => self.hart.csrs.vxrm = Vxrm::from_bits(val as u8),
+            csr::VCSR => self.hart.csrs.set_vcsr(val),
             // VL, VTYPE, VLENB are read-only (writes silently ignored)
             // Sdtrig — trigger CSR writes
             csr::TSELECT => {

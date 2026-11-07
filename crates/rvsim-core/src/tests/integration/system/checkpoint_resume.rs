@@ -6,6 +6,7 @@ use crate::common::{HartId, PhysAddr};
 use crate::config::BackendKind;
 use crate::config::{Config, HomeAgentConfig};
 use crate::isa::privileged::PrivilegeMode;
+use crate::isa::rvv::Vxrm;
 use crate::soc::coherence::CoherenceFabric;
 use crate::system::checkpoint::CheckpointError;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -89,14 +90,13 @@ fn a_run_checkpointed_on_the_in_order_core_finishes_on_the_o3_core_as_one_run_wo
 fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
     let mut source = TestContext::new_with_config(&config(BackendKind::InOrder));
     let hart = &mut source.sim.state.harts[0];
-    let fields: [&mut u64; 12] = [
+    let fields: [&mut u64; 11] = [
         &mut hart.csrs.mstatus,
         &mut hart.csrs.satp,
         &mut hart.csrs.stimecmp,
         &mut hart.csrs.menvcfg,
         &mut hart.csrs.senvcfg,
         &mut hart.csrs.vstart,
-        &mut hart.csrs.vxrm,
         &mut hart.csrs.vl,
         &mut hart.csrs.vtype,
         &mut hart.csrs.tselect,
@@ -106,6 +106,8 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
     for (value, field) in (0x11u64..).zip(fields) {
         *field = value;
     }
+    hart.csrs.vxrm = Vxrm::RoundToOdd;
+    hart.csrs.set_fcsr(0b101_10101);
     hart.pmp.set_addr(0, 0x2000_0000 >> 2);
     hart.pmp.set_cfg(0, 0x9f);
     hart.privilege = PrivilegeMode::Supervisor;
