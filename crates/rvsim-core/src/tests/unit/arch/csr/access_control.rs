@@ -171,3 +171,11 @@ fn csr_clone() {
     let cloned = csrs.clone();
     assert_eq!(cloned.read(csr::MSTATUS), 0xABCD);
 }
+
+#[test]
+fn pmpaddr_index_counts_from_pmpaddr0_through_pmpaddr15() {
+    assert_eq!(csr::PMPADDR0.pmpaddr_index(), Some(0));
+    assert_eq!(csr::PMPADDR15.pmpaddr_index(), Some(15));
+    assert_eq!(CsrAddr::new(csr::PMPADDR15.as_u16() + 1).pmpaddr_index(), None);
+    assert_eq!(csr::PMPCFG0.pmpaddr_index(), None);
+}

@@ -37,10 +37,26 @@ impl CsrAddr {
         Self((addr & 0xFFF) as u16)
     }
 
-    /// Returns the address as a `u32` for use in match arms and PMP range checks.
+    /// Returns the address as a `u32`.
     #[inline(always)]
     pub const fn as_u32(self) -> u32 {
         self.0 as u32
+    }
+
+    /// Whether this address lies in `first..=last`.
+    #[inline(always)]
+    pub const fn is_within(self, first: Self, last: Self) -> bool {
+        self.0 >= first.0 && self.0 <= last.0
+    }
+
+    /// Which `pmpaddr` register this is, if it is one.
+    #[inline(always)]
+    pub const fn pmpaddr_index(self) -> Option<usize> {
+        if self.is_within(PMPADDR0, PMPADDR15) {
+            Some((self.0 - PMPADDR0.0) as usize)
+        } else {
+            None
+        }
     }
 
     /// Returns the raw `u16` value.

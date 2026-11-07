@@ -15,7 +15,7 @@ use crate::soc::uncore::Uncore;
 /// the software bit and leave SEIP pending for good.
 pub(super) fn read_for_update(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
     let value = read(hart, uncore, addr);
-    if addr.as_u32() != csr::MIP.as_u32() {
+    if addr != csr::MIP {
         return value;
     }
     let software_seip = if hart.sw_seip { csr::MIP_SEIP } else { 0 };
@@ -24,48 +24,42 @@ pub(super) fn read_for_update(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u6
 
 /// Reads a value from a Control and Status Register (CSR).
 pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
-    let raw = addr.as_u32();
-    match raw {
-        x if x == csr::FFLAGS.as_u32() => hart.csrs.fflags & 0x1F,
-        x if x == csr::FRM.as_u32() => hart.csrs.frm & 0x7,
-        x if x == csr::FCSR.as_u32() => ((hart.csrs.frm & 0x7) << 5) | (hart.csrs.fflags & 0x1F),
-        x if x == csr::MVENDORID.as_u32()
-            || x == csr::MARCHID.as_u32()
-            || x == csr::MIMPID.as_u32() =>
-        {
-            0
-        }
-        x if x == csr::MHARTID.as_u32() => u64::from(hart.hart_id.val()),
-        x if x == csr::MSTATUS.as_u32() => crate::arch::csr::with_state_dirty(hart.csrs.mstatus),
-        x if x == csr::MEDELEG.as_u32() => hart.csrs.medeleg,
-        x if x == csr::MIDELEG.as_u32() => hart.csrs.mideleg,
-        x if x == csr::MIE.as_u32() => hart.csrs.mie,
-        x if x == csr::MTVEC.as_u32() => hart.csrs.mtvec,
-        x if x == csr::MISA.as_u32() => hart.csrs.misa,
-        x if x == csr::MSCRATCH.as_u32() => hart.csrs.mscratch,
-        x if x == csr::MEPC.as_u32() => hart.csrs.mepc,
-        x if x == csr::MCAUSE.as_u32() => hart.csrs.mcause,
-        x if x == csr::MTVAL.as_u32() => hart.csrs.mtval,
-        x if x == csr::MIP.as_u32() => hart.csrs.mip,
-        x if x == csr::SSTATUS.as_u32() => crate::arch::csr::with_state_dirty(hart.csrs.sstatus()),
-        x if x == csr::SIE.as_u32() => hart.csrs.mie & hart.csrs.mideleg,
-        x if x == csr::STVEC.as_u32() => hart.csrs.stvec,
-        x if x == csr::SSCRATCH.as_u32() => hart.csrs.sscratch,
-        x if x == csr::SEPC.as_u32() => hart.csrs.sepc,
-        x if x == csr::SCAUSE.as_u32() => hart.csrs.scause,
-        x if x == csr::STVAL.as_u32() => hart.csrs.stval,
-        x if x == csr::SIP.as_u32() => hart.csrs.mip & hart.csrs.mideleg,
-        x if x == csr::STIMECMP.as_u32() => hart.csrs.stimecmp,
-        x if x == csr::SATP.as_u32() => hart.csrs.satp,
-        x if x == csr::MCOUNTEREN.as_u32() => hart.csrs.mcounteren,
-        x if x == csr::SCOUNTEREN.as_u32() => hart.csrs.scounteren,
-        x if x == csr::MENVCFG.as_u32() => hart.csrs.menvcfg,
-        x if x == csr::SENVCFG.as_u32() => hart.csrs.senvcfg,
-        x if x == csr::CYCLE.as_u32() || x == csr::MCYCLE.as_u32() => hart.csrs.mcycle,
-        x if x == csr::TIME.as_u32() => uncore.bus.mtime(),
-        x if x == csr::INSTRET.as_u32() || x == csr::MINSTRET.as_u32() => hart.csrs.minstret,
-        x if x == csr::MCOUNTINHIBIT.as_u32() => hart.csrs.mcountinhibit,
-        x if x == csr::PMPCFG0.as_u32() => {
+    match addr {
+        csr::FFLAGS => hart.csrs.fflags & 0x1F,
+        csr::FRM => hart.csrs.frm & 0x7,
+        csr::FCSR => ((hart.csrs.frm & 0x7) << 5) | (hart.csrs.fflags & 0x1F),
+        csr::MVENDORID | csr::MARCHID | csr::MIMPID => 0,
+        csr::MHARTID => u64::from(hart.hart_id.val()),
+        csr::MSTATUS => crate::arch::csr::with_state_dirty(hart.csrs.mstatus),
+        csr::MEDELEG => hart.csrs.medeleg,
+        csr::MIDELEG => hart.csrs.mideleg,
+        csr::MIE => hart.csrs.mie,
+        csr::MTVEC => hart.csrs.mtvec,
+        csr::MISA => hart.csrs.misa,
+        csr::MSCRATCH => hart.csrs.mscratch,
+        csr::MEPC => hart.csrs.mepc,
+        csr::MCAUSE => hart.csrs.mcause,
+        csr::MTVAL => hart.csrs.mtval,
+        csr::MIP => hart.csrs.mip,
+        csr::SSTATUS => crate::arch::csr::with_state_dirty(hart.csrs.sstatus()),
+        csr::SIE => hart.csrs.mie & hart.csrs.mideleg,
+        csr::STVEC => hart.csrs.stvec,
+        csr::SSCRATCH => hart.csrs.sscratch,
+        csr::SEPC => hart.csrs.sepc,
+        csr::SCAUSE => hart.csrs.scause,
+        csr::STVAL => hart.csrs.stval,
+        csr::SIP => hart.csrs.mip & hart.csrs.mideleg,
+        csr::STIMECMP => hart.csrs.stimecmp,
+        csr::SATP => hart.csrs.satp,
+        csr::MCOUNTEREN => hart.csrs.mcounteren,
+        csr::SCOUNTEREN => hart.csrs.scounteren,
+        csr::MENVCFG => hart.csrs.menvcfg,
+        csr::SENVCFG => hart.csrs.senvcfg,
+        csr::CYCLE | csr::MCYCLE => hart.csrs.mcycle,
+        csr::TIME => uncore.bus.mtime(),
+        csr::INSTRET | csr::MINSTRET => hart.csrs.minstret,
+        csr::MCOUNTINHIBIT => hart.csrs.mcountinhibit,
+        csr::PMPCFG0 => {
             hart.pmp.get_cfg(0) as u64
                 | ((hart.pmp.get_cfg(1) as u64) << 8)
                 | ((hart.pmp.get_cfg(2) as u64) << 16)
@@ -75,7 +69,7 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
                 | ((hart.pmp.get_cfg(6) as u64) << 48)
                 | ((hart.pmp.get_cfg(7) as u64) << 56)
         }
-        x if x == csr::PMPCFG2.as_u32() => {
+        csr::PMPCFG2 => {
             hart.pmp.get_cfg(8) as u64
                 | ((hart.pmp.get_cfg(9) as u64) << 8)
                 | ((hart.pmp.get_cfg(10) as u64) << 16)
@@ -85,31 +79,28 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
                 | ((hart.pmp.get_cfg(14) as u64) << 48)
                 | ((hart.pmp.get_cfg(15) as u64) << 56)
         }
-        x if x >= csr::PMPADDR0.as_u32() && x <= csr::PMPADDR15.as_u32() => {
-            hart.pmp.get_addr((raw - csr::PMPADDR0.as_u32()) as usize)
-        }
+        _ if let Some(index) = addr.pmpaddr_index() => hart.pmp.get_addr(index),
         // Vector CSRs (read-only: VL, VTYPE, VLENB; read-write: VSTART, VXSAT, VXRM, VCSR)
-        x if x == csr::VSTART.as_u32() => hart.csrs.vstart,
-        x if x == csr::VXSAT.as_u32() => hart.csrs.vxsat & 0x1,
-        x if x == csr::VXRM.as_u32() => hart.csrs.vxrm & 0x3,
-        x if x == csr::VCSR.as_u32() => (hart.csrs.vxsat & 0x1) | ((hart.csrs.vxrm & 0x3) << 1),
-        x if x == csr::VL.as_u32() => hart.csrs.vl,
-        x if x == csr::VTYPE.as_u32() => hart.csrs.vtype,
-        x if x == csr::VLENB.as_u32() => hart.csrs.vlenb,
+        csr::VSTART => hart.csrs.vstart,
+        csr::VXSAT => hart.csrs.vxsat & 0x1,
+        csr::VXRM => hart.csrs.vxrm & 0x3,
+        csr::VCSR => (hart.csrs.vxsat & 0x1) | ((hart.csrs.vxrm & 0x3) << 1),
+        csr::VL => hart.csrs.vl,
+        csr::VTYPE => hart.csrs.vtype,
+        csr::VLENB => hart.csrs.vlenb,
         // Sdtrig — trigger CSR reads
-        x if x == csr::TSELECT.as_u32() => hart.csrs.tselect,
-        x if x == csr::TDATA1.as_u32() => {
+        csr::TSELECT => hart.csrs.tselect,
+        csr::TDATA1 => {
             let i = hart.csrs.tselect as usize;
             hart.csrs.tdata1[i]
         }
-        x if x == csr::TDATA2.as_u32() => {
+        csr::TDATA2 => {
             let i = hart.csrs.tselect as usize;
             hart.csrs.tdata2[i]
         }
-        x if x == csr::TDATA3.as_u32() => 0, // not implemented
-        x if x == csr::TINFO.as_u32() => 1 << 2, // mcontrol supported
-        x if x == csr::TCONTROL.as_u32() => hart.csrs.tcontrol & 0x88, // mte=bit3, mpte=bit7
-        _ => 0,
+        csr::TINFO => 1 << 2,                       // mcontrol supported
+        csr::TCONTROL => hart.csrs.tcontrol & 0x88, // mte=bit3, mpte=bit7
+        _ => 0,                                     // TDATA3 among them: not implemented
     }
 }
 
@@ -128,28 +119,27 @@ impl CoreCtx<'_> {
 
     /// Writes a value to a Control and Status Register (CSR).
     pub fn csr_write(&mut self, addr: CsrAddr, val: u64) {
-        let raw = addr.as_u32();
-        match raw {
-            x if x == csr::FFLAGS.as_u32() => {
+        match addr {
+            csr::FFLAGS => {
                 self.hart.csrs.fflags = val & 0x1F;
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
-            x if x == csr::FRM.as_u32() => {
+            csr::FRM => {
                 self.hart.csrs.frm = val & 0x7;
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
-            x if x == csr::FCSR.as_u32() => {
+            csr::FCSR => {
                 self.hart.csrs.fflags = val & 0x1F;
                 self.hart.csrs.frm = (val >> 5) & 0x7;
                 self.hart.csrs.mstatus =
                     (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
             }
-            x if x == csr::CSR_SIM_PANIC.as_u32() => {
+            csr::CSR_SIM_PANIC => {
                 self.trap(&Trap::RequestedTrap(val), self.hart.pc);
             }
-            x if x == csr::MSTATUS.as_u32() => {
+            csr::MSTATUS => {
                 // WARL: only defined writable bits are accepted; WPRI/SD/UXL/SXL ignored.
                 const MSTATUS_WRITABLE: u64 = csr::MSTATUS_SIE
                     | csr::MSTATUS_MIE
@@ -177,16 +167,16 @@ impl CoreCtx<'_> {
                     self.hart.csrs.mstatus &= !csr::MSTATUS_MPP;
                 }
             }
-            x if x == csr::MEDELEG.as_u32() => {
+            csr::MEDELEG => {
                 // Bit 11 (ecall from M-mode) cannot be delegated
                 self.hart.csrs.medeleg = val & !(1 << 11);
             }
-            x if x == csr::MIDELEG.as_u32() => {
+            csr::MIDELEG => {
                 // Only S-level interrupts can be delegated (not M-level)
                 let mask = csr::MIP_SSIP | csr::MIP_STIP | csr::MIP_SEIP;
                 self.hart.csrs.mideleg = val & mask;
             }
-            x if x == csr::MIE.as_u32() => {
+            csr::MIE => {
                 // WARL: only defined interrupt-enable bits are writable
                 let mask = csr::MIE_SSIP
                     | csr::MIE_MSIP
@@ -196,89 +186,87 @@ impl CoreCtx<'_> {
                     | csr::MIE_MEIP;
                 self.hart.csrs.mie = val & mask;
             }
-            x if x == csr::MTVEC.as_u32() => {
+            csr::MTVEC => {
                 // WARL: mode field (bits 1:0) only supports 0 (Direct) and 1 (Vectored).
                 // Reserved modes (2, 3) are clamped to Direct by clearing both mode bits.
                 let mode = val & 3;
                 self.hart.csrs.mtvec = if mode >= 2 { val & !3 } else { val };
             }
-            x if x == csr::MISA.as_u32() => {
+            csr::MISA => {
                 // MISA is WARL: writes are silently ignored (extensions are hardwired).
             }
-            x if x == csr::MSCRATCH.as_u32() => self.hart.csrs.mscratch = val,
-            x if x == csr::MEPC.as_u32() => {
+            csr::MSCRATCH => self.hart.csrs.mscratch = val,
+            csr::MEPC => {
                 self.hart.csrs.mepc = val & !crate::arch::csr::ialign_low_bits(self.hart.csrs.misa);
             }
-            x if x == csr::MCAUSE.as_u32() => self.hart.csrs.mcause = val,
-            x if x == csr::MTVAL.as_u32() => self.hart.csrs.mtval = val,
-            x if x == csr::MIP.as_u32() => {
+            csr::MCAUSE => self.hart.csrs.mcause = val,
+            csr::MTVAL => self.hart.csrs.mtval = val,
+            csr::MIP => {
                 let mask = csr::MIP_SSIP | csr::MIP_STIP | csr::MIP_SEIP;
                 self.hart.csrs.mip = (self.hart.csrs.mip & !mask) | (val & mask);
                 // Track software-written SEIP so pre_tick preserves it
                 self.hart.sw_seip = (val & csr::MIP_SEIP) != 0;
             }
-            x if x == csr::SSTATUS.as_u32() => {
+            csr::SSTATUS => {
                 self.hart.csrs.mstatus = (self.hart.csrs.mstatus & !csr::SSTATUS_WRITABLE)
                     | (val & csr::SSTATUS_WRITABLE);
             }
-            x if x == csr::SIE.as_u32() => {
+            csr::SIE => {
                 let mask = self.hart.csrs.mideleg;
                 self.hart.csrs.mie = (self.hart.csrs.mie & !mask) | (val & mask);
             }
-            x if x == csr::STVEC.as_u32() => {
+            csr::STVEC => {
                 // WARL: mode field (bits 1:0) only supports 0 (Direct) and 1 (Vectored).
                 let mode = val & 3;
                 self.hart.csrs.stvec = if mode >= 2 { val & !3 } else { val };
             }
-            x if x == csr::SSCRATCH.as_u32() => self.hart.csrs.sscratch = val,
-            x if x == csr::SEPC.as_u32() => {
+            csr::SSCRATCH => self.hart.csrs.sscratch = val,
+            csr::SEPC => {
                 self.hart.csrs.sepc = val & !crate::arch::csr::ialign_low_bits(self.hart.csrs.misa);
             }
-            x if x == csr::SCAUSE.as_u32() => self.hart.csrs.scause = val,
-            x if x == csr::STVAL.as_u32() => self.hart.csrs.stval = val,
-            x if x == csr::SIP.as_u32() => {
+            csr::SCAUSE => self.hart.csrs.scause = val,
+            csr::STVAL => self.hart.csrs.stval = val,
+            csr::SIP => {
                 let mask = self.hart.csrs.mideleg & (csr::MIP_SSIP);
                 self.hart.csrs.mip = (self.hart.csrs.mip & !mask) | (val & mask);
             }
-            x if x == csr::MCOUNTEREN.as_u32() => {
+            csr::MCOUNTEREN => {
                 // Only CY(0), TM(1), IR(2) are implemented
                 self.hart.csrs.mcounteren = val & 0x7;
             }
-            x if x == csr::SCOUNTEREN.as_u32() => {
+            csr::SCOUNTEREN => {
                 self.hart.csrs.scounteren = val & 0x7;
             }
-            x if x == csr::MENVCFG.as_u32() => {
+            csr::MENVCFG => {
                 let svadu = if self.config.isa.svadu { csr::MENVCFG_ADUE } else { 0 };
                 let writable = csr::MENVCFG_WRITABLE | svadu;
                 self.hart.csrs.menvcfg = crate::arch::csr::legalize_envcfg(val, writable);
             }
-            x if x == csr::SENVCFG.as_u32() => {
+            csr::SENVCFG => {
                 self.hart.csrs.senvcfg =
                     crate::arch::csr::legalize_envcfg(val, csr::SENVCFG_WRITABLE);
             }
-            x if x == csr::MCYCLE.as_u32() => self.hart.csrs.mcycle = val,
-            x if x == csr::MINSTRET.as_u32() => self.hart.csrs.minstret = val,
-            x if x == csr::MCOUNTINHIBIT.as_u32() => {
+            csr::MCYCLE => self.hart.csrs.mcycle = val,
+            csr::MINSTRET => self.hart.csrs.minstret = val,
+            csr::MCOUNTINHIBIT => {
                 self.hart.csrs.mcountinhibit = val & csr::MCOUNTINHIBIT_WRITABLE;
             }
-            x if x == csr::PMPCFG0.as_u32() => {
+            csr::PMPCFG0 => {
                 for i in 0..8 {
                     self.hart.pmp.set_cfg(i, ((val >> (i * 8)) & 0xFF) as u8);
                 }
             }
-            x if x == csr::PMPCFG2.as_u32() => {
+            csr::PMPCFG2 => {
                 for i in 0..8 {
                     self.hart.pmp.set_cfg(8 + i, ((val >> (i * 8)) & 0xFF) as u8);
                 }
             }
-            x if x >= csr::PMPADDR0.as_u32() && x <= csr::PMPADDR15.as_u32() => {
-                self.hart.pmp.set_addr((raw - csr::PMPADDR0.as_u32()) as usize, val);
-            }
-            x if x == csr::STIMECMP.as_u32() => {
+            _ if let Some(index) = addr.pmpaddr_index() => self.hart.pmp.set_addr(index, val),
+            csr::STIMECMP => {
                 self.hart.csrs.stimecmp = val;
                 self.hart.csrs.mip &= !csr::MIP_STIP;
             }
-            x if x == csr::SATP.as_u32() => {
+            csr::SATP => {
                 let mode = (val >> csr::SATP_MODE_SHIFT) & csr::SATP_MODE_MASK;
                 let supported = PagingMode::from_satp_mode(mode)
                     .is_some_and(|m| m.is_at_most(self.core.mmu.paging_mode_max));
@@ -290,32 +278,30 @@ impl CoreCtx<'_> {
                 }
             }
             // Writable vector CSRs
-            x if x == csr::VSTART.as_u32() => self.hart.csrs.vstart = val,
-            x if x == csr::VXSAT.as_u32() => self.hart.csrs.vxsat = val & 0x1,
-            x if x == csr::VXRM.as_u32() => self.hart.csrs.vxrm = val & 0x3,
-            x if x == csr::VCSR.as_u32() => {
+            csr::VSTART => self.hart.csrs.vstart = val,
+            csr::VXSAT => self.hart.csrs.vxsat = val & 0x1,
+            csr::VXRM => self.hart.csrs.vxrm = val & 0x3,
+            csr::VCSR => {
                 self.hart.csrs.vxsat = val & 0x1;
                 self.hart.csrs.vxrm = (val >> 1) & 0x3;
             }
             // VL, VTYPE, VLENB are read-only (writes silently ignored)
             // Sdtrig — trigger CSR writes
-            x if x == csr::TSELECT.as_u32() => {
+            csr::TSELECT => {
                 self.hart.csrs.tselect = val.min(trigger::TRIGGER_COUNT as u64 - 1);
             }
-            x if x == csr::TDATA1.as_u32() => {
+            csr::TDATA1 => {
                 let i = self.hart.csrs.tselect as usize;
                 self.hart.csrs.tdata1[i] = trigger::tdata1_written(val);
             }
-            x if x == csr::TDATA2.as_u32() => {
+            csr::TDATA2 => {
                 let i = self.hart.csrs.tselect as usize;
                 self.hart.csrs.tdata2[i] = val;
             }
-            x if x == csr::TDATA3.as_u32() => {} // not implemented
-            x if x == csr::TINFO.as_u32() => {}  // read-only
-            x if x == csr::TCONTROL.as_u32() => {
+            csr::TCONTROL => {
                 self.hart.csrs.tcontrol = val & 0x88; // only mte (bit3) and mpte (bit7)
             }
-            _ => {}
+            _ => {} // TDATA3 (not implemented) and TINFO (read-only) among them
         }
     }
 }

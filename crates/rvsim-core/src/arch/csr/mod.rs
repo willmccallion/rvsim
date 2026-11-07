@@ -143,20 +143,12 @@ pub enum CsrSerializationType {
 
 /// Returns the serialization requirement for a given CSR address.
 pub const fn csr_serialization_type(addr: CsrAddr) -> CsrSerializationType {
-    match addr.as_u32() {
+    match addr {
         // Fence-requiring CSRs
-        x if x == SATP.as_u32() => CsrSerializationType::FenceRequired,
+        SATP => CsrSerializationType::FenceRequired,
 
         // Serializing CSRs
-        x if x == MSTATUS.as_u32()
-            || x == SSTATUS.as_u32()
-            || x == MTVEC.as_u32()
-            || x == STVEC.as_u32()
-            || x == MEDELEG.as_u32()
-            || x == MIDELEG.as_u32()
-            || x == VSTART.as_u32()
-            || x == VXRM.as_u32() =>
-        {
+        MSTATUS | SSTATUS | MTVEC | STVEC | MEDELEG | MIDELEG | VSTART | VXRM => {
             CsrSerializationType::Serializing
         }
 
@@ -301,96 +293,96 @@ impl Csrs {
 
     /// Reads a CSR value by its address. Returns 0 for unrecognized addresses.
     pub const fn read(&self, addr: CsrAddr) -> u64 {
-        match addr.as_u32() {
-            x if x == FFLAGS.as_u32() => self.fflags & 0x1F,
-            x if x == FRM.as_u32() => self.frm & 0x7,
-            x if x == FCSR.as_u32() => ((self.frm & 0x7) << 5) | (self.fflags & 0x1F),
-            x if x == MSTATUS.as_u32() => with_state_dirty(self.mstatus),
-            x if x == MISA.as_u32() => self.misa,
-            x if x == MEDELEG.as_u32() => self.medeleg,
-            x if x == MIDELEG.as_u32() => self.mideleg,
-            x if x == MIE.as_u32() => self.mie,
-            x if x == MTVEC.as_u32() => self.mtvec,
-            x if x == MSCRATCH.as_u32() => self.mscratch,
-            x if x == MEPC.as_u32() => self.mepc,
-            x if x == MCAUSE.as_u32() => self.mcause,
-            x if x == MTVAL.as_u32() => self.mtval,
-            x if x == MIP.as_u32() => self.mip,
-            x if x == SSTATUS.as_u32() => with_state_dirty(self.sstatus()),
-            x if x == SIE.as_u32() => self.sie,
-            x if x == STVEC.as_u32() => self.stvec,
-            x if x == SSCRATCH.as_u32() => self.sscratch,
-            x if x == SEPC.as_u32() => self.sepc,
-            x if x == SCAUSE.as_u32() => self.scause,
-            x if x == STVAL.as_u32() => self.stval,
-            x if x == SIP.as_u32() => self.sip,
-            x if x == SATP.as_u32() => self.satp,
-            x if x == CYCLE.as_u32() || x == MCYCLE.as_u32() => self.mcycle,
-            x if x == INSTRET.as_u32() || x == MINSTRET.as_u32() => self.minstret,
-            x if x == MCOUNTINHIBIT.as_u32() => self.mcountinhibit,
-            x if x == MCOUNTEREN.as_u32() => self.mcounteren,
-            x if x == SCOUNTEREN.as_u32() => self.scounteren,
-            x if x == MENVCFG.as_u32() => self.menvcfg,
-            x if x == SENVCFG.as_u32() => self.senvcfg,
-            x if x == VSTART.as_u32() => self.vstart,
-            x if x == VXSAT.as_u32() => self.vxsat & 0x1,
-            x if x == VXRM.as_u32() => self.vxrm & 0x3,
-            x if x == VCSR.as_u32() => (self.vxsat & 0x1) | ((self.vxrm & 0x3) << 1),
-            x if x == VL.as_u32() => self.vl,
-            x if x == VTYPE.as_u32() => self.vtype,
-            x if x == VLENB.as_u32() => self.vlenb,
+        match addr {
+            FFLAGS => self.fflags & 0x1F,
+            FRM => self.frm & 0x7,
+            FCSR => ((self.frm & 0x7) << 5) | (self.fflags & 0x1F),
+            MSTATUS => with_state_dirty(self.mstatus),
+            MISA => self.misa,
+            MEDELEG => self.medeleg,
+            MIDELEG => self.mideleg,
+            MIE => self.mie,
+            MTVEC => self.mtvec,
+            MSCRATCH => self.mscratch,
+            MEPC => self.mepc,
+            MCAUSE => self.mcause,
+            MTVAL => self.mtval,
+            MIP => self.mip,
+            SSTATUS => with_state_dirty(self.sstatus()),
+            SIE => self.sie,
+            STVEC => self.stvec,
+            SSCRATCH => self.sscratch,
+            SEPC => self.sepc,
+            SCAUSE => self.scause,
+            STVAL => self.stval,
+            SIP => self.sip,
+            SATP => self.satp,
+            CYCLE | MCYCLE => self.mcycle,
+            INSTRET | MINSTRET => self.minstret,
+            MCOUNTINHIBIT => self.mcountinhibit,
+            MCOUNTEREN => self.mcounteren,
+            SCOUNTEREN => self.scounteren,
+            MENVCFG => self.menvcfg,
+            SENVCFG => self.senvcfg,
+            VSTART => self.vstart,
+            VXSAT => self.vxsat & 0x1,
+            VXRM => self.vxrm & 0x3,
+            VCSR => (self.vxsat & 0x1) | ((self.vxrm & 0x3) << 1),
+            VL => self.vl,
+            VTYPE => self.vtype,
+            VLENB => self.vlenb,
             _ => 0,
         }
     }
 
     /// Writes a value to a CSR by its address.
     pub const fn write(&mut self, addr: CsrAddr, val: u64) {
-        match addr.as_u32() {
-            x if x == FFLAGS.as_u32() => self.fflags = val & 0x1F,
-            x if x == FRM.as_u32() => self.frm = val & 0x7,
-            x if x == FCSR.as_u32() => {
+        match addr {
+            FFLAGS => self.fflags = val & 0x1F,
+            FRM => self.frm = val & 0x7,
+            FCSR => {
                 self.fflags = val & 0x1F;
                 self.frm = (val >> 5) & 0x7;
             }
-            x if x == MSTATUS.as_u32() => self.mstatus = val,
-            x if x == MISA.as_u32() => self.misa = val,
-            x if x == MEDELEG.as_u32() => self.medeleg = val,
-            x if x == MIDELEG.as_u32() => self.mideleg = val,
-            x if x == MIE.as_u32() => self.mie = val,
-            x if x == MTVEC.as_u32() => self.mtvec = val,
-            x if x == MSCRATCH.as_u32() => self.mscratch = val,
-            x if x == MEPC.as_u32() => self.mepc = val,
-            x if x == MCAUSE.as_u32() => self.mcause = val,
-            x if x == MTVAL.as_u32() => self.mtval = val,
-            x if x == MIP.as_u32() => self.mip = val,
-            x if x == SSTATUS.as_u32() => {
+            MSTATUS => self.mstatus = val,
+            MISA => self.misa = val,
+            MEDELEG => self.medeleg = val,
+            MIDELEG => self.mideleg = val,
+            MIE => self.mie = val,
+            MTVEC => self.mtvec = val,
+            MSCRATCH => self.mscratch = val,
+            MEPC => self.mepc = val,
+            MCAUSE => self.mcause = val,
+            MTVAL => self.mtval = val,
+            MIP => self.mip = val,
+            SSTATUS => {
                 self.mstatus = (self.mstatus & !SSTATUS_WRITABLE) | (val & SSTATUS_WRITABLE);
             }
-            x if x == SIE.as_u32() => self.sie = val,
-            x if x == STVEC.as_u32() => self.stvec = val,
-            x if x == SSCRATCH.as_u32() => self.sscratch = val,
-            x if x == SEPC.as_u32() => self.sepc = val,
-            x if x == SCAUSE.as_u32() => self.scause = val,
-            x if x == STVAL.as_u32() => self.stval = val,
-            x if x == SIP.as_u32() => self.sip = val,
-            x if x == SATP.as_u32() => {
+            SIE => self.sie = val,
+            STVEC => self.stvec = val,
+            SSCRATCH => self.sscratch = val,
+            SEPC => self.sepc = val,
+            SCAUSE => self.scause = val,
+            STVAL => self.stval = val,
+            SIP => self.sip = val,
+            SATP => {
                 let mode = (val >> SATP_MODE_SHIFT) & SATP_MODE_MASK;
                 let new_mode =
                     if PagingMode::from_satp_mode(mode).is_some() { mode } else { SATP_MODE_BARE };
                 let mask = !(SATP_MODE_MASK << SATP_MODE_SHIFT);
                 self.satp = (val & mask) | (new_mode << SATP_MODE_SHIFT);
             }
-            x if x == MCYCLE.as_u32() => self.mcycle = val,
-            x if x == MINSTRET.as_u32() => self.minstret = val,
-            x if x == MCOUNTINHIBIT.as_u32() => self.mcountinhibit = val & MCOUNTINHIBIT_WRITABLE,
-            x if x == MCOUNTEREN.as_u32() => self.mcounteren = val,
-            x if x == SCOUNTEREN.as_u32() => self.scounteren = val,
-            x if x == MENVCFG.as_u32() => self.menvcfg = val,
-            x if x == SENVCFG.as_u32() => self.senvcfg = val,
-            x if x == VSTART.as_u32() => self.vstart = val,
-            x if x == VXSAT.as_u32() => self.vxsat = val & 0x1,
-            x if x == VXRM.as_u32() => self.vxrm = val & 0x3,
-            x if x == VCSR.as_u32() => {
+            MCYCLE => self.mcycle = val,
+            MINSTRET => self.minstret = val,
+            MCOUNTINHIBIT => self.mcountinhibit = val & MCOUNTINHIBIT_WRITABLE,
+            MCOUNTEREN => self.mcounteren = val,
+            SCOUNTEREN => self.scounteren = val,
+            MENVCFG => self.menvcfg = val,
+            SENVCFG => self.senvcfg = val,
+            VSTART => self.vstart = val,
+            VXSAT => self.vxsat = val & 0x1,
+            VXRM => self.vxrm = val & 0x3,
+            VCSR => {
                 self.vxsat = val & 0x1;
                 self.vxrm = (val >> 1) & 0x3;
             }
