@@ -39,7 +39,7 @@ struct RamWindow {
 /// System bus that routes packets to MMIO devices or the memory controller.
 pub struct Bus {
     /// Registered MMIO devices.
-    devices: Vec<Box<dyn Device + Send + Sync>>,
+    devices: Vec<Box<dyn Device>>,
     /// Bus width in bytes (e.g., 8 for 64-bit); used to compute transfer cycles.
     pub width_bytes: u64,
     /// Base latency in cycles per transaction.
@@ -132,7 +132,7 @@ impl Bus {
     }
 
     /// Registers a device on the bus; devices are sorted by base address for lookup.
-    pub fn add_device(&mut self, dev: Box<dyn Device + Send + Sync>) {
+    pub fn add_device(&mut self, dev: Box<dyn Device>) {
         self.devices.push(dev);
         self.devices.sort_by_key(|d| d.address_range().0);
         self.uart_idx = self.devices.iter().position(|d| d.name() == "UART0");

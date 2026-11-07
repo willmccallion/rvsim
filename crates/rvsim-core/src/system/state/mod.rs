@@ -209,8 +209,7 @@ impl SystemState {
             bus.add_device(Box::new(htif));
         }
 
-        let mem_controller: Box<dyn MemoryController + Send + Sync> = match config.memory.controller
-        {
+        let mem_controller: Box<dyn MemoryController> = match config.memory.controller {
             MemoryControllerKind::Dram => Box::new(DramController::new(DramConfig {
                 t_cas: config.memory.t_cas,
                 t_ras: config.memory.t_ras,
