@@ -13,3 +13,4 @@ pub mod pipeline_trace;
 pub mod pseudo_ops;
 pub mod run_to;
 pub mod se_mode;
+pub mod stall_check;

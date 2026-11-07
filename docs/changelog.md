@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- A run fails when a hart outside WFI retires no instruction for
+  `Simulator.stall_limit` cycles (1,000,000 by default; `None` turns the
+  check off), with an error naming the hart and its PC, instead of running
+  a stuck pipeline to the cycle limit.
 - One clock: `cpu_clock_mhz` now also sets SE mode's time and `m5_rpns`,
   and `clock_hz` is gone. `clint_divider` is replaced by `timer`
   (`"RealTime"`, the default, ticks `mtime` at `timebase_hz`, which the

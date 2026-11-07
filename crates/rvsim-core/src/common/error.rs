@@ -70,6 +70,19 @@ pub enum SimError {
         cycle: u64,
     },
 
+    /// A hart outside WFI retired no instruction for `cycles` cycles. Its
+    /// pipeline is stuck, which is a simulator bug, unless the guest keeps
+    /// taking traps without ever retiring an instruction.
+    #[error("hart {hart} retired nothing for {cycles} cycles at PC {pc:#x}: its pipeline is stuck")]
+    Stalled {
+        /// The hart.
+        hart: usize,
+        /// Its architectural PC: the instruction that did not retire.
+        pc: u64,
+        /// Cycles since it last retired an instruction.
+        cycles: u64,
+    },
+
     /// With the cache audit on, an event left a cache invariant broken.
     #[error("cache invariant broken at cycle {cycle}, line {line:#x}: {what}")]
     CacheInvariant {
