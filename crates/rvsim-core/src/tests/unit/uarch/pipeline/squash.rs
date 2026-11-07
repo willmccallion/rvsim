@@ -5,13 +5,16 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::sim::components::ReqId;
 use crate::uarch::pipeline::engine::BackendCommon;
-use crate::uarch::pipeline::latches::ExMem1Entry;
+use crate::uarch::pipeline::latches::{ExMem1Entry, InFlightOp};
 use crate::uarch::pipeline::outstanding::{LoadParts, OutstandingLoad};
 use crate::uarch::pipeline::rob::RobTag;
 
 fn in_flight_load(tag: u32) -> OutstandingLoad {
     OutstandingLoad {
-        entry: ExMem1Entry { rob_tag: RobTag::new(tag), ..ExMem1Entry::default() },
+        entry: ExMem1Entry {
+            op: InFlightOp { rob_tag: RobTag::new(tag), ..InFlightOp::default() },
+            ..ExMem1Entry::default()
+        },
         paddr: PhysAddr::new(0x8000_0000),
         vaddr: VirtAddr::new(0x8000_0000),
         dirty_updates: crate::arch::translation::DirtyUpdates::NONE,
@@ -26,12 +29,15 @@ fn squash_after_keeps_older_loads_and_drops_younger_ones() {
     for tag in [10, 11, 12, 13] {
         let _ = common.outstanding_loads.insert(ReqId::new(u64::from(tag)), in_flight_load(tag));
     }
-    common.mem1_replay.push(ExMem1Entry { rob_tag: RobTag::new(14), ..ExMem1Entry::default() });
+    common.mem1_replay.push(ExMem1Entry {
+        op: InFlightOp { rob_tag: RobTag::new(14), ..InFlightOp::default() },
+        ..ExMem1Entry::default()
+    });
 
     common.squash_after(RobTag::new(11));
 
     let mut survivors: Vec<u32> =
-        common.outstanding_loads.values().map(|l| l.entry.rob_tag.raw()).collect();
+        common.outstanding_loads.values().map(|l| l.entry.op.rob_tag.raw()).collect();
     survivors.sort_unstable();
     assert_eq!(survivors, vec![10, 11], "loads at or before the keep tag survive");
     assert!(common.mem1_replay.is_empty(), "a younger replayed op is dropped too");

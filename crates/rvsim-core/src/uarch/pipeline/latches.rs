@@ -346,9 +346,11 @@ pub struct SourceReadiness {
     pub rs2: bool,
 }
 
-/// Entry from Execute -> Memory1 latch.
+/// What every latch from execute to writeback carries of an instruction
+/// unchanged: which it is, what execute computed, its fault, and the
+/// effects it defers to commit.
 #[derive(Clone, Debug, Default)]
-pub struct ExMem1Entry {
+pub struct InFlightOp {
     /// ROB tag.
     pub rob_tag: RobTag,
     /// Program counter.
@@ -363,11 +365,9 @@ pub struct ExMem1Entry {
     pub rd_phys: PhysReg,
     /// ALU result / memory virtual address.
     pub alu: u64,
-    /// Store data (rs2 value).
-    pub store_data: u64,
     /// Control signals.
     pub ctrl: ControlSignals,
-    /// Trap from execute.
+    /// Trap from execute or a memory stage.
     pub trap: Option<Trap>,
     /// FP exception flags from this instruction (deferred to commit).
     pub fp_flags: FpFlags,
@@ -375,6 +375,15 @@ pub struct ExMem1Entry {
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Vector memory element metadata (None for scalar ops).
     pub vec_mem: Option<VecMemAccess>,
+}
+
+/// Entry from Execute -> Memory1 latch.
+#[derive(Clone, Debug, Default)]
+pub struct ExMem1Entry {
+    /// The instruction and what execute made of it.
+    pub op: InFlightOp,
+    /// Store data (rs2 value).
+    pub store_data: u64,
     /// A store's address half: `store_data` is not its data, which its
     /// data half delivers to the store buffer separately.
     pub store_data_follows: bool,
@@ -386,20 +395,8 @@ pub struct ExMem1Entry {
 /// Entry from Memory1 -> Memory2 latch.
 #[derive(Clone, Default, Debug)]
 pub struct Mem1Mem2Entry {
-    /// ROB tag.
-    pub rob_tag: RobTag,
-    /// Program counter.
-    pub pc: VirtAddr,
-    /// Its encoding, expanded to 32 bits when it is compressed.
-    pub bits: u32,
-    /// Instruction size.
-    pub inst_size: InstSize,
-    /// Destination register.
-    pub rd: RegIdx,
-    /// Physical destination register (O3 PRF path).
-    pub rd_phys: PhysReg,
-    /// ALU result (original, for non-memory ops).
-    pub alu: u64,
+    /// The instruction and what execute made of it.
+    pub op: InFlightOp,
     /// Virtual address.
     pub vaddr: VirtAddr,
     /// Physical address after translation.
@@ -415,21 +412,11 @@ pub struct Mem1Mem2Entry {
     /// Set by memory1 when a store-buffer hit replaced the cache request;
     /// memory2 sign-extends `load_data` without re-checking the SB.
     pub sb_forwarded: bool,
-    /// Control signals.
-    pub ctrl: ControlSignals,
-    /// Trap from memory1 (translation fault).
-    pub trap: Option<Trap>,
-    /// FP exception flags from this instruction (deferred to commit).
-    pub fp_flags: FpFlags,
     /// Cycle at which this entry's memory operation completes (O3 per-op latency).
     /// For non-memory ops or in-order backend, defaults to 0 (ready immediately).
     pub complete_cycle: u64,
     /// The D-bit updates the access applies when it retires.
     pub dirty_updates: DirtyUpdates,
-    /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
-    pub sfence_vma: Option<SfenceVmaInfo>,
-    /// Vector memory element metadata (flows through from `ExMem1Entry`).
-    pub vec_mem: Option<VecMemAccess>,
     /// Write-log position when `load_data` was read from RAM; `None` for
     /// values that came from the store buffer or an MMIO device, and in
     /// single-hart systems.
@@ -439,21 +426,21 @@ pub struct Mem1Mem2Entry {
 impl ExMem1Entry {
     /// The virtual address a memory access computed into `alu`.
     pub const fn vaddr(&self) -> VirtAddr {
-        VirtAddr::new(self.alu)
+        VirtAddr::new(self.op.alu)
     }
 
     /// The address of the instruction after this one.
     pub const fn next_pc(&self) -> VirtAddr {
-        self.pc.wrapping_add(self.inst_size.as_u64())
+        self.op.pc.wrapping_add(self.op.inst_size.as_u64())
     }
 
     /// The value a non-memory instruction writes to `rd`: a jump's return
     /// address, else the ALU result.
     pub const fn register_value(&self) -> u64 {
-        if matches!(self.ctrl.control_flow, ControlFlow::Jump) {
+        if matches!(self.op.ctrl.control_flow, ControlFlow::Jump) {
             self.next_pc().val()
         } else {
-            self.alu
+            self.op.alu
         }
     }
 
@@ -465,19 +452,21 @@ impl ExMem1Entry {
         store_data: u64,
     ) -> Self {
         Self {
-            rob_tag: issued.rob_tag,
-            pc: issued.inst.pc,
-            bits: issued.inst.bits,
-            inst_size: issued.inst.size,
-            rd: issued.inst.rd,
-            rd_phys: issued.regs.rd_phys(),
-            alu,
+            op: InFlightOp {
+                rob_tag: issued.rob_tag,
+                pc: issued.inst.pc,
+                bits: issued.inst.bits,
+                inst_size: issued.inst.size,
+                rd: issued.inst.rd,
+                rd_phys: issued.regs.rd_phys(),
+                alu,
+                ctrl: issued.inst.ctrl,
+                trap: None,
+                fp_flags: FpFlags::NONE,
+                sfence_vma: None,
+                vec_mem: None,
+            },
             store_data,
-            ctrl: issued.inst.ctrl,
-            trap: None,
-            fp_flags: FpFlags::NONE,
-            sfence_vma: None,
-            vec_mem: None,
             store_data_follows: false,
             replaying: false,
         }
@@ -489,25 +478,14 @@ impl Mem1Mem2Entry {
     /// with nothing loaded yet.
     pub fn from_execute(ex: ExMem1Entry, vaddr: VirtAddr, paddr: PhysAddr) -> Self {
         Self {
-            rob_tag: ex.rob_tag,
-            pc: ex.pc,
-            bits: ex.bits,
-            inst_size: ex.inst_size,
-            rd: ex.rd,
-            rd_phys: ex.rd_phys,
-            alu: ex.alu,
+            op: ex.op,
             vaddr,
             paddr,
             store_data: ex.store_data,
             load_data: 0,
             sb_forwarded: false,
-            ctrl: ex.ctrl,
-            trap: ex.trap,
-            fp_flags: ex.fp_flags,
             complete_cycle: 0,
             dirty_updates: DirtyUpdates::NONE,
-            sfence_vma: ex.sfence_vma,
-            vec_mem: ex.vec_mem,
             observed: None,
         }
     }
@@ -516,36 +494,14 @@ impl Mem1Mem2Entry {
 /// Entry from Memory2 -> Writeback latch.
 #[derive(Clone, Default, Debug)]
 pub struct Mem2WbEntry {
-    /// ROB tag.
-    pub rob_tag: RobTag,
-    /// Program counter.
-    pub pc: VirtAddr,
-    /// Its encoding, expanded to 32 bits when it is compressed.
-    pub bits: u32,
-    /// Instruction size.
-    pub inst_size: InstSize,
-    /// Destination register.
-    pub rd: RegIdx,
-    /// Physical destination register (O3 PRF path).
-    pub rd_phys: PhysReg,
-    /// ALU result (for non-load instructions).
-    pub alu: u64,
+    /// The instruction and what execute made of it.
+    pub op: InFlightOp,
     /// Loaded data (for load instructions).
     pub load_data: u64,
-    /// Control signals.
-    pub ctrl: ControlSignals,
-    /// Trap from memory2.
-    pub trap: Option<Trap>,
-    /// FP exception flags from this instruction (deferred to commit).
-    pub fp_flags: FpFlags,
     /// The D-bit updates the access applies when it retires.
     pub dirty_updates: DirtyUpdates,
-    /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
-    pub sfence_vma: Option<SfenceVmaInfo>,
     /// Deferred LR/SC reservation action for commit-time application.
     pub lr_sc: Option<LrScRecord>,
-    /// Vector memory element metadata (flows through from `ExMem1Entry`).
-    pub vec_mem: Option<VecMemAccess>,
     /// Write-log position when the load value was read (see `Mem1Mem2Entry`).
     pub observed: Option<WriteSeq>,
     /// The address a load, store or atomic touched, for stops on a watched
@@ -562,18 +518,18 @@ pub struct Mem2WbEntry {
 impl Mem2WbEntry {
     /// The address of the instruction after this one.
     pub const fn next_pc(&self) -> VirtAddr {
-        self.pc.wrapping_add(self.inst_size.as_u64())
+        self.op.pc.wrapping_add(self.op.inst_size.as_u64())
     }
 
     /// The value the instruction writes to `rd`: what a load or atomic
     /// read, a jump's return address, or else the ALU result.
     pub fn written_value(&self) -> u64 {
-        if self.ctrl.mem_read || self.ctrl.atomic_op.is_some() {
+        if self.op.ctrl.mem_read || self.op.ctrl.atomic_op.is_some() {
             self.load_data
-        } else if self.ctrl.control_flow == ControlFlow::Jump {
+        } else if self.op.ctrl.control_flow == ControlFlow::Jump {
             self.next_pc().val()
         } else {
-            self.alu
+            self.op.alu
         }
     }
 
@@ -587,22 +543,11 @@ impl Mem2WbEntry {
         let vec_mem_effects =
             crate::uarch::pipeline::commit_log::VectorElementAccess::of_memory2(&mem);
         Self {
+            op: mem.op,
             mem_access,
-            rob_tag: mem.rob_tag,
-            pc: mem.pc,
-            bits: mem.bits,
-            inst_size: mem.inst_size,
-            rd: mem.rd,
-            rd_phys: mem.rd_phys,
-            alu: mem.alu,
             load_data,
-            ctrl: mem.ctrl,
-            trap: mem.trap,
-            fp_flags: mem.fp_flags,
             dirty_updates: mem.dirty_updates,
-            sfence_vma: mem.sfence_vma,
             lr_sc,
-            vec_mem: mem.vec_mem,
             observed: mem.observed,
             #[cfg(feature = "commit-log")]
             mem_effect,
@@ -687,18 +632,18 @@ impl MemAccess {
     /// The scalar access leaving memory2, if it performed one.
     #[must_use]
     pub const fn of_memory2(mem: &Mem1Mem2Entry) -> Option<Self> {
-        if mem.trap.is_some() || mem.vec_mem.is_some() || mem.ctrl.system_op.is_cbo() {
+        if mem.op.trap.is_some() || mem.op.vec_mem.is_some() || mem.op.ctrl.system_op.is_cbo() {
             return None;
         }
-        let (read, write) = match mem.ctrl.atomic_op {
+        let (read, write) = match mem.op.ctrl.atomic_op {
             Some(AtomicOp::Lr) => (true, false),
             Some(AtomicOp::Sc) => (false, mem.load_data == 0),
             Some(_) => (true, true),
-            None => (mem.ctrl.mem_read, mem.ctrl.mem_write),
+            None => (mem.op.ctrl.mem_read, mem.op.ctrl.mem_write),
         };
         if !read && !write {
             return None;
         }
-        Some(Self { vaddr: mem.vaddr, bytes: mem.ctrl.width.bytes(), read, write })
+        Some(Self { vaddr: mem.vaddr, bytes: mem.op.ctrl.width.bytes(), read, write })
     }
 }

@@ -33,7 +33,9 @@ pub fn fault<R: IssueRegisters>(
         trap    = ?trap,
         "EX: instruction faulted"
     );
-    ExMem1Entry { trap: Some(trap), ..ExMem1Entry::from_issue(issued, 0, 0) }
+    let mut result = ExMem1Entry::from_issue(issued, 0, 0);
+    result.op.trap = Some(trap);
+    result
 }
 
 /// [`fault`] with no redirect: commit takes the trap.
@@ -74,13 +76,11 @@ pub fn execute_system<R: IssueRegisters>(
         SystemEffect::Trap(trap) => SystemExecution::Done(fault(state, issued, trap), None),
         SystemEffect::AtRetire => SystemExecution::AtRetire,
         // Commit drains the store buffer, flushes the TLBs and squashes.
-        SystemEffect::SfenceVma(sfence_vma) => SystemExecution::Done(
-            ExMem1Entry {
-                sfence_vma: Some(sfence_vma),
-                ..ExMem1Entry::from_issue(issued, 0, issued.inst.rv2)
-            },
-            None,
-        ),
+        SystemEffect::SfenceVma(sfence_vma) => {
+            let mut result = ExMem1Entry::from_issue(issued, 0, issued.inst.rv2);
+            result.op.sfence_vma = Some(sfence_vma);
+            SystemExecution::Done(result, None)
+        }
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
         SystemEffect::Cbo => {

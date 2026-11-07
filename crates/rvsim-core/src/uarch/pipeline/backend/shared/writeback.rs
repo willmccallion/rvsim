@@ -20,18 +20,18 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
     let entries = std::mem::take(input);
 
     for wb in entries {
-        if let Some(seq) = rob.find_entry(wb.rob_tag).map(|entry| entry.seq) {
+        if let Some(seq) = rob.find_entry(wb.op.rob_tag).map(|entry| entry.seq) {
             state.trace_stage(seq, Stage::Writeback);
         }
-        if let Some(ref trap) = wb.trap {
-            if !wb.fp_flags.is_empty() {
-                rob.set_fp_flags(wb.rob_tag, wb.fp_flags);
+        if let Some(ref trap) = wb.op.trap {
+            if !wb.op.fp_flags.is_empty() {
+                rob.set_fp_flags(wb.op.rob_tag, wb.op.fp_flags);
             }
-            rob.fault(wb.rob_tag, trap.clone());
+            rob.fault(wb.op.rob_tag, trap.clone());
             trace_trap!(state.trace_trap_enabled(trap);
                 event   = "writeback-fault",
-                pc      = %crate::common::trace::Hex(wb.pc.val()),
-                rob_tag = %wb.rob_tag,
+                pc      = %crate::common::trace::Hex(wb.op.pc.val()),
+                rob_tag = %wb.op.rob_tag,
                 trap    = ?trap,
                 "WB: entry marked faulted in ROB"
             );
@@ -40,38 +40,38 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
 
         let val = wb.written_value();
 
-        if !wb.fp_flags.is_empty() {
-            rob.set_fp_flags(wb.rob_tag, wb.fp_flags);
+        if !wb.op.fp_flags.is_empty() {
+            rob.set_fp_flags(wb.op.rob_tag, wb.op.fp_flags);
         }
         if !wb.dirty_updates.is_empty() {
-            rob.set_dirty_updates(wb.rob_tag, wb.dirty_updates);
+            rob.set_dirty_updates(wb.op.rob_tag, wb.dirty_updates);
         }
-        if let Some(sfence_info) = wb.sfence_vma {
-            rob.set_sfence_vma(wb.rob_tag, sfence_info);
+        if let Some(sfence_info) = wb.op.sfence_vma {
+            rob.set_sfence_vma(wb.op.rob_tag, sfence_info);
         }
         if let Some(lr_sc_rec) = wb.lr_sc {
-            rob.set_lr_sc(wb.rob_tag, lr_sc_rec);
+            rob.set_lr_sc(wb.op.rob_tag, lr_sc_rec);
         }
         if let Some(seq) = wb.observed {
-            rob.set_observed(wb.rob_tag, seq);
+            rob.set_observed(wb.op.rob_tag, seq);
         }
         if let Some(access) = wb.mem_access {
-            rob.set_mem_access(wb.rob_tag, access);
+            rob.set_mem_access(wb.op.rob_tag, access);
         }
         #[cfg(feature = "commit-log")]
         if let Some(effect) = wb.mem_effect {
-            rob.set_mem_effect(wb.rob_tag, effect);
+            rob.set_mem_effect(wb.op.rob_tag, effect);
         }
-        rob.complete(wb.rob_tag, val);
+        rob.complete(wb.op.rob_tag, val);
 
         trace_writeback!(state.config.general.trace_instructions;
-            rob_tag  = %wb.rob_tag,
-            pc       = %crate::common::trace::Hex(wb.pc.val()),
+            rob_tag  = %wb.op.rob_tag,
+            pc       = %crate::common::trace::Hex(wb.op.pc.val()),
             result   = %crate::common::trace::Hex(val),
-            from     = if wb.ctrl.mem_read { "load" } else if wb.ctrl.control_flow == ControlFlow::Jump { "jump_link" } else { "alu" },
-            rd       = wb.rd.as_usize(),
-            rd_phys  = wb.rd_phys.index(),
-            fp_flags = wb.fp_flags.bits(),
+            from     = if wb.op.ctrl.mem_read { "load" } else if wb.op.ctrl.control_flow == ControlFlow::Jump { "jump_link" } else { "alu" },
+            rd       = wb.op.rd.as_usize(),
+            rd_phys  = wb.op.rd_phys.index(),
+            fp_flags = wb.op.fp_flags.bits(),
             "WB: ROB entry marked complete"
         );
     }

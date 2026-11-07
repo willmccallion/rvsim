@@ -125,8 +125,8 @@ pub fn memory1_stage<E: ExecutionEngine>(
     let mut translations: Vec<(RobTag, Option<MicroOpIdx>, PageTranslations)> = ready
         .iter()
         .map(|a| {
-            let micro_op = a.entry.vec_mem.as_ref().map(|v| v.micro_op);
-            (a.entry.rob_tag, micro_op, a.translations.clone())
+            let micro_op = a.entry.op.vec_mem.as_ref().map(|v| v.micro_op);
+            (a.entry.op.rob_tag, micro_op, a.translations.clone())
         })
         .collect();
     entries.extend(ready.into_iter().map(|a| a.entry));
@@ -134,18 +134,18 @@ pub fn memory1_stage<E: ExecutionEngine>(
     // order rather than program order. memory1's SB-forward / atomic-vs-SB
     // checks only inspect *older* store entries, so process oldest first to
     // give each op the most-drained store buffer view available this cycle.
-    entries.sort_by(|a, b| a.rob_tag.age_cmp(b.rob_tag));
+    entries.sort_by(|a, b| a.op.rob_tag.age_cmp(b.op.rob_tag));
     let mut iter = entries.into_iter();
 
     while let Some(mut ex) = iter.next() {
-        if let Some(seq) = engine.rob().find_entry(ex.rob_tag).map(|entry| entry.seq) {
+        if let Some(seq) = engine.rob().find_entry(ex.op.rob_tag).map(|entry| entry.seq) {
             state.trace_stage(seq, Stage::Memory);
         }
         let was_waiting = std::mem::take(&mut ex.replaying);
-        let micro_op = ex.vec_mem.as_ref().map(|v| v.micro_op);
+        let micro_op = ex.op.vec_mem.as_ref().map(|v| v.micro_op);
         let translated = translations
             .iter()
-            .position(|(tag, m, _)| *tag == ex.rob_tag && *m == micro_op)
+            .position(|(tag, m, _)| *tag == ex.op.rob_tag && *m == micro_op)
             .map(|i| translations.swap_remove(i).2)
             .unwrap_or_default();
         match process_entry(state, engine, ex, translated, &mut outcome) {
@@ -180,13 +180,13 @@ fn process_entry<E: ExecutionEngine>(
     let Some(ex) = pass_on_fault(engine, ex) else {
         return EntryOutcome::Done;
     };
-    if ex.ctrl.system_op.is_cbo() {
+    if ex.op.ctrl.system_op.is_cbo() {
         return translate_cbo(state, engine, ex, translated.first, resolved);
     }
-    if ex.vec_mem.as_ref().is_some_and(|access| matches!(access.target, VecMemTarget::Span(_))) {
+    if ex.op.vec_mem.as_ref().is_some_and(|access| matches!(access.target, VecMemTarget::Span(_))) {
         return process_span(state, engine, ex, translated.first);
     }
-    if !ex.ctrl.mem_read && !ex.ctrl.mem_write {
+    if !ex.op.ctrl.mem_read && !ex.op.ctrl.mem_write {
         push_passthrough(engine, ex);
         return EntryOutcome::Done;
     }
@@ -198,16 +198,16 @@ fn process_entry<E: ExecutionEngine>(
         ControlFlow::Continue(access) => access,
         ControlFlow::Break(outcome) => return outcome,
     };
-    if access.ex.ctrl.mem_read
+    if access.ex.op.ctrl.mem_read
         && let Some(lq) = engine.load_queue_mut()
     {
-        let micro_op = access.ex.vec_mem.as_ref().map(|v| v.micro_op);
-        lq.fill_address(access.ex.rob_tag, micro_op, access.ex.vaddr(), access.paddr);
+        let micro_op = access.ex.op.vec_mem.as_ref().map(|v| v.micro_op);
+        lq.fill_address(access.ex.op.rob_tag, micro_op, access.ex.vaddr(), access.paddr);
     }
-    if access.ex.ctrl.atomic_op.is_some() {
+    if access.ex.op.ctrl.atomic_op.is_some() {
         return perform_atomic(state, engine, access);
     }
-    if access.ex.ctrl.mem_write {
+    if access.ex.op.ctrl.mem_write {
         perform_store(state, engine, access, resolved);
         return EntryOutcome::Done;
     }
@@ -217,11 +217,11 @@ fn process_entry<E: ExecutionEngine>(
 /// `ex`, unless it or its ROB entry already faulted: then it carries the
 /// trap on from here and performs no access.
 fn pass_on_fault<E: ExecutionEngine>(engine: &mut E, mut ex: ExMem1Entry) -> Option<ExMem1Entry> {
-    if ex.trap.is_none() {
-        let Some(trap) = engine.rob().find_entry(ex.rob_tag).and_then(RobEntry::trap) else {
+    if ex.op.trap.is_none() {
+        let Some(trap) = engine.rob().find_entry(ex.op.rob_tag).and_then(RobEntry::trap) else {
             return Some(ex);
         };
-        ex.trap = Some(trap.clone());
+        ex.op.trap = Some(trap.clone());
     }
     push_passthrough_with_trap(engine, ex);
     None
@@ -231,26 +231,26 @@ fn pass_on_fault<E: ExecutionEngine>(engine: &mut E, mut ex: ExMem1Entry) -> Opt
 /// that traps, then an Sdtrig load or store trigger on its address, whose
 /// breakpoint's tval is the address.
 fn check_access(state: &StageCtx<'_>, ex: &ExMem1Entry) -> Result<(), Trap> {
-    let is_atomic = ex.ctrl.atomic_op.is_some();
+    let is_atomic = ex.op.ctrl.atomic_op.is_some();
     let traps_misaligned = state.config.memory.misaligned_access_trap || is_atomic;
-    if traps_misaligned && !misaligned::is_aligned(ex.alu, ex.ctrl.width.bytes()) {
+    if traps_misaligned && !misaligned::is_aligned(ex.op.alu, ex.op.ctrl.width.bytes()) {
         return Err(misaligned_trap(ex));
     }
     let is_triggered = !is_atomic
-        && ((ex.ctrl.mem_read && state.check_load_trigger(ex.alu))
-            || (ex.ctrl.mem_write && state.check_store_trigger(ex.alu)));
+        && ((ex.op.ctrl.mem_read && state.check_load_trigger(ex.op.alu))
+            || (ex.op.ctrl.mem_write && state.check_store_trigger(ex.op.alu)));
     if is_triggered {
-        return Err(Trap::Breakpoint(ex.alu));
+        return Err(Trap::Breakpoint(ex.op.alu));
     }
     Ok(())
 }
 
 /// The misaligned-address fault `ex` raises, a load's or a store's.
 const fn misaligned_trap(ex: &ExMem1Entry) -> Trap {
-    if ex.ctrl.mem_write {
-        misaligned::store_misaligned_trap(ex.alu)
+    if ex.op.ctrl.mem_write {
+        misaligned::store_misaligned_trap(ex.op.alu)
     } else {
-        misaligned::load_misaligned_trap(ex.alu)
+        misaligned::load_misaligned_trap(ex.op.alu)
     }
 }
 
@@ -271,7 +271,7 @@ fn translate_access<E: ExecutionEngine>(
     ex: ExMem1Entry,
     known: PageTranslations,
 ) -> ControlFlow<EntryOutcome, TranslatedAccess> {
-    let (access_type, size) = (access_type(&ex), ex.ctrl.width.bytes());
+    let (access_type, size) = (access_type(&ex), ex.op.ctrl.width.bytes());
     let (ex, first) = match translate_first_page(state, engine, ex, known.first, access_type, size)
     {
         FirstPage::Translated(ex, first) => (ex, first),
@@ -288,7 +288,7 @@ fn translate_access<E: ExecutionEngine>(
 
 /// The read or write `ex` makes of memory.
 const fn access_type(ex: &ExMem1Entry) -> AccessType {
-    if ex.ctrl.mem_write { AccessType::Write } else { AccessType::Read }
+    if ex.op.ctrl.mem_write { AccessType::Write } else { AccessType::Read }
 }
 
 /// How translating the page of an access's first byte came out.
@@ -339,7 +339,7 @@ fn translate_second_page<E: ExecutionEngine>(
     first: &TranslationResult,
     known: Option<TranslationResult>,
 ) -> ControlFlow<EntryOutcome, (ExMem1Entry, Option<PteUpdate>)> {
-    let Some(second_va) = misaligned::second_page_start(ex.alu, ex.ctrl.width.bytes()) else {
+    let Some(second_va) = misaligned::second_page_start(ex.op.alu, ex.op.ctrl.width.bytes()) else {
         return ControlFlow::Continue((ex, None));
     };
     let outcome = known.map_or_else(
@@ -364,7 +364,7 @@ fn translate_second_page<E: ExecutionEngine>(
             PageTranslations { first: Some(first.clone()), second: Some(r.settled()) };
         return ControlFlow::Break(wait_for_l2_tlb(state, ex, translations, cycles));
     }
-    let first_page_bytes = second_va.wrapping_sub(ex.alu);
+    let first_page_bytes = second_va.wrapping_sub(ex.op.alu);
     if r.paddr.val() != first.paddr.val().wrapping_add(first_page_bytes) {
         let trap = misaligned_trap(&ex);
         push_trap(engine, ex, trap);
@@ -398,7 +398,7 @@ fn perform_store<E: ExecutionEngine>(
 ) {
     let TranslatedAccess { ex, paddr, dirty_updates } = access;
     let vaddr = ex.vaddr();
-    if ex.vec_mem.is_none() {
+    if ex.op.vec_mem.is_none() {
         resolve_store(state, engine, &ex, paddr, vaddr, resolved);
     }
     push_resolved_store(engine, ex, paddr, vaddr, dirty_updates);
@@ -412,10 +412,10 @@ fn perform_atomic<E: ExecutionEngine>(
 ) -> EntryOutcome {
     let TranslatedAccess { ex, paddr, dirty_updates } = access;
     let vaddr = ex.vaddr();
-    if ex.ctrl.performs_at_rob_head() {
+    if ex.op.ctrl.performs_at_rob_head() {
         // It follows every older store to memory, sets its PTE's D bit
         // as its translation completes, then takes effect in the cache.
-        if !takes_effect_now(engine, ex.rob_tag) || older_stores_pending(state, engine) {
+        if !takes_effect_now(engine, ex.op.rob_tag) || older_stores_pending(state, engine) {
             return EntryOutcome::Replay(ex);
         }
         if !apply_dirty_updates(state, engine, dirty_updates) {
@@ -425,11 +425,11 @@ fn perform_atomic<E: ExecutionEngine>(
         return EntryOutcome::Done;
     }
     // LR: wait for older stores to this address to drain.
-    let size = ex.ctrl.width.bytes();
+    let size = ex.op.ctrl.width.bytes();
     if older_store_unwritten(state, engine, &ex, paddr, size) {
         return EntryOutcome::Replay(ex);
     }
-    if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.rob_tag) {
+    if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.op.rob_tag) {
         return EntryOutcome::Replay(ex);
     }
     emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
@@ -444,13 +444,13 @@ fn perform_load<E: ExecutionEngine>(
     access: TranslatedAccess,
 ) -> EntryOutcome {
     let TranslatedAccess { ex, paddr, dirty_updates } = access;
-    let (pc, vaddr, size) = (ex.pc, ex.vaddr(), ex.ctrl.width.bytes());
+    let (pc, vaddr, size) = (ex.op.pc, ex.vaddr(), ex.op.ctrl.width.bytes());
     // A device read has side effects, so it waits until nothing older can
     // still fault, redirect or be interrupted: the load must be the oldest
     // instruction in the machine. A register need not read back what was
     // written to it, so the read goes to the device after the stores to it.
     if reads_a_device(state, paddr, size) {
-        if !takes_effect_now(engine, ex.rob_tag)
+        if !takes_effect_now(engine, ex.op.rob_tag)
             || older_store_unwritten(state, engine, &ex, paddr, size)
         {
             return EntryOutcome::Replay(ex);
@@ -479,7 +479,7 @@ fn process_span<E: ExecutionEngine>(
     ex: ExMem1Entry,
     known: Option<TranslationResult>,
 ) -> EntryOutcome {
-    let Some(access) = ex.vec_mem.as_ref() else { return EntryOutcome::Expand(ex) };
+    let Some(access) = ex.op.vec_mem.as_ref() else { return EntryOutcome::Expand(ex) };
     let VecMemTarget::Span(span) = &access.target else { return EntryOutcome::Expand(ex) };
     let (is_store, micro_op, vaddr, bytes) =
         (access.is_store, access.micro_op, span.vaddr(), span.bytes());
@@ -512,9 +512,9 @@ fn process_span<E: ExecutionEngine>(
     }
 
     if let Some(lq) = engine.load_queue_mut() {
-        lq.fill_address(ex.rob_tag, Some(micro_op), vaddr, paddr);
+        lq.fill_address(ex.op.rob_tag, Some(micro_op), vaddr, paddr);
     }
-    let pc = ex.pc;
+    let pc = ex.op.pc;
     match forward_span_from_pending_stores(state, engine, &ex, paddr, bytes) {
         SpanForward::Hit(data) => {
             push_forwarded_span(state, engine, ex, paddr, vaddr, data);
@@ -540,10 +540,10 @@ fn forward_span_from_pending_stores<E: ExecutionEngine>(
     paddr: PhysAddr,
     bytes: usize,
 ) -> SpanForward {
-    if engine.store_buffer().overlaps_older_store(paddr, bytes, ex.rob_tag) {
+    if engine.store_buffer().overlaps_older_store(paddr, bytes, ex.op.rob_tag) {
         return SpanForward::Stall;
     }
-    let vector = engine.vec_store_buffer().forward_span(paddr, bytes, ex.rob_tag);
+    let vector = engine.vec_store_buffer().forward_span(paddr, bytes, ex.op.rob_tag);
     if state.core_mut().wcb.request_send(paddr, bytes) { SpanForward::Stall } else { vector }
 }
 
@@ -561,15 +561,15 @@ fn forward_from_pending_stores<E: ExecutionEngine>(
     bytes: usize,
 ) -> ForwardResult {
     let store_buffer = engine.store_buffer();
-    let scalar = store_buffer.youngest_older_store_to(paddr, ex.ctrl.width, ex.rob_tag);
+    let scalar = store_buffer.youngest_older_store_to(paddr, ex.op.ctrl.width, ex.op.rob_tag);
     let vector_is_younger = scalar.is_some_and(|scalar| {
-        engine.vec_store_buffer().writes_to_between(scalar, ex.rob_tag, paddr, bytes)
+        engine.vec_store_buffer().writes_to_between(scalar, ex.op.rob_tag, paddr, bytes)
     });
     if scalar.is_some() && !vector_is_younger {
-        return store_buffer.forward_load(paddr, ex.ctrl.width, ex.rob_tag);
+        return store_buffer.forward_load(paddr, ex.op.ctrl.width, ex.op.rob_tag);
     }
     let wcb = &mut state.core_mut().wcb;
-    let vector = engine.vec_store_buffer().forward_load(paddr, ex.ctrl.width, ex.rob_tag);
+    let vector = engine.vec_store_buffer().forward_load(paddr, ex.op.ctrl.width, ex.op.rob_tag);
     if vector == ForwardResult::Miss {
         return wcb.forward_load(paddr, bytes);
     }
@@ -587,16 +587,16 @@ fn translate_cbo<E: ExecutionEngine>(
     resolved: &mut Memory1Outcome,
 ) -> EntryOutcome {
     let hart = state.hart();
-    let effect = match cbo::gate(&hart.csrs, hart.privilege, ex.ctrl.system_op, ex.bits) {
+    let effect = match cbo::gate(&hart.csrs, hart.privilege, ex.op.ctrl.system_op, ex.op.bits) {
         Ok(effect) => effect,
         Err(trap) => {
             push_trap(engine, ex, trap);
             return EntryOutcome::Done;
         }
     };
-    let rs1 = ex.alu;
+    let rs1 = ex.op.alu;
     let block = cbo::block_address(rs1);
-    let tval = cbo::fault_address(ex.ctrl.system_op, rs1);
+    let tval = cbo::fault_address(ex.op.ctrl.system_op, rs1);
     if state.check_store_trigger(block) {
         let trap = Trap::Breakpoint(tval);
         push_trap(engine, ex, trap);
@@ -653,12 +653,12 @@ fn resolve_block_op<E: ExecutionEngine>(
     effect: cbo::CboEffect,
     outcome: &mut Memory1Outcome,
 ) {
-    engine.store_buffer_mut().resolve_block(ex.rob_tag, vaddr, block, effect);
-    outcome.resolved_stores.push(ex.rob_tag);
+    engine.store_buffer_mut().resolve_block(ex.op.rob_tag, vaddr, block, effect);
+    outcome.resolved_stores.push(ex.op.rob_tag);
     let violation = engine
         .load_queue_mut()
-        .and_then(|lq| lq.check_ordering_violation_over(block, CBOZ_BLOCK_SIZE, ex.rob_tag))
-        .map(|load| OrderViolation { load, store_pc: ex.pc });
+        .and_then(|lq| lq.check_ordering_violation_over(block, CBOZ_BLOCK_SIZE, ex.op.rob_tag))
+        .map(|load| OrderViolation { load, store_pc: ex.op.pc });
     outcome.violation = OrderViolation::older(outcome.violation, violation);
 }
 
@@ -671,8 +671,8 @@ fn older_store_unwritten<E: ExecutionEngine>(
     paddr: PhysAddr,
     size: u64,
 ) -> bool {
-    engine.store_buffer().has_older_store_to(paddr, ex.ctrl.width, ex.rob_tag)
-        || engine.vec_store_buffer().has_older_store_to(paddr, size as usize, ex.rob_tag)
+    engine.store_buffer().has_older_store_to(paddr, ex.op.ctrl.width, ex.op.rob_tag)
+        || engine.vec_store_buffer().has_older_store_to(paddr, size as usize, ex.op.rob_tag)
         || state.core_mut().wcb.request_send(paddr, size as usize)
 }
 
@@ -735,10 +735,9 @@ fn push_passthrough_with_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entr
 /// Emits a fresh trap entry into the M1→M2 latch.
 fn push_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry, trap: Trap) {
     let vaddr = ex.vaddr();
-    engine.mem1_mem2_mut().push(Mem1Mem2Entry {
-        trap: Some(trap),
-        ..Mem1Mem2Entry::from_execute(ex, vaddr, PhysAddr::new(0))
-    });
+    let mut entry = Mem1Mem2Entry::from_execute(ex, vaddr, PhysAddr::new(0));
+    entry.op.trap = Some(trap);
+    engine.mem1_mem2_mut().push(entry);
 }
 
 /// Writes a translated scalar store's address, and its data unless its
@@ -754,22 +753,22 @@ fn resolve_store<E: ExecutionEngine>(
     outcome: &mut Memory1Outcome,
 ) {
     if ex.store_data_follows {
-        engine.store_buffer_mut().resolve_address(ex.rob_tag, vaddr, paddr);
+        engine.store_buffer_mut().resolve_address(ex.op.rob_tag, vaddr, paddr);
     } else {
-        engine.store_buffer_mut().resolve(ex.rob_tag, vaddr, paddr, ex.store_data);
+        engine.store_buffer_mut().resolve(ex.op.rob_tag, vaddr, paddr, ex.store_data);
     }
-    outcome.resolved_stores.push(ex.rob_tag);
+    outcome.resolved_stores.push(ex.op.rob_tag);
     let violation = engine
         .load_queue_mut()
-        .and_then(|lq| lq.check_ordering_violation(paddr, ex.ctrl.width, ex.rob_tag))
-        .map(|load| OrderViolation { load, store_pc: ex.pc });
+        .and_then(|lq| lq.check_ordering_violation(paddr, ex.op.ctrl.width, ex.op.rob_tag))
+        .map(|load| OrderViolation { load, store_pc: ex.op.pc });
     if let Some(found) = violation
         && found.precedes(outcome.violation)
     {
         trace_fwd!(state.config.general.trace_instructions;
             event           = "violation",
-            store_pc        = %crate::common::trace::Hex(ex.pc.val()),
-            store_tag       = %ex.rob_tag,
+            store_pc        = %crate::common::trace::Hex(ex.op.pc.val()),
+            store_tag       = %ex.op.rob_tag,
             paddr           = %crate::common::trace::Hex(paddr.val()),
             violation_flush = %found.load,
             "M1: memory ordering violation, a younger load already read this location"
@@ -778,8 +777,8 @@ fn resolve_store<E: ExecutionEngine>(
     }
     trace_mem!(state.config.general.trace_instructions;
         stage      = "M1",
-        rob_tag    = %ex.rob_tag,
-        pc         = %crate::common::trace::Hex(ex.pc.val()),
+        rob_tag    = %ex.op.rob_tag,
+        pc         = %crate::common::trace::Hex(ex.op.pc.val()),
         op         = "store-resolve",
         paddr      = %crate::common::trace::Hex(paddr.val()),
         store_data = %crate::common::trace::Hex(ex.store_data),
@@ -851,7 +850,7 @@ fn push_forwarded_span<E: ExecutionEngine>(
     vaddr: VirtAddr,
     data: Box<[u8]>,
 ) {
-    if let Some(VecMemAccess { target: VecMemTarget::Span(span), .. }) = ex.vec_mem.as_mut() {
+    if let Some(VecMemAccess { target: VecMemTarget::Span(span), .. }) = ex.op.vec_mem.as_mut() {
         span.data = Some(data);
     }
     let latency = forward_latency(state).max(1);
@@ -877,7 +876,7 @@ fn emit_span_read<E: ExecutionEngine>(
     let target = ComponentId::Cache(common.l1_d_id);
     let pipeline = ComponentId::Pipeline(common.pipeline_id);
     let size = AccessSize::Span(bytes as u8);
-    let pc = ex.pc;
+    let pc = ex.op.pc;
     let cycle = state.cycle;
     state.events().schedule(
         cycle,
@@ -907,20 +906,20 @@ fn emit_load_req<E: ExecutionEngine>(
     vaddr: VirtAddr,
     dirty_updates: DirtyUpdates,
 ) {
-    let access_size = match ex.ctrl.width {
+    let access_size = match ex.op.ctrl.width {
         MemWidth::Byte => AccessSize::B1,
         MemWidth::Half => AccessSize::B2,
         MemWidth::Word => AccessSize::B4,
         MemWidth::Double | MemWidth::Nop => AccessSize::B8,
     };
-    let op = match ex.ctrl.atomic_op {
+    let op = match ex.op.ctrl.atomic_op {
         Some(op) => MemOp::Atomic { op, data: ex.store_data, hart: state.hart().hart_id },
         None => MemOp::Read,
     };
 
     let target = mmio_or_l1d(state, engine, paddr, access_size);
     let line_bytes = state.core().l1_d_cache.line_bytes() as u64;
-    let width_bytes = ex.ctrl.width.bytes();
+    let width_bytes = ex.op.ctrl.width.bytes();
     let second_line = (!matches!(target, ComponentId::Bus)
         && crosses_cache_line(paddr.val(), width_bytes, line_bytes))
     .then(|| PhysAddr::new((paddr.val() | (line_bytes - 1)) + 1));
@@ -931,7 +930,7 @@ fn emit_load_req<E: ExecutionEngine>(
 
     let cycle = state.cycle;
     let first_size = low_bytes.map_or(access_size, |low| AccessSize::of_bytes(low as usize));
-    let pc = ex.pc;
+    let pc = ex.op.pc;
     state.events().schedule(
         cycle,
         target,
@@ -958,7 +957,7 @@ fn emit_load_req<E: ExecutionEngine>(
         );
     }
 
-    let side_effecting = matches!(target, ComponentId::Bus) || ex.ctrl.performs_at_rob_head();
+    let side_effecting = matches!(target, ComponentId::Bus) || ex.op.ctrl.performs_at_rob_head();
     let parts = low_bytes.map_or(LoadParts::Whole(None), |low| LoadParts::Split {
         low_bytes: low as u8,
         low: None,

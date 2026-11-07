@@ -65,9 +65,9 @@ struct PendingResult {
 /// instruction's execute.
 fn forward_loads(rob: &mut Rob, delivered: &[Mem2WbEntry]) {
     for wb in delivered {
-        let scalar_load = wb.ctrl.mem_read || wb.ctrl.atomic_op.is_some();
-        if scalar_load && wb.trap.is_none() && wb.vec_mem.is_none() {
-            rob.forward(wb.rob_tag, wb.load_data);
+        let scalar_load = wb.op.ctrl.mem_read || wb.op.ctrl.atomic_op.is_some();
+        if scalar_load && wb.op.trap.is_none() && wb.op.vec_mem.is_none() {
+            rob.forward(wb.op.rob_tag, wb.load_data);
         }
     }
 }
@@ -129,7 +129,7 @@ impl InOrderEngine {
                 continue;
             }
             let done = self.pending.swap_remove(i);
-            self.rob.forward(done.entry.rob_tag, done.entry.register_value());
+            self.rob.forward(done.entry.op.rob_tag, done.entry.register_value());
             self.execute_mem1.push(done.entry);
         }
     }
@@ -148,10 +148,10 @@ impl InOrderEngine {
         self.common.squash(scope);
         self.fu_pool.release_squashed(state.cycle, |tag| !scope.keeps(tag));
         self.vec_mem_inflight.retain(|m| scope.keeps(m.rob_tag));
-        self.pending.retain(|p| scope.keeps(p.entry.rob_tag));
-        self.execute_mem1.retain(|e| scope.keeps(e.rob_tag));
-        self.mem1_mem2.retain(|e| scope.keeps(e.rob_tag));
-        self.mem2_wb.retain(|e| scope.keeps(e.rob_tag));
+        self.pending.retain(|p| scope.keeps(p.entry.op.rob_tag));
+        self.execute_mem1.retain(|e| scope.keeps(e.op.rob_tag));
+        self.mem1_mem2.retain(|e| scope.keeps(e.op.rob_tag));
+        self.mem2_wb.retain(|e| scope.keeps(e.op.rob_tag));
         self.scoreboard.rebuild_from_rob(&self.rob);
     }
 
@@ -180,10 +180,10 @@ impl InOrderEngine {
     /// waits for its unit's latency in `pending`.
     fn hold_results(&mut self, results: Vec<ExMem1Entry>, units: &[IssuedUnit], now: u64) {
         for entry in results {
-            let is_mem = entry.ctrl.uses_memory_pipeline();
-            let unit = units.iter().find(|u| u.tag == entry.rob_tag);
+            let is_mem = entry.op.ctrl.uses_memory_pipeline();
+            let unit = units.iter().find(|u| u.tag == entry.op.rob_tag);
             match unit {
-                Some(unit) if !is_mem && !entry.ctrl.vec_op.is_config() => {
+                Some(unit) if !is_mem && !entry.op.ctrl.vec_op.is_config() => {
                     self.pending.push(PendingResult {
                         complete_cycle: unit.complete_cycle.max(now + 1),
                         entry,
@@ -258,7 +258,7 @@ impl InOrderEngine {
     fn retire_vec_mem_elements(&mut self, state: &CoreCtx<'_>) {
         let entries = std::mem::take(&mut self.mem2_wb);
         for wb in entries {
-            let Some(access) = wb.vec_mem.as_ref() else {
+            let Some(access) = wb.op.vec_mem.as_ref() else {
                 self.mem2_wb.push(wb);
                 continue;
             };
@@ -267,15 +267,15 @@ impl InOrderEngine {
             for value in retired.writes {
                 let elems_per_reg = (vlen_bits / (value.eew.bytes() * 8)).max(1);
                 let write = ElementWrite {
-                    reg: VRegIdx::new(wb.ctrl.vd.as_u8() + value.dest_slot as u8),
+                    reg: VRegIdx::new(wb.op.ctrl.vd.as_u8() + value.dest_slot as u8),
                     index: ElemIdx::new(value.elem_idx.as_usize() % elems_per_reg),
                     eew: value.eew,
                     data: value.value,
                 };
-                self.rob.push_vec_element_write(wb.rob_tag, write);
+                self.rob.push_vec_element_write(wb.op.rob_tag, write);
             }
             if retired.completed {
-                self.vec_mem_inflight.retain(|m| m.rob_tag != wb.rob_tag);
+                self.vec_mem_inflight.retain(|m| m.rob_tag != wb.op.rob_tag);
             }
         }
     }
@@ -464,7 +464,7 @@ impl ExecutionEngine for InOrderEngine {
         // Issue would overwrite the entries memory1 still holds.
         let (results, units) =
             if is_backpressured { (Vec::new(), Vec::new()) } else { self.issue(state, now) };
-        if results.iter().any(|r| r.ctrl.vec_op.is_config()) {
+        if results.iter().any(|r| r.op.ctrl.vec_op.is_config()) {
             self.common.vector_config_unresolved = false;
         }
         self.hold_results(results, &units, now);

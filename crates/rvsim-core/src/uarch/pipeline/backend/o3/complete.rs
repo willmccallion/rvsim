@@ -33,7 +33,7 @@ impl O3Engine {
         finished.sort_by(|a, b| {
             a.complete_cycle
                 .cmp(&b.complete_cycle)
-                .then_with(|| a.entry.rob_tag.age_cmp(b.entry.rob_tag))
+                .then_with(|| a.entry.op.rob_tag.age_cmp(b.entry.op.rob_tag))
         });
         self.pending_results = waiting;
         self.pending_results.extend(finished.split_off(slots.min(finished.len())));
@@ -52,24 +52,24 @@ impl O3Engine {
         let finished = self.take_finished_results(now, slots);
         let used = finished.len();
         for PendingResult { entry, .. } in finished {
-            if let Some(seq) = self.rob.find_entry(entry.rob_tag).map(|e| e.seq) {
+            if let Some(seq) = self.rob.find_entry(entry.op.rob_tag).map(|e| e.seq) {
                 state.trace_stage(seq, Stage::Writeback);
             }
-            if let Some(trap) = entry.trap {
-                self.rob.fault(entry.rob_tag, trap);
+            if let Some(trap) = entry.op.trap {
+                self.rob.fault(entry.op.rob_tag, trap);
                 continue;
             }
             let val = entry.register_value();
-            if !entry.fp_flags.is_empty() {
-                self.rob.set_fp_flags(entry.rob_tag, entry.fp_flags);
+            if !entry.op.fp_flags.is_empty() {
+                self.rob.set_fp_flags(entry.op.rob_tag, entry.op.fp_flags);
             }
-            if let Some(info) = entry.sfence_vma {
-                self.rob.set_sfence_vma(entry.rob_tag, info);
+            if let Some(info) = entry.op.sfence_vma {
+                self.rob.set_sfence_vma(entry.op.rob_tag, info);
             }
             // CSR writes deferred to commit so speculative state isn't observed on trap.
-            self.rob.complete(entry.rob_tag, val);
-            self.prf.write(entry.rd_phys, val);
-            self.issue_queue.wakeup_phys(entry.rd_phys, val);
+            self.rob.complete(entry.op.rob_tag, val);
+            self.prf.write(entry.op.rd_phys, val);
+            self.issue_queue.wakeup_phys(entry.op.rd_phys, val);
         }
         used
     }

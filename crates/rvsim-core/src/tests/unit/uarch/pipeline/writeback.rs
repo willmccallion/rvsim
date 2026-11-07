@@ -4,17 +4,20 @@ use crate::common::VirtAddr;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::instruction::InstSize;
 use crate::isa::op::AtomicOp;
-use crate::uarch::pipeline::latches::Mem2WbEntry;
+use crate::uarch::pipeline::latches::{InFlightOp, Mem2WbEntry};
 
 const PC: u64 = 0x8000_0000;
 const ADDRESS: u64 = 0x8000_1000;
 
 fn entry(ctrl: ControlSignals, alu: u64, load_data: u64) -> Mem2WbEntry {
     Mem2WbEntry {
-        pc: VirtAddr::new(PC),
-        inst_size: InstSize::Standard,
-        ctrl,
-        alu,
+        op: InFlightOp {
+            pc: VirtAddr::new(PC),
+            inst_size: InstSize::Standard,
+            ctrl,
+            alu,
+            ..InFlightOp::default()
+        },
         load_data,
         ..Default::default()
     }

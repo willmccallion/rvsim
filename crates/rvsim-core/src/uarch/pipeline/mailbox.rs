@@ -152,7 +152,7 @@ fn complete_load<E: ExecutionEngine>(
     if let Some(log) = state.memory.write_log()
         && let Some(load_queue) = pipeline.engine.load_queue_mut()
         && let Some(violator) =
-            load_queue.check_coherence_violation(entry.rob_tag, paddr, log, state.hart().hart_id)
+            load_queue.check_coherence_violation(entry.op.rob_tag, paddr, log, state.hart().hart_id)
     {
         pipeline.engine.common_mut().note_coherence_violation(violator);
     }
@@ -245,7 +245,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 // translating again through the TLB would lose.
                 let translation =
                     Some(TranslationResult { cycles: 0, accessed_update: None, ..result });
-                if walked_page == entry.alu >> PAGE_SHIFT {
+                if walked_page == entry.op.alu >> PAGE_SHIFT {
                     translations.first = translation;
                 } else {
                     translations.second = translation;
@@ -258,15 +258,15 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 return;
             }
             if let Some(trap) = result.trap {
-                let op = entry.ctrl.system_op;
+                let op = entry.op.ctrl.system_op;
                 let trap = if op.is_cbo() {
-                    cbo::as_store_fault(trap, cbo::fault_address(op, entry.alu))
+                    cbo::as_store_fault(trap, cbo::fault_address(op, entry.op.alu))
                 } else {
                     trap
                 };
                 // Stamp the trap on the entry so memory1 propagates it to
                 // memory2 / writeback rather than walking again.
-                entry.trap = Some(trap);
+                entry.op.trap = Some(trap);
             }
             pipeline.engine.execute_mem1_mut().push(entry);
         }

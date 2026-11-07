@@ -83,10 +83,9 @@ pub fn execute_one(
         Ok(redirect) => redirect,
         Err(trap) => return faulted(state, issued, trap),
     };
-    (
-        ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(issued, alu_out, issued.inst.rv2) },
-        redirect,
-    )
+    let mut result = ExMem1Entry::from_issue(issued, alu_out, issued.inst.rv2);
+    result.op.fp_flags = fp_flags;
+    (result, redirect)
 }
 
 /// Executes a system instruction; `None` for everything else. FENCE.I,
@@ -187,8 +186,8 @@ mod tests {
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
         assert!(redirect.is_none());
-        assert_eq!(result.alu, 10); // rv1 (10) + 0
-        assert_eq!(result.rob_tag, tag);
+        assert_eq!(result.op.alu, 10); // rv1 (10) + 0
+        assert_eq!(result.op.rob_tag, tag);
     }
 
     #[test]
@@ -240,7 +239,7 @@ mod tests {
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
 
         assert!(redirect.is_none());
-        assert!(result.trap.is_some());
+        assert!(result.op.trap.is_some());
         let entry = rob.find_entry(tag).unwrap();
         assert!(!entry.state.is_faulted());
     }
@@ -353,7 +352,7 @@ mod tests {
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
 
         assert!(redirect.is_none());
-        assert_eq!(result.trap, Some(Trap::IllegalInstruction(issue.inst.bits)));
+        assert_eq!(result.op.trap, Some(Trap::IllegalInstruction(issue.inst.bits)));
     }
 
     #[test]

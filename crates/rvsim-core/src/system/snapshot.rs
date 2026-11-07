@@ -191,39 +191,39 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                 .execute_mem1
                 .iter()
                 .map(|e| ExecutedSlot {
-                    pc: e.pc,
-                    raw: e.bits,
-                    rd: e.rd,
-                    alu: e.alu,
+                    pc: e.op.pc,
+                    raw: e.op.bits,
+                    rd: e.op.rd,
+                    alu: e.op.alu,
                     store_data: e.store_data,
-                    rob_tag: e.rob_tag.raw(),
+                    rob_tag: e.op.rob_tag.raw(),
                 })
                 .collect(),
             mem1_mem2: latches
                 .mem1_mem2
                 .iter()
                 .map(|e| MemorySlot {
-                    pc: e.pc,
-                    raw: e.bits,
-                    rd: e.rd,
-                    alu: e.alu,
+                    pc: e.op.pc,
+                    raw: e.op.bits,
+                    rd: e.op.rd,
+                    alu: e.op.alu,
                     vaddr: e.vaddr,
                     paddr: e.paddr,
                     store_data: e.store_data,
-                    rob_tag: e.rob_tag.raw(),
+                    rob_tag: e.op.rob_tag.raw(),
                 })
                 .collect(),
             mem2_wb: latches
                 .mem2_wb
                 .iter()
                 .map(|e| WritebackSlot {
-                    pc: e.pc,
-                    raw: e.bits,
-                    rd: e.rd,
-                    alu: e.alu,
+                    pc: e.op.pc,
+                    raw: e.op.bits,
+                    rd: e.op.rd,
+                    alu: e.op.alu,
                     load_data: e.load_data,
                     value: e.written_value(),
-                    rob_tag: e.rob_tag.raw(),
+                    rob_tag: e.op.rob_tag.raw(),
                 })
                 .collect(),
         }

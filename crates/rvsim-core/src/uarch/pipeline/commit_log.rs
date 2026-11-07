@@ -108,17 +108,17 @@ impl MemEffect {
     /// store buffer instead.
     #[must_use]
     pub fn of_memory2(mem: &Mem1Mem2Entry) -> Option<Self> {
-        if mem.trap.is_some() || mem.vec_mem.is_some() || mem.ctrl.system_op.is_cbo() {
+        if mem.op.trap.is_some() || mem.op.vec_mem.is_some() || mem.op.ctrl.system_op.is_cbo() {
             return None;
         }
-        let width = mem.ctrl.width;
-        let (read, write) = match mem.ctrl.atomic_op {
+        let width = mem.op.ctrl.width;
+        let (read, write) = match mem.op.ctrl.atomic_op {
             Some(AtomicOp::Lr) => (Some(mem.load_data), None),
             Some(AtomicOp::Sc) => (None, (mem.load_data == 0).then_some(mem.store_data)),
             Some(op) => {
                 (Some(mem.load_data), Some(atomic_alu(op, mem.load_data, mem.store_data, width)))
             }
-            None if mem.ctrl.mem_read => (Some(mem.load_data), None),
+            None if mem.op.ctrl.mem_read => (Some(mem.load_data), None),
             None => return None,
         };
         Some(Self::new(mem.vaddr, mem.paddr, width, read, write))
@@ -163,8 +163,8 @@ impl VectorElementAccess {
     /// The element accesses a vector memory micro-op leaving memory2 made.
     #[must_use]
     pub fn of_memory2(mem: &Mem1Mem2Entry) -> Vec<Self> {
-        let Some(access) = mem.vec_mem.as_ref() else { return Vec::new() };
-        if mem.trap.is_some() {
+        let Some(access) = mem.op.vec_mem.as_ref() else { return Vec::new() };
+        if mem.op.trap.is_some() {
             return Vec::new();
         }
         let values = |read: u64, write: u64| {

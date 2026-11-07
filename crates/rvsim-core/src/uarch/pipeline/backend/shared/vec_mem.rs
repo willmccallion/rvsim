@@ -19,7 +19,7 @@ use crate::isa::privileged::Trap;
 use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen, parse_vtype};
 use crate::uarch::pipeline::latches::{
-    ExMem1Entry, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
+    ExMem1Entry, InFlightOp, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
 };
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
@@ -77,11 +77,11 @@ impl VecMemInflight {
         vd_phys: [VecPhysReg; MAX_GROUP_REGS],
         vd_count: u8,
     ) -> Self {
-        let vec_op = parent.ctrl.vec_op;
+        let vec_op = parent.op.ctrl.vec_op;
         let planned = plan_accesses(accesses, moves_in_spans(vec_op), width);
         let pending_micro_ops = micro_ops_for(parent, planned, is_vec_store(vec_op));
         Self {
-            rob_tag: parent.rob_tag,
+            rob_tag: parent.op.rob_tag,
             remaining: pending_micro_ops.len(),
             vd_phys,
             vd_count,
@@ -299,24 +299,26 @@ const fn memory_entry(
     store_data: u64,
     width: MemWidth,
 ) -> ExMem1Entry {
-    let mut ctrl = parent.ctrl;
+    let mut ctrl = parent.op.ctrl;
     ctrl.mem_read = !access.is_store;
     ctrl.mem_write = access.is_store;
     ctrl.width = width;
     ExMem1Entry {
-        rob_tag: parent.rob_tag,
-        pc: parent.pc,
-        bits: parent.bits,
-        inst_size: parent.inst_size,
-        rd: parent.rd,
-        rd_phys: parent.rd_phys,
-        alu: vaddr,
+        op: InFlightOp {
+            rob_tag: parent.op.rob_tag,
+            pc: parent.op.pc,
+            bits: parent.op.bits,
+            inst_size: parent.op.inst_size,
+            rd: parent.op.rd,
+            rd_phys: parent.op.rd_phys,
+            alu: vaddr,
+            ctrl,
+            trap: None,
+            fp_flags: FpFlags::NONE,
+            sfence_vma: None,
+            vec_mem: Some(access),
+        },
         store_data,
-        ctrl,
-        trap: None,
-        fp_flags: FpFlags::NONE,
-        sfence_vma: None,
-        vec_mem: Some(access),
         store_data_follows: false,
         replaying: false,
     }
@@ -328,9 +330,9 @@ const fn memory_entry(
 /// trigger or a device to meet element by element. Returns the span's
 /// micro-op, whose load-queue entry the elements' replace.
 pub fn expand_span(entry: &ExMem1Entry, inflight: &mut [VecMemInflight]) -> Option<MicroOpIdx> {
-    let access = entry.vec_mem.as_ref()?;
+    let access = entry.op.vec_mem.as_ref()?;
     let VecMemTarget::Span(span) = &access.target else { return None };
-    let parent = inflight.iter_mut().find(|m| m.rob_tag == entry.rob_tag)?;
+    let parent = inflight.iter_mut().find(|m| m.rob_tag == entry.op.rob_tag)?;
     let elements: Vec<VecMemMicroOp> = span
         .elements
         .iter()
@@ -379,24 +381,24 @@ pub fn retire_access(
     inflight: &mut [VecMemInflight],
     rob: &mut Rob,
 ) -> AccessRetired {
-    let Some(parent) = inflight.iter_mut().find(|m| m.rob_tag == wb.rob_tag) else {
+    let Some(parent) = inflight.iter_mut().find(|m| m.rob_tag == wb.op.rob_tag) else {
         return AccessRetired { writes: Vec::new(), completed: false };
     };
     #[cfg(feature = "commit-log")]
-    rob.add_vec_mem_effects(wb.rob_tag, &wb.vec_mem_effects);
+    rob.add_vec_mem_effects(wb.op.rob_tag, &wb.vec_mem_effects);
     let values = element_values(wb, access);
-    if let (Some(trap), Some(first)) = (&wb.trap, values.first()) {
-        let trims = wb.ctrl.vec_op == VectorOp::VLoadFF && first.elem_idx.as_usize() > 0;
+    if let (Some(trap), Some(first)) = (&wb.op.trap, values.first()) {
+        let trims = wb.op.ctrl.vec_op == VectorOp::VLoadFF && first.elem_idx.as_usize() > 0;
         if trims {
             if parent.trimmed_at.is_none_or(|at| first.elem_idx < at) {
                 parent.trimmed_at = Some(first.elem_idx);
-                rob.set_vl_trim(wb.rob_tag, first.elem_idx.as_usize() as u64);
+                rob.set_vl_trim(wb.op.rob_tag, first.elem_idx.as_usize() as u64);
             }
         } else if parent.fault.as_ref().is_none_or(|fault| first.elem_idx < fault.element) {
             parent.fault = Some(ElementFault { element: first.elem_idx, trap: trap.clone() });
         }
     }
-    let writes = if wb.trap.is_some() || access.is_store {
+    let writes = if wb.op.trap.is_some() || access.is_store {
         Vec::new()
     } else {
         values.into_iter().filter(|v| parent.trimmed_at.is_none_or(|at| v.elem_idx < at)).collect()
@@ -407,9 +409,9 @@ pub fn retire_access(
         match parent.fault.take() {
             Some(fault) => {
                 let element = fault.element.as_usize() as u64;
-                rob.fault_element(wb.rob_tag, fault.trap, element);
+                rob.fault_element(wb.op.rob_tag, fault.trap, element);
             }
-            None => rob.complete(wb.rob_tag, 0),
+            None => rob.complete(wb.op.rob_tag, 0),
         }
     }
     AccessRetired { writes, completed }
