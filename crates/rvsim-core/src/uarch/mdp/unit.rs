@@ -70,8 +70,8 @@ impl MemDepAccess {
 #[derive(Debug)]
 pub struct MemDepUnit {
     predictor: PredictorKind,
-    /// In-flight dependency records: waiting instruction → barrier it waits on.
-    deps: HashMap<RobTag, DepRecord>,
+    /// The instructions still waiting on a store, each with the store it waits on.
+    deps: HashMap<RobTag, RobTag>,
     /// Aggregated statistics (`bypass`/`wait_all`/`wait_for`/violations).
     stats: MdpStats,
 }
@@ -83,15 +83,6 @@ enum PredictorKind {
     Blind,
     /// Store-set predictor: learns dependencies from violations.
     StoreSet(Box<StoreSetPredictor>),
-}
-
-/// Record of an in-flight memory dependency.
-#[derive(Debug)]
-struct DepRecord {
-    /// The instruction this waiter depends on.
-    barrier: RobTag,
-    /// Whether the barrier has resolved its address.
-    resolved: bool,
 }
 
 impl MemDepUnit {
@@ -131,7 +122,7 @@ impl MemDepUnit {
                 }
                 match prediction {
                     MemPrediction::DepOn(barrier) if barrier.is_older_than(rob_tag) => {
-                        let _ = self.deps.insert(rob_tag, DepRecord { barrier, resolved: false });
+                        let _ = self.deps.insert(rob_tag, barrier);
                         self.stats.predictions_wait_for += 1;
                         MemDepState::WaitFor(barrier)
                     }
@@ -148,18 +139,13 @@ impl MemDepUnit {
 
     /// Called when a store resolves its address (in memory2).
     ///
-    /// Marks all deps waiting on this store as resolved.
-    /// Returns the store's `RobTag` so the IQ can wake entries whose
+    /// Drops the dependences on this store. Returns the store's `RobTag`
+    /// when something waited on it, so the IQ can wake entries whose
     /// `WaitFor(barrier)` matches it.
     pub fn store_resolved(&mut self, store_rob_tag: RobTag) -> Option<RobTag> {
-        let mut any_woken = false;
-        for dep in self.deps.values_mut() {
-            if dep.barrier == store_rob_tag && !dep.resolved {
-                dep.resolved = true;
-                any_woken = true;
-            }
-        }
-        if any_woken { Some(store_rob_tag) } else { None }
+        let waiting = self.deps.len();
+        self.deps.retain(|_, barrier| *barrier != store_rob_tag);
+        (self.deps.len() < waiting).then_some(store_rob_tag)
     }
 
     /// Called when an instruction is issued from the IQ.
@@ -338,6 +324,21 @@ mod tests {
         // Resolve store — should wake the load.
         let woken = mdu.store_resolved(s1);
         assert_eq!(woken, Some(s1));
+    }
+
+    #[test]
+    fn a_store_wakes_its_waiters_only_the_first_time_it_resolves() {
+        let mut mdu = MemDepUnit::new(&store_set_config());
+        let (store_pc, load_pc) = (VirtAddr::new(0x2000), VirtAddr::new(0x1000));
+        mdu.violation(load_pc, store_pc);
+        let store = RobTag::new(5);
+        let _ = mdu.dispatch(store_pc, store, MemDepAccess::Store);
+        let _ = mdu.dispatch(load_pc, RobTag::new(10), MemDepAccess::Load);
+
+        let first = mdu.store_resolved(store);
+        let second = mdu.store_resolved(store);
+
+        assert_eq!((first, second), (Some(store), None));
     }
 
     #[test]
