@@ -77,20 +77,26 @@ pub struct Registers {
     pub(crate) hart: usize,
 }
 
+/// The integer register Python's `idx` names, or an `IndexError`.
+fn register_index(idx: usize) -> PyResult<RegIdx> {
+    u8::try_from(idx).ok().filter(|&i| usize::from(i) < RegIdx::COUNT).map(RegIdx::new).ok_or_else(
+        || {
+            PyIndexError::new_err(format!(
+                "register index {idx} out of range (0–{})",
+                RegIdx::COUNT - 1
+            ))
+        },
+    )
+}
+
 #[pymethods]
 impl Registers {
     fn __getitem__(&self, py: Python<'_>, idx: usize) -> PyResult<u64> {
-        if idx >= 32 {
-            return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
-        }
-        Ok(self.cpu.borrow(py).inner.hart(self.hart).regs.read(RegIdx::new(idx as u8)))
+        Ok(self.cpu.borrow(py).inner.hart(self.hart).regs.read(register_index(idx)?))
     }
 
     fn __setitem__(&self, py: Python<'_>, idx: usize, value: u64) -> PyResult<()> {
-        if idx >= 32 {
-            return Err(PyIndexError::new_err(format!("register index {idx} out of range (0–31)")));
-        }
-        self.cpu.borrow_mut(py).inner.set_reg(self.hart, RegIdx::new(idx as u8), value);
+        self.cpu.borrow_mut(py).inner.set_reg(self.hart, register_index(idx)?, value);
         Ok(())
     }
 

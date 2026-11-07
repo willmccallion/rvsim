@@ -15,6 +15,9 @@
 pub struct RegIdx(u8);
 
 impl RegIdx {
+    /// Registers in the integer and floating-point register files.
+    pub const COUNT: usize = 32;
+
     /// Creates a `RegIdx` from a raw `u8` value.
     ///
     /// # Panics
