@@ -128,12 +128,9 @@ impl O3Engine {
             if let Some(dest) = entry.ctrl.dest(entry.rd) {
                 self.rename_map.set(dest, entry.dst.phys);
             }
-            if entry.vec_dst_count > 0 {
-                let vd_base = entry.ctrl.vd.as_u8();
-                for i in 0..entry.vec_dst_count as usize {
-                    let vreg = VRegIdx::new(vd_base + i as u8);
-                    self.rename_map.set_vec(vreg, entry.vec_phys_dst[i]);
-                }
+            let vd_base = entry.ctrl.vd.as_u8();
+            for (offset, &reg) in entry.vec_dst.as_slice().iter().enumerate() {
+                self.rename_map.set_vec(VRegIdx::new(vd_base + offset as u8), reg);
             }
         }
     }
@@ -146,7 +143,7 @@ impl O3Engine {
         }
         for entry in self.rob.iter_squashed(scope) {
             self.free_list.reclaim(entry.dst.phys);
-            for &vec_dst in &entry.vec_phys_dst[..entry.vec_dst_count as usize] {
+            for &vec_dst in entry.vec_dst.as_slice() {
                 self.vec_free_list.reclaim(vec_dst);
             }
         }

@@ -381,7 +381,7 @@ fn vector_element_accesses(entry: &RobEntry) -> Vec<MemEffect> {
 
 /// The vector registers `entry` wrote, as `vpr` holds them after it retired.
 fn vector_register_writes(entry: &RobEntry, vpr: &Vpr) -> Vec<VectorRegisterWrite> {
-    let mut regs: Vec<u8> = (0..entry.vec_dst_count).map(|i| entry.ctrl.vd.as_u8() + i).collect();
+    let mut regs: Vec<u8> = (0..entry.vec_dst.len()).map(|i| entry.ctrl.vd.as_u8() + i).collect();
     if let Some(writes) = &entry.vec_writes {
         regs.extend(writes.registers.iter().map(|(reg, _)| reg.as_u8()));
         regs.extend(writes.elements.iter().map(|element| element.reg.as_u8()));

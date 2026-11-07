@@ -28,7 +28,7 @@ use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::prf::PhysReg;
-use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecRegGroup};
 use crate::uarch::pipeline::rob::RenamedDst;
 use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::trace::Stage;
@@ -116,12 +116,9 @@ impl O3Engine {
             rs1_phys: map.get(ctrl.src1(inst.rs1)),
             rs2_phys: map.get(ctrl.src2(inst.rs2)),
             rs3_phys: ctrl.src3(inst.rs3).map_or(PhysReg::ZERO, |rs3| map.get(rs3)),
-            vs1_phys: map.vec_group(ctrl.vs1, vs1_count),
-            vs2_phys: map.vec_group(ctrl.vs2, vs2_count),
-            vs3_phys: map.vec_group(ctrl.vd, vs3_count),
-            vec_src1_count: vs1_count,
-            vec_src2_count: vs2_count,
-            vec_src3_count: vs3_count,
+            vs1: map.vec_group(ctrl.vs1, vs1_count),
+            vs2: map.vec_group(ctrl.vs2, vs2_count),
+            vs3: map.vec_group(ctrl.vd, vs3_count),
             mask: ctrl.is_masked_vector_op().then(|| map.get_vec(VRegIdx::new(0))),
             ..RenamedRegisters::default()
         }
@@ -153,23 +150,23 @@ impl O3Engine {
             }
             return None;
         };
-        let mut vd_phys = [VecPhysReg::ZERO; MAX_GROUP_REGS];
-        for (slot, reg) in vd_phys.iter_mut().zip(vd_regs.take()) {
+        let mut vd_regs_taken = [VecPhysReg::ZERO; MAX_GROUP_REGS];
+        for (slot, reg) in vd_regs_taken.iter_mut().zip(vd_regs.take()) {
             *slot = reg;
         }
+        let vd = VecRegGroup::from_slice(&vd_regs_taken[..vd_count as usize]);
         if let Some(dest) = dest {
             self.rename_map.set(dest, renamed.phys);
             self.prf.allocate(renamed.phys);
         }
-        if vd_count > 0 {
-            let renamed = &vd_phys[..vd_count as usize];
-            let vec_old_phys = self.rename_map.rename_vec_group(inst.ctrl.vd, renamed);
-            for &reg in renamed {
+        if !vd.is_empty() {
+            let vd_old = self.rename_map.rename_vec_group(inst.ctrl.vd, vd);
+            for &reg in vd.as_slice() {
                 self.vec_prf.allocate(reg);
             }
-            self.rob.set_vec_phys_dst(rob_tag, vd_phys, vec_old_phys, vd_count);
+            self.rob.set_vec_dst(rob_tag, vd, vd_old);
         }
-        Some(Destinations { rob_tag, renamed, vd_phys })
+        Some(Destinations { rob_tag, renamed, vd })
     }
     /// Takes `ctrl`'s store-buffer or load-queue slots for ROB entry
     /// `rob_tag`, which `has_room_for` saw free.
@@ -216,7 +213,7 @@ struct VectorContext {
 struct Destinations {
     rob_tag: RobTag,
     renamed: RenamedDst,
-    vd_phys: [VecPhysReg; MAX_GROUP_REGS],
+    vd: VecRegGroup,
 }
 
 /// The issue-queue entry for `decoded`, its sources renamed to `sources`
@@ -235,7 +232,7 @@ const fn renamed_entry(
         seq: decoded.seq,
         vector_config: vector.config,
         vector_rounding: vector.rounding,
-        regs: RenamedRegisters { rd_phys: dests.renamed.phys, vd_phys: dests.vd_phys, ..sources },
+        regs: RenamedRegisters { rd_phys: dests.renamed.phys, vd: dests.vd, ..sources },
     }
 }
 
@@ -252,20 +249,14 @@ pub struct RenamedRegisters {
     /// The physical register the result goes to, x0's when it has none.
     pub rd_phys: PhysReg,
     /// The vs1 group.
-    pub vs1_phys: [VecPhysReg; MAX_GROUP_REGS],
+    pub vs1: VecRegGroup,
     /// The vs2 group.
-    pub vs2_phys: [VecPhysReg; MAX_GROUP_REGS],
+    pub vs2: VecRegGroup,
     /// The old destination group, for tail and mask merging and as store
     /// data.
-    pub vs3_phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// The destination group.
-    pub vd_phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// Registers in the vs1 group.
-    pub vec_src1_count: u8,
-    /// Registers in the vs2 group.
-    pub vec_src2_count: u8,
-    /// Registers in the vs3 group.
-    pub vec_src3_count: u8,
+    pub vs3: VecRegGroup,
+    /// The destination group, empty when no vector register is written.
+    pub vd: VecRegGroup,
     /// The physical register holding v0 when a masked vector op was renamed.
     pub mask: Option<VecPhysReg>,
 }
@@ -381,10 +372,7 @@ impl BackendSlots<'_> {
 /// memory instruction's data and index groups depend on its EEW against
 /// the current SEW and LMUL, which `operand_groups` doesn't see, so they
 /// are sized here.
-pub(super) fn vector_operand_groups(
-    ctrl: &ControlSignals,
-    vector: &VectorConfig,
-) -> VecOperandGroups {
+fn vector_operand_groups(ctrl: &ControlSignals, vector: &VectorConfig) -> VecOperandGroups {
     let mut groups = ctrl.vec_op.operand_groups(
         ctrl.vec_lmul_regs,
         ctrl.vec_lmul_is_fractional,

@@ -271,9 +271,9 @@ fn write_destinations(
     if let Some(writes) = &entry.vec_writes {
         retire::apply_vector_writes(state.hart, writes);
     }
-    if entry.vec_dst_count > 0 {
+    if !entry.vec_dst.is_empty() {
         let vd_base = entry.ctrl.vd.as_u8();
-        for i in 0..entry.vec_dst_count as usize {
+        for i in 0..usize::from(entry.vec_dst.len()) {
             let vreg = VRegIdx::new(vd_base + i as u8);
             registers.retire_vec(state.hart.regs.vpr_mut(), entry, i, vreg);
         }

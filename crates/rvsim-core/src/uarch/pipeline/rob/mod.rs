@@ -11,7 +11,6 @@
 #[cfg(feature = "commit-log")]
 use crate::exec::compute::vector::agnostic::AgnosticFills;
 use crate::isa::op::SystemOp;
-use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::sim::memory::write_log::WriteSeq;
 #[cfg(feature = "commit-log")]
 use crate::uarch::pipeline::commit_log::MemEffect;
@@ -38,7 +37,7 @@ use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
 use crate::uarch::pipeline::rename::checkpoint::CheckpointId;
 use crate::uarch::pipeline::rename::prf::PhysReg;
-use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::rename::vec_prf::VecRegGroup;
 
 /// Branch outcome recorded at execute time for deferred predictor update.
 ///
@@ -252,12 +251,12 @@ pub struct RobEntry {
     pub mem_access: Option<MemAccess>,
     /// Checkpoint table slot allocated for this branch/jump (O3 backend).
     pub checkpoint_id: Option<CheckpointId>,
-    /// Physical vector registers allocated for destination LMUL group (O3 backend).
-    pub vec_phys_dst: [VecPhysReg; MAX_GROUP_REGS],
-    /// Previous physical mappings for destination LMUL group (reclaimed at commit).
-    pub vec_old_phys_dst: [VecPhysReg; MAX_GROUP_REGS],
-    /// Number of destination vector registers in the LMUL group (0 for non-vector).
-    pub vec_dst_count: u8,
+    /// Physical vector registers rename gave the destination group (O3
+    /// backend); empty when no vector register is renamed.
+    pub vec_dst: VecRegGroup,
+    /// The registers the destination group mapped to before, freed at
+    /// commit.
+    pub vec_old_dst: VecRegGroup,
     /// Deferred vxsat (fixed-point saturation) flag from vector execution (applied at commit).
     pub vxsat: bool,
     /// Vector register writes a backend without vector renaming holds
@@ -399,9 +398,8 @@ impl Rob {
             observed: None,
             mem_access: None,
             checkpoint_id: None,
-            vec_phys_dst: [VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_old_phys_dst: [VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_dst_count: 0,
+            vec_dst: VecRegGroup::EMPTY,
+            vec_old_dst: VecRegGroup::EMPTY,
             vxsat: false,
             vec_writes: None,
             #[cfg(feature = "commit-log")]
@@ -613,18 +611,12 @@ impl Rob {
         }
     }
 
-    /// Sets the vector physical destination registers for a given entry.
-    pub fn set_vec_phys_dst(
-        &mut self,
-        tag: RobTag,
-        phys_dst: [VecPhysReg; MAX_GROUP_REGS],
-        old_phys_dst: [VecPhysReg; MAX_GROUP_REGS],
-        count: u8,
-    ) {
+    /// Records the registers rename gave `tag`'s destination group, and
+    /// those the group mapped to before.
+    pub fn set_vec_dst(&mut self, tag: RobTag, dst: VecRegGroup, old: VecRegGroup) {
         if let Some(entry) = self.find_entry_mut(tag) {
-            entry.vec_phys_dst = phys_dst;
-            entry.vec_old_phys_dst = old_phys_dst;
-            entry.vec_dst_count = count;
+            entry.vec_dst = dst;
+            entry.vec_old_dst = old;
         }
     }
 

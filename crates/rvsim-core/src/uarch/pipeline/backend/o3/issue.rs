@@ -5,7 +5,6 @@ use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses, is_vec_store};
 use crate::isa::extension::Extension;
-use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
@@ -14,7 +13,7 @@ use crate::uarch::pipeline::backend::shared::execute::record_vector_flags;
 use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
 use crate::uarch::pipeline::backend::shared::vec_mem::VecMemInflight;
 use crate::uarch::pipeline::latches::ExMem1Entry;
-use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPrfView};
+use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPrfView, VecRegGroup};
 use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::trace::Stage;
 use crate::uarch::vector::chaining::VecPendingResult;
@@ -23,16 +22,13 @@ use crate::uarch::vector::lane_model;
 use super::execute;
 use super::fu_pool::FuType;
 use super::issue_queue::{IssueBudget, SelectedEntry};
-use super::rename::vector_operand_groups;
 use super::{O3Engine, PendingResult};
 
 /// A vector instruction's destination register group.
 #[derive(Clone, Copy, Debug)]
 struct VecDest {
     /// Its renamed physical registers.
-    phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// How many registers the group has.
-    count: u8,
+    group: VecRegGroup,
     /// The first architectural register of the group.
     reg: VRegIdx,
 }
@@ -47,16 +43,11 @@ struct IssuedVector<'a> {
 }
 
 /// Points `count` architectural registers from `base` at `regs`.
-fn overlay(
-    mapping: &mut [VecPhysReg; 32],
-    base: VRegIdx,
-    regs: &[VecPhysReg; MAX_GROUP_REGS],
-    count: u8,
-) {
+fn overlay(mapping: &mut [VecPhysReg; 32], base: VRegIdx, group: &VecRegGroup) {
     let base = base.as_u8() as usize;
-    for i in 0..count as usize {
+    for (i, &reg) in group.as_slice().iter().enumerate() {
         if base + i < 32 {
-            mapping[base + i] = regs[i];
+            mapping[base + i] = reg;
         }
     }
 }
@@ -164,8 +155,8 @@ impl O3Engine {
 
         // Map through the rename-time registers so later renames don't alias.
         let mut mapping = self.vec_rename_view();
-        overlay(&mut mapping, ctrl.vs2, &entry.regs.vs2_phys, entry.regs.vec_src2_count);
-        overlay(&mut mapping, ctrl.vs1, &entry.regs.vs1_phys, entry.regs.vec_src1_count);
+        overlay(&mut mapping, ctrl.vs2, &entry.regs.vs2);
+        overlay(&mut mapping, ctrl.vs1, &entry.regs.vs1);
         // Before the destination: a masked compare writing v0 writes the
         // new register, reading each mask bit before it overwrites it.
         if let Some(mask) = entry.regs.mask {
@@ -173,13 +164,13 @@ impl O3Engine {
         }
         if let Some(dest) = dest {
             let base = dest.reg.as_u8() as usize;
-            for i in 0..dest.count as usize {
+            for (i, &phys) in dest.group.as_slice().iter().enumerate() {
                 if base + i < 32 {
                     // Pre-copy old vd so tail/mask-undisturbed reads see correct baseline.
-                    if i < entry.regs.vec_src3_count as usize {
-                        self.vec_prf.copy_reg(dest.phys[i], entry.regs.vs3_phys[i]);
+                    if i < usize::from(entry.regs.vs3.len()) {
+                        self.vec_prf.copy_reg(phys, entry.regs.vs3.get(i));
                     }
-                    mapping[base + i] = dest.phys[i];
+                    mapping[base + i] = phys;
                 }
             }
         }
@@ -213,8 +204,7 @@ impl O3Engine {
         if result.op.ctrl.vec_reg_write {
             self.vec_pending.push(VecPendingResult {
                 rob_tag: result.op.rob_tag,
-                vd_phys: dest.map_or([VecPhysReg::ZERO; MAX_GROUP_REGS], |d| d.phys),
-                vd_count: dest.map_or(0, |d| d.count),
+                vd: dest.map_or(VecRegGroup::EMPTY, |d| d.group),
                 first_group_ready: first_ready,
                 full_complete: complete_cycle,
                 wakeup_fired: false,
@@ -235,8 +225,7 @@ impl O3Engine {
         let ctrl = &entry.inst.ctrl;
         let vec_op = result.op.ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
-        let vd_count = dest.map_or(0, |d| d.count);
-        let vd_phys = dest.map_or([VecPhysReg::ZERO; MAX_GROUP_REGS], |d| d.phys);
+        let vd = dest.map_or(VecRegGroup::EMPTY, |d| d.group);
 
         // Reject illegal EMUL (>8) before element_accesses would panic.
         let vtype = parse_vtype(entry.vector_config.vtype);
@@ -246,8 +235,8 @@ impl O3Engine {
         }
 
         let mut mapping = self.vec_rename_view();
-        overlay(&mut mapping, ctrl.vs2, &entry.regs.vs2_phys, entry.regs.vec_src2_count);
-        overlay(&mut mapping, ctrl.vd, &entry.regs.vs3_phys, entry.regs.vec_src3_count);
+        overlay(&mut mapping, ctrl.vs2, &entry.regs.vs2);
+        overlay(&mut mapping, ctrl.vd, &entry.regs.vs3);
         if let Some(mask) = entry.regs.mask {
             mapping[0] = mask;
         }
@@ -262,9 +251,9 @@ impl O3Engine {
 
         // Pre-copy old vd so tail / mask-undisturbed elements observe prior values.
         if !is_store && let Some(dest) = dest {
-            let copy_count = (dest.count as usize).min(entry.regs.vec_src3_count as usize);
-            for (i, &dst) in dest.phys.iter().enumerate().take(copy_count) {
-                self.vec_prf.copy_reg(dst, entry.regs.vs3_phys[i]);
+            let old = entry.regs.vs3.as_slice();
+            for (&dst, &src) in dest.group.as_slice().iter().zip(old) {
+                self.vec_prf.copy_reg(dst, src);
             }
         }
 
@@ -277,8 +266,7 @@ impl O3Engine {
                 lane_model::first_group_ready(now, self.fu_pool.startup_latency(fu_type));
             self.vec_pending.push(VecPendingResult {
                 rob_tag: result.op.rob_tag,
-                vd_phys,
-                vd_count,
+                vd,
                 first_group_ready: first_ready,
                 full_complete: complete_cycle,
                 wakeup_fired: false,
@@ -286,8 +274,7 @@ impl O3Engine {
             return;
         }
         let width = state.config.pipeline.vector_mem_width_bytes();
-        self.vec_mem_inflight
-            .push(VecMemInflight::plan(&result, micro_ops, width, vd_phys, vd_count));
+        self.vec_mem_inflight.push(VecMemInflight::plan(&result, micro_ops, width, vd));
     }
 
     /// Dispatches renamed instructions into the issue queue, each with the
@@ -318,13 +305,8 @@ impl O3Engine {
 }
 
 /// The destination register group of a vector instruction that writes
-/// vector registers, as rename sized it.
+/// vector registers, as rename renamed it.
 fn vector_dest(entry: &O3Entry) -> Option<VecDest> {
-    let ctrl = &entry.inst.ctrl;
-    let groups = vector_operand_groups(ctrl, &entry.vector_config);
-    (ctrl.vec_reg_write && groups.vd > 0).then_some(VecDest {
-        phys: entry.regs.vd_phys,
-        count: groups.vd,
-        reg: ctrl.vd,
-    })
+    let group = entry.regs.vd;
+    (!group.is_empty()).then_some(VecDest { group, reg: entry.inst.ctrl.vd })
 }

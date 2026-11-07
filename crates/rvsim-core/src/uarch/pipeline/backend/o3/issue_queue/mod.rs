@@ -9,7 +9,6 @@
 
 use crate::isa::op::SystemOp;
 use crate::isa::reg::ArchReg;
-use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::uarch::mdp::MemDepState;
 use crate::uarch::pipeline::backend::o3::O3Entry;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
@@ -19,7 +18,7 @@ use crate::uarch::pipeline::latches::{RenameIssueEntry, SourceReadiness};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
-use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
+use crate::uarch::pipeline::rename::vec_prf::{VecPhysRegFile, VecRegGroup};
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 use crate::uarch::pipeline::squash::SquashScope;
 
@@ -69,37 +68,34 @@ impl OperandState {
 /// not forwarded through the IQ.
 #[derive(Clone, Debug)]
 pub struct VecOperandState {
-    /// Physical registers in this LMUL group.
-    pub phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// Number of registers in this group.
-    pub count: u8,
+    /// The group's physical registers.
+    pub group: VecRegGroup,
     /// True when ALL registers in the group are ready.
     pub ready: bool,
 }
 
 impl Default for VecOperandState {
     fn default() -> Self {
-        Self { phys: [VecPhysReg::ZERO; MAX_GROUP_REGS], count: 0, ready: true }
+        Self { group: VecRegGroup::EMPTY, ready: true }
     }
 }
 
 impl VecOperandState {
+    /// The state of `group`, as `vec_prf` has it now.
+    fn of(group: VecRegGroup, vec_prf: &VecPhysRegFile) -> Self {
+        let mut state = Self { group, ready: false };
+        state.check_ready(vec_prf);
+        state
+    }
+
     /// Check if all physical registers in this group are ready in the Vec PRF.
     pub fn check_ready(&mut self, vec_prf: &VecPhysRegFile) {
-        if self.count == 0 {
-            self.ready = true;
-            return;
-        }
-        self.ready = (0..self.count as usize).all(|i| vec_prf.is_ready(self.phys[i]));
+        self.ready = self.group.as_slice().iter().all(|&reg| vec_prf.is_ready(reg));
     }
 
     /// Re-check readiness after a wakeup broadcast of physical register `p`.
     pub fn wakeup_check(&mut self, p: VecPhysReg, vec_prf: &VecPhysRegFile) {
-        if self.ready || self.count == 0 {
-            return;
-        }
-        let contains = (0..self.count as usize).any(|i| self.phys[i] == p);
-        if contains {
+        if !self.ready && self.group.as_slice().contains(&p) {
             self.check_ready(vec_prf);
         }
     }
@@ -281,25 +277,9 @@ impl IssueQueue {
             resolve_operand(rs3, entry.regs.rs3_phys, prf)
         });
 
-        let mut vec_src1 = VecOperandState {
-            phys: entry.regs.vs1_phys,
-            count: entry.regs.vec_src1_count,
-            ready: entry.regs.vec_src1_count == 0,
-        };
-        let mut vec_src2 = VecOperandState {
-            phys: entry.regs.vs2_phys,
-            count: entry.regs.vec_src2_count,
-            ready: entry.regs.vec_src2_count == 0,
-        };
-        let mut vec_src3 = VecOperandState {
-            phys: entry.regs.vs3_phys,
-            count: entry.regs.vec_src3_count,
-            ready: entry.regs.vec_src3_count == 0,
-        };
-
-        vec_src1.check_ready(vec_prf);
-        vec_src2.check_ready(vec_prf);
-        vec_src3.check_ready(vec_prf);
+        let vec_src1 = VecOperandState::of(entry.regs.vs1, vec_prf);
+        let vec_src2 = VecOperandState::of(entry.regs.vs2, vec_prf);
+        let vec_src3 = VecOperandState::of(entry.regs.vs3, vec_prf);
 
         let mask_ready = entry.regs.mask.is_none_or(|mask| vec_prf.is_ready(mask));
 

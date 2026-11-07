@@ -9,7 +9,7 @@
 //! execution functions to operate transparently on physical registers.
 
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
+use crate::isa::rvv::{ElemIdx, MAX_GROUP_REGS, Sew, VRegIdx, Vlen};
 use crate::uarch::pipeline::rename::free_list::PhysRegister;
 
 /// Vector physical register index (O3 backend).
@@ -38,6 +38,52 @@ impl VecPhysReg {
     #[inline(always)]
     pub const fn as_usize(self) -> usize {
         self.0 as usize
+    }
+}
+
+/// A register group's physical registers: the first `len` of up to
+/// [`MAX_GROUP_REGS`], the rest `VecPhysReg::ZERO`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VecRegGroup {
+    regs: [VecPhysReg; MAX_GROUP_REGS],
+    len: u8,
+}
+
+impl VecRegGroup {
+    /// A group of no registers.
+    pub const EMPTY: Self = Self { regs: [VecPhysReg::ZERO; MAX_GROUP_REGS], len: 0 };
+
+    /// The group of `regs`, at most [`MAX_GROUP_REGS`] of them.
+    #[must_use]
+    pub fn from_slice(regs: &[VecPhysReg]) -> Self {
+        let mut group = Self::EMPTY;
+        group.regs[..regs.len()].copy_from_slice(regs);
+        group.len = regs.len() as u8;
+        group
+    }
+
+    /// The registers in the group, in order.
+    #[must_use]
+    pub fn as_slice(&self) -> &[VecPhysReg] {
+        &self.regs[..usize::from(self.len)]
+    }
+
+    /// How many registers the group has.
+    #[must_use]
+    pub const fn len(&self) -> u8 {
+        self.len
+    }
+
+    /// Whether the group has no registers.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The register at `slot`, `VecPhysReg::ZERO` past the group's end.
+    #[must_use]
+    pub const fn get(&self, slot: usize) -> VecPhysReg {
+        self.regs[slot]
     }
 }
 
