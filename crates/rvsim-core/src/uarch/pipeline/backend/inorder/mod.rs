@@ -327,22 +327,10 @@ impl InOrderEngine {
     }
 }
 
-impl ExecutionEngine for InOrderEngine {
-    fn tick(
-        &mut self,
-        state: &mut CoreCtx<'_>,
-        rename_output: &mut Vec<RenameIssueEntry>,
-        redirect: &mut Option<VirtAddr>,
-    ) {
-        let now = state.cycle;
-        self.redirected_at_commit = false;
-
-        if let Some(squash) = self.common.take_due_squash(now) {
-            self.apply_squash(state, squash, redirect);
-            rename_output.clear();
-        }
-
-        self.common.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
+impl InOrderEngine {
+    /// Commits this cycle's instructions; true when a trap or a
+    /// re-execution flushed the pipeline and redirected fetch.
+    fn retire(&mut self, state: &mut CoreCtx<'_>, redirect: &mut Option<VirtAddr>) -> bool {
         let commit_event = commit::commit_stage(
             state,
             CommitResources {
@@ -354,31 +342,28 @@ impl ExecutionEngine for InOrderEngine {
                 registers: CommitRegisters::Scoreboard(&mut self.scoreboard),
             },
         );
-
-        if let Some(event) = &commit_event {
-            count_flush(state, event.into(), self.rob.len());
-        }
-        match commit_event {
-            Some(CommitEvent::Trap(trap, pc)) => {
-                self.flush(state);
+        let Some(event) = commit_event else {
+            return false;
+        };
+        count_flush(state, (&event).into(), self.rob.len());
+        self.flush(state);
+        let target = match event {
+            CommitEvent::Trap(trap, pc) => {
                 state.trap(&trap, pc);
-                *redirect = Some(state.hart.pc);
-                self.redirected_at_commit = true;
-                return;
+                state.hart.pc
             }
-            Some(CommitEvent::ReExecute(pc, _) | CommitEvent::SquashAfter(pc)) => {
-                self.flush(state);
+            CommitEvent::ReExecute(pc, _) | CommitEvent::SquashAfter(pc) => {
                 state.hart.pc = pc;
-                *redirect = Some(pc);
-                self.redirected_at_commit = true;
-                return;
+                pc
             }
-            None => {}
-        }
+        };
+        *redirect = Some(target);
+        self.redirected_at_commit = true;
+        true
+    }
 
-        self.retire_vec_mem_elements(state);
-        writeback::writeback_stage(&mut state.stage(), &mut self.mem2_wb, &mut self.rob);
-
+    /// Runs memory2, then memory1, so an entry moves one stage a cycle.
+    fn run_memory_stages(&mut self, state: &mut CoreCtx<'_>) {
         let _ = memory2::memory2_stage(
             &state.stage(),
             &mut self.mem1_mem2,
@@ -406,12 +391,81 @@ impl ExecutionEngine for InOrderEngine {
         for span in resolved.expanded_spans {
             let _ = expand_span(&span, &mut self.vec_mem_inflight);
         }
+    }
 
-        // Skip issue+execute when M1 hasn't drained, so we don't overwrite held entries.
-        let backpressured = !self.execute_mem1.is_empty();
-        if backpressured {
+    /// Whether memory1 still holds entries, which issue must not overwrite;
+    /// counted as a backpressure stall.
+    fn note_memory_backpressure(&self, state: &mut CoreCtx<'_>) -> bool {
+        let is_backpressured = !self.execute_mem1.is_empty();
+        if is_backpressured {
             state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
         }
+        is_backpressured
+    }
+
+    /// Issues and executes this cycle's instructions, returning their
+    /// results and the units they took. A branch that mispredicted asks
+    /// for its squash once its unit finishes.
+    fn issue(&mut self, state: &mut CoreCtx<'_>, now: u64) -> (Vec<ExMem1Entry>, Vec<IssuedUnit>) {
+        let (issued, units, held) = self.issuer.select(
+            self.issue_width,
+            &self.rob,
+            self.common.head_at_cycle_start,
+            &self.store_buffer,
+            &self.vec_store_buffer,
+            &state.stage(),
+            &mut self.fu_pool,
+            now,
+            self.common.pending_squash,
+        );
+        count_issue_stalls(state, held == Some(IssueHold::Unit), !issued.is_empty(), held);
+        for unit in &units {
+            let stat = state.core.stat_paths.fu.all[unit.fu_type as usize];
+            state.uncore.stats.counter(stat).add(unit.busy_cycles);
+        }
+        let (vec_mem, issued): (Vec<_>, Vec<_>) = issued.into_iter().partition(|entry| {
+            is_vec_load(entry.inst.ctrl.vec_op) || is_vec_store(entry.inst.ctrl.vec_op)
+        });
+        for entry in &vec_mem {
+            self.start_vec_mem_op(state, entry);
+        }
+        let executed = execute::execute_inorder(&mut state.stage(), &issued, &mut self.rob);
+        for (tag, redirect) in executed.redirects {
+            let complete_cycle =
+                units.iter().find(|u| u.tag == tag).map_or(now + 1, |u| u.complete_cycle);
+            self.common.request_squash(PendingSquash {
+                keep_tag: Some(tag),
+                redirect,
+                apply_at: complete_cycle + self.redirect_latency,
+            });
+        }
+        (executed.results, units)
+    }
+}
+
+impl ExecutionEngine for InOrderEngine {
+    fn tick(
+        &mut self,
+        state: &mut CoreCtx<'_>,
+        rename_output: &mut Vec<RenameIssueEntry>,
+        redirect: &mut Option<VirtAddr>,
+    ) {
+        let now = state.cycle;
+        self.redirected_at_commit = false;
+
+        if let Some(squash) = self.common.take_due_squash(now) {
+            self.apply_squash(state, squash, redirect);
+            rename_output.clear();
+        }
+        self.common.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
+        if self.retire(state, redirect) {
+            return;
+        }
+
+        self.retire_vec_mem_elements(state);
+        writeback::writeback_stage(&mut state.stage(), &mut self.mem2_wb, &mut self.rob);
+        self.run_memory_stages(state);
+        let is_backpressured = self.note_memory_backpressure(state);
 
         // A core whose rename hands straight to issue (Rocket's ID to EX)
         // dispatches before issue, so the bundle issues this cycle.
@@ -419,45 +473,9 @@ impl ExecutionEngine for InOrderEngine {
             self.issuer.dispatch(std::mem::take(rename_output));
         }
         self.deliver_ready_results(now);
-
-        let (results, units) = if backpressured {
-            (Vec::new(), Vec::new())
-        } else {
-            let (issued, units, held) = self.issuer.select(
-                self.issue_width,
-                &self.rob,
-                self.common.head_at_cycle_start,
-                &self.store_buffer,
-                &self.vec_store_buffer,
-                &state.stage(),
-                &mut self.fu_pool,
-                now,
-                self.common.pending_squash,
-            );
-            let unit_stalled = held == Some(IssueHold::Unit);
-            count_issue_stalls(state, unit_stalled, !issued.is_empty(), held);
-            for unit in &units {
-                let stat = state.core.stat_paths.fu.all[unit.fu_type as usize];
-                state.uncore.stats.counter(stat).add(unit.busy_cycles);
-            }
-            let (vec_mem, issued): (Vec<_>, Vec<_>) = issued.into_iter().partition(|entry| {
-                is_vec_load(entry.inst.ctrl.vec_op) || is_vec_store(entry.inst.ctrl.vec_op)
-            });
-            for entry in &vec_mem {
-                self.start_vec_mem_op(state, entry);
-            }
-            let executed = execute::execute_inorder(&mut state.stage(), &issued, &mut self.rob);
-            for (tag, redirect) in executed.redirects {
-                let complete_cycle =
-                    units.iter().find(|u| u.tag == tag).map_or(now + 1, |u| u.complete_cycle);
-                self.common.request_squash(PendingSquash {
-                    keep_tag: Some(tag),
-                    redirect,
-                    apply_at: complete_cycle + self.redirect_latency,
-                });
-            }
-            (executed.results, units)
-        };
+        // Issue would overwrite the entries memory1 still holds.
+        let (results, units) =
+            if is_backpressured { (Vec::new(), Vec::new()) } else { self.issue(state, now) };
         if results.iter().any(|r| r.ctrl.vec_op.is_config()) {
             self.common.vector_config_unresolved = false;
         }
