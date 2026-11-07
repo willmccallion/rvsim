@@ -10,6 +10,7 @@
 //! set of each page size.
 
 use crate::common::{Asid, PAGE_SHIFT, Ppn, Vpn};
+use crate::uarch::mmu::perms::PagePerms;
 
 /// Bits of a VPN one page-table level translates.
 const VPN_BITS_PER_LEVEL: u32 = 9;
@@ -161,6 +162,13 @@ pub struct TlbHit {
     pub d: bool,
     /// The whole mapping, for promoting an L2 hit into an L1 TLB.
     pub mapping: Mapping,
+}
+
+impl TlbHit {
+    /// The page's R, W, X and U bits.
+    pub const fn perms(&self) -> PagePerms {
+        PagePerms { r: self.r, w: self.w, x: self.x, u: self.u }
+    }
 }
 
 /// The organisation of one TLB level.
