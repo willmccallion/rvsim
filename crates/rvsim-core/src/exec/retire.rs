@@ -7,6 +7,7 @@ use crate::arch::Hart;
 use crate::arch::trap::irq_to_trap;
 use crate::exec::compute::vector::shadow::VectorWrites;
 use crate::isa::csr;
+use crate::isa::fp::FpFlags;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
@@ -92,9 +93,9 @@ pub const fn finish_vector_instruction(hart: &mut Hart) {
 }
 
 /// Accrues IEEE exception flags into `fflags`.
-pub const fn accrue_fp_flags(hart: &mut Hart, flags: u8) {
-    if flags != 0 {
-        hart.csrs.fflags |= flags as u64;
+pub const fn accrue_fp_flags(hart: &mut Hart, flags: FpFlags) {
+    if !flags.is_empty() {
+        hart.csrs.fflags |= flags.bits() as u64;
         mark_fp_dirty(hart);
     }
 }

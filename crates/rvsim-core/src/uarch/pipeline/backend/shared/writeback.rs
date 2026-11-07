@@ -25,7 +25,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             state.trace_stage(seq, Stage::Writeback);
         }
         if let Some(ref trap) = wb.trap {
-            if wb.fp_flags != 0 {
+            if !wb.fp_flags.is_empty() {
                 rob.set_fp_flags(wb.rob_tag, wb.fp_flags);
             }
             rob.fault(
@@ -46,7 +46,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
 
         let val = wb.written_value();
 
-        if wb.fp_flags != 0 {
+        if !wb.fp_flags.is_empty() {
             rob.set_fp_flags(wb.rob_tag, wb.fp_flags);
         }
         if !wb.dirty_updates.is_empty() {
@@ -77,7 +77,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             from     = if wb.ctrl.mem_read { "load" } else if wb.ctrl.control_flow == ControlFlow::Jump { "jump_link" } else { "alu" },
             rd       = wb.rd.as_usize(),
             rd_phys  = wb.rd_phys.0,
-            fp_flags = wb.fp_flags,
+            fp_flags = wb.fp_flags.bits(),
             "WB: ROB entry marked complete"
         );
     }

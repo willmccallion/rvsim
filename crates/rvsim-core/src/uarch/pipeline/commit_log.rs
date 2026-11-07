@@ -290,7 +290,7 @@ impl Retired {
             cycle,
             destination,
             csr: entry.csr_update.as_ref().map(|update| update.addr),
-            raised_fp_flags: entry.fp_flags != 0,
+            raised_fp_flags: !entry.fp_flags.is_empty(),
             mem: entry.mem_effect.or(store),
             vector_writes: vector_register_writes(entry, vpr),
             vector_memory: vector_element_accesses(entry),
