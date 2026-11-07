@@ -19,6 +19,7 @@ use crate::exec::compute::vector::shadow::{ElementWrite, VectorWrites};
 use crate::exec::execute::{CsrRequest, CsrWrite};
 use crate::exec::signals::ControlSignals;
 use crate::isa::csr::CsrAddr;
+use crate::isa::fence::{Fence, FenceSet};
 use crate::isa::fp::FpFlags;
 use crate::isa::instruction::InstSize;
 use crate::isa::privileged::Trap;
@@ -819,14 +820,11 @@ impl Rob {
         (0..self.count).map(move |i| &entries[(head + i) % entries.len()]).filter(|e| e.valid)
     }
 
-    /// Returns true if all older ROB entries matching a FENCE's predecessor
-    /// set have completed (Completed or Faulted).
-    ///
-    /// `pred_r` = true means older loads must have completed.
-    /// `pred_w` = true means older stores must have completed.
-    /// If neither is set, the FENCE is vacuously ready.
-    pub fn fence_pred_satisfied(&self, tag: RobTag, pred_r: bool, pred_w: bool) -> bool {
-        if !pred_r && !pred_w {
+    /// Returns true if every entry older than `tag` making an access in
+    /// a FENCE's predecessor set `pred` has completed (Completed or
+    /// Faulted). A set naming no memory access is vacuously satisfied.
+    pub fn fence_pred_satisfied(&self, tag: RobTag, pred: FenceSet) -> bool {
+        if !pred.has_memory() {
             return true;
         }
         if self.count == 0 {
@@ -839,12 +837,8 @@ impl Rob {
                 if entry.tag == tag {
                     return true;
                 }
-                if entry.state == RobState::Issued {
-                    let dominated = (pred_r && entry.ctrl.reads_memory())
-                        || (pred_w && entry.ctrl.writes_memory());
-                    if dominated {
-                        return false;
-                    }
+                if entry.state == RobState::Issued && pred.orders(entry.ctrl.memory_accesses()) {
+                    return false;
                 }
             }
             idx = (idx + 1) % self.entries.len();
@@ -876,8 +870,8 @@ impl Rob {
         false
     }
 
-    /// Checks if an older in-flight FENCE in the ROB blocks issuance of an
-    /// instruction with the given `tag`, `is_load`, and `is_store` flags.
+    /// Checks if an older in-flight FENCE in the ROB blocks issuance of the
+    /// instruction `tag`, which makes the memory `accesses`.
     ///
     /// A FENCE with successor bits `succ.r` / `succ.w` prevents younger
     /// loads/stores (respectively) from issuing until the FENCE has committed.
@@ -885,8 +879,8 @@ impl Rob {
     /// it holds back younger loads until it has completed (gem5 splits an
     /// `aq` atomic into the atomic and a full barrier). Returns `true` if
     /// the instruction is blocked.
-    pub fn has_fence_blocking(&self, tag: RobTag, is_load: bool, is_store: bool) -> bool {
-        if self.count == 0 || (!is_load && !is_store) {
+    pub fn has_fence_blocking(&self, tag: RobTag, accesses: FenceSet) -> bool {
+        if self.count == 0 || !accesses.has_memory() {
             return false;
         }
         let mut idx = self.head;
@@ -896,17 +890,13 @@ impl Rob {
                 if entry.tag == tag {
                     return false;
                 }
-                if is_load && entry.ctrl.acquire && entry.state == RobState::Issued {
+                if accesses.r && entry.ctrl.acquire && entry.state == RobState::Issued {
                     return true;
                 }
-                if entry.ctrl.system_op == crate::isa::op::SystemOp::Fence {
-                    let succ_bits = ((entry.inst >> 20) & 0xF) as u8;
-                    let succ_r = succ_bits & 0b0010 != 0;
-                    let succ_w = succ_bits & 0b0001 != 0;
-                    let blocked = (is_load && succ_r) || (is_store && succ_w);
-                    if blocked {
-                        return true;
-                    }
+                if entry.ctrl.system_op == crate::isa::op::SystemOp::Fence
+                    && Fence::decode(entry.inst).succ.orders(accesses)
+                {
+                    return true;
                 }
             }
             idx = (idx + 1) % self.entries.len();

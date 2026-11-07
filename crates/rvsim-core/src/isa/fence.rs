@@ -33,6 +33,23 @@ impl FenceSet {
         }
     }
 
+    /// The memory accesses a load (`reads`) or store (`writes`) makes.
+    pub const fn memory(reads: bool, writes: bool) -> Self {
+        Self { i: false, o: false, r: reads, w: writes }
+    }
+
+    /// Whether this set orders any of the memory reads or writes in
+    /// `accesses`. Device input and output are not modelled apart from
+    /// memory, so only R and W count.
+    pub const fn orders(self, accesses: Self) -> bool {
+        (self.r && accesses.r) || (self.w && accesses.w)
+    }
+
+    /// Whether the set names memory reads or writes at all.
+    pub const fn has_memory(self) -> bool {
+        self.r || self.w
+    }
+
     /// Encodes back to a 4-bit field.
     pub const fn to_bits(self) -> u8 {
         ((self.i as u8) << 3) | ((self.o as u8) << 2) | ((self.r as u8) << 1) | (self.w as u8)
