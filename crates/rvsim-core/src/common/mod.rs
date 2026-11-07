@@ -19,4 +19,4 @@ pub use addr::{
     crosses_cache_line,
 };
 pub use error::SimError;
-pub use ids::{CoreId, HartId, InstSeq};
+pub use ids::{CoreId, FetchSeq, HartId, InstSeq};

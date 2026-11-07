@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-use crate::common::InstSeq;
+use crate::common::{FetchSeq, InstSeq};
 use crate::config::{BackendKind, Config};
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
@@ -259,13 +259,13 @@ pub struct BackendCommon {
     /// a fetch walk that finishes while the previous line is still
     /// missing); this reorder buffer holds it until every older group has
     /// completed, then drains contiguously into the fetch1→fetch2 latch.
-    pub fetch_reorder: BTreeMap<u64, crate::uarch::pipeline::outstanding::OutstandingFetch>,
+    pub fetch_reorder: BTreeMap<FetchSeq, crate::uarch::pipeline::outstanding::OutstandingFetch>,
     /// Next `fetch_seq` to assign at fetch issue time.
-    pub next_fetch_seq: u64,
+    pub next_fetch_seq: FetchSeq,
     /// Next `fetch_seq` we expect to emit to the fetch1→fetch2 latch.
     /// Advanced when a contiguous run drains from `fetch_reorder`; bumped to
     /// `next_fetch_seq` on flush so post-flush fetches stay in order.
-    pub next_emit_fetch_seq: u64,
+    pub next_emit_fetch_seq: FetchSeq,
     /// True while a fetch is parked on a page-table walk. fetch1 stalls
     /// instead of re-emitting the same PC every cycle (gem5 `MinorCPU`'s
     /// IFU `ItlbWait` state). Cleared when the matching walk completes.
@@ -489,9 +489,9 @@ impl BackendCommon {
     /// Allocates a fresh fetch sequence number for the in-program-order
     /// fetch reorder buffer.
     #[inline]
-    pub const fn alloc_fetch_seq(&mut self) -> u64 {
+    pub const fn alloc_fetch_seq(&mut self) -> FetchSeq {
         let seq = self.next_fetch_seq;
-        self.next_fetch_seq = seq.wrapping_add(1);
+        self.next_fetch_seq = seq.next();
         seq
     }
 }
