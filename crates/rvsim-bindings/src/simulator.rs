@@ -622,12 +622,7 @@ impl PySimulator {
         reason = "Google-style Args: names are bare for the docs generator"
     )]
     #[pyo3(signature = (limit=None, progress=0))]
-    fn run(
-        &mut self,
-        py: Python<'_>,
-        limit: Option<u64>,
-        progress: u64,
-    ) -> PyResult<Option<u64>> {
+    fn run(&mut self, py: Python<'_>, limit: Option<u64>, progress: u64) -> PyResult<Option<u64>> {
         if progress > 0 {
             self.run_with_progress(py, limit, progress)
         } else {

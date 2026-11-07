@@ -13,7 +13,7 @@ use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::{InstSeq, PhysAddr, VirtAddr};
 use crate::exec::inst::Inst;
-use crate::exec::signals::ControlSignals;
+use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::instruction::InstSize;
 use crate::isa::op::AtomicOp;
 use crate::isa::privileged::Trap;
@@ -553,6 +553,18 @@ pub struct Mem2WbEntry {
 }
 
 impl Mem2WbEntry {
+    /// The value the instruction writes to `rd`: what a load or atomic
+    /// read, a jump's return address, or else the ALU result.
+    pub fn written_value(&self) -> u64 {
+        if self.ctrl.mem_read || self.ctrl.atomic_op.is_some() {
+            self.load_data
+        } else if self.ctrl.control_flow == ControlFlow::Jump {
+            self.pc.wrapping_add(self.inst_size.as_u64())
+        } else {
+            self.alu
+        }
+    }
+
     /// Carries `mem`, its trap included, into writeback with its final
     /// register value and the reservation record it leaves for commit.
     pub fn from_memory2(mem: Mem1Mem2Entry, load_data: u64, lr_sc: Option<LrScRecord>) -> Self {

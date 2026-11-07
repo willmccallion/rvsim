@@ -156,6 +156,8 @@ pub struct WritebackSlot {
     pub alu: u64,
     /// The data a load returned.
     pub load_data: u64,
+    /// The value it writes to `rd`.
+    pub value: u64,
     /// Its reorder-buffer tag.
     pub rob_tag: u32,
 }
@@ -234,6 +236,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                     rd: e.rd,
                     alu: e.alu,
                     load_data: e.load_data,
+                    value: e.written_value(),
                     rob_tag: e.rob_tag.raw(),
                 })
                 .collect(),
