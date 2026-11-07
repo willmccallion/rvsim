@@ -47,7 +47,6 @@ use crate::uarch::pipeline::trace::Departure;
 
 use self::issue::{InOrderIssueUnit, IssueContext, IssuedUnit, Selection};
 use crate::uarch::pipeline::backend::o3::fu_pool::FuPool;
-use crate::uarch::pipeline::backend::shared::vec_mem::route_to_phys;
 
 /// A computed result waiting for its unit's latency to elapse.
 #[derive(Debug)]
@@ -195,9 +194,7 @@ impl InOrderEngine {
     /// from the architectural registers, which are current because a
     /// vector instruction issues only from the ROB head.
     fn start_vec_mem_op(&mut self, state: &CoreCtx<'_>, entry: &RenameIssueEntry) {
-        use crate::exec::compute::vector::mem::{
-            check_vec_mem_emul, element_accesses, vec_mem_dst_count,
-        };
+        use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses};
         if illegal_in_current_state(state.hart, &entry.inst) {
             let trap = Trap::IllegalInstruction(entry.inst.bits);
             self.rob.fault(entry.rob_tag, trap);
@@ -210,32 +207,13 @@ impl InOrderEngine {
             self.rob.fault(entry.rob_tag, trap);
             return;
         }
-        let vd_count = if is_store {
-            0
-        } else {
-            vec_mem_dst_count(
-                vec_op,
-                entry.inst.ctrl.vec_eew,
-                vtype.vsew,
-                vtype.vlmul,
-                entry.inst.ctrl.vec_nf,
-            )
-        };
-        let mut vd_regs = [VecPhysReg::ZERO; MAX_GROUP_REGS];
-        for (offset, reg) in vd_regs.iter_mut().enumerate().take(vd_count as usize) {
-            *reg = VecPhysReg::new(u16::from(entry.inst.ctrl.vd.as_u8()) + offset as u16);
-        }
-        let addresses = route_to_phys(
-            element_accesses(
-                state.hart.regs.vpr(),
-                entry.inst.rv1,
-                entry.inst.rv2 as i64,
-                &entry.inst.ctrl,
-                state.hart.csrs.vector_config(),
-                vec_op,
-            ),
-            &vd_regs,
-            vd_count,
+        let addresses = element_accesses(
+            state.hart.regs.vpr(),
+            entry.inst.rv1,
+            entry.inst.rv2 as i64,
+            &entry.inst.ctrl,
+            state.hart.csrs.vector_config(),
+            vec_op,
         );
         if is_store {
             self.vec_store_buffer.set_expected_elements(entry.rob_tag, addresses.len());
@@ -246,8 +224,10 @@ impl InOrderEngine {
         }
         let parent = ExMem1Entry::from_issue(entry, entry.inst.rv1, entry.inst.rv2);
         let width = state.config.pipeline.vector_mem_width_bytes();
-        self.vec_mem_inflight
-            .push(VecMemInflight::plan(&parent, addresses, width, vd_regs, vd_count));
+        // Element writes land in the architectural registers at commit, so
+        // there is no physical destination group to wake.
+        let no_group = [VecPhysReg::ZERO; MAX_GROUP_REGS];
+        self.vec_mem_inflight.push(VecMemInflight::plan(&parent, addresses, width, no_group, 0));
     }
 
     /// Moves vector memory micro-ops into the memory pipeline, as many per cycle
@@ -283,7 +263,7 @@ impl InOrderEngine {
             for value in retired.writes {
                 let elems_per_reg = (vlen_bits / (value.eew.bytes() * 8)).max(1);
                 let write = ElementWrite {
-                    reg: VRegIdx::new(value.vd_phys.as_u16() as u8),
+                    reg: VRegIdx::new(wb.ctrl.vd.as_u8() + value.dest_slot as u8),
                     index: ElemIdx::new(value.elem_idx.as_usize() % elems_per_reg),
                     eew: value.eew,
                     data: value.value,
