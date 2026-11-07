@@ -4,7 +4,8 @@ use super::estimate::{vfrec7_16, vfrec7_32, vfrec7_64, vfrsqrt7_16, vfrsqrt7_32,
 use super::{F32_SIGN_BIT, F64_SIGN_BIT, elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{
-    CANONICAL_NAN_F16, f16_to_f32, f64_to_f16, is_snan_f16, product_is_invalid, sum_is_invalid,
+    CANONICAL_NAN_F16, F16_SIGN, f16_to_f32, f64_to_f16, is_snan_f16, product_is_invalid,
+    sum_is_invalid,
 };
 use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
@@ -347,9 +348,9 @@ pub(super) fn compute_f16(
             let (bits, _) = f64_to_f16(r as f64, RoundingMode::Rne);
             (bits as u64, f)
         }
-        VectorOp::VFSgnj => ((ha & 0x7FFF) as u64 | (hb & 0x8000) as u64, FpFlags::NONE),
-        VectorOp::VFSgnjn => ((ha & 0x7FFF) as u64 | (!hb & 0x8000) as u64, FpFlags::NONE),
-        VectorOp::VFSgnjx => ((ha ^ (hb & 0x8000)) as u64, FpFlags::NONE),
+        VectorOp::VFSgnj => (u64::from((ha & !F16_SIGN) | (hb & F16_SIGN)), FpFlags::NONE),
+        VectorOp::VFSgnjn => (u64::from((ha & !F16_SIGN) | (!hb & F16_SIGN)), FpFlags::NONE),
+        VectorOp::VFSgnjx => (u64::from(ha ^ (hb & F16_SIGN)), FpFlags::NONE),
         VectorOp::VFClass => (FpClass::of(FpFormat::Half, u64::from(ha)).mask(), FpFlags::NONE),
         VectorOp::VFCvtXuF => fp_to_int(fa, IntTarget::unsigned(16), rm),
         VectorOp::VFCvtXF => fp_to_int(fa, IntTarget::signed(16), rm),

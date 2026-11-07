@@ -34,19 +34,38 @@ pub const fn box_f16(bits: u16) -> u64 {
     (bits as u64) | F16_NAN_BOX_MASK
 }
 
+/// binary16's sign bit.
+pub const F16_SIGN: u16 = 0x8000;
+
+/// binary16 +∞: the exponent all ones and the fraction zero.
+const F16_INFINITY: u16 = 0x7C00;
+
+/// The largest finite binary16 magnitude.
+const F16_MAX_FINITE: u16 = 0x7BFF;
+
+/// Bits in binary16's fraction field.
+const F16_FRAC_BITS: u32 = 10;
+
+/// binary16's fraction field.
+const F16_FRAC_MASK: u16 = (1 << F16_FRAC_BITS) - 1;
+
+/// binary16's exponent field, shifted down: all ones for ±∞ and NaN.
+const F16_EXP_ALL_ONES: u16 = 0x1F;
+
+/// Bit position of binary16's sign.
+const F16_SIGN_SHIFT: u32 = 15;
+
 /// True iff the f16 bit pattern is a signaling NaN.
 #[inline]
 pub const fn is_snan_f16(bits: u16) -> bool {
-    let exp = (bits >> 10) & 0x1F;
-    let mant = bits & 0x3FF;
-    exp == 0x1F && mant != 0 && (mant & 0x200) == 0
+    matches!(FpClass::of(FpFormat::Half, bits as u64), FpClass::SignalingNan)
 }
 
 /// Upconverts an IEEE 754 half-precision bit pattern to `f32` losslessly.
 pub const fn f16_to_f32(h: u16) -> f32 {
-    let sign = ((h >> 15) & 1) as u32;
-    let exp = ((h >> 10) & 0x1F) as u32;
-    let mant = (h & 0x3FF) as u32;
+    let sign = (h >> F16_SIGN_SHIFT) as u32;
+    let exp = ((h >> F16_FRAC_BITS) & F16_EXP_ALL_ONES) as u32;
+    let mant = (h & F16_FRAC_MASK) as u32;
 
     let bits: u32 = if exp == 0 {
         if mant == 0 {
@@ -58,11 +77,11 @@ pub const fn f16_to_f32(h: u16) -> f32 {
                 m <<= 1;
                 e -= 1;
             }
-            m &= 0x3FF;
+            m &= F16_FRAC_MASK as u32;
             let new_exp = (e + 127) as u32;
             (sign << 31) | (new_exp << 23) | (m << 13)
         }
-    } else if exp == 0x1F {
+    } else if exp == F16_EXP_ALL_ONES as u32 {
         // Inf/NaN: align mantissa to f32 positions; quiet f16 NaN's MSB stays quiet.
         (sign << 31) | (0xFF << 23) | (mant << 13)
     } else {
@@ -89,7 +108,7 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
         return (CANONICAL_NAN_F16, FpFlags::NONE);
     }
     if raw_exp == 0x7FF {
-        return ((sign_u16 << 15) | 0x7C00, FpFlags::NONE);
+        return ((sign_u16 << F16_SIGN_SHIFT) | F16_INFINITY, FpFlags::NONE);
     }
     if raw_exp == 0 && raw_mant == 0 {
         return (sign_u16 << 15, FpFlags::NONE);
@@ -119,8 +138,8 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
     if unbiased < -25 {
         flags = flags | FpFlags::UF | FpFlags::NX;
         let result = match rm {
-            RoundingMode::Rdn if sign_u16 == 1 => (sign_u16 << 15) | 1,
-            RoundingMode::Rup if sign_u16 == 0 => (sign_u16 << 15) | 1,
+            RoundingMode::Rdn if sign_u16 == 1 => (sign_u16 << F16_SIGN_SHIFT) | 1,
+            RoundingMode::Rup if sign_u16 == 0 => (sign_u16 << F16_SIGN_SHIFT) | 1,
             _ => sign_u16 << 15,
         };
         return (result, flags);
@@ -139,8 +158,11 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
     let sticky_mask = (1u64 << (shift - 1)) - 1;
     let sticky = (sig & sticky_mask) != 0;
 
-    let base_mant: u32 =
-        if f16_exp > 0 { (mant_shifted as u32) & 0x3FF } else { mant_shifted as u32 };
+    let base_mant: u32 = if f16_exp > 0 {
+        (mant_shifted as u32) & u32::from(F16_FRAC_MASK)
+    } else {
+        mant_shifted as u32
+    };
 
     let inexact = round_bit != 0 || sticky;
     let round_up = match rm {
@@ -169,21 +191,22 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
         flags = flags | FpFlags::UF;
     }
 
-    if exp_out >= 0x1F {
+    if exp_out >= u32::from(F16_EXP_ALL_ONES) {
         flags = flags | FpFlags::OF | FpFlags::NX;
         return (overflow_result(sign_u16, rm), flags);
     }
 
-    let result = (sign_u16 << 15) | ((exp_out as u16) << 10) | (mant_out as u16);
+    let result =
+        (sign_u16 << F16_SIGN_SHIFT) | ((exp_out as u16) << F16_FRAC_BITS) | (mant_out as u16);
     (result, flags)
 }
 
 /// Produces the correct f16 result for an overflow under the given
-/// rounding mode: either ±inf or the max finite magnitude (0x7BFF).
+/// rounding mode: either ±inf or the max finite magnitude.
 #[inline]
 const fn overflow_result(sign_u16: u16, rm: RoundingMode) -> u16 {
-    let inf = (sign_u16 << 15) | 0x7C00;
-    let max_finite = (sign_u16 << 15) | 0x7BFF;
+    let inf = (sign_u16 << F16_SIGN_SHIFT) | F16_INFINITY;
+    let max_finite = (sign_u16 << F16_SIGN_SHIFT) | F16_MAX_FINITE;
     match rm {
         RoundingMode::Rtz => max_finite,
         RoundingMode::Rdn => {
@@ -360,9 +383,9 @@ pub(super) fn execute_f16_inner(
             fused(-fa, fb, fc, nv)
         }
 
-        AluOp::FSgnJ => (box_f16((ha & 0x7FFF) | (hb & 0x8000)), FpFlags::NONE),
-        AluOp::FSgnJN => (box_f16((ha & 0x7FFF) | (!hb & 0x8000)), FpFlags::NONE),
-        AluOp::FSgnJX => (box_f16(ha ^ (hb & 0x8000)), FpFlags::NONE),
+        AluOp::FSgnJ => (box_f16((ha & !F16_SIGN) | (hb & F16_SIGN)), FpFlags::NONE),
+        AluOp::FSgnJN => (box_f16((ha & !F16_SIGN) | (!hb & F16_SIGN)), FpFlags::NONE),
+        AluOp::FSgnJX => (box_f16(ha ^ (hb & F16_SIGN)), FpFlags::NONE),
 
         AluOp::FMin | AluOp::FMax => {
             let fa = f16_to_f32(ha);
