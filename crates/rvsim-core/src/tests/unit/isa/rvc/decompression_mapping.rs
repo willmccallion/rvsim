@@ -16,8 +16,8 @@ use crate::isa::encoding::rv64i::opcodes as i_op;
 
 /// Expand a 16-bit compressed instruction and decode the resulting 32-bit instruction.
 fn expand_and_decode(cinst: u16) -> crate::isa::instruction::Decoded {
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0, "Expansion must not produce illegal instruction 0 for {cinst:#06x}");
+    let expanded =
+        expand(cinst).unwrap_or_else(|| panic!("{cinst:#06x} must expand to an instruction"));
     decode(expanded)
 }
 
@@ -37,7 +37,7 @@ fn rvc_c_addi4spn_zero_is_illegal() {
     // nzuimm=0 is reserved (illegal)
     let cinst: u16 = 0b0000_0000_0000_0000;
     let expanded = expand(cinst);
-    assert_eq!(expanded, 0, "C.ADDI4SPN with nzuimm=0 must expand to illegal");
+    assert_eq!(expanded, None, "C.ADDI4SPN with nzuimm=0 must expand to illegal");
 }
 
 #[test]
@@ -73,8 +73,7 @@ fn rvc_c_fld() {
 fn rvc_c_sw() {
     // C.SW rs2', offset(rs1') → SW rs2'+8, offset(rs1'+8)
     let cinst: u16 = 0b1100_0000_0010_0000;
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_STORE);
     assert_eq!(d.funct3, i_f3::SW);
@@ -84,8 +83,7 @@ fn rvc_c_sw() {
 fn rvc_c_sd() {
     // C.SD rs2', offset(rs1') → SD rs2'+8, offset(rs1'+8)
     let cinst: u16 = 0b1110_0000_0010_0000;
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_STORE);
     assert_eq!(d.funct3, i_f3::SD);
@@ -95,8 +93,7 @@ fn rvc_c_sd() {
 fn rvc_c_fsd() {
     // C.FSD rs2', offset(rs1') → FSD rs2'+8, offset(rs1'+8)
     let cinst: u16 = 0b1010_0000_0010_0000;
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, f_op::OP_STORE_FP);
 }
@@ -136,7 +133,7 @@ fn rvc_c_addiw_rd0_illegal() {
     // C.ADDIW with rd=0 is reserved
     let cinst: u16 = 0b0010_0000_0000_1101;
     let expanded = expand(cinst);
-    assert_eq!(expanded, 0);
+    assert_eq!(expanded, None);
 }
 
 #[test]
@@ -264,8 +261,7 @@ fn rvc_c_addw() {
 fn rvc_c_j() {
     // C.J offset → JAL x0, offset.
     let cinst: u16 = 0xA009; // 0b1010_0000_0000_1001: funct3=101, bit3=1, op=01
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_JAL);
     assert_eq!(d.rd, RegIdx::new(0), "C.J links to x0");
@@ -275,8 +271,7 @@ fn rvc_c_j() {
 fn rvc_c_beqz() {
     // C.BEQZ rs1', offset → BEQ rs1'+8, x0, offset
     let cinst: u16 = 0b1100_0000_0000_0101; // rs1'=0(x8), small offset
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_BRANCH);
     assert_eq!(d.funct3, i_f3::BEQ);
@@ -288,8 +283,7 @@ fn rvc_c_beqz() {
 fn rvc_c_bnez() {
     // C.BNEZ rs1', offset → BNE rs1'+8, x0, offset
     let cinst: u16 = 0b1110_0000_0000_0101;
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_BRANCH);
     assert_eq!(d.funct3, i_f3::BNE);
@@ -362,7 +356,7 @@ fn rvc_c_lwsp() {
 fn rvc_c_lwsp_rd0_illegal() {
     let cinst: u16 = 0b0100_0000_0000_0010;
     let expanded = expand(cinst);
-    assert_eq!(expanded, 0, "C.LWSP with rd=0 is reserved");
+    assert_eq!(expanded, None, "C.LWSP with rd=0 is reserved");
 }
 
 #[test]
@@ -379,7 +373,7 @@ fn rvc_c_ldsp() {
 fn rvc_c_ldsp_rd0_illegal() {
     let cinst: u16 = 0b0110_0000_0000_0010;
     let expanded = expand(cinst);
-    assert_eq!(expanded, 0, "C.LDSP with rd=0 is reserved");
+    assert_eq!(expanded, None, "C.LDSP with rd=0 is reserved");
 }
 
 #[test]
@@ -419,7 +413,7 @@ fn rvc_c_ebreak() {
     // C.EBREAK → EBREAK (bit12=1, rs1=0, rs2=0)
     let cinst: u16 = 0b1001_0000_0000_0010;
     let expanded = expand(cinst);
-    assert_eq!(expanded, sys_op::EBREAK);
+    assert_eq!(expanded, Some(sys_op::EBREAK));
 }
 
 #[test]
@@ -449,8 +443,7 @@ fn rvc_c_add() {
 fn rvc_c_swsp() {
     // C.SWSP rs2, offset(sp) → SW rs2, offset(x2)
     let cinst: u16 = 0b1100_0000_0000_1110; // rs2=3, offset=0
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_STORE);
     assert_eq!(d.funct3, i_f3::SW);
@@ -462,8 +455,7 @@ fn rvc_c_swsp() {
 fn rvc_c_sdsp() {
     // C.SDSP rs2, offset(sp) → SD rs2, offset(x2)
     let cinst: u16 = 0b1110_0000_0000_1110; // rs2=3, offset=0
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, i_op::OP_STORE);
     assert_eq!(d.funct3, i_f3::SD);
@@ -474,8 +466,7 @@ fn rvc_c_sdsp() {
 fn rvc_c_fsdsp() {
     // C.FSDSP rs2, offset(sp) → FSD rs2, offset(x2)
     let cinst: u16 = 0b1010_0000_0000_1110; // rs2=3, offset=0
-    let expanded = expand(cinst);
-    assert_ne!(expanded, 0);
+    let expanded = expand(cinst).expect("a legal compressed instruction expands");
     let d = decode(expanded);
     assert_eq!(d.opcode, f_op::OP_STORE_FP);
     assert_eq!(d.rs1, RegIdx::new(2));
@@ -486,7 +477,7 @@ fn rvc_quadrant_3_is_not_compressed() {
     // bits[1:0] = 11 means 32-bit instruction, not compressed
     let cinst: u16 = 0x0003; // opcode = 0b11
     let expanded = expand(cinst);
-    assert_eq!(expanded, 0, "Quadrant 3 (32-bit) should not be handled by RVC expander");
+    assert_eq!(expanded, None, "Quadrant 3 (32-bit) should not be handled by RVC expander");
 }
 
 #[test]

@@ -62,12 +62,10 @@ pub fn fetch2_stage(
         let is_compressed = matches!(size, InstSize::Compressed(_));
 
         let (inst, step, inst_trap) = if is_compressed {
-            let expanded = expand(half_word);
-            if expanded == 0 {
-                (0, size, Some(Trap::IllegalInstruction(half_word as u32)))
-            } else {
-                (expanded, size, None)
-            }
+            expand(half_word).map_or_else(
+                || (0, size, Some(Trap::IllegalInstruction(u32::from(half_word)))),
+                |expanded| (expanded, size, None),
+            )
         } else {
             let upper_paddr = f1.upper_paddr.unwrap_or_else(|| PhysAddr::new(phys_addr + 2));
             let upper_half = read_inst_half(state, upper_paddr.val());

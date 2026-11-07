@@ -71,10 +71,9 @@ fn freg(idx: RegIdx) -> &'static str {
 pub fn disassemble(inst: u32) -> String {
     if inst & 0x3 != 0x3 {
         let c_inst = inst as u16;
-        let expanded = rvc::expand(c_inst);
-        if expanded == 0 {
+        let Some(expanded) = rvc::expand(c_inst) else {
             return format!("unknown ({inst:#010x})");
-        }
+        };
         return disassemble(expanded);
     }
 
