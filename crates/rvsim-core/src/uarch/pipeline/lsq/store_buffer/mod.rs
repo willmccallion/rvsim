@@ -14,6 +14,8 @@
 //!    does: a store that misses in the cache holds the buffer until its line
 //!    arrives.
 
+use std::collections::VecDeque;
+
 use crate::common::{PhysAddr, VirtAddr};
 use crate::exec::cbo::CboEffect;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
@@ -143,7 +145,6 @@ pub enum WriteProgress {
 #[derive(Clone, Copy, Debug)]
 #[must_use]
 pub struct PendingWrite {
-    slot: usize,
     /// The store.
     pub rob_tag: RobTag,
     /// Its width.
@@ -171,41 +172,35 @@ pub struct StoreBufferEntry {
     pub resolution: StoreResolution,
     /// Progress of the write once committed.
     pub write: WriteProgress,
-    /// Whether this slot is occupied.
-    pub valid: bool,
 }
 
 /// Store buffer — FIFO queue of pending stores.
 #[derive(Debug)]
 pub struct StoreBuffer {
-    entries: Vec<StoreBufferEntry>,
-    /// Index of the oldest entry.
-    head: usize,
-    /// Index where the next entry will be allocated.
-    tail: usize,
-    /// Number of valid entries.
-    count: usize,
+    /// The stores, oldest first: allocated in rename order, so in ROB tag
+    /// order, and removed only from either end or by `retain`.
+    entries: VecDeque<StoreBufferEntry>,
+    /// The most stores it holds.
+    capacity: usize,
 }
 
 impl StoreBuffer {
     /// Creates a new store buffer with the given capacity.
     pub fn new(capacity: usize) -> Self {
-        let mut entries = Vec::with_capacity(capacity);
-        entries.resize_with(capacity, StoreBufferEntry::default);
-        Self { entries, head: 0, tail: 0, count: 0 }
+        Self { entries: VecDeque::with_capacity(capacity), capacity }
     }
 
     #[cfg(test)]
     /// Returns the number of occupied entries.
     #[inline]
-    pub const fn len(&self) -> usize {
-        self.count
+    pub fn len(&self) -> usize {
+        self.entries.len()
     }
 
     /// Returns true if the store buffer is empty.
     #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.count == 0
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     /// Returns true if any committed stores are waiting to drain to RAM.
@@ -215,31 +210,19 @@ impl StoreBuffer {
     /// committed stores to reach RAM — younger speculative entries will be
     /// squashed by the full pipeline flush after the fence commits.
     pub fn has_committed_stores(&self) -> bool {
-        if self.count == 0 {
-            return false;
-        }
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.resolution.is_committed() {
-                return true;
-            }
-            idx = (idx + 1) % cap;
-        }
-        false
+        self.entries.iter().any(|entry| entry.resolution.is_committed())
     }
 
     /// Returns true if the store buffer is full.
     #[inline]
-    pub const fn is_full(&self) -> bool {
-        self.count == self.entries.len()
+    pub fn is_full(&self) -> bool {
+        self.entries.len() == self.capacity
     }
 
     /// Slots not holding a store.
     #[inline]
-    pub const fn free_slots(&self) -> usize {
-        self.entries.len() - self.count
+    pub fn free_slots(&self) -> usize {
+        self.capacity - self.entries.len()
     }
 
     /// Allocates a slot for a new store. Returns false if the buffer is full.
@@ -247,18 +230,13 @@ impl StoreBuffer {
         if self.is_full() {
             return false;
         }
-
-        self.entries[self.tail] = StoreBufferEntry {
+        self.entries.push_back(StoreBufferEntry {
             rob_tag,
             vaddr: VirtAddr::new(0),
             width,
             resolution: StoreResolution::Pending,
             write: WriteProgress::Unsent,
-            valid: true,
-        };
-
-        self.tail = (self.tail + 1) % self.entries.len();
-        self.count += 1;
+        });
         true
     }
 
@@ -300,14 +278,12 @@ impl StoreBuffer {
     /// store that is not in the buffer has nothing outstanding.
     #[must_use]
     pub fn has_data(&self, rob_tag: RobTag) -> bool {
-        self.entries.iter().find(|entry| entry.valid && entry.rob_tag == rob_tag).is_none_or(
-            |entry| {
-                !matches!(
-                    entry.resolution,
-                    StoreResolution::Pending | StoreResolution::Ready { data: None, .. }
-                )
-            },
-        )
+        self.find_by_tag(rob_tag).is_none_or(|entry| {
+            !matches!(
+                entry.resolution,
+                StoreResolution::Pending | StoreResolution::Ready { data: None, .. }
+            )
+        })
     }
 
     /// Resolves a cache-block operation on the block at `block` after
@@ -331,22 +307,15 @@ impl StoreBuffer {
 
     /// Marks a store as committed (the ROB has retired the instruction).
     pub fn mark_committed(&mut self, rob_tag: RobTag) {
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &mut self.entries[idx];
-            if entry.valid && entry.rob_tag == rob_tag {
-                debug_assert!(
-                    matches!(entry.resolution, StoreResolution::Ready { data: Some(_), .. }),
-                    "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
-                    rob_tag,
-                    entry.resolution,
-                );
-                if let StoreResolution::Ready { paddr, data: Some(data) } = entry.resolution {
-                    entry.resolution = StoreResolution::Committed { paddr, data };
-                }
-            }
-            idx = (idx + 1) % cap;
+        let Some(entry) = self.find_by_tag_mut(rob_tag) else { return };
+        debug_assert!(
+            matches!(entry.resolution, StoreResolution::Ready { data: Some(_), .. }),
+            "mark_committed on non-Ready entry: rob_tag={} resolution={:?}",
+            rob_tag,
+            entry.resolution,
+        );
+        if let StoreResolution::Ready { paddr, data: Some(data) } = entry.resolution {
+            entry.resolution = StoreResolution::Committed { paddr, data };
         }
     }
 
@@ -403,26 +372,22 @@ impl StoreBuffer {
     ) -> Option<OverlappingStore> {
         let load_start = paddr.val();
         let load_end = load_start + width.bytes();
-        self.youngest_first().filter(|entry| entry.rob_tag.is_older_than(load_rob_tag)).find_map(
-            |entry| {
-                let (store_paddr, data) = entry.resolution.address()?;
-                let (start, end) = StoreData::span(data, store_paddr, entry.width);
-                (load_start < end && load_end > start).then_some(OverlappingStore {
-                    rob_tag: entry.rob_tag,
-                    start,
-                    end,
-                    data,
-                })
-            },
-        )
+        self.older_than(load_rob_tag).rev().find_map(|entry| {
+            let (store_paddr, data) = entry.resolution.address()?;
+            let (start, end) = StoreData::span(data, store_paddr, entry.width);
+            (load_start < end && load_end > start).then_some(OverlappingStore {
+                rob_tag: entry.rob_tag,
+                start,
+                end,
+                data,
+            })
+        })
     }
 
-    /// Valid entries in reverse program order.
-    fn youngest_first(&self) -> impl Iterator<Item = &StoreBufferEntry> {
-        let cap = self.entries.len();
-        (1..=self.count)
-            .map(move |back| &self.entries[(self.tail + cap - back) % cap])
-            .filter(|entry| entry.valid)
+    /// The stores older than `rob_tag`, oldest first.
+    fn older_than(&self, rob_tag: RobTag) -> impl DoubleEndedIterator<Item = &StoreBufferEntry> {
+        let older = self.entries.partition_point(|entry| entry.rob_tag.is_older_than(rob_tag));
+        self.entries.range(..older)
     }
 
     /// True when a resolved store older than `load_rob_tag` writes any of
@@ -437,10 +402,7 @@ impl StoreBuffer {
     ) -> bool {
         let load_start = paddr.val();
         let load_end = load_start + bytes as u64;
-        self.entries.iter().any(|entry| {
-            if !entry.valid || !entry.rob_tag.is_older_than(load_rob_tag) {
-                return false;
-            }
+        self.older_than(load_rob_tag).any(|entry| {
             entry.resolution.address().is_some_and(|(store_paddr, data)| {
                 let (store_start, store_end) = StoreData::span(data, store_paddr, entry.width);
                 load_start < store_end && load_end > store_start
@@ -452,20 +414,7 @@ impl StoreBuffer {
     /// unresolved address. Used by the issue queue to prevent loads from
     /// issuing before older stores have their addresses resolved.
     pub fn has_unresolved_store_before(&self, rob_tag: RobTag) -> bool {
-        if self.count == 0 {
-            return false;
-        }
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.rob_tag.is_older_than(rob_tag) && entry.resolution.is_pending()
-            {
-                return true;
-            }
-            idx = (idx + 1) % cap;
-        }
-        false
+        self.older_than(rob_tag).any(|entry| entry.resolution.is_pending())
     }
 
     /// Checks whether a specific store is unresolved (no address yet).
@@ -474,71 +423,39 @@ impl StoreBuffer {
     /// resolved address (Pending state). Returns `false` if the store is
     /// resolved, committed, or not found (stale tag).
     pub fn is_unresolved(&self, rob_tag: RobTag) -> bool {
-        if self.count == 0 {
-            return false;
-        }
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.rob_tag == rob_tag {
-                return entry.resolution.is_pending();
-            }
-            idx = (idx + 1) % cap;
-        }
-        false
+        self.find_by_tag(rob_tag).is_some_and(|entry| entry.resolution.is_pending())
     }
 
     /// Checks whether any store buffer entry older than `rob_tag` overlaps
     /// the given physical address range. Used by LR/AMO to stall until older
     /// stores to the same address have drained, preserving atomicity.
     pub fn has_older_store_to(&self, paddr: PhysAddr, width: MemWidth, rob_tag: RobTag) -> bool {
-        if self.count == 0 {
-            return false;
-        }
-        let load_size = width.bytes();
         let load_start = paddr.val();
-        let load_end = load_start + load_size;
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.rob_tag.is_older_than(rob_tag) {
-                // An unresolved store to an unknown address may overlap.
-                let Some((store_paddr, data)) = entry.resolution.address() else { return true };
+        let load_end = load_start + width.bytes();
+        self.older_than(rob_tag).any(|entry| {
+            // An unresolved store to an unknown address may overlap.
+            entry.resolution.address().is_none_or(|(store_paddr, data)| {
                 let (store_start, store_end) = StoreData::span(data, store_paddr, entry.width);
-                if load_start < store_end && load_end > store_start {
-                    return true;
-                }
-            }
-            idx = (idx + 1) % cap;
-        }
-        false
+                load_start < store_end && load_end > store_start
+            })
+        })
     }
 
     /// Takes the oldest committed store whose write has not been sent, in
     /// program order. `None` when there is none.
     pub fn begin_write(&self) -> Option<PendingWrite> {
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if !entry.valid {
-                return None;
-            }
+        for entry in &self.entries {
             let StoreResolution::Committed { paddr, data } = entry.resolution else {
                 return None;
             };
             if entry.write == WriteProgress::Unsent {
                 return Some(PendingWrite {
-                    slot: idx,
                     rob_tag: entry.rob_tag,
                     width: entry.width,
                     paddr,
                     data,
                 });
             }
-            idx = (idx + 1) % cap;
         }
         None
     }
@@ -546,8 +463,9 @@ impl StoreBuffer {
     /// Records the requests carrying `write`; with none (the store needed no
     /// write) it is done at once.
     pub fn issue_write(&mut self, write: PendingWrite, requests: &[ReqId]) {
-        let entry = &mut self.entries[write.slot];
-        debug_assert!(entry.valid && entry.rob_tag == write.rob_tag, "stale pending write");
+        let entry = self.find_by_tag_mut(write.rob_tag);
+        debug_assert!(entry.is_some(), "stale pending write");
+        let Some(entry) = entry else { return };
         let mut outstanding = [None; 2];
         for (slot, req) in outstanding.iter_mut().zip(requests) {
             *slot = Some(*req);
@@ -564,9 +482,9 @@ impl StoreBuffer {
     /// The memory system acknowledged `req`. Returns whether it belonged to
     /// a store in this buffer.
     pub fn write_acked(&mut self, req: ReqId) -> bool {
-        let Some(entry) = self.entries.iter_mut().find(|e| {
-            e.valid && matches!(e.write, WriteProgress::InFlight(reqs) if reqs.contains(&Some(req)))
-        }) else {
+        let Some(entry) = self.entries.iter_mut().find(
+            |e| matches!(e.write, WriteProgress::InFlight(reqs) if reqs.contains(&Some(req))),
+        ) else {
             return false;
         };
         let WriteProgress::InFlight(mut reqs) = entry.write else { return false };
@@ -586,14 +504,8 @@ impl StoreBuffer {
 
     /// Frees the slots of the oldest stores whose writes are done.
     fn release_done(&mut self) {
-        while self.count > 0 {
-            let head = &mut self.entries[self.head];
-            if !head.valid || head.write != WriteProgress::Done {
-                return;
-            }
-            head.valid = false;
-            self.head = (self.head + 1) % self.entries.len();
-            self.count -= 1;
+        while self.entries.front().is_some_and(|head| head.write == WriteProgress::Done) {
+            let _ = self.entries.pop_front();
         }
     }
 
@@ -608,31 +520,7 @@ impl StoreBuffer {
 
     /// Flushes speculative (non-committed) entries. Committed entries remain.
     pub fn flush_speculative(&mut self) {
-        if self.count == 0 {
-            return;
-        }
-
-        let cap = self.entries.len();
-        let mut new_tail = self.head;
-        let mut new_count = 0;
-        let mut idx = self.head;
-
-        for _ in 0..self.count {
-            if self.entries[idx].valid && self.entries[idx].resolution.is_committed() {
-                if idx != new_tail {
-                    self.entries[new_tail] = self.entries[idx].clone();
-                    self.entries[idx].valid = false;
-                }
-                new_tail = (new_tail + 1) % cap;
-                new_count += 1;
-            } else {
-                self.entries[idx].valid = false;
-            }
-            idx = (idx + 1) % cap;
-        }
-
-        self.tail = new_tail;
-        self.count = new_count;
+        self.entries.retain(|entry| entry.resolution.is_committed());
     }
 
     /// Flushes store buffer entries allocated *after* the given ROB tag.
@@ -644,73 +532,30 @@ impl StoreBuffer {
     /// This is used on branch mispredictions where pre-branch stores that are
     /// still in-flight (Ready but not yet Committed) must be kept.
     pub fn flush_after(&mut self, keep_tag: RobTag) {
-        if self.count == 0 {
-            return;
-        }
-
-        let cap = self.entries.len();
-        let mut new_tail = self.head;
-        let mut new_count = 0;
-        let mut idx = self.head;
-
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.rob_tag.is_older_or_eq(keep_tag) {
-                if idx != new_tail {
-                    self.entries[new_tail] = self.entries[idx].clone();
-                    self.entries[idx].valid = false;
-                }
-                new_tail = (new_tail + 1) % cap;
-                new_count += 1;
-            } else {
-                self.entries[idx].valid = false;
-            }
-            idx = (idx + 1) % cap;
-        }
-
-        self.tail = new_tail;
-        self.count = new_count;
+        self.entries.retain(|entry| entry.rob_tag.is_older_or_eq(keep_tag));
     }
 
     #[cfg(test)]
     /// Flushes all entries (including committed ones).
     pub fn flush_all(&mut self) {
-        for entry in &mut self.entries {
-            entry.valid = false;
-        }
-        self.head = 0;
-        self.tail = 0;
-        self.count = 0;
+        self.entries.clear();
     }
 
     /// Frees the slot of an AMO or store-conditional the cache has
     /// performed, which has nothing left to write. Having waited for every
     /// older store, it is the oldest entry.
     pub fn remove_performed(&mut self, rob_tag: RobTag) {
-        let head = &mut self.entries[self.head];
-        debug_assert!(
-            self.count > 0 && head.valid && head.rob_tag == rob_tag,
-            "a performed atomic is the oldest store"
-        );
-        if self.count > 0 && head.valid && head.rob_tag == rob_tag {
-            head.valid = false;
-            self.head = (self.head + 1) % self.entries.len();
-            self.count -= 1;
+        let is_head = self.entries.front().is_some_and(|head| head.rob_tag == rob_tag);
+        debug_assert!(is_head, "a performed atomic is the oldest store");
+        if is_head {
+            let _ = self.entries.pop_front();
         }
     }
 
     /// Returns the resolved physical address for the entry with the given ROB tag,
     /// or `None` if the entry is not found or has no address yet.
     pub fn find_paddr(&self, rob_tag: RobTag) -> Option<PhysAddr> {
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
-                return self.entries[idx].resolution.paddr();
-            }
-            idx = (idx + 1) % cap;
-        }
-        None
+        self.find_by_tag(rob_tag)?.resolution.paddr()
     }
 
     /// The write a committed plain store makes, for the commit log; `None`
@@ -720,39 +565,31 @@ impl StoreBuffer {
         &self,
         rob_tag: RobTag,
     ) -> Option<crate::uarch::pipeline::commit_log::MemEffect> {
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.rob_tag == rob_tag {
-                let StoreResolution::Committed { paddr, data: StoreData::Bytes(data) } =
-                    entry.resolution
-                else {
-                    return None;
-                };
-                return Some(crate::uarch::pipeline::commit_log::MemEffect::new(
-                    entry.vaddr,
-                    paddr,
-                    entry.width,
-                    None,
-                    Some(data),
-                ));
-            }
-            idx = (idx + 1) % cap;
-        }
-        None
+        let entry = self.find_by_tag(rob_tag)?;
+        let StoreResolution::Committed { paddr, data: StoreData::Bytes(data) } = entry.resolution
+        else {
+            return None;
+        };
+        Some(crate::uarch::pipeline::commit_log::MemEffect::new(
+            entry.vaddr,
+            paddr,
+            entry.width,
+            None,
+            Some(data),
+        ))
+    }
+
+    fn position(&self, rob_tag: RobTag) -> Option<usize> {
+        self.entries.binary_search_by(|entry| entry.rob_tag.age_cmp(rob_tag)).ok()
+    }
+
+    fn find_by_tag(&self, rob_tag: RobTag) -> Option<&StoreBufferEntry> {
+        self.entries.get(self.position(rob_tag)?)
     }
 
     fn find_by_tag_mut(&mut self, rob_tag: RobTag) -> Option<&mut StoreBufferEntry> {
-        let cap = self.entries.len();
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            if self.entries[idx].valid && self.entries[idx].rob_tag == rob_tag {
-                return Some(&mut self.entries[idx]);
-            }
-            idx = (idx + 1) % cap;
-        }
-        None
+        let position = self.position(rob_tag)?;
+        self.entries.get_mut(position)
     }
 }
 
