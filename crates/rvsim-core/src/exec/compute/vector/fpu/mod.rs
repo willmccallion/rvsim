@@ -25,7 +25,9 @@ mod fma;
 mod moves;
 mod widen;
 
+use crate::exec::compute::fpu::half::F16_NAN_BOX_MASK;
 use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
+use crate::exec::compute::fpu::nan_handling::F32_NAN_BOX_MASK;
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::op::VectorOp;
@@ -149,9 +151,9 @@ fn vec_fp_dispatch(
     if op == VectorOp::VFMvFS {
         let raw = vpr.read_element(vs2_idx, ElemIdx::new(0), ctx.sew);
         let val = match ctx.sew {
-            Sew::E32 => raw | 0xFFFF_FFFF_0000_0000, // NaN-box f32 in f64 register
-            Sew::E16 => raw | 0xFFFF_FFFF_FFFF_0000, // NaN-box f16 in f64 register
-            _ => raw,                                // E64: no boxing needed
+            Sew::E32 => raw | F32_NAN_BOX_MASK,
+            Sew::E16 => raw | F16_NAN_BOX_MASK,
+            _ => raw,
         };
         return VecExecResult { scalar_result: Some(val), ..VecExecResult::default() };
     }
