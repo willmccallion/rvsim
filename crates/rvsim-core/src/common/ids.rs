@@ -91,3 +91,23 @@ impl InstSeq {
         Self(self.0 + 1)
     }
 }
+
+/// A fetch group's place in fetch order, which the fetch reorder buffer
+/// releases groups in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct FetchSeq(u64);
+
+impl FetchSeq {
+    /// Returns the raw count.
+    #[inline(always)]
+    pub const fn val(self) -> u64 {
+        self.0
+    }
+
+    /// The number fetch gives the group after this one.
+    #[inline(always)]
+    #[must_use]
+    pub const fn next(self) -> Self {
+        Self(self.0 + 1)
+    }
+}

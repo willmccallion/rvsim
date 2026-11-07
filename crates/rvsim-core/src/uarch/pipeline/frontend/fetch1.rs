@@ -26,7 +26,7 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
-use crate::common::{AccessType, InstSeq, LineAddr, PhysAddr, VirtAddr};
+use crate::common::{AccessType, FetchSeq, InstSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::isa::instruction::{InstSize, instruction_size};
 use crate::isa::privileged::Trap;
 use crate::isa::rvc::expand;
@@ -80,7 +80,7 @@ impl FetchBuffer {
 /// Accumulates one cycle's fetch entries into an [`OutstandingFetch`].
 #[derive(Default)]
 struct GroupBuilder {
-    fetch_seq: Option<u64>,
+    fetch_seq: Option<FetchSeq>,
     line: Option<LineAddr>,
     entries: Vec<Fetch1Fetch2Entry>,
 }
@@ -256,7 +256,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
 ) {
     trace_fetch!(state.config.general.trace_instructions;
         line        = %crate::common::trace::Hex(line.val()),
-        fetch_seq   = group.fetch_seq,
+        fetch_seq   = group.fetch_seq.val(),
         entries     = group.entries.len(),
         "F1: line fetch issued"
     );
@@ -301,7 +301,7 @@ pub fn drain_fetch_reorder(
         let Some(group) = common.fetch_reorder.remove(&next_seq) else {
             break;
         };
-        common.next_emit_fetch_seq = next_seq.wrapping_add(1);
+        common.next_emit_fetch_seq = next_seq.next();
         if let Some(line) = group.line {
             fetch_buffer.fill(line, invalidations);
         }

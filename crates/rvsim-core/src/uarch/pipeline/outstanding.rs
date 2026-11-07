@@ -9,7 +9,7 @@
 //! ROB, advance the walk, push a fetch latch entry, …) and forgets it.
 
 use crate::arch::translation::TranslationResult;
-use crate::common::{LineAddr, PhysAddr, VirtAddr};
+use crate::common::{FetchSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::sim::memory::write_log::WriteSeq;
 use crate::sim::packet::MemRespData;
 use crate::uarch::mmu::ptw::WalkState;
@@ -29,7 +29,7 @@ pub struct OutstandingFetch {
     /// to the fetch1→fetch2 latch in `fetch_seq` order, so a group that
     /// completes early (fetch-buffer hit, or a walk that finished while an
     /// older line was still missing) waits for its predecessors.
-    pub fetch_seq: u64,
+    pub fetch_seq: FetchSeq,
     /// Cache line the group's instructions live in. `None` when the group
     /// holds only a fetch-fault entry, which needs no I-cache access.
     pub line: Option<LineAddr>,
@@ -218,7 +218,7 @@ pub enum WalkContinuation {
     Fetch {
         /// Sequence number reserved for the group at park time so it drains
         /// after the instructions fetch1 issued before it.
-        fetch_seq: u64,
+        fetch_seq: FetchSeq,
         /// The instruction whose translation is outstanding.
         entry: Fetch1Fetch2Entry,
     },
