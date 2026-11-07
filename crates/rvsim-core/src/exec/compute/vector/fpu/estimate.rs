@@ -3,6 +3,7 @@
 
 use crate::exec::compute::fpu::half::CANONICAL_NAN_F16;
 use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
+use crate::isa::bits::zext_word;
 use crate::isa::fp::{FpFlags, RoundingMode};
 
 /// vfrsqrt7 lookup table per RVV 1.0 §13.9. Indexed by
@@ -66,11 +67,11 @@ pub(super) fn vfrsqrt7_32(bits: u32) -> (u64, FpFlags) {
 
     if exp == 0xFF && sig != 0 {
         let f = if sig & 0x0040_0000 == 0 { FpFlags::NV } else { FpFlags::NONE };
-        return (box_f32_canon(f32::NAN) & 0xFFFF_FFFF, f);
+        return (zext_word(box_f32_canon(f32::NAN)), f);
     }
     if exp == 0xFF && sig == 0 {
         if sign != 0 {
-            return (box_f32_canon(f32::NAN) & 0xFFFF_FFFF, FpFlags::NV);
+            return (zext_word(box_f32_canon(f32::NAN)), FpFlags::NV);
         }
         return (0xFFFF_FFFF_0000_0000, FpFlags::NONE);
     }
@@ -79,7 +80,7 @@ pub(super) fn vfrsqrt7_32(bits: u32) -> (u64, FpFlags) {
         return (r | 0xFFFF_FFFF_0000_0000, FpFlags::DZ);
     }
     if sign != 0 {
-        return (box_f32_canon(f32::NAN) & 0xFFFF_FFFF, FpFlags::NV);
+        return (zext_word(box_f32_canon(f32::NAN)), FpFlags::NV);
     }
 
     let sub = exp == 0;
@@ -284,7 +285,7 @@ pub(super) fn vfrec7_32(bits: u32, frm: RoundingMode) -> (u64, FpFlags) {
 
     if exp == 0xFF && sig != 0 {
         let f = if sig & 0x0040_0000 == 0 { FpFlags::NV } else { FpFlags::NONE };
-        return (box_f32_canon(f32::NAN) & 0xFFFF_FFFF, f);
+        return (zext_word(box_f32_canon(f32::NAN)), f);
     }
     if exp == 0xFF && sig == 0 {
         return ((sign << 31) | 0xFFFF_FFFF_0000_0000, FpFlags::NONE);
