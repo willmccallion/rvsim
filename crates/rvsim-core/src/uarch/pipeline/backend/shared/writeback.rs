@@ -69,7 +69,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             rob_tag  = %wb.op.rob_tag,
             pc       = %Hex(wb.op.pc.val()),
             result   = %Hex(val),
-            from     = if wb.op.ctrl.mem_read { "load" } else if wb.op.ctrl.control_flow == ControlFlow::Jump { "jump_link" } else { "alu" },
+            from     = if wb.op.ctrl.mem_read { "load" } else if matches!(wb.op.ctrl.control_flow, ControlFlow::Jump(_)) { "jump_link" } else { "alu" },
             rd       = wb.op.rd.as_usize(),
             rd_phys  = wb.op.rd_phys.index(),
             fp_flags = wb.op.fp_flags.bits(),

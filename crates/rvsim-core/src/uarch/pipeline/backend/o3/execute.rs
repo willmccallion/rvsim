@@ -134,6 +134,7 @@ mod tests {
     use crate::common::VirtAddr;
     use crate::config::Config;
     use crate::exec::inst::Inst;
+    use crate::exec::signals::{BranchCond, JumpKind};
     use crate::exec::signals::{ControlFlow, ControlSignals, OpBSrc};
     use crate::isa::instruction::InstSize;
     use crate::isa::reg::RegIdx;
@@ -380,13 +381,13 @@ mod tests {
             .unwrap();
 
         let ctrl = ControlSignals {
-            control_flow: ControlFlow::Branch,
+            control_flow: ControlFlow::Branch(BranchCond::Eq),
             b_src: OpBSrc::Reg2,
             ..Default::default()
         };
 
         let issue = RenameIssueEntry {
-            // BEQ (funct3 = 0) with rv1 == rv2, so taken.
+            // BEQ with rv1 == rv2, so taken.
             inst: Inst {
                 pc: VirtAddr::new(0x1000),
                 bits: 0,
@@ -440,7 +441,10 @@ mod tests {
             )
             .unwrap();
 
-        let ctrl = ControlSignals { control_flow: ControlFlow::Jump, ..Default::default() };
+        let ctrl = ControlSignals {
+            control_flow: ControlFlow::Jump(JumpKind::Jalr),
+            ..Default::default()
+        };
 
         let issue = RenameIssueEntry {
             inst: Inst {

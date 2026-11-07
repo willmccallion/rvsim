@@ -374,6 +374,7 @@ impl FuPool {
 #[allow(unused_results)]
 mod tests {
     use super::*;
+    use crate::exec::signals::BranchCond;
     use crate::isa::op::AluOp;
 
     fn default_pool() -> FuPool {
@@ -435,7 +436,10 @@ mod tests {
 
     #[test]
     fn test_classify_branch() {
-        let ctrl = ControlSignals { control_flow: ControlFlow::Branch, ..Default::default() };
+        let ctrl = ControlSignals {
+            control_flow: ControlFlow::Branch(BranchCond::Eq),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::Branch);
     }
 

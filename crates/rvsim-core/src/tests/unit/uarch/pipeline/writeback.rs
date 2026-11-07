@@ -1,6 +1,7 @@
 //! The value an instruction leaving Memory2 writes to its destination.
 
 use crate::common::VirtAddr;
+use crate::exec::signals::JumpKind;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::instruction::InstSize;
 use crate::isa::op::AtomicOp;
@@ -39,7 +40,8 @@ fn an_atomic_writes_the_old_value_it_read() {
 
 #[test]
 fn a_jump_writes_its_return_address() {
-    let jump = ControlSignals { control_flow: ControlFlow::Jump, ..Default::default() };
+    let jump =
+        ControlSignals { control_flow: ControlFlow::Jump(JumpKind::Jal), ..Default::default() };
 
     assert_eq!(entry(jump, ADDRESS, 0).written_value(), PC + 4);
 }

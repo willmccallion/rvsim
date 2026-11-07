@@ -441,7 +441,7 @@ impl ExMem1Entry {
     /// The value a non-memory instruction writes to `rd`: a jump's return
     /// address, else the ALU result.
     pub const fn register_value(&self) -> u64 {
-        if matches!(self.op.ctrl.control_flow, ControlFlow::Jump) {
+        if matches!(self.op.ctrl.control_flow, ControlFlow::Jump(_)) {
             self.next_pc().val()
         } else {
             self.op.alu
@@ -527,10 +527,10 @@ impl Mem2WbEntry {
 
     /// The value the instruction writes to `rd`: what a load or atomic
     /// read, a jump's return address, or else the ALU result.
-    pub fn written_value(&self) -> u64 {
+    pub const fn written_value(&self) -> u64 {
         if self.op.ctrl.mem_read || self.op.ctrl.atomic_op.is_some() {
             self.load_data
-        } else if self.op.ctrl.control_flow == ControlFlow::Jump {
+        } else if matches!(self.op.ctrl.control_flow, ControlFlow::Jump(_)) {
             self.next_pc().val()
         } else {
             self.op.alu

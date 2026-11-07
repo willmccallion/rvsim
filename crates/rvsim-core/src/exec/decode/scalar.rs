@@ -3,7 +3,7 @@
 use super::vector;
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64};
 use crate::common::VirtAddr;
-use crate::exec::signals::{ControlFlow, ControlSignals, OpASrc, OpBSrc};
+use crate::exec::signals::{BranchCond, ControlFlow, ControlSignals, JumpKind, OpASrc, OpBSrc};
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64a::{
     AQ as AMO_AQ, RL as AMO_RL, funct3 as a_funct3, funct5 as a_funct5, opcodes as a_opcodes,
@@ -77,14 +77,14 @@ pub(super) fn decode(
         }
         i_opcodes::OP_JAL => {
             c.reg_write = true;
-            c.control_flow = ControlFlow::Jump;
+            c.control_flow = ControlFlow::Jump(JumpKind::Jal);
         }
         i_opcodes::OP_JALR if d.funct3 == JALR_FUNCT3 => {
             c.reg_write = true;
-            c.control_flow = ControlFlow::Jump;
+            c.control_flow = ControlFlow::Jump(JumpKind::Jalr);
         }
-        i_opcodes::OP_BRANCH if is_branch(d.funct3) => {
-            c.control_flow = ControlFlow::Branch;
+        i_opcodes::OP_BRANCH => {
+            c.control_flow = ControlFlow::Branch(branch_cond(d.funct3).ok_or_else(illegal)?);
             c.b_src = OpBSrc::Reg2;
         }
         i_opcodes::OP_LOAD => {
@@ -160,17 +160,17 @@ pub(super) fn decode(
     Ok(())
 }
 
-/// Whether a BRANCH `funct3` names one of the six branches.
-const fn is_branch(funct3: u32) -> bool {
-    matches!(
-        funct3,
-        i_funct3::BEQ
-            | i_funct3::BNE
-            | i_funct3::BLT
-            | i_funct3::BGE
-            | i_funct3::BLTU
-            | i_funct3::BGEU
-    )
+/// The comparison a BRANCH `funct3` names.
+const fn branch_cond(funct3: u32) -> Option<BranchCond> {
+    Some(match funct3 {
+        i_funct3::BEQ => BranchCond::Eq,
+        i_funct3::BNE => BranchCond::Ne,
+        i_funct3::BLT => BranchCond::Lt,
+        i_funct3::BGE => BranchCond::Ge,
+        i_funct3::BLTU => BranchCond::Ltu,
+        i_funct3::BGEU => BranchCond::Geu,
+        _ => return None,
+    })
 }
 
 /// A LOAD's width and whether it sign-extends.

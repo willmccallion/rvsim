@@ -7,10 +7,9 @@
 use crate::common::trace::Hex;
 use crate::exec::compute::vector::context::VecExecResult;
 use crate::exec::execute::{
-    CsrRequest, SystemEffect, branch_taken, check_target_alignment, is_jalr, jump_target,
-    system_effect,
+    CsrRequest, SystemEffect, check_target_alignment, jump_target, system_effect,
 };
-use crate::exec::signals::ControlFlow;
+use crate::exec::signals::{ControlFlow, JumpKind};
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
 use crate::uarch::ctx::StageCtx;
@@ -128,8 +127,8 @@ pub fn resolve_control_flow<R: IssueRegisters>(
     op_b: u64,
 ) -> Result<Option<Redirect>, Trap> {
     match issued.inst.ctrl.control_flow {
-        ControlFlow::Branch => resolve_branch(state, rob, issued, op_a, op_b),
-        ControlFlow::Jump => resolve_jump(state, rob, issued),
+        ControlFlow::Branch(cond) => resolve_branch(state, rob, issued, cond.is_taken(op_a, op_b)),
+        ControlFlow::Jump(kind) => resolve_jump(state, rob, issued, kind),
         ControlFlow::Sequential => Ok(None),
     }
 }
@@ -141,10 +140,8 @@ fn resolve_branch<R: IssueRegisters>(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
     issued: &RenameIssueEntry<R>,
-    op_a: u64,
-    op_b: u64,
+    taken: bool,
 ) -> Result<Option<Redirect>, Trap> {
-    let taken = branch_taken(issued.inst.bits, op_a, op_b);
     let actual_target = issued.inst.pc.wrapping_add(issued.inst.imm as u64);
     let fallthrough = issued.inst.next_pc();
     let predicted_next_pc = issued.predicted_target.unwrap_or(fallthrough);
@@ -181,9 +178,9 @@ fn resolve_jump<R: IssueRegisters>(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
     issued: &RenameIssueEntry<R>,
+    kind: JumpKind,
 ) -> Result<Option<Redirect>, Trap> {
     let inst = &issued.inst;
-    let is_jalr = is_jalr(inst);
     let actual_target = jump_target(inst);
     check_target_alignment(state.hart(), actual_target)?;
     let predicted_target = issued.predicted_target.unwrap_or_else(|| issued.inst.next_pc());
@@ -195,7 +192,8 @@ fn resolve_jump<R: IssueRegisters>(
         Some(actual_target),
     );
     let rd_link = issued.inst.rd == reg::REG_RA || issued.inst.rd == reg::REG_T0;
-    let rs1_link = is_jalr && (issued.inst.rs1 == reg::REG_RA || issued.inst.rs1 == reg::REG_T0);
+    let rs1_link = kind == JumpKind::Jalr
+        && (issued.inst.rs1 == reg::REG_RA || issued.inst.rs1 == reg::REG_T0);
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
         pc             = %Hex(issued.inst.pc.val()),

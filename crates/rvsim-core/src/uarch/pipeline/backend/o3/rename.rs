@@ -87,7 +87,7 @@ impl O3Engine {
     /// Whether a branch or jump takes a rename-map checkpoint for its
     /// recovery.
     const fn needs_checkpoint(&self, ctrl: &ControlSignals) -> bool {
-        matches!(ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump)
+        matches!(ctrl.control_flow, ControlFlow::Branch(_) | ControlFlow::Jump(_))
             && self.checkpoints.capacity() > 0
     }
 
