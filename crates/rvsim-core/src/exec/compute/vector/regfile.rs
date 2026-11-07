@@ -33,7 +33,7 @@ pub trait VectorRegFile {
     /// Fills an element the tail- or mask-agnostic policy leaves free with
     /// ones.
     fn fill_agnostic_element(&mut self, vreg: VRegIdx, index: ElemIdx, sew: Sew) {
-        self.write_element(vreg, index, sew, sew.ones());
+        self.write_element(vreg, index, sew, sew.mask());
     }
 
     /// Sets a mask bit the tail- or mask-agnostic policy leaves free.

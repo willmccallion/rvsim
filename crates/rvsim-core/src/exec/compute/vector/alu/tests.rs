@@ -387,7 +387,7 @@ fn test_tail_agnostic() {
 
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 15);
     // Tail element with agnostic: written with all-1s per RVV 1.0
-    assert_eq!(vpr.read_element(vd, ElemIdx::new(1), Sew::E32), Sew::E32.ones());
+    assert_eq!(vpr.read_element(vd, ElemIdx::new(1), Sew::E32), Sew::E32.mask());
 }
 
 #[test]
