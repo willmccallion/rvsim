@@ -8,5 +8,5 @@ mod paging;
 mod trap;
 
 pub use mode::PrivilegeMode;
-pub use paging::PagingMode;
+pub use paging::{PagingMode, Satp};
 pub use trap::{Trap, TrapCause};

@@ -6,7 +6,7 @@ use crate::arch::trigger;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::fp::{FpFlags, Frm};
-use crate::isa::privileged::{PagingMode, Trap};
+use crate::isa::privileged::{Satp, Trap};
 use crate::isa::rvv::Vxrm;
 use crate::soc::uncore::Uncore;
 
@@ -268,8 +268,8 @@ impl CoreCtx<'_> {
                 self.hart.csrs.mip &= !csr::MIP_STIP;
             }
             csr::SATP => {
-                let mode = (val >> csr::SATP_MODE_SHIFT) & csr::SATP_MODE_MASK;
-                let supported = PagingMode::from_satp_mode(mode)
+                let supported = Satp::new(val)
+                    .paging_mode()
                     .is_some_and(|m| m.is_at_most(self.core.mmu.paging_mode_max));
                 // A write naming an unsupported MODE has no effect at all.
                 // TLB entries are ASID-tagged: software orders a satp change

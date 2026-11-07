@@ -171,10 +171,11 @@ impl VirtAddr {
         self.0 & 0xFFF
     }
 
-    /// The number of the 4 KiB page the address lies in.
+    /// The number of the 4 KiB page the address lies in: its VPN bits, as
+    /// the TLBs index them.
     #[must_use]
     pub const fn page_number(self) -> Vpn {
-        Vpn(self.0 >> PAGE_SHIFT)
+        Vpn((self.0 >> PAGE_SHIFT) & VPN_MASK)
     }
 
     /// The start of the page the address lies in.

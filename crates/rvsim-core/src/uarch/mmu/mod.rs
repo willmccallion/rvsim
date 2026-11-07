@@ -13,8 +13,8 @@ pub mod tlb;
 use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::translation::{SfenceVmaInfo, TranslationResult};
-use crate::common::{AccessType, Asid, PAGE_SHIFT, PhysAddr, VPN_MASK, VirtAddr, Vpn};
-use crate::isa::privileged::PagingMode;
+use crate::common::{AccessType, Asid, PhysAddr, VirtAddr};
+use crate::isa::privileged::{PagingMode, Satp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
@@ -83,7 +83,7 @@ impl Mmu {
     /// Retires an SFENCE.VMA: flushes the translations it names from every
     /// TLB. The caller also clears the hart's reservation.
     pub fn sfence_vma(&mut self, info: &SfenceVmaInfo) {
-        let vpn = || Vpn::new((info.rs1_val >> PAGE_SHIFT) & VPN_MASK);
+        let vpn = || VirtAddr::new(info.rs1_val).page_number();
         let asid = || Asid::new(info.rs2_val as u16);
         for tlb in [&mut self.dtlb, &mut self.itlb, &mut self.l2_tlb] {
             match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
@@ -130,16 +130,10 @@ impl Mmu {
         csrs: &Csrs,
         pmp: Option<&Pmp>,
     ) -> TranslateOutcome {
-        use crate::common::{PAGE_SHIFT, VPN_MASK};
-        use crate::isa::csr::{
-            MSTATUS_MXR, MSTATUS_SUM, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK,
-            SATP_MODE_SHIFT,
-        };
-        use crate::isa::privileged::PagingMode;
+        use crate::isa::csr::{MSTATUS_MXR, MSTATUS_SUM};
 
-        let satp = csrs.satp;
-        let mode_raw = (satp >> SATP_MODE_SHIFT) & SATP_MODE_MASK;
-        let Some(paging) = PagingMode::from_satp_mode(mode_raw) else {
+        let satp = Satp::new(csrs.satp);
+        let Some(paging) = satp.paging_mode() else {
             return TranslateOutcome::Ready(TranslationResult::fault(
                 Trap::InstructionAccessFault(vaddr.val()),
                 0,
@@ -164,8 +158,8 @@ impl Mmu {
                 0,
             ));
         }
-        let vpn = Vpn::new((vaddr.val() >> PAGE_SHIFT) & VPN_MASK);
-        let asid = Asid::new(((satp >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16);
+        let vpn = vaddr.page_number();
+        let asid = satp.asid();
 
         let tlb_entry = if access == AccessType::Fetch {
             self.itlb.lookup(vpn, asid)
@@ -312,11 +306,8 @@ impl Mmu {
         privilege: PrivilegeMode,
         csrs: &Csrs,
     ) -> PrefetchTranslation {
-        use crate::isa::csr::{SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_MASK, SATP_MODE_SHIFT};
-
-        let satp = csrs.satp;
-        let Some(paging) = PagingMode::from_satp_mode((satp >> SATP_MODE_SHIFT) & SATP_MODE_MASK)
-        else {
+        let satp = Satp::new(csrs.satp);
+        let Some(paging) = satp.paging_mode() else {
             return PrefetchTranslation::Denied;
         };
         if privilege == PrivilegeMode::Machine || paging == PagingMode::Bare {
@@ -325,8 +316,8 @@ impl Mmu {
         if !is_canonical_va(vaddr.val(), paging) {
             return PrefetchTranslation::Denied;
         }
-        let vpn = Vpn::new((vaddr.val() >> PAGE_SHIFT) & VPN_MASK);
-        let asid = Asid::new(((satp >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16);
+        let vpn = vaddr.page_number();
+        let asid = satp.asid();
         let Some(hit) = self.dtlb.peek(vpn, asid) else { return PrefetchTranslation::Missing };
         if !readable(&hit, privilege, csrs.mstatus) {
             return PrefetchTranslation::Denied;
@@ -369,10 +360,7 @@ pub fn translate_now(
     csrs: &Csrs,
     read_pte: impl Fn(PhysAddr) -> Option<u64>,
 ) -> Result<PhysAddr, Trap> {
-    use crate::isa::csr::{SATP_MODE_MASK, SATP_MODE_SHIFT};
-
-    let Some(paging) = PagingMode::from_satp_mode((csrs.satp >> SATP_MODE_SHIFT) & SATP_MODE_MASK)
-    else {
+    let Some(paging) = Satp::new(csrs.satp).paging_mode() else {
         return Err(Trap::access_fault(access, vaddr.val()));
     };
     if privilege == PrivilegeMode::Machine || paging == PagingMode::Bare {

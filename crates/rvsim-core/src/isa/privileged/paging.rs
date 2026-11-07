@@ -2,7 +2,48 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::isa::csr::{SATP_MODE_BARE, SATP_MODE_SV39, SATP_MODE_SV48, SATP_MODE_SV57};
+use crate::common::Asid;
+use crate::isa::csr::{
+    SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_MODE_BARE, SATP_MODE_MASK, SATP_MODE_SHIFT,
+    SATP_MODE_SV39, SATP_MODE_SV48, SATP_MODE_SV57, SATP_PPN_MASK,
+};
+
+/// A `satp` value: the paging mode, the address space and the root page
+/// table it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Satp(u64);
+
+impl Satp {
+    /// The register value `bits`.
+    #[must_use]
+    pub const fn new(bits: u64) -> Self {
+        Self(bits)
+    }
+
+    /// The raw MODE field.
+    #[must_use]
+    pub const fn mode_field(self) -> u64 {
+        (self.0 >> SATP_MODE_SHIFT) & SATP_MODE_MASK
+    }
+
+    /// The paging mode MODE names, or `None` for one not implemented.
+    #[must_use]
+    pub const fn paging_mode(self) -> Option<PagingMode> {
+        PagingMode::from_satp_mode(self.mode_field())
+    }
+
+    /// The address-space identifier.
+    #[must_use]
+    pub const fn asid(self) -> Asid {
+        Asid::new(((self.0 >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16)
+    }
+
+    /// The physical page number of the root page table.
+    #[must_use]
+    pub const fn root_ppn(self) -> u64 {
+        self.0 & SATP_PPN_MASK
+    }
+}
 
 /// Supervisor address-translation modes recognised by this implementation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
