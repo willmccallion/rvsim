@@ -38,12 +38,7 @@ pub struct StreamPrefetcher {
 }
 
 impl StreamPrefetcher {
-    /// Creates a new Stream prefetcher.
-    ///
-    /// # Arguments
-    ///
-    /// * `line_bytes` - The size of a cache line in bytes.
-    /// * `degree` - The number of lines to prefetch ahead.
+    /// A stream prefetcher fetching `degree` lines ahead.
     pub const fn new(line_bytes: usize, degree: usize) -> Self {
         Self {
             line_bytes: line_bytes as u64,
@@ -56,20 +51,8 @@ impl StreamPrefetcher {
 }
 
 impl Prefetcher for StreamPrefetcher {
-    /// Observes a memory access and generates prefetch candidates.
-    ///
-    /// Compares the current address with the previous address to determine
-    /// linearity. If a contiguous stream is detected with sufficient confidence,
-    /// it generates prefetch requests in the direction of the stream.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - The memory address being accessed.
-    /// * `_hit` - Whether the access was a cache hit (ignored).
-    ///
-    /// # Returns
-    ///
-    /// A vector of addresses to prefetch.
+    /// Compares the address with the previous one; once a contiguous
+    /// stream is seen with enough confidence, prefetches along it.
     fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, _hit: bool) -> Vec<u64> {
         let mut prefetches = Vec::new();
         let diff = (addr as i64) - (self.last_addr as i64);

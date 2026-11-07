@@ -91,13 +91,8 @@ pub struct StridePrefetcher {
 }
 
 impl StridePrefetcher {
-    /// Creates a new Stride prefetcher.
-    ///
-    /// # Arguments
-    ///
-    /// * `line_bytes` - The size of a cache line in bytes.
-    /// * `table_size` - Number of entries in the tracking table (must be power of 2).
-    /// * `degree` - The number of lines to prefetch ahead.
+    /// A stride prefetcher with a `table_size`-entry tracking table (a
+    /// power of two), fetching `degree` lines ahead.
     pub fn new(line_bytes: usize, table_size: usize, degree: usize) -> Self {
         let safe_size =
             if table_size > 0 && table_size.is_power_of_two() { table_size } else { 64 };

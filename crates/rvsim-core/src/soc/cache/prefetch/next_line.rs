@@ -17,31 +17,14 @@ pub struct NextLinePrefetcher {
 }
 
 impl NextLinePrefetcher {
-    /// Creates a new Next-Line prefetcher.
-    ///
-    /// # Arguments
-    ///
-    /// * `line_bytes` - The size of a cache line in bytes.
-    /// * `degree` - The number of lines to prefetch ahead.
+    /// A next-line prefetcher fetching `degree` lines ahead.
     pub const fn new(line_bytes: usize, degree: usize) -> Self {
         Self { line_bytes: line_bytes as u64, degree: if degree == 0 { 1 } else { degree } }
     }
 }
 
 impl Prefetcher for NextLinePrefetcher {
-    /// Observes a memory access and generates prefetch candidates.
-    ///
-    /// Calculates the addresses of the next `degree` cache lines following
-    /// the accessed address.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - The memory address being accessed.
-    /// * `_hit` - Whether the access was a cache hit (ignored by this prefetcher).
-    ///
-    /// # Returns
-    ///
-    /// A vector of addresses to prefetch.
+    /// Prefetches the `degree` lines after the accessed one.
     fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, _hit: bool) -> Vec<u64> {
         let mut prefetches = Vec::new();
 

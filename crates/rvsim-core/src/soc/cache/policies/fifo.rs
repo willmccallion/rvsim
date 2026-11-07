@@ -30,12 +30,7 @@ pub struct FifoPolicy {
 }
 
 impl FifoPolicy {
-    /// Creates a new FIFO policy instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `sets` - The number of sets in the cache.
-    /// * `ways` - The associativity (number of ways) of the cache.
+    /// A FIFO policy for a cache of `sets` sets of `ways` ways.
     pub fn new(sets: usize, ways: usize) -> Self {
         Self { inserted_at: vec![0; sets * ways], next_stamp: 1, ways }
     }

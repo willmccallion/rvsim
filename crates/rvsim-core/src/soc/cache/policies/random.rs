@@ -16,13 +16,8 @@ pub struct RandomPolicy {
 }
 
 impl RandomPolicy {
-    /// Creates a new Random policy instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `sets` - The number of sets (unused in this policy but required by interface).
-    /// * `ways` - The associativity (number of ways) of the cache.
-    pub const fn new(_sets: usize, ways: usize) -> Self {
+    /// A random policy for a cache of `ways` ways.
+    pub const fn new(ways: usize) -> Self {
         Self { ways, state: 123456789 }
     }
 }
