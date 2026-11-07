@@ -8,27 +8,12 @@ use crate::uarch::pipeline::backend::shared::commit::{
 };
 use crate::uarch::pipeline::backend::shared::flush_stats::count_flush;
 use crate::uarch::pipeline::engine::ExecutionEngine;
+use crate::uarch::pipeline::lsq::load_queue::OrderViolation;
 use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::squash::{PendingSquash, Redirect, SquashCause};
 use crate::uarch::pipeline::trace::Departure;
 
 use super::O3Engine;
-
-/// A load that read a location before an older store wrote it, and that
-/// store's PC.
-pub(super) type OrderViolation = (RobTag, u64);
-
-/// The older of the violations memory2 and memory1 found.
-pub(super) const fn older_violation(
-    memory2: Option<OrderViolation>,
-    memory1: Option<OrderViolation>,
-) -> Option<OrderViolation> {
-    match (memory2, memory1) {
-        (Some(m2), Some(m1)) if m1.0.is_older_than(m2.0) => Some(m1),
-        (Some(m2), _) => Some(m2),
-        (None, m1) => m1,
-    }
-}
 
 impl O3Engine {
     /// Counts a cycle commit spends squashing the ROB, during which rename
@@ -107,10 +92,10 @@ impl O3Engine {
         order_violation: Option<OrderViolation>,
     ) {
         let squash = match (order_violation, self.common.coherence_violation.take()) {
-            (Some((tag, _)), Some(coherence_tag)) if coherence_tag.is_older_than(tag) => {
+            (Some(order), Some(coherence_tag)) if coherence_tag.is_older_than(order.load) => {
                 Some((coherence_tag, None))
             }
-            (Some((tag, store_pc)), _) => Some((tag, Some(store_pc))),
+            (Some(order), _) => Some((order.load, Some(order.store_pc))),
             (None, Some(coherence_tag)) => Some((coherence_tag, None)),
             (None, None) => None,
         };

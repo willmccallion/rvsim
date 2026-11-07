@@ -22,6 +22,34 @@ use crate::sim::memory::write_log::{WriteLog, WriteSeq};
 use crate::uarch::pipeline::latches::MicroOpIdx;
 use crate::uarch::pipeline::rob::RobTag;
 
+/// A load that read a location before an older store wrote it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OrderViolation {
+    /// The load, which re-executes.
+    pub load: RobTag,
+    /// The PC of the store the load should have waited for.
+    pub store_pc: u64,
+}
+
+impl OrderViolation {
+    /// Whether this violation's load is older than `other`'s, or there is
+    /// no `other`.
+    pub const fn precedes(self, other: Option<Self>) -> bool {
+        match other {
+            Some(other) => self.load.is_older_than(other.load),
+            None => true,
+        }
+    }
+
+    /// The violation with the older load; `first` when they tie.
+    pub const fn older(first: Option<Self>, second: Option<Self>) -> Option<Self> {
+        match second {
+            Some(second) if second.precedes(first) => Some(second),
+            _ => first,
+        }
+    }
+}
+
 /// Lifecycle state of a load queue entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum LoadState {
@@ -685,6 +713,31 @@ mod tests {
 
         lq.flush();
         assert!(lq.is_empty());
+    }
+
+    fn violation(load: u32) -> OrderViolation {
+        OrderViolation { load: RobTag::new(load), store_pc: 0x1000 + u64::from(load) }
+    }
+
+    #[test]
+    fn older_violation_keeps_the_older_load() {
+        let (old, young) = (violation(3), violation(7));
+        assert_eq!(OrderViolation::older(Some(young), Some(old)), Some(old));
+        assert_eq!(OrderViolation::older(Some(old), Some(young)), Some(old));
+    }
+
+    #[test]
+    fn older_violation_takes_whichever_exists() {
+        let found = violation(5);
+        assert_eq!(OrderViolation::older(None, Some(found)), Some(found));
+        assert_eq!(OrderViolation::older(Some(found), None), Some(found));
+        assert_eq!(OrderViolation::older(None, None), None);
+    }
+
+    #[test]
+    fn older_violation_keeps_the_first_on_a_tie() {
+        let (first, second) = (violation(5), OrderViolation { store_pc: 0x2000, ..violation(5) });
+        assert_eq!(OrderViolation::older(Some(first), Some(second)), Some(first));
     }
 
     #[test]

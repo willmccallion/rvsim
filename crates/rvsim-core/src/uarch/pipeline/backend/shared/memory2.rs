@@ -33,10 +33,9 @@ use crate::trace_trap;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
 use crate::uarch::pipeline::latches::{Mem1Mem2Entry, Mem2WbEntry, VecMemTarget};
-use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
+use crate::uarch::pipeline::lsq::load_queue::{LoadQueue, OrderViolation};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
-use crate::uarch::pipeline::rob::RobTag;
 
 /// The queues Memory2 resolves stores and checks load ordering in; the
 /// in-order backend has no load queue.
@@ -58,9 +57,9 @@ pub fn memory2_stage(
     input: &mut Vec<Mem1Mem2Entry>,
     output: &mut Vec<Mem2WbEntry>,
     queues: MemoryQueues<'_>,
-) -> Option<(RobTag, u64)> {
+) -> Option<OrderViolation> {
     let MemoryQueues { store_buffer, mut load_queue, vec_store_buffer } = queues;
-    let mut violation: Option<(RobTag, u64)> = None;
+    let mut violation: Option<OrderViolation> = None;
     let mut entries = std::mem::take(input);
 
     // Stores and younger loads need to be visible to each other in program
@@ -105,7 +104,8 @@ pub fn memory2_stage(
                 && let Some(violating_tag) =
                     lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
             {
-                merge_violation(&mut violation, (violating_tag, mem.pc));
+                let found = OrderViolation { load: violating_tag, store_pc: mem.pc };
+                violation = OrderViolation::older(violation, Some(found));
             }
             load_data = load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, false);
         } else if mem.ctrl.mem_write {
@@ -126,7 +126,8 @@ pub fn memory2_stage(
                         violation_flush = %violating_tag,
                         "M2: memory ordering VIOLATION — younger load executed with stale data"
                     );
-                    merge_violation(&mut violation, (violating_tag, mem.pc));
+                    let found = OrderViolation { load: violating_tag, store_pc: mem.pc };
+                    violation = OrderViolation::older(violation, Some(found));
                 }
             }
         } else {
@@ -202,13 +203,5 @@ fn vector_store_elements(mem: &Mem1Mem2Entry) -> Vec<(PhysAddr, u64, MemWidth)> 
                 (paddr, element.store_data, mem_width_from_eew_bytes(element.eew.bytes()))
             })
             .collect(),
-    }
-}
-
-const fn merge_violation(slot: &mut Option<(RobTag, u64)>, new: (RobTag, u64)) {
-    match slot {
-        None => *slot = Some(new),
-        Some((existing, _)) if new.0.is_older_than(*existing) => *slot = Some(new),
-        _ => {}
     }
 }

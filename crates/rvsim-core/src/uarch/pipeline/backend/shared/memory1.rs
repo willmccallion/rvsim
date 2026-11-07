@@ -51,6 +51,7 @@ use crate::uarch::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Mem1Mem2Entry, MicroOpIdx, VecMemAccess, VecMemTarget,
 };
+use crate::uarch::pipeline::lsq::load_queue::OrderViolation;
 use crate::uarch::pipeline::lsq::store_buffer::ForwardResult;
 use crate::uarch::pipeline::lsq::vec_store_buffer::SpanForward;
 use crate::uarch::pipeline::mailbox;
@@ -88,8 +89,8 @@ pub struct Memory1Outcome {
     /// Stores whose address and data entered the store buffer, in order.
     pub resolved_stores: Vec<RobTag>,
     /// The oldest younger load a resolving store found had already read
-    /// the location, and that store's PC.
-    pub violation: Option<(RobTag, u64)>,
+    /// the location.
+    pub violation: Option<OrderViolation>,
     /// Vector spans to take apart into their elements.
     pub expanded_spans: Vec<ExMem1Entry>,
 }
@@ -591,14 +592,11 @@ fn resolve_block_op<E: ExecutionEngine>(
 ) {
     engine.store_buffer_mut().resolve_block(ex.rob_tag, vaddr, block, effect);
     outcome.resolved_stores.push(ex.rob_tag);
-    let violator = engine
+    let violation = engine
         .load_queue_mut()
-        .and_then(|lq| lq.check_ordering_violation_over(block, CBOZ_BLOCK_SIZE, ex.rob_tag));
-    if let Some(load) = violator
-        && outcome.violation.is_none_or(|(oldest, _)| load.is_older_than(oldest))
-    {
-        outcome.violation = Some((load, ex.pc));
-    }
+        .and_then(|lq| lq.check_ordering_violation_over(block, CBOZ_BLOCK_SIZE, ex.rob_tag))
+        .map(|load| OrderViolation { load, store_pc: ex.pc });
+    outcome.violation = OrderViolation::older(outcome.violation, violation);
 }
 
 /// True while a store older than `ex` that writes any of the `size` bytes
@@ -698,21 +696,22 @@ fn resolve_store<E: ExecutionEngine>(
         engine.store_buffer_mut().resolve(ex.rob_tag, vaddr, paddr, ex.store_data);
     }
     outcome.resolved_stores.push(ex.rob_tag);
-    let violator = engine
+    let violation = engine
         .load_queue_mut()
-        .and_then(|lq| lq.check_ordering_violation(paddr, ex.ctrl.width, ex.rob_tag));
-    if let Some(load) = violator
-        && outcome.violation.is_none_or(|(oldest, _)| load.is_older_than(oldest))
+        .and_then(|lq| lq.check_ordering_violation(paddr, ex.ctrl.width, ex.rob_tag))
+        .map(|load| OrderViolation { load, store_pc: ex.pc });
+    if let Some(found) = violation
+        && found.precedes(outcome.violation)
     {
         trace_fwd!(state.config.general.trace_instructions;
             event           = "violation",
             store_pc        = %crate::common::trace::Hex(ex.pc),
             store_tag       = %ex.rob_tag,
             paddr           = %crate::common::trace::Hex(paddr.val()),
-            violation_flush = %load,
+            violation_flush = %found.load,
             "M1: memory ordering violation, a younger load already read this location"
         );
-        outcome.violation = Some((load, ex.pc));
+        outcome.violation = Some(found);
     }
     trace_mem!(state.config.general.trace_instructions;
         stage      = "M1",
