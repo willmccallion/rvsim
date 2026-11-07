@@ -26,8 +26,7 @@ impl IfIdBuilder {
     }
 
     pub fn predicted(mut self, target: u64) -> Self {
-        self.0.pred_taken = true;
-        self.0.pred_target = target;
+        self.0.predicted_target = Some(target);
         self
     }
 

@@ -238,10 +238,9 @@ pub struct IfIdEntry {
     pub inst: u32,
     /// Size of the instruction in bytes (2 for compressed, 4 for standard).
     pub inst_size: InstSize,
-    /// Whether the branch predictor predicted this instruction as taken.
-    pub pred_taken: bool,
-    /// Predicted target address for branch/jump instructions.
-    pub pred_target: u64,
+    /// Where the branch predictor sent fetch next, when it predicted
+    /// this instruction taken.
+    pub predicted_target: Option<u64>,
     /// Trap that occurred during fetch, if any.
     pub trap: Option<Trap>,
     /// Pipeline stage where the exception was first detected.
@@ -261,10 +260,9 @@ pub struct IdExEntry {
     pub trap: Option<Trap>,
     /// Pipeline stage where the exception was first detected.
     pub exception_stage: Option<ExceptionStage>,
-    /// Whether the branch predictor predicted this instruction as taken.
-    pub pred_taken: bool,
-    /// Predicted target address for branch/jump instructions.
-    pub pred_target: u64,
+    /// Where the branch predictor sent fetch next, when it predicted
+    /// this instruction taken.
+    pub predicted_target: Option<u64>,
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
 }
@@ -282,10 +280,9 @@ pub struct Fetch1Fetch2Entry {
     /// Physical address of the upper half-word when a 32-bit instruction
     /// crosses a page; `None` when it lies within `paddr`'s page.
     pub upper_paddr: Option<PhysAddr>,
-    /// Whether the branch predictor predicted taken.
-    pub pred_taken: bool,
-    /// Predicted target address.
-    pub pred_target: u64,
+    /// Where the branch predictor sent fetch next, when it predicted
+    /// this instruction taken.
+    pub predicted_target: Option<u64>,
     /// Trap during fetch (alignment, TLB fault).
     pub trap: Option<Trap>,
     /// Pipeline stage where the exception was detected.
@@ -322,10 +319,9 @@ pub struct RenameIssueEntry {
     pub trap: Option<Trap>,
     /// Exception stage.
     pub exception_stage: Option<ExceptionStage>,
-    /// Branch prediction taken.
-    pub pred_taken: bool,
-    /// Branch prediction target.
-    pub pred_target: u64,
+    /// Where the branch predictor sent fetch next, when it predicted
+    /// this instruction taken.
+    pub predicted_target: Option<u64>,
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
     /// Physical vector registers for vs1 LMUL group (O3 backend).

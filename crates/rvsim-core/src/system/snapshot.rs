@@ -40,10 +40,9 @@ pub struct PipelineSnapshot {
 pub struct FetchSlot {
     /// The address to fetch.
     pub pc: u64,
-    /// Whether the predictor said the instruction there is a taken branch.
-    pub pred_taken: bool,
-    /// The predicted target, when taken.
-    pub pred_target: u64,
+    /// The target the predictor gave, when it said the instruction there
+    /// is a taken branch.
+    pub predicted_target: Option<u64>,
 }
 
 /// An instruction word fetched, before decode.
@@ -53,10 +52,8 @@ pub struct FetchedSlot {
     pub pc: u64,
     /// Its encoding.
     pub raw: u32,
-    /// Whether the predictor said it is a taken branch.
-    pub pred_taken: bool,
-    /// The predicted target, when taken.
-    pub pred_target: u64,
+    /// The target the predictor gave, when it said this is a taken branch.
+    pub predicted_target: Option<u64>,
 }
 
 /// A decoded instruction with its operands read.
@@ -165,11 +162,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
             fetch1_fetch2: latches
                 .fetch1_fetch2
                 .iter()
-                .map(|e| FetchSlot {
-                    pc: e.pc,
-                    pred_taken: e.pred_taken,
-                    pred_target: e.pred_target,
-                })
+                .map(|e| FetchSlot { pc: e.pc, predicted_target: e.predicted_target })
                 .collect(),
             fetch2_decode: latches
                 .fetch2_decode
@@ -177,8 +170,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                 .map(|e| FetchedSlot {
                     pc: e.pc,
                     raw: e.inst,
-                    pred_taken: e.pred_taken,
-                    pred_target: e.pred_target,
+                    predicted_target: e.predicted_target,
                 })
                 .collect(),
             decode_rename: latches

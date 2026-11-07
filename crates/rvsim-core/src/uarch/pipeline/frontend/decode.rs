@@ -120,8 +120,7 @@ pub fn decode_stage(
             },
             trap,
             exception_stage: ex_stage,
-            pred_taken: if_entry.pred_taken,
-            pred_target: if_entry.pred_target,
+            predicted_target: if_entry.predicted_target,
             seq: if_entry.seq,
         };
         state.trace_decoded(decoded.seq, if_entry.inst);
@@ -169,17 +168,16 @@ pub struct DecodeOutcome {
 fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Option<u64> {
     let size = entry.inst.size.as_u64();
     let fallthrough = entry.inst.pc.wrapping_add(size);
-    let fetched_next = if entry.pred_taken { entry.pred_target } else { fallthrough };
+    let fetched_next = entry.predicted_target.unwrap_or(fallthrough);
     let control = ControlInst::from_encoding(entry.inst.pc, size, entry.inst.bits);
     let predictor = &mut state.core_mut().branch_predictor;
     let predicted_by_fetch = predictor.is_predicted(entry.seq);
 
     let redirect = match (control, predicted_by_fetch) {
-        (None, false) if !entry.pred_taken => None,
+        (None, false) if entry.predicted_target.is_none() => None,
         (None, _) => {
             predictor.forget(entry.seq, entry.inst.pc);
-            entry.pred_taken = false;
-            entry.pred_target = 0;
+            entry.predicted_target = None;
             Some(fallthrough)
         }
         (Some(control), true) => {
@@ -188,20 +186,16 @@ fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Op
                 ControlInst::IndirectJump { .. } => None,
             };
             let must_take = matches!(control, ControlInst::Jump { .. });
-            let fixed_target = direct_target.filter(|&target| {
-                (entry.pred_taken && entry.pred_target != target)
-                    || (must_take && !entry.pred_taken)
-            });
+            let fixed_target = direct_target
+                .filter(|&target| entry.predicted_target.map_or(must_take, |p| p != target));
             fixed_target.inspect(|&target| {
                 predictor.correct_target(entry.seq, target);
-                entry.pred_taken = true;
-                entry.pred_target = target;
+                entry.predicted_target = Some(target);
             })
         }
         (Some(control), false) => {
             let target = predictor.discover(entry.seq, entry.inst.pc, control);
-            entry.pred_taken = target.is_some();
-            entry.pred_target = target.unwrap_or(0);
+            entry.predicted_target = target;
             let next = target.unwrap_or(fallthrough);
             (next != fetched_next).then_some(next)
         }

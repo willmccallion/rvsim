@@ -175,8 +175,7 @@ const fn fault_entry(seq: InstSeq, pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
         pc,
         paddr: PhysAddr::new(0),
         upper_paddr: None,
-        pred_taken: false,
-        pred_target: 0,
+        predicted_target: None,
         trap: Some(trap),
         exception_stage: Some(ExceptionStage::Fetch),
         seq,
@@ -368,8 +367,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     pc: current_pc,
                     paddr: PhysAddr::new(0),
                     upper_paddr: None,
-                    pred_taken: false,
-                    pred_target: 0,
+                    predicted_target: None,
                     trap: None,
                     exception_stage: None,
                     seq,
@@ -415,8 +413,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         }
 
         let mut next_pc_calc = current_pc.wrapping_add(step.as_u64());
-        let mut pred_taken = false;
-        let mut pred_target = 0;
+        let mut predicted_target = None;
         let mut upper_paddr = None;
         let seq = engine.common_mut().alloc_inst_seq();
         state.trace_fetched(seq, current_pc);
@@ -459,8 +456,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                             pc: current_pc,
                             paddr,
                             upper_paddr: None,
-                            pred_taken: false,
-                            pred_target: 0,
+                            predicted_target: None,
                             trap: None,
                             exception_stage: None,
                             seq,
@@ -487,8 +483,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let prediction = predict_control_flow(state, seq, current_pc, step);
         if let Some(target) = prediction.target {
             next_pc_calc = target;
-            pred_taken = true;
-            pred_target = target;
+            predicted_target = Some(target);
         }
         let stop_fetch = prediction.stop;
         if let Some(kind) = prediction.kind {
@@ -498,8 +493,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                 paddr       = %crate::common::trace::Hex(phys_addr),
                 inst        = %crate::common::trace::Hex32(full_inst),
                 bp_type     = kind,
-                pred_taken,
-                pred_target = %crate::common::trace::Hex(pred_target),
+                pred_taken  = predicted_target.is_some(),
+                next_pc     = %crate::common::trace::Hex(next_pc_calc),
                 "F1: control-flow prediction"
             );
         }
@@ -508,8 +503,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             pc          = %crate::common::trace::Hex(current_pc),
             paddr       = %crate::common::trace::Hex(phys_addr),
             compressed  = is_compressed,
-            pred_taken,
-            pred_target = %crate::common::trace::Hex(pred_target),
+            pred_taken  = predicted_target.is_some(),
+            next_pc     = %crate::common::trace::Hex(next_pc_calc),
             "F1: fetch entry issued"
         );
 
@@ -517,8 +512,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             pc: current_pc,
             paddr,
             upper_paddr,
-            pred_taken,
-            pred_target,
+            predicted_target,
             trap: None,
             exception_stage: None,
             seq,

@@ -80,7 +80,7 @@ fn resolve_branch(
     let taken = branch_taken(id.inst.bits, op_a, op_b);
     let actual_target = id.inst.pc.wrapping_add(id.inst.imm as u64);
     let fallthrough = id.inst.next_pc();
-    let predicted_next_pc = if id.pred_taken { id.pred_target } else { fallthrough };
+    let predicted_next_pc = id.predicted_target.unwrap_or(fallthrough);
     let actual_next_pc = if taken { actual_target } else { fallthrough };
     if taken {
         check_target_alignment(state.hart(), actual_target)?;
@@ -96,7 +96,7 @@ fn resolve_branch(
         event          = "resolve",
         pc             = %crate::common::trace::Hex(id.inst.pc),
         rob_tag        = %id.rob_tag,
-        pred_taken     = id.pred_taken,
+        pred_taken     = id.predicted_target.is_some(),
         pred_target    = %crate::common::trace::Hex(predicted_next_pc),
         actual_taken   = taken,
         actual_target  = %crate::common::trace::Hex(actual_next_pc),
@@ -119,7 +119,7 @@ fn resolve_jump(
     let is_jalr = is_jalr(inst);
     let actual_target = jump_target(inst);
     check_target_alignment(state.hart(), actual_target)?;
-    let predicted_target = if id.pred_taken { id.pred_target } else { id.inst.next_pc() };
+    let predicted_target = id.predicted_target.unwrap_or_else(|| id.inst.next_pc());
     let mispredicted = actual_target != predicted_target;
 
     rob.set_control_outcome(
@@ -134,7 +134,7 @@ fn resolve_jump(
         pc             = %crate::common::trace::Hex(id.inst.pc),
         rob_tag        = %id.rob_tag,
         bp_type        = if rs1_link && !rd_link { "JALR/RAS" } else if rd_link { "JAL/call" } else { "JAL/JALR" },
-        pred_taken     = id.pred_taken,
+        pred_taken     = id.predicted_target.is_some(),
         pred_target    = %crate::common::trace::Hex(predicted_target),
         actual_taken   = true,
         actual_target  = %crate::common::trace::Hex(actual_target),
