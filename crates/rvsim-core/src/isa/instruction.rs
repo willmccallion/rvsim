@@ -60,6 +60,8 @@ pub const RS1_MASK: u32 = 0x1F;
 pub const RS2_MASK: u32 = 0x1F;
 /// Bit mask for extracting the funct3 field (bits 12-14).
 pub const FUNCT3_MASK: u32 = 0x7;
+/// Bit position of the funct3 field.
+pub const FUNCT3_SHIFT: u32 = 12;
 /// Bit mask for extracting the funct7 field (bits 25-31).
 pub const FUNCT7_MASK: u32 = 0x7F;
 /// Bit mask for extracting the CSR address field (bits 20-31).
@@ -143,7 +145,7 @@ impl InstructionBits for u32 {
 
     #[inline(always)]
     fn funct3(&self) -> u32 {
-        (self >> 12) & FUNCT3_MASK
+        (self >> FUNCT3_SHIFT) & FUNCT3_MASK
     }
 
     #[inline(always)]

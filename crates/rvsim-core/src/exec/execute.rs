@@ -22,16 +22,12 @@ use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
 use crate::isa::fp::{FpFlags, FpFormat, Rounding, RoundingMode};
+use crate::isa::instruction::{FUNCT3_MASK, FUNCT3_SHIFT};
 use crate::isa::op::{AluOp, CsrOp, OperandFormat, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
 
-const FUNCT3_SHIFT: u32 = 12;
-const FUNCT3_MASK: u32 = 0x7;
 const JALR_ALIGNMENT_MASK: u64 = !1;
-const MSTATUS_TVM_BIT: u32 = 20;
-const MSTATUS_TW_BIT: u32 = 21;
-const MSTATUS_TSR_BIT: u32 = 22;
 
 /// The ALU's two main operands, selected by the decoded sources.
 pub const fn operands(inst: &Inst) -> (u64, u64) {
@@ -120,10 +116,6 @@ fn csr_unit_disabled(state: &impl ArchState, addr: CsrAddr) -> bool {
     (fp_csr && fs_off(state.hart())) || (vector_csr && vs_off(state.hart()))
 }
 
-const fn mstatus_bit(hart: &Hart, bit: u32) -> bool {
-    (hart.csrs.mstatus >> bit) & 1 != 0
-}
-
 /// The illegal-instruction trap an xRET, WFI or SFENCE.VMA raises at the
 /// current privilege level, if any.
 pub const fn privileged_op_fault(hart: &Hart, inst: &Inst) -> Option<Trap> {
@@ -132,17 +124,17 @@ pub const fn privileged_op_fault(hart: &Hart, inst: &Inst) -> Option<Trap> {
         SystemOp::Mret => !matches!(privilege, PrivilegeMode::Machine),
         SystemOp::Sret => match privilege {
             PrivilegeMode::User => true,
-            PrivilegeMode::Supervisor => mstatus_bit(hart, MSTATUS_TSR_BIT),
+            PrivilegeMode::Supervisor => hart.csrs.mstatus & csr::MSTATUS_TSR != 0,
             PrivilegeMode::Machine => false,
         },
         SystemOp::Wfi => match privilege {
             PrivilegeMode::User => true,
-            PrivilegeMode::Supervisor => mstatus_bit(hart, MSTATUS_TW_BIT),
+            PrivilegeMode::Supervisor => hart.csrs.mstatus & csr::MSTATUS_TW != 0,
             PrivilegeMode::Machine => false,
         },
         SystemOp::SfenceVma => match privilege {
             PrivilegeMode::User => true,
-            PrivilegeMode::Supervisor => mstatus_bit(hart, MSTATUS_TVM_BIT),
+            PrivilegeMode::Supervisor => hart.csrs.mstatus & csr::MSTATUS_TVM != 0,
             PrivilegeMode::Machine => false,
         },
         _ => false,
@@ -281,7 +273,7 @@ pub fn csr_access_permitted(state: &impl ArchState, inst: &Inst) -> Result<(), T
 
     let satp_trapped = addr == csr::SATP
         && matches!(privilege, PrivilegeMode::Supervisor)
-        && mstatus_bit(state.hart(), MSTATUS_TVM_BIT);
+        && state.hart().csrs.mstatus & csr::MSTATUS_TVM != 0;
     if satp_trapped
         || csr_unit_disabled(state, addr)
         || counter_access_denied(state, inst)
