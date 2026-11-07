@@ -566,11 +566,7 @@ impl Cache {
         let way = self.place(addr, placement, ctx);
         let state = fetched_state(mshr, granted);
         let index = set_index * self.ways + way;
-        let state = if self.lines[index].dirty() {
-            MesiState::Modified
-        } else {
-            state
-        };
+        let state = if self.lines[index].dirty() { MesiState::Modified } else { state };
         let kept = self.lines[index].valid().then_some(self.lines[index]);
         let upper = kept.map_or(0, |line| line.upper);
         let unrequested_prefetch =

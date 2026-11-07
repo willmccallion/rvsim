@@ -25,12 +25,7 @@ pub struct LruPolicy {
 }
 
 impl LruPolicy {
-    /// Creates a new LRU policy instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `sets` - The number of sets in the cache.
-    /// * `ways` - The associativity (number of ways) of the cache.
+    /// A LRU policy for a cache of `sets` sets of `ways` ways.
     pub fn new(sets: usize, ways: usize) -> Self {
         Self { usage: RecencyStacks::new(sets, ways) }
     }

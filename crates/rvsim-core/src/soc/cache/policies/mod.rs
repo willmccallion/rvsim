@@ -32,12 +32,7 @@ pub use random::RandomPolicy;
 ///
 /// Defines the interface for updating usage state and selecting victim lines.
 pub trait ReplacementPolicy: Send + Sync {
-    /// Updates the policy state when a line is accessed.
-    ///
-    /// # Arguments
-    ///
-    /// * `set` - The cache set index.
-    /// * `way` - The way index within the set that was accessed.
+    /// Records an access to `way` of `set`.
     fn update(&mut self, set: usize, way: usize);
 
     /// Updates the policy state when a line is installed in `way`; for a
@@ -46,14 +41,6 @@ pub trait ReplacementPolicy: Send + Sync {
         self.update(set, way);
     }
 
-    /// Selects a victim line to evict from a specific set.
-    ///
-    /// # Arguments
-    ///
-    /// * `set` - The cache set index.
-    ///
-    /// # Returns
-    ///
-    /// The index of the way to evict.
+    /// The way of `set` to evict.
     fn get_victim(&mut self, set: usize) -> usize;
 }

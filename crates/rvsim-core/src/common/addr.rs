@@ -15,20 +15,8 @@ pub const PAGE_OFFSET_MASK: u64 = (1 << PAGE_SHIFT) - 1;
 /// no-op for them.
 pub const VPN_MASK: u64 = 0x1FFF_FFFF_FFFF;
 
-/// Checks whether an unaligned access crosses a cache line boundary.
-///
-/// An access crosses a cache line boundary if it begins in one cache line
-/// and ends in another.
-///
-/// # Arguments
-///
-/// * `addr` - The byte address of the access.
-/// * `size` - The access width in bytes.
-/// * `cache_line_size` - The cache line size in bytes (typically 64).
-///
-/// # Returns
-///
-/// `true` if the access spans multiple cache lines.
+/// True when a `size`-byte access at `addr` starts in one
+/// `cache_line_size`-byte line and ends in another.
 pub const fn crosses_cache_line(addr: u64, size: u64, cache_line_size: u64) -> bool {
     if size == 0 {
         return false;

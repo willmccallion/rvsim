@@ -27,12 +27,7 @@ pub struct TaggedPrefetcher {
 }
 
 impl TaggedPrefetcher {
-    /// Creates a new Tagged prefetcher.
-    ///
-    /// # Arguments
-    ///
-    /// * `line_bytes` - The size of a cache line in bytes.
-    /// * `degree` - The number of lines to prefetch ahead.
+    /// A tagged prefetcher fetching `degree` lines ahead.
     pub fn new(line_bytes: usize, degree: usize) -> Self {
         let filter_size = 64;
 
@@ -58,18 +53,7 @@ impl TaggedPrefetcher {
 }
 
 impl Prefetcher for TaggedPrefetcher {
-    /// Observes a memory access and generates prefetch candidates.
-    ///
-    /// Uses the `hit` status to determine if the stream should be extended.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - The memory address being accessed.
-    /// * `hit` - Whether the access was a cache hit.
-    ///
-    /// # Returns
-    ///
-    /// A vector of addresses to prefetch.
+    /// Extends the stream on a miss, or on a hit to a line it prefetched.
     fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, hit: bool) -> Vec<u64> {
         let mut prefetches = Vec::new();
         let aligned_addr = addr & !(self.line_bytes - 1);

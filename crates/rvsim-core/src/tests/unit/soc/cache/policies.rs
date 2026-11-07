@@ -279,7 +279,7 @@ fn mru_opposite_of_lru() {
 #[test]
 fn random_victim_always_in_range() {
     let ways = 4;
-    let mut policy = RandomPolicy::new(1, ways);
+    let mut policy = RandomPolicy::new(ways);
 
     for _ in 0..200 {
         let victim = policy.get_victim(0);
@@ -291,7 +291,7 @@ fn random_victim_always_in_range() {
 #[test]
 fn random_victim_various_way_counts() {
     for ways in [1, 2, 3, 4, 8, 16] {
-        let mut policy = RandomPolicy::new(1, ways);
+        let mut policy = RandomPolicy::new(ways);
         for _ in 0..50 {
             let victim = policy.get_victim(0);
             assert!(victim < ways, "ways={}, victim {} out of range", ways, victim);
@@ -302,7 +302,7 @@ fn random_victim_various_way_counts() {
 /// Random: update is a no-op; victims should still change (LFSR advances on get_victim).
 #[test]
 fn random_update_is_noop() {
-    let mut policy = RandomPolicy::new(1, 4);
+    let mut policy = RandomPolicy::new(4);
 
     let v1 = policy.get_victim(0);
     policy.update(0, v1);
@@ -314,7 +314,7 @@ fn random_update_is_noop() {
 /// Random: produces more than one distinct value over many calls (not stuck).
 #[test]
 fn random_not_stuck() {
-    let mut policy = RandomPolicy::new(1, 8);
+    let mut policy = RandomPolicy::new(8);
     let mut seen = std::collections::HashSet::new();
     for _ in 0..100 {
         seen.insert(policy.get_victim(0));

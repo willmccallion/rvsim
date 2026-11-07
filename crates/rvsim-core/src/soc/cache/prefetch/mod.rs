@@ -26,19 +26,7 @@ use crate::common::VirtAddr;
 /// Prefetchers observe memory access patterns and generate prefetch
 /// requests to reduce cache miss penalties.
 pub trait Prefetcher: Send + Sync {
-    /// Observes a memory access and generates prefetch addresses.
-    ///
-    /// Called by the cache on each access to allow the prefetcher to
-    /// learn access patterns and generate prefetch requests.
-    ///
-    /// # Arguments
-    ///
-    /// * `addr` - The address that was accessed
-    /// * `pc` - The PC of the instruction that made the access, if it has one
-    /// * `hit` - Whether the access was a cache hit
-    ///
-    /// # Returns
-    ///
-    /// A vector of addresses to prefetch. Empty if no prefetches are needed.
+    /// Observes an access to `addr`, by the instruction at `pc` if it has
+    /// one, that hit if `hit`, and returns the addresses to prefetch.
     fn observe(&mut self, addr: u64, pc: Option<VirtAddr>, hit: bool) -> Vec<u64>;
 }

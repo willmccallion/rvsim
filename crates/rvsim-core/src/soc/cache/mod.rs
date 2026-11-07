@@ -259,7 +259,7 @@ impl Cache {
 
         let policy: Box<dyn ReplacementPolicy> = match config.policy {
             ReplacementPolicyKind::Fifo => Box::new(FifoPolicy::new(num_sets, safe_ways)),
-            ReplacementPolicyKind::Random => Box::new(RandomPolicy::new(num_sets, safe_ways)),
+            ReplacementPolicyKind::Random => Box::new(RandomPolicy::new(safe_ways)),
             ReplacementPolicyKind::Plru => Box::new(PlruPolicy::new(num_sets, safe_ways)),
             ReplacementPolicyKind::Lru => Box::new(LruPolicy::new(num_sets, safe_ways)),
             ReplacementPolicyKind::Mru => Box::new(MruPolicy::new(num_sets, safe_ways)),
