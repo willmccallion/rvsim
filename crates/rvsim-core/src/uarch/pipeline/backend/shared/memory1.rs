@@ -74,9 +74,9 @@ enum EntryOutcome {
     /// memory ops keep flowing.
     Replay(ExMem1Entry),
     /// Entry was parked on a page-table walk in the engine's outstanding
-    /// tables. Younger memory ops cannot pass an unresolved older
-    /// translation in an in-order pipeline, so halt iteration and push any
-    /// remaining entries back to the input latch.
+    /// tables. Younger memory ops wait behind the unresolved older
+    /// translation, so iteration halts and the remaining entries go back
+    /// to the input latch.
     ParkedWalk,
     /// The translation hit the L2 TLB; the op continues after its latency.
     Delayed(DelayedAccess),
