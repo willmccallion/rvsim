@@ -5,7 +5,7 @@
 //!
 //! Reference: RISC-V Bitmanip Extension v1.0.0.
 
-use crate::isa::bits::sext_word;
+use crate::isa::bits::{sext_word, zext_word};
 use crate::isa::op::{AluOp, IntWidth};
 
 const SHAMT_MASK_RV64: u32 = 0x3f;
@@ -32,25 +32,25 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
         AluOp::Sh3Add => (a << 3).wrapping_add(b),
 
         AluOp::AddUw => {
-            let a_zext = a as u32 as u64;
+            let a_zext = zext_word(a);
             a_zext.wrapping_add(b)
         }
 
         AluOp::Sh1AddUw => {
-            let a_zext = a as u32 as u64;
+            let a_zext = zext_word(a);
             (a_zext << 1).wrapping_add(b)
         }
         AluOp::Sh2AddUw => {
-            let a_zext = a as u32 as u64;
+            let a_zext = zext_word(a);
             (a_zext << 2).wrapping_add(b)
         }
         AluOp::Sh3AddUw => {
-            let a_zext = a as u32 as u64;
+            let a_zext = zext_word(a);
             (a_zext << 3).wrapping_add(b)
         }
 
         AluOp::SlliUw => {
-            let a_zext = a as u32 as u64;
+            let a_zext = zext_word(a);
             a_zext << (b & SHAMT_MASK_RV64 as u64)
         }
 
@@ -246,8 +246,8 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
                 sext_word(lo | (hi << 16))
             }
             IntWidth::Double => {
-                let lo = a as u32 as u64;
-                let hi = b as u32 as u64;
+                let lo = zext_word(a);
+                let hi = zext_word(b);
                 lo | (hi << 32)
             }
         },

@@ -1,5 +1,6 @@
 //! What memory instructions compute from the data they access.
 
+use crate::isa::bits::zext_word;
 use crate::isa::op::MemWidth;
 
 /// The value a load writes to its destination: `raw` sign- or
@@ -32,7 +33,7 @@ const fn extend_load(raw: u64, width: MemWidth, signed: bool) -> u64 {
         match width {
             MemWidth::Byte => raw & 0xFF,
             MemWidth::Half => raw & 0xFFFF,
-            MemWidth::Word => raw & 0xFFFF_FFFF,
+            MemWidth::Word => zext_word(raw),
             MemWidth::Double => raw,
             MemWidth::Nop => 0,
         }

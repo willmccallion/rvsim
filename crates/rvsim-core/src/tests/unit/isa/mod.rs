@@ -10,6 +10,7 @@
 /// three quadrants (Q0, Q1, Q2) of the RVC encoding space.
 pub mod rvc;
 
+pub mod bits;
 pub mod decode_properties;
 pub mod disasm;
 pub mod disasm_all_instructions;
