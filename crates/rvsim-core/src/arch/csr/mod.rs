@@ -131,10 +131,6 @@ impl Cbie {
     }
 }
 
-// Sdtrig CSRs are read-zero / write-ignored stubs so software that probes for
-// trigger support doesn't take an illegal-instruction trap. Actual hardware
-// trigger functionality is not implemented.
-
 /// `status` as `mstatus` or `sstatus` reads: SD set exactly when FS or VS
 /// is Dirty.
 #[must_use]

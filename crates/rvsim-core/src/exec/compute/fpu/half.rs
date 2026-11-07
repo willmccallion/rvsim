@@ -227,15 +227,6 @@ const fn overflow_result(sign_u16: u16, rm: RoundingMode) -> u16 {
     }
 }
 
-/// Executes a half-precision (Zfh) floating-point operation and returns
-/// `(result, flags)`.
-///
-/// The host has no native f16 type, so half-precision arithmetic is
-/// performed by upcasting operands to f64 (lossless for f16 inputs on
-/// add/sub/mul/fma; near-exact for div/sqrt which still have >50 bits
-/// of working precision). The f64 result is then software-rounded to
-/// f16 with the given RISC-V rounding mode by [`half::f64_to_f16`],
-/// which also accumulates the IEEE 754 exception flags.
 /// Whether `a + b` is an invalid operation: infinities of opposite sign.
 #[must_use]
 pub const fn sum_is_invalid(a: f64, b: f64) -> bool {
@@ -261,6 +252,15 @@ const fn invalid_flag(signaling_nan: bool, invalid: bool) -> FpFlags {
     if signaling_nan || invalid { FpFlags::NV } else { FpFlags::NONE }
 }
 
+/// Executes a half-precision (Zfh) floating-point operation and returns
+/// `(result, flags)`.
+///
+/// The host has no native f16 type, so half-precision arithmetic is
+/// performed by upcasting operands to f64 (lossless for f16 inputs on
+/// add/sub/mul/fma; near-exact for div/sqrt which still have >50 bits
+/// of working precision). The f64 result is then software-rounded to
+/// f16 with the given RISC-V rounding mode by [`f64_to_f16`], which also
+/// accumulates the IEEE 754 exception flags.
 pub(super) fn execute_f16(op: AluOp, a: u64, b: u64, c: u64, rm: RoundingMode) -> (u64, FpFlags) {
     // Set the host FPU rounding mode for the intermediate f64 step. This
     // matters for edge cases like `a + (-a)` under RDN where the host
@@ -272,13 +272,7 @@ pub(super) fn execute_f16(op: AluOp, a: u64, b: u64, c: u64, rm: RoundingMode) -
     result
 }
 
-pub(super) fn execute_f16_inner(
-    op: AluOp,
-    a: u64,
-    b: u64,
-    c: u64,
-    rm: RoundingMode,
-) -> (u64, FpFlags) {
+fn execute_f16_inner(op: AluOp, a: u64, b: u64, c: u64, rm: RoundingMode) -> (u64, FpFlags) {
     let ha = unbox_f16(a);
     // f16 widens exactly, so it converts to an integer as f64 does.
     if let Some(target) = IntTarget::of(op) {

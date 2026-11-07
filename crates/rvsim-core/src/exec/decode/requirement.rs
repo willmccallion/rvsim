@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn base_instructions_need_nothing() {
         assert_eq!(requirement_of(0x0000_0013), Requirement::Base); // addi x0, x0, 0
-        assert_eq!(requirement_of(0x0000_1073), Requirement::Base); // csrw ustatus? csrrw x0
+        assert_eq!(requirement_of(0x0000_1073), Requirement::Base); // csrrw x0, 0x000, x0
         assert_eq!(requirement_of(0x0000_100f), Requirement::Base); // fence.i
     }
 
