@@ -566,7 +566,7 @@ impl Cache {
         let way = self.place(addr, placement, ctx);
         let state = fetched_state(mshr, granted);
         let index = set_index * self.ways + way;
-        let state = if self.lines[index].valid() && self.lines[index].dirty() {
+        let state = if self.lines[index].dirty() {
             MesiState::Modified
         } else {
             state
