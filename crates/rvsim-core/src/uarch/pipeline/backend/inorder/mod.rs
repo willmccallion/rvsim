@@ -574,6 +574,22 @@ impl ExecutionEngine for InOrderEngine {
         &mut self.mem1_mem2
     }
 
+    fn issue_snapshot(&self) -> Vec<RenameIssueEntry> {
+        self.issuer.queue_snapshot()
+    }
+
+    fn execute_mem1(&self) -> &[ExMem1Entry] {
+        &self.execute_mem1
+    }
+
+    fn mem1_mem2(&self) -> &[Mem1Mem2Entry] {
+        &self.mem1_mem2
+    }
+
+    fn mem2_wb(&self) -> &[Mem2WbEntry] {
+        &self.mem2_wb
+    }
+
     fn common(&self) -> &BackendCommon {
         &self.common
     }
