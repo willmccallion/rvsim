@@ -101,7 +101,6 @@ def _row(**fields) -> Config:
         "memory_controller": MemoryController.Simple(),
         "bus_latency": 4,
         "cpu_clock_mhz": 2400,
-        "clock_hz": 1_000_000_000,
         "l2_tlb_size": 0,
         "l2_tlb_ways": 4,
         "l2_tlb_latency": 4,

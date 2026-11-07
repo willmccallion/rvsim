@@ -130,7 +130,7 @@ fn the_default_machine_validates() {
 #[test]
 fn a_structure_that_must_hold_something_refuses_zero() {
     type Change = fn(&mut Config);
-    let cases: [(&str, Change); 26] = [
+    let cases: [(&str, Change); 25] = [
         ("pipeline.width", |c| c.pipeline.width = 0),
         ("pipeline.fetch_width", |c| c.pipeline.fetch_width = Some(0)),
         ("pipeline.issue_width", |c| c.pipeline.issue_width = Some(0)),
@@ -147,8 +147,7 @@ fn a_structure_that_must_hold_something_refuses_zero() {
         ("memory.tlb_size", |c| c.memory.tlb_size = 0),
         ("system.hart_count", |c| c.system.hart_count = 0),
         ("system.cpu_clock_mhz", |c| c.system.cpu_clock_mhz = 0),
-        ("system.clint_divider", |c| c.system.clint_divider = 0),
-        ("general.clock_hz", |c| c.general.clock_hz = 0),
+        ("system.timebase_hz", |c| c.system.timebase_hz = 0),
         ("coherence.txn_entries", |c| c.coherence.txn_entries = 0),
         ("store_set ssit_size", |c| c.pipeline.store_set.ssit_size = 0),
         ("store_set lfst_size", |c| c.pipeline.store_set.lfst_size = 0),
@@ -583,6 +582,31 @@ fn the_largest_numberable_sizes_are_accepted() {
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.checkpoint_count = 256;
     config.pipeline.store_set.lfst_size = 1 << 16;
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn a_real_time_timer_needs_a_timebase_dividing_the_core_clock() {
+    let mut config = Config::minimal();
+    config.system.cpu_clock_mhz = 1000;
+    config.system.timebase_hz = 3_000_000;
+
+    assert!(matches!(
+        config.validate(),
+        Err(ConfigError::TimebaseNotDivisor {
+            timebase_hz: 3_000_000,
+            cpu_clock_hz: 1_000_000_000
+        })
+    ));
+}
+
+#[test]
+fn an_every_cycle_timer_takes_any_timebase() {
+    let mut config = Config::minimal();
+    config.system.cpu_clock_mhz = 1000;
+    config.system.timebase_hz = 3_000_000;
+    config.system.timer = crate::config::Timer::EveryCycle;
 
     assert!(config.validate().is_ok());
 }

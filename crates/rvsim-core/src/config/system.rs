@@ -46,6 +46,20 @@ pub const RTC_BASE: u64 = 0x10_1000;
 /// The Goldfish RTC's register window in bytes.
 pub const RTC_REGION_BYTES: u64 = 0x1000;
 
+/// How fast the CLINT's `mtime` advances.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub enum Timer {
+    /// At `timebase_hz`, the rate the device tree reports, so guest time
+    /// keeps pace with the modelled clock.
+    #[default]
+    RealTime,
+    /// Every cycle, while the device tree still reports `timebase_hz`:
+    /// guest time runs `cpu_clock_hz / timebase_hz` times fast, which
+    /// shortens a boot's sleeps but floods measurements with timer
+    /// interrupts.
+    EveryCycle,
+}
+
 /// System memory map and bus configuration.
 ///
 /// Defines memory-mapped I/O base addresses, RAM configuration,
@@ -86,9 +100,13 @@ pub struct SystemConfig {
     #[serde(default = "SystemConfig::default_bus_latency")]
     pub bus_latency: u64,
 
-    /// CLINT timer divider (mtime increments every N cycles)
-    #[serde(default = "SystemConfig::default_clint_divider")]
-    pub clint_divider: u64,
+    /// How fast the CLINT's `mtime` advances.
+    #[serde(default)]
+    pub timer: Timer,
+
+    /// The timer frequency the device tree reports to the guest, in Hz.
+    #[serde(default = "SystemConfig::default_timebase_hz")]
+    pub timebase_hz: u32,
 
     /// Core clock in MHz.
     #[serde(default = "SystemConfig::default_cpu_clock_mhz")]
@@ -181,9 +199,8 @@ impl SystemConfig {
         defaults::BUS_LATENCY
     }
 
-    /// Returns the default CLINT timer divider value.
-    const fn default_clint_divider() -> u64 {
-        defaults::CLINT_DIVIDER
+    const fn default_timebase_hz() -> u32 {
+        defaults::TIMEBASE_HZ
     }
 
     const fn default_cpu_clock_mhz() -> u64 {
@@ -206,6 +223,22 @@ impl SystemConfig {
         self.device_latency_ns_overrides
             .get(name)
             .map_or_else(|| self.default_device_access_cycles(), |&ns| self.ns_to_cycles(ns))
+    }
+
+    /// The core clock in Hz, which SE mode's time and every device's
+    /// latency are measured against.
+    #[must_use]
+    pub const fn cpu_clock_hz(&self) -> u64 {
+        self.cpu_clock_mhz * 1_000_000
+    }
+
+    /// Cycles between ticks of the CLINT's `mtime`.
+    #[must_use]
+    pub const fn clint_divider(&self) -> u64 {
+        match self.timer {
+            Timer::RealTime => self.cpu_clock_hz() / self.timebase_hz as u64,
+            Timer::EveryCycle => 1,
+        }
     }
 
     /// Core cycles in `ns` nanoseconds.
@@ -234,7 +267,8 @@ impl Default for SystemConfig {
             kernel_offset: defaults::KERNEL_OFFSET,
             bus_width: defaults::BUS_WIDTH,
             bus_latency: defaults::BUS_LATENCY,
-            clint_divider: defaults::CLINT_DIVIDER,
+            timer: Timer::default(),
+            timebase_hz: defaults::TIMEBASE_HZ,
             cpu_clock_mhz: defaults::CPU_CLOCK_MHZ,
             rtc_epoch_seconds: defaults::RTC_EPOCH_SECONDS,
             console: Console::default(),

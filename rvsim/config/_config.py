@@ -131,7 +131,6 @@ class Config:
         # General
         trace: bool = _GENERAL["trace_instructions"],
         page_mode: str = _GENERAL["page_mode"],
-        clock_hz: int = _GENERAL["clock_hz"],
         # System (advanced)
         ram_base: int = _SYSTEM["ram_base"],
         uart_base: int = _SYSTEM["uart_base"],
@@ -141,7 +140,8 @@ class Config:
         kernel_offset: int = _SYSTEM["kernel_offset"],
         bus_width: int = _SYSTEM["bus_width"],
         bus_latency: int = _SYSTEM["bus_latency"],
-        clint_divider: int = _SYSTEM["clint_divider"],
+        timer: str = _SYSTEM["timer"],
+        timebase_hz: int = _SYSTEM["timebase_hz"],
         cpu_clock_mhz: int = _SYSTEM["cpu_clock_mhz"],
         device_latency_ns: int = _SYSTEM["device_latency_ns"],
         device_latency_ns_overrides: dict[str, int] | None = None,
@@ -214,7 +214,6 @@ class Config:
         # General
         self.trace = trace
         self.page_mode = page_mode
-        self.clock_hz = clock_hz
 
         # System
         self.ram_base = ram_base
@@ -225,7 +224,8 @@ class Config:
         self.kernel_offset = kernel_offset
         self.bus_width = bus_width
         self.bus_latency = bus_latency
-        self.clint_divider = clint_divider
+        self.timer = timer
+        self.timebase_hz = timebase_hz
         self.cpu_clock_mhz = cpu_clock_mhz
         self.device_latency_ns = device_latency_ns
         self.device_latency_ns_overrides = dict(device_latency_ns_overrides or {})

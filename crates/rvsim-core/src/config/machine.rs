@@ -29,7 +29,6 @@ impl Default for Config {
     /// prefetcher, and two channels of DDR5-5600.
     fn default() -> Self {
         Self {
-            general: GeneralConfig { clock_hz: CLOCK_MHZ * 1_000_000, ..GeneralConfig::default() },
             system: SystemConfig {
                 bus_latency: 1,
                 cpu_clock_mhz: CLOCK_MHZ,

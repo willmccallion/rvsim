@@ -39,11 +39,11 @@ Timer and software-interrupt registers for every hart, at the standard
 layout (`msip` at `0x0 + 4·hart`, `mtimecmp` at `0x4000 + 8·hart`, one
 `mtime` at `0xBFF8`):
 
-- `mtime` increments every `clint_divider` CPU cycles (default: 10)
-- The device tree advertises a 10 MHz timebase. `presets.linux()` sets
-  `clint_divider` to `cpu_clock_mhz / 10` so `mtime` runs at that rate and
-  the guest's clock keeps simulated time; with another divider the guest's
-  time runs fast or slow by the ratio
+- `mtime` advances at `timebase_hz` (default 10 MHz), the rate the
+  device tree advertises, so the guest's clock keeps simulated time; with
+  `timer="EveryCycle"` it advances every cycle and the guest's time runs
+  fast by `cpu_clock_mhz * 10**6 / timebase_hz`, which is how
+  `presets.linux(real_time=False)` shortens a boot
 - When `mtime >= mtimecmp[hart]`, that hart's timer interrupt is raised (MIP.MTIP)
 - Writing `msip[hart]` raises that hart's software interrupt (MIP.MSIP); this
   is how firmware sends inter-processor interrupts

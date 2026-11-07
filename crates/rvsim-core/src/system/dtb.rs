@@ -239,7 +239,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
     let syscon_base = config.system.syscon_base;
     let rtc_base = RTC_BASE;
     let plic_base = PLIC_BASE;
-    let timebase_freq: u32 = 10_000_000;
+    let timebase_freq = config.system.timebase_hz;
     let hart_count = u32::try_from(config.system.hart_count.max(1)).unwrap_or(u32::MAX);
 
     let bootargs =

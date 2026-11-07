@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- One clock: `cpu_clock_mhz` now also sets SE mode's time and `m5_rpns`,
+  and `clock_hz` is gone. `clint_divider` is replaced by `timer`
+  (`"RealTime"`, the default, ticks `mtime` at `timebase_hz`, which the
+  device tree reports; `"EveryCycle"` ticks it every cycle) and
+  `timebase_hz` (default 10 MHz). The default machine's `mtime` therefore
+  runs at 10 MHz rather than every tenth cycle, and `rocket()`, `boom()`
+  and the calibrated configs report SE time by their core clock rather
+  than 1 GHz. `presets.linux()` boots exactly as before in both modes.
 - `Config()`, and Rust's `Config::default()`, is a desktop out-of-order
   core of the mid-2020s: 6 wide at 4 GHz with a 320-entry ROB, 128-entry
   issue and load queues, a 72-entry store buffer, 224 integer and 192 FP

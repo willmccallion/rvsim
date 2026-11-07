@@ -32,7 +32,8 @@ fn test_system_config_defaults() {
     assert_eq!(system.kernel_offset, 0x0020_0000);
     assert_eq!(system.bus_width, 8);
     assert_eq!(system.bus_latency, 4);
-    assert_eq!(system.clint_divider, 10);
+    assert_eq!(system.timer, crate::config::Timer::RealTime);
+    assert_eq!(system.timebase_hz, 10_000_000);
     assert_eq!(system.console, crate::config::Console::Stdout);
 }
 
@@ -154,7 +155,7 @@ fn test_json_deserialization_minimal() {
             "kernel_offset": 2097152,
             "bus_width": 8,
             "bus_latency": 4,
-            "clint_divider": 10,
+            "timer": "RealTime", "timebase_hz": 10000000,
             "console": "Stdout"
         },
         "memory": {
@@ -257,7 +258,7 @@ fn test_json_deserialization_with_tracing() {
             "kernel_offset": 2097152,
             "bus_width": 8,
             "bus_latency": 4,
-            "clint_divider": 10,
+            "timer": "RealTime", "timebase_hz": 10000000,
             "console": "Stdout"
         },
         "memory": {
@@ -367,7 +368,7 @@ fn test_json_dram_controller() {
             "kernel_offset": 2097152,
             "bus_width": 8,
             "bus_latency": 4,
-            "clint_divider": 10,
+            "timer": "RealTime", "timebase_hz": 10000000,
             "console": "Stdout"
         },
         "memory": {
@@ -458,7 +459,7 @@ fn test_json_all_replacement_policies() {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "Stdout"}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "timer": "RealTime", "timebase_hz": 10000000, "console": "Stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 4, "policy": "{}", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -481,7 +482,7 @@ fn test_json_all_prefetchers() {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "Stdout"}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "timer": "RealTime", "timebase_hz": 10000000, "console": "Stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "{}", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -504,7 +505,7 @@ fn test_json_all_branch_predictors() {
         let json = format!(
             r#"{{
             "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "clint_divider": 10, "console": "Stdout"}},
+            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "timer": "RealTime", "timebase_hz": 10000000, "console": "Stdout"}},
             "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
             "cache": {{
                 "l1_i": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
@@ -538,7 +539,7 @@ fn test_isa_string_option() {
             "kernel_offset": 2097152,
             "bus_width": 8,
             "bus_latency": 4,
-            "clint_divider": 10,
+            "timer": "RealTime", "timebase_hz": 10000000,
             "console": "Stdout"
         },
         "memory": {
@@ -661,7 +662,7 @@ fn a_captured_console_is_read_from_json() {
             "kernel_offset": 2097152,
             "bus_width": 8,
             "bus_latency": 4,
-            "clint_divider": 10,
+            "timer": "RealTime", "timebase_hz": 10000000,
             "console": "Captured"
         },
         "memory": {
@@ -763,7 +764,7 @@ fn test_custom_cache_sizes() {
             "kernel_offset": 2097152,
             "bus_width": 8,
             "bus_latency": 4,
-            "clint_divider": 10,
+            "timer": "RealTime", "timebase_hz": 10000000,
             "console": "Stdout"
         },
         "memory": {
@@ -875,7 +876,7 @@ fn test_custom_dram_timings() {
             "kernel_offset": 2097152,
             "bus_width": 8,
             "bus_latency": 4,
-            "clint_divider": 10,
+            "timer": "RealTime", "timebase_hz": 10000000,
             "console": "Stdout"
         },
         "memory": {

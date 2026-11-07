@@ -177,7 +177,7 @@ impl SystemState {
         let terminal = Terminal::shared(config.system.console);
         let uart =
             Uart::new(config.system.uart_base, terminal.clone(), config.system.cpu_clock_mhz);
-        let clint = Clint::new(config.system.clint_base, config.system.clint_divider, hart_count);
+        let clint = Clint::new(config.system.clint_base, config.system.clint_divider(), hart_count);
         let plic = Plic::new(crate::config::PLIC_BASE, hart_count);
 
         let mut disk_device = VirtioBlock::new(config.system.disk_base);

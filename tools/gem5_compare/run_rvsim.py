@@ -129,7 +129,6 @@ def config_for(variant: dict) -> Config:
     return Config(
         width=3,
         cpu_clock_mhz=CLOCK_MHZ,
-        clock_hz=1_000_000_000,
         # gem5's LSQ gives a forwarded load one cycle: its writeback event
         # lands in the cycle after the load executes.
         store_forward_latency=1,

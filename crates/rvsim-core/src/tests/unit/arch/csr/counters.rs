@@ -119,8 +119,9 @@ fn mcountinhibit_ir_freezes_minstret() {
 #[test]
 fn the_time_csr_reads_the_clint_counter() {
     let mut ctx = context();
+    let one_tick = ctx.sim.state.config.system.clint_divider();
 
-    ctx.run(37);
+    ctx.run(one_tick + 1);
 
     let time = ctx.sim.state.core_ctx(0).csr_read(csr::TIME);
     assert_eq!(time, ctx.sim.state.bus.mtime());

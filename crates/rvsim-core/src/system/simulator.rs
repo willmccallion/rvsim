@@ -235,8 +235,9 @@ impl Simulator {
     /// programs than harts, among other things) or
     /// [`SimError::ProcessMemory`].
     pub fn load_processes(&mut self, programs: &[ProgramImage<'_>]) -> Result<(), SimError> {
-        let general = &self.state.config.general;
-        let (mode, clock_hz) = (general.page_mode.paging_mode(), general.clock_hz);
+        let config = &self.state.config;
+        let (mode, clock_hz) =
+            (config.general.page_mode.paging_mode(), config.system.cpu_clock_hz());
         process::loader::load_processes(&mut self.state, programs, mode, clock_hz)?;
         self.sync_arch_regs();
         Ok(())

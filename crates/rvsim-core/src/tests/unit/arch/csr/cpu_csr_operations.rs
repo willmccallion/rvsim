@@ -514,7 +514,7 @@ fn test_csr_time_counter() {
     // TIME should be cycles divided by clint_divider
     let time = state.csr_read(csr::TIME);
     let cycles = state.csr_read(csr::CYCLE);
-    assert_eq!(time, cycles / state.config.system.clint_divider);
+    assert_eq!(time, cycles / state.config.system.clint_divider());
 }
 
 #[test]

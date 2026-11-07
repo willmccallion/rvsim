@@ -117,9 +117,9 @@ pub(super) fn perform_pseudo_result(state: &mut CoreCtx<'_>, entry: &mut RobEntr
 }
 
 /// The simulated time in nanoseconds, by the clock SE mode's time
-/// syscalls read (`clock_hz`), as gem5's `m5_rpns` reports its tick.
+/// syscalls read (the core clock), as gem5's `m5_rpns` reports its tick.
 fn simulated_nanoseconds(state: &CoreCtx<'_>) -> u64 {
-    let clock_hz = state.uncore.config.general.clock_hz.max(1);
+    let clock_hz = state.uncore.config.system.cpu_clock_hz();
     u64::try_from(u128::from(state.uncore.cycle) * 1_000_000_000 / u128::from(clock_hz))
         .unwrap_or(u64::MAX)
 }

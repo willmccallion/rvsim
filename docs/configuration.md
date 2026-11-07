@@ -419,13 +419,14 @@ console.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `cpu_clock_mhz` | `int` | `4000` | Core clock: converts between cycles and nanoseconds for the DDR5 controller, device latencies and the RTC |
+| `cpu_clock_mhz` | `int` | `4000` | Core clock: converts between cycles and time for SE mode's time syscalls, the DDR5 controller, device latencies, the RTC and a real-time timer |
 | `hart_count` | `int` | `1` | Harts in the system, one per core (see [Multi-core](#multi-core)) |
 | `bus_width` | `int` | `8` | System bus width in bytes |
 | `bus_latency` | `int` | `1` | System bus latency in cycles, each way |
 | `device_latency_ns` | `int` | `100` | Time every device takes to answer a register access |
 | `device_latency_ns_overrides` | `dict` | `None` | Per-device access latency by name (`UART0`, `CLINT`, `PLIC`, `VirtIO-Blk`, `SysCon`, `GoldfishRTC`, `HTIF`) |
-| `clint_divider` | `int` | `10` | CPU cycles per `mtime` tick |
+| `timer` | `str` | `"RealTime"` | How `mtime` advances: `"RealTime"` at `timebase_hz`, so guest time keeps pace with the core clock, or `"EveryCycle"`, every cycle, so guest time runs `cpu_clock_mhz * 10**6 / timebase_hz` times fast |
+| `timebase_hz` | `int` | `10_000_000` | The timer frequency the device tree reports; for a `"RealTime"` timer it must divide the core clock |
 | `rtc_epoch_seconds` | `int` | `1767225600` | Wall-clock time the RTC reports at cycle zero (2026-01-01), advanced by simulated time so runs are reproducible |
 | `ram_base` | `int` | `0x8000_0000` | RAM base address |
 | `uart_base` | `int` | `0x1000_0000` | UART base address |
@@ -512,7 +513,6 @@ each private cache counts its snoops under
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `trace` | `bool` | `False` | Emit a trace event at every pipeline stage an instruction passes. `RUST_LOG` selects which are printed: `rvsim=trace` for all, or targets such as `rvsim::commit=trace`, `rvsim::mem=trace` and `rvsim::fwd=trace` |
-| `clock_hz` | `int` | `4_000_000_000` | The clock SE mode's time syscalls divide the cycle count by (see [SE mode](se-mode.md)) |
 | `console` | `str` or `None` | `None` | Where the guest's console connects, for the UART, HTIF's console and a user program's stdin, stdout and stderr: `"Stdout"`, `"Stderr"`, `"Quiet"`, or `"Captured"` (kept in memory for `read_console()`, input given with `write_console()`); overrides the two shorthands below |
 | `uart_quiet` | `bool` | `False` | Shorthand for `console="Quiet"` |
 | `uart_to_stderr` | `bool` | `False` | Shorthand for `console="Stderr"` |
@@ -529,7 +529,7 @@ field, rather than hanging, crashing or quietly building another machine:
 
 - **Room to work.** Every width, the ROB, the issue queue, the load queue,
   the store buffer, the load and store ports, `squash_width`, the vector
-  store buffer, the L1 TLB, `hart_count`, both clocks, `clint_divider`,
+  store buffer, the L1 TLB, `hart_count`, `cpu_clock_mhz`, `timebase_hz`,
   the coherence transaction entries and the interconnect's
   `bytes_per_cycle` are at least 1.
 - **Registers.** On the out-of-order backend `prf_gpr_size` and

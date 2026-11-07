@@ -81,7 +81,8 @@ fn config() -> Config {
     let mut config = Config::minimal();
     config.system.hart_count = 2;
     config.system.console = Console::Quiet;
-    config.system.clint_divider = CLINT_DIVIDER;
+    config.system.timebase_hz = u32::try_from(config.system.cpu_clock_hz() / CLINT_DIVIDER)
+        .expect("the timebase fits the device tree's 32 bits");
     config.memory.controller = MemoryControllerKind::Ddr5;
     config.memory.ddr5 = serde_json::from_str(
         r#"{"power_down_idle_ns": 50, "ecc": "SecDed", "patrol_scrub_ns": 5000}"#,

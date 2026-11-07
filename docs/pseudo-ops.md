@@ -50,7 +50,7 @@ The numbers are gem5's, from `include/gem5/asm/generic/m5ops.h`.
 
 | Operation | gem5 name | `rvsim.h` | What rvsim does |
 |---|---|---|---|
-| `0x07` | `m5_rpns()` | `rvsim_time_ns()` | `a0` gets the simulated time in nanoseconds, by the clock SE mode's time syscalls read (`clock_hz`). |
+| `0x07` | `m5_rpns()` | `rvsim_time_ns()` | `a0` gets the simulated time in nanoseconds, by the core clock (`cpu_clock_mhz`), as SE mode's time syscalls read it. |
 | `0x21` | `m5_exit(delay)` | | Ends the run with exit code 0. |
 | `0x22` | `m5_fail(delay, code)` | `rvsim_exit(code)` | Ends the run with exit code `a1`. |
 | `0x23` | `m5_sum(a, b, c, d, e, f)` | | `a0` gets the sum of `a0` to `a5`. |

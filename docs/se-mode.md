@@ -158,8 +158,8 @@ call itself, so OS-heavy workloads belong in full-system mode; this is
 the trade every SE mode makes.
 
 Time comes from the simulated clock: `clock_gettime`, `gettimeofday`,
-`times` and `getrusage` divide the cycle count by `Config(clock_hz=...)`,
-4 GHz by default, so a program that times itself measures the simulated
+`times` and `getrusage` divide the cycle count by the core clock,
+`Config(cpu_clock_mhz=...)`, so a program that times itself measures the simulated
 machine. `CLOCK_REALTIME` starts from a fixed epoch, and `getrandom`
 draws from a fixed-seed generator, so two runs of the same program see
 the same values.
