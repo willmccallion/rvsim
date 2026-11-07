@@ -1,9 +1,6 @@
 //! Widening and narrowing operations, including widening FMA.
 
-use super::convert::{
-    f32_to_i32_frm, f32_to_i64_frm, f32_to_u32_frm, f32_to_u64_frm, f64_to_f32_round_to_odd,
-    f64_to_i8_frm, f64_to_i16_frm, f64_to_i32_frm, f64_to_u8_frm, f64_to_u16_frm, f64_to_u32_frm,
-};
+use super::convert::f64_to_f32_round_to_odd;
 use super::{elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, is_snan_f16};
@@ -11,6 +8,7 @@ use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, is_snan_f32, is_snan_f64,
 };
+use crate::exec::compute::fpu::{IntTarget, fp_to_int};
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, widen_sew,
 };
@@ -85,25 +83,21 @@ pub(super) fn exec_fp_widening(
             ) {
                 let (bits, f) = match op {
                     VectorOp::VFWCvtXuF => {
-                        let a = elem_to_f32(vs2_raw);
-                        let (r, fl) = f32_to_u64_frm(a, ctx.frm);
-                        (r, fl)
+                        fp_to_int(f64::from(elem_to_f32(vs2_raw)), IntTarget::unsigned(64), ctx.frm)
                     }
                     VectorOp::VFWCvtXF => {
-                        let a = elem_to_f32(vs2_raw);
-                        let (r, fl) = f32_to_i64_frm(a, ctx.frm);
-                        (r as u64, fl)
+                        fp_to_int(f64::from(elem_to_f32(vs2_raw)), IntTarget::signed(64), ctx.frm)
                     }
-                    VectorOp::VFWCvtRtzXuF => {
-                        let a = elem_to_f32(vs2_raw);
-                        let (r, fl) = f32_to_u64_frm(a, RoundingMode::Rtz);
-                        (r, fl)
-                    }
-                    VectorOp::VFWCvtRtzXF => {
-                        let a = elem_to_f32(vs2_raw);
-                        let (r, fl) = f32_to_i64_frm(a, RoundingMode::Rtz);
-                        (r as u64, fl)
-                    }
+                    VectorOp::VFWCvtRtzXuF => fp_to_int(
+                        f64::from(elem_to_f32(vs2_raw)),
+                        IntTarget::unsigned(64),
+                        RoundingMode::Rtz,
+                    ),
+                    VectorOp::VFWCvtRtzXF => fp_to_int(
+                        f64::from(elem_to_f32(vs2_raw)),
+                        IntTarget::signed(64),
+                        RoundingMode::Rtz,
+                    ),
                     VectorOp::VFWCvtFXu => ((vs2_raw as u32 as f64).to_bits(), FpFlags::NONE),
                     VectorOp::VFWCvtFX => {
                         ((ctx.sew.sign_extend(vs2_raw) as i32 as f64).to_bits(), FpFlags::NONE)
@@ -160,20 +154,14 @@ pub(super) fn exec_fp_widening(
                 let a_f = f16_to_f32(vs2_raw as u16);
                 let (bits, f) = match op {
                     VectorOp::VFWCvtXuF => {
-                        let (r, f) = f32_to_u32_frm(a_f, ctx.frm);
-                        (u64::from(r), f)
+                        fp_to_int(f64::from(a_f), IntTarget::unsigned(32), ctx.frm)
                     }
                     VectorOp::VFWCvtRtzXuF => {
-                        let (r, f) = f32_to_u32_frm(a_f, RoundingMode::Rtz);
-                        (u64::from(r), f)
+                        fp_to_int(f64::from(a_f), IntTarget::unsigned(32), RoundingMode::Rtz)
                     }
-                    VectorOp::VFWCvtXF => {
-                        let (r, f) = f32_to_i32_frm(a_f, ctx.frm);
-                        (u64::from(r as u32), f)
-                    }
+                    VectorOp::VFWCvtXF => fp_to_int(f64::from(a_f), IntTarget::signed(32), ctx.frm),
                     VectorOp::VFWCvtRtzXF => {
-                        let (r, f) = f32_to_i32_frm(a_f, RoundingMode::Rtz);
-                        (u64::from(r as u32), f)
+                        fp_to_int(f64::from(a_f), IntTarget::signed(32), RoundingMode::Rtz)
                     }
                     VectorOp::VFWCvtFXu => {
                         (u64::from(f32::from(vs2_raw as u16).to_bits()), FpFlags::NONE)
@@ -396,22 +384,12 @@ pub(super) fn exec_fp_narrowing(
                     let r = f64_to_f32_round_to_odd(a64);
                     (box_f32_canon(r) & 0xFFFF_FFFF, FpFlags::NONE)
                 }
-                VectorOp::VFNCvtXuF => {
-                    let (r, f) = f64_to_u32_frm(a64, ctx.frm);
-                    (r as u64, f)
-                }
-                VectorOp::VFNCvtXF => {
-                    let (r, f) = f64_to_i32_frm(a64, ctx.frm);
-                    (r as u32 as u64, f)
-                }
+                VectorOp::VFNCvtXuF => fp_to_int(a64, IntTarget::unsigned(32), ctx.frm),
+                VectorOp::VFNCvtXF => fp_to_int(a64, IntTarget::signed(32), ctx.frm),
                 VectorOp::VFNCvtRtzXuF => {
-                    let (r, f) = f64_to_u32_frm(a64, RoundingMode::Rtz);
-                    (r as u64, f)
+                    fp_to_int(a64, IntTarget::unsigned(32), RoundingMode::Rtz)
                 }
-                VectorOp::VFNCvtRtzXF => {
-                    let (r, f) = f64_to_i32_frm(a64, RoundingMode::Rtz);
-                    (r as u32 as u64, f)
-                }
+                VectorOp::VFNCvtRtzXF => fp_to_int(a64, IntTarget::signed(32), RoundingMode::Rtz),
                 VectorOp::VFNCvtFXu => {
                     // Convert full 2*SEW unsigned integer to SEW float.
                     // Must not truncate to u32 first — the source is a 64-bit integer.
@@ -457,21 +435,13 @@ pub(super) fn exec_fp_narrowing(
                     let flags_no_nx = FpFlags::from_bits(f.bits() & !FpFlags::NX.bits());
                     (jammed as u64, flags_no_nx)
                 }
-                VectorOp::VFNCvtXuF => {
-                    let (r, f) = f64_to_u16_frm(f64::from(a32), ctx.frm);
-                    (u64::from(r), f)
-                }
-                VectorOp::VFNCvtXF => {
-                    let (r, f) = f64_to_i16_frm(f64::from(a32), ctx.frm);
-                    (u64::from(r as u16), f)
-                }
+                VectorOp::VFNCvtXuF => fp_to_int(f64::from(a32), IntTarget::unsigned(16), ctx.frm),
+                VectorOp::VFNCvtXF => fp_to_int(f64::from(a32), IntTarget::signed(16), ctx.frm),
                 VectorOp::VFNCvtRtzXuF => {
-                    let (r, f) = f64_to_u16_frm(f64::from(a32), RoundingMode::Rtz);
-                    (u64::from(r), f)
+                    fp_to_int(f64::from(a32), IntTarget::unsigned(16), RoundingMode::Rtz)
                 }
                 VectorOp::VFNCvtRtzXF => {
-                    let (r, f) = f64_to_i16_frm(f64::from(a32), RoundingMode::Rtz);
-                    (u64::from(r as u16), f)
+                    fp_to_int(f64::from(a32), IntTarget::signed(16), RoundingMode::Rtz)
                 }
                 VectorOp::VFNCvtFXu => {
                     // 2*SEW unsigned int (u32) → f16
@@ -489,22 +459,10 @@ pub(super) fn exec_fp_narrowing(
             // Zvfh: f16 to an 8-bit integer.
             let a = f64::from(f16_to_f32(vs2_raw as u16));
             match op {
-                VectorOp::VFNCvtXuF => {
-                    let (r, f) = f64_to_u8_frm(a, ctx.frm);
-                    (u64::from(r), f)
-                }
-                VectorOp::VFNCvtXF => {
-                    let (r, f) = f64_to_i8_frm(a, ctx.frm);
-                    (u64::from(r as u8), f)
-                }
-                VectorOp::VFNCvtRtzXuF => {
-                    let (r, f) = f64_to_u8_frm(a, RoundingMode::Rtz);
-                    (u64::from(r), f)
-                }
-                VectorOp::VFNCvtRtzXF => {
-                    let (r, f) = f64_to_i8_frm(a, RoundingMode::Rtz);
-                    (u64::from(r as u8), f)
-                }
+                VectorOp::VFNCvtXuF => fp_to_int(a, IntTarget::unsigned(8), ctx.frm),
+                VectorOp::VFNCvtXF => fp_to_int(a, IntTarget::signed(8), ctx.frm),
+                VectorOp::VFNCvtRtzXuF => fp_to_int(a, IntTarget::unsigned(8), RoundingMode::Rtz),
+                VectorOp::VFNCvtRtzXF => fp_to_int(a, IntTarget::signed(8), RoundingMode::Rtz),
                 _ => (0, FpFlags::NONE),
             }
         } else {

@@ -25,7 +25,8 @@ use crate::isa::op::AluOp;
 use self::nan_handling::unbox_f32;
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use arith::{execute_f32, execute_f64};
-use convert::{IntTarget, fp_to_int};
+use convert::fp_to_int_register;
+pub use convert::{IntTarget, fp_to_int};
 use exact::Exact;
 use half::execute_f16;
 use host::{clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode};
@@ -55,7 +56,7 @@ pub fn execute_full_rm(
     };
     if let Some(target) = IntTarget::of(op) {
         let value = if is32 { f64::from(unbox_f32(a)) } else { f64::from_bits(a) };
-        return fp_to_int(value, target, rm);
+        return fp_to_int_register(value, target, rm);
     }
 
     // Rounding-mode-sensitive arithmetic: set the host FPU rounding mode,

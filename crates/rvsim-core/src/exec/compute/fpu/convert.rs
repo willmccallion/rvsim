@@ -1,95 +1,88 @@
 //! Float-to-integer conversion with RISC-V saturation and rounding to an
 //! integral float.
 
-use crate::isa::bits::sext_word;
+use crate::isa::bits::sign_extend;
 use crate::isa::op::AluOp;
 
 use crate::isa::fp::{FpFlags, RoundingMode};
 
-/// `i32::MAX` + 1 as f64 (2^31). Values >= this overflow i32.
-pub(super) const I32_MAX_P1_F64: f64 = (i32::MAX as f64) + 1.0;
-
-/// `i32::MIN` as f64 (-2^31). Values < this overflow i32.
-pub(super) const I32_MIN_F64: f64 = i32::MIN as f64;
-
-/// `u32::MAX` + 1 as f64 (2^32). Values >= this overflow u32.
-pub(super) const U32_MAX_P1_F64: f64 = (u32::MAX as f64) + 1.0;
-
-/// `i64::MAX` + 1 as f64 (2^63). Values >= this overflow i64.
-pub(super) const I64_MAX_P1_F64: f64 = 9223372036854775808.0; // 2^63 exactly
-/// `i64::MIN` as f64 (-2^63). Values < this overflow i64.
-pub(super) const I64_MIN_F64: f64 = i64::MIN as f64;
-
-/// `u64::MAX` + 1 as f64 (2^64). Values >= this overflow u64.
-pub(super) const U64_MAX_P1_F64: f64 = 18446744073709551616.0; // 2^64 exactly
-
-/// The integer type an `fcvt` from floating point produces.
+/// The integer an `fcvt` from floating point produces: its width and
+/// signedness.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum IntTarget {
-    I32,
-    U32,
-    I64,
-    U64,
+pub struct IntTarget {
+    bits: u32,
+    is_signed: bool,
 }
 
 impl IntTarget {
+    /// A `bits`-bit signed integer.
+    pub const fn signed(bits: u32) -> Self {
+        Self { bits, is_signed: true }
+    }
+
+    /// A `bits`-bit unsigned integer.
+    pub const fn unsigned(bits: u32) -> Self {
+        Self { bits, is_signed: false }
+    }
+
     /// The target of `op`, when it converts floating point to an integer.
-    pub(super) const fn of(op: AluOp) -> Option<Self> {
+    pub const fn of(op: AluOp) -> Option<Self> {
         match op {
-            AluOp::FCvtWS => Some(Self::I32),
-            AluOp::FCvtWUS => Some(Self::U32),
-            AluOp::FCvtLS => Some(Self::I64),
-            AluOp::FCvtLUS => Some(Self::U64),
+            AluOp::FCvtWS => Some(Self::signed(32)),
+            AluOp::FCvtWUS => Some(Self::unsigned(32)),
+            AluOp::FCvtLS => Some(Self::signed(64)),
+            AluOp::FCvtLUS => Some(Self::unsigned(64)),
             _ => None,
         }
     }
 
-    /// The largest value, as the sign-extended register image RISC-V
-    /// writes for the type.
-    const fn max(self) -> u64 {
-        match self {
-            Self::I32 => i32::MAX as i64 as u64,
-            Self::U32 => sext_word(u32::MAX),
-            Self::I64 => i64::MAX as u64,
-            Self::U64 => u64::MAX,
-        }
+    /// Its width in bits.
+    pub const fn bits(self) -> u32 {
+        self.bits
     }
 
-    /// The smallest value, as the register image.
-    const fn min(self) -> u64 {
-        match self {
-            Self::I32 => i32::MIN as i64 as u64,
-            Self::U32 | Self::U64 => 0,
-            Self::I64 => i64::MIN as u64,
-        }
+    /// The bits a value of the type occupies.
+    const fn mask(self) -> u64 {
+        u64::MAX >> (64 - self.bits)
     }
 
     /// The integral values that convert without overflow: from the first
     /// up to but excluding the second.
     const fn range(self) -> (f64, f64) {
-        match self {
-            Self::I32 => (I32_MIN_F64, I32_MAX_P1_F64),
-            Self::U32 => (0.0, U32_MAX_P1_F64),
-            Self::I64 => (I64_MIN_F64, I64_MAX_P1_F64),
-            Self::U64 => (0.0, U64_MAX_P1_F64),
+        if self.is_signed {
+            (-two_to_the(self.bits - 1), two_to_the(self.bits - 1))
+        } else {
+            (0.0, two_to_the(self.bits))
         }
     }
 
-    /// The register image of `integral`, a value within [`Self::range`].
-    const fn image(self, integral: f64) -> u64 {
-        match self {
-            Self::I32 => integral as i32 as i64 as u64,
-            Self::U32 => sext_word(integral as u32),
-            Self::I64 => integral as i64 as u64,
-            Self::U64 => integral as u64,
-        }
+    /// The largest value's bits.
+    const fn max(self) -> u64 {
+        if self.is_signed { self.mask() >> 1 } else { self.mask() }
     }
+
+    /// The smallest value's bits.
+    const fn min(self) -> u64 {
+        if self.is_signed { (self.mask() >> 1) + 1 } else { 0 }
+    }
+
+    /// The bits of `integral`, a value within [`Self::range`].
+    const fn bits_of(self, integral: f64) -> u64 {
+        let wide = if self.is_signed { integral as i64 as u64 } else { integral as u64 };
+        wide & self.mask()
+    }
+}
+
+/// 2 to the power `exponent`, exactly.
+const fn two_to_the(exponent: u32) -> f64 {
+    f64::from_bits((1023 + exponent as u64) << 52)
 }
 
 /// Converts `value` to the integer `target` under `rm`, saturating as
 /// RISC-V does: NaN gives the maximum, and an out-of-range result raises
-/// NV, which takes priority over NX.
-pub(super) fn fp_to_int(value: f64, target: IntTarget, rm: RoundingMode) -> (u64, FpFlags) {
+/// NV, which takes priority over NX. The result is the integer's bits at
+/// the target's width, zero-extended.
+pub fn fp_to_int(value: f64, target: IntTarget, rm: RoundingMode) -> (u64, FpFlags) {
     if value.is_nan() {
         return (target.max(), FpFlags::NV);
     }
@@ -102,7 +95,18 @@ pub(super) fn fp_to_int(value: f64, target: IntTarget, rm: RoundingMode) -> (u64
         return (target.max(), FpFlags::NV);
     }
     let flags = if value == rounded { FpFlags::NONE } else { FpFlags::NX };
-    (target.image(rounded), flags)
+    (target.bits_of(rounded), flags)
+}
+
+/// [`fp_to_int`] as RV64 writes the result to an integer register: a
+/// 32-bit result sign-extended, signed or not.
+pub(super) fn fp_to_int_register(
+    value: f64,
+    target: IntTarget,
+    rm: RoundingMode,
+) -> (u64, FpFlags) {
+    let (bits, flags) = fp_to_int(value, target, rm);
+    (sign_extend(bits, target.bits()) as u64, flags)
 }
 
 /// Rounds an f64 value to an integer using the specified RISC-V rounding mode.
