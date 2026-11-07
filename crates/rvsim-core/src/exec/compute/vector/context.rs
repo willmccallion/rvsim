@@ -71,13 +71,6 @@ pub(super) fn read_op1(vpr: &impl VectorRegFile, operand1: &VecOperand, i: usize
     }
 }
 
-/// Sign-extend a SEW-width value stored in a `u64` to a full `i64`.
-#[inline]
-pub(super) const fn sign_extend(val: u64, sew: Sew) -> i64 {
-    let shift = 64 - sew.bits();
-    ((val << shift) as i64) >> shift
-}
-
 /// Widen a SEW to the next larger width. Returns `None` for E64.
 #[inline]
 pub(super) const fn widen_sew(sew: Sew) -> Option<Sew> {

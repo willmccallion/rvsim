@@ -3,6 +3,8 @@
 //! Encodings, instruction fields, and the vocabulary the rest of the
 //! simulator speaks. Nothing here holds state.
 
+pub mod bits;
+
 pub mod config;
 
 pub mod csr;

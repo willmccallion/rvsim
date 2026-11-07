@@ -7,6 +7,7 @@
 //! All 32-bit (`IntWidth::Word`) results are sign-extended from bit 31 to
 //! 64 bits, per the RISC-V spec (§2.4, §7.1, §7.2).
 
+use crate::isa::bits::sext_word;
 use crate::isa::op::{AluOp, IntWidth};
 
 const WORD_BITS: u32 = 32;
@@ -82,7 +83,7 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
         },
         AluOp::Divu => match width {
             IntWidth::Word => match (a as u32).checked_div(b as u32) {
-                Some(q) => q as i32 as i64 as u64,
+                Some(q) => sext_word(q),
                 None => -1i64 as u64,
             },
             IntWidth::Double => match a.checked_div(b) {
@@ -116,9 +117,9 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
                     if (b as u32) == 0 {
                         // REMUW div-by-zero: return dividend[31:0] sign-extended
                         // to 64 bits (RISC-V spec §7.2).
-                        (a as u32) as i32 as i64 as u64
+                        sext_word(a as u32)
                     } else {
-                        ((a as u32) % (b as u32)) as i32 as i64 as u64
+                        sext_word((a as u32) % (b as u32))
                     }
                 }
                 IntWidth::Double => {

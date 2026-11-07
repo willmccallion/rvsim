@@ -3,6 +3,7 @@
 //! Provides the `expand` function which converts a 16-bit compressed instruction
 //! into its 32-bit uncompressed equivalent.
 
+use crate::isa::bits;
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64f::opcodes as fp_opcodes;
 use crate::isa::encoding::rv64i::{funct3, funct7, opcodes};
@@ -99,7 +100,10 @@ pub const fn expand(inst: u16) -> Option<u32> {
 
         QUADRANT_1 => match funct3 {
             q1::C_ADDI => {
-                let imm = sign_extend((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32, 6);
+                let imm = bits::sign_extend(
+                    ((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32) as u64,
+                    6,
+                ) as u32;
                 let rd = ((inst >> 7) & 0x1F) as u32;
                 ((imm & 0xFFF) << 20)
                     | (rd << 15)
@@ -108,7 +112,10 @@ pub const fn expand(inst: u16) -> Option<u32> {
                     | opcodes::OP_IMM
             }
             q1::C_ADDIW => {
-                let imm = sign_extend((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32, 6);
+                let imm = bits::sign_extend(
+                    ((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32) as u64,
+                    6,
+                ) as u32;
                 let rd = ((inst >> 7) & 0x1F) as u32;
                 if rd == 0 {
                     return None;
@@ -120,21 +127,24 @@ pub const fn expand(inst: u16) -> Option<u32> {
                     | opcodes::OP_IMM_32
             }
             q1::C_LI => {
-                let imm = sign_extend((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32, 6);
+                let imm = bits::sign_extend(
+                    ((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32) as u64,
+                    6,
+                ) as u32;
                 let rd = ((inst >> 7) & 0x1F) as u32;
                 ((imm & 0xFFF) << 20) | (funct3::ADD_SUB << 12) | (rd << 7) | opcodes::OP_IMM
             }
             q1::C_LUI_ADDI16SP => {
                 let rd = ((inst >> 7) & 0x1F) as u32;
                 if rd == 2 {
-                    let imm = sign_extend(
-                        (((inst >> 6) & 1) << 4
+                    let imm = bits::sign_extend(
+                        ((((inst >> 6) & 1) << 4
                             | ((inst >> 2) & 1) << 5
                             | ((inst >> 5) & 1) << 6
                             | ((inst >> 3) & 3) << 7
-                            | ((inst >> 12) & 1) << 9) as u32,
+                            | ((inst >> 12) & 1) << 9) as u32) as u64,
                         10,
-                    );
+                    ) as u32;
                     if imm == 0 {
                         return None;
                     }
@@ -144,8 +154,10 @@ pub const fn expand(inst: u16) -> Option<u32> {
                         | (2 << 7)
                         | opcodes::OP_IMM
                 } else {
-                    let imm =
-                        sign_extend((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32, 6);
+                    let imm = bits::sign_extend(
+                        ((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32) as u64,
+                        6,
+                    ) as u32;
                     if imm == 0 {
                         return None;
                     }
@@ -156,7 +168,10 @@ pub const fn expand(inst: u16) -> Option<u32> {
                 let bit12 = (inst >> 12) & 1;
                 let funct2 = (inst >> 10) & 0x3;
                 let rd = 8 + ((inst >> 7) & 0x7) as u32;
-                let imm = sign_extend((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32, 6);
+                let imm = bits::sign_extend(
+                    ((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32) as u64,
+                    6,
+                ) as u32;
 
                 match funct2 {
                     0 => {
@@ -236,17 +251,17 @@ pub const fn expand(inst: u16) -> Option<u32> {
                 }
             }
             q1::C_J => {
-                let offset = sign_extend(
-                    (((inst >> 3) & 0x7) << 1
+                let offset = bits::sign_extend(
+                    ((((inst >> 3) & 0x7) << 1
                         | ((inst >> 11) & 1) << 4
                         | ((inst >> 2) & 1) << 5
                         | ((inst >> 7) & 1) << 6
                         | ((inst >> 6) & 1) << 7
                         | ((inst >> 9) & 3) << 8
                         | ((inst >> 8) & 1) << 10
-                        | ((inst >> 12) & 1) << 11) as u32,
+                        | ((inst >> 12) & 1) << 11) as u32) as u64,
                     12,
-                );
+                ) as u32;
                 let imm20 = (offset >> 20) & 1;
                 let imm10_1 = (offset >> 1) & 0x3FF;
                 let imm11 = (offset >> 11) & 1;
@@ -254,14 +269,14 @@ pub const fn expand(inst: u16) -> Option<u32> {
                 (imm20 << 31) | (imm19_12 << 12) | (imm11 << 20) | (imm10_1 << 21) | opcodes::OP_JAL
             }
             q1::C_BEQZ => {
-                let offset = sign_extend(
-                    (((inst >> 3) & 0x3) << 1
+                let offset = bits::sign_extend(
+                    ((((inst >> 3) & 0x3) << 1
                         | ((inst >> 10) & 0x3) << 3
                         | ((inst >> 2) & 1) << 5
                         | ((inst >> 5) & 0x3) << 6
-                        | ((inst >> 12) & 1) << 8) as u32,
+                        | ((inst >> 12) & 1) << 8) as u32) as u64,
                     9,
-                );
+                ) as u32;
                 let rs1 = 8 + ((inst >> 7) & 0x7) as u32;
                 let imm12 = (offset >> 12) & 1;
                 let imm10_5 = (offset >> 5) & 0x3F;
@@ -276,14 +291,14 @@ pub const fn expand(inst: u16) -> Option<u32> {
                     | opcodes::OP_BRANCH
             }
             q1::C_BNEZ => {
-                let offset = sign_extend(
-                    (((inst >> 3) & 0x3) << 1
+                let offset = bits::sign_extend(
+                    ((((inst >> 3) & 0x3) << 1
                         | ((inst >> 10) & 0x3) << 3
                         | ((inst >> 2) & 1) << 5
                         | ((inst >> 5) & 0x3) << 6
-                        | ((inst >> 12) & 1) << 8) as u32,
+                        | ((inst >> 12) & 1) << 8) as u32) as u64,
                     9,
-                );
+                ) as u32;
                 let rs1 = 8 + ((inst >> 7) & 0x7) as u32;
                 let imm12 = (offset >> 12) & 1;
                 let imm10_5 = (offset >> 5) & 0x3F;
@@ -404,23 +419,4 @@ pub const fn expand(inst: u16) -> Option<u32> {
         _ => return None,
     };
     Some(expanded)
-}
-
-/// Sign-extends a value from `bits` width to 32 bits.
-///
-/// Performs arithmetic right shift to propagate the sign bit through
-/// the upper bits of the result. Used for expanding compressed instruction
-/// immediates to their 32-bit equivalents.
-///
-/// # Arguments
-///
-/// * `val` - The value to sign-extend (only lower `bits` are valid).
-/// * `bits` - The number of valid bits in `val` (must be <= 32).
-///
-/// # Returns
-///
-/// The sign-extended 32-bit value.
-const fn sign_extend(val: u32, bits: u32) -> u32 {
-    let shift = 32 - bits;
-    ((val << shift) as i32 >> shift) as u32
 }

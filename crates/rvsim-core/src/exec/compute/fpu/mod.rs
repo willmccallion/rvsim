@@ -20,6 +20,7 @@ pub mod nan_handling;
 pub mod exact;
 pub mod half;
 
+use crate::isa::bits::sext_word;
 use crate::isa::op::AluOp;
 
 use self::nan_handling::unbox_f32;
@@ -203,7 +204,7 @@ impl IntTarget {
     const fn max(self) -> u64 {
         match self {
             Self::I32 => i32::MAX as i64 as u64,
-            Self::U32 => u32::MAX as i32 as i64 as u64,
+            Self::U32 => sext_word(u32::MAX),
             Self::I64 => i64::MAX as u64,
             Self::U64 => u64::MAX,
         }
@@ -272,7 +273,7 @@ pub fn execute_full_rm(
             }
             IntTarget::U32 => {
                 if (0.0..U32_MAX_P1_F64).contains(&rounded) {
-                    (false, rounded as u32 as i32 as i64 as u64)
+                    (false, sext_word(rounded as u32))
                 } else {
                     (true, if rounded > 0.0 { target.max() } else { target.min() })
                 }

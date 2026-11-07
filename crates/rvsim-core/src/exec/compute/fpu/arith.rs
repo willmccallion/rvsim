@@ -1,5 +1,6 @@
 //! Single- and double-precision operations and classification.
 
+use crate::isa::bits::sext_word;
 use crate::isa::fp::{FpClass, FpFormat};
 use crate::isa::op::AluOp;
 
@@ -63,7 +64,7 @@ pub(super) fn execute_f32(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
         // NaN → positive max per RISC-V spec.
         AluOp::FCvtWS => f64_to_i32_rv(fa as f64) as i64 as u64,
-        AluOp::FCvtWUS => f64_to_u32_rv(fa as f64) as i32 as i64 as u64,
+        AluOp::FCvtWUS => sext_word(f64_to_u32_rv(fa as f64)),
         AluOp::FCvtLS => f64_to_i64_rv(fa as f64) as u64,
         AluOp::FCvtLUS => f64_to_u64_rv(fa as f64),
 
@@ -123,7 +124,7 @@ pub(super) fn execute_f64(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
         // NaN → positive max per RISC-V spec.
         AluOp::FCvtWS => f64_to_i32_rv(fa) as i64 as u64,
-        AluOp::FCvtWUS => f64_to_u32_rv(fa) as i32 as i64 as u64,
+        AluOp::FCvtWUS => sext_word(f64_to_u32_rv(fa)),
         AluOp::FCvtLS => f64_to_i64_rv(fa) as u64,
         AluOp::FCvtLUS => f64_to_u64_rv(fa),
         AluOp::FCvtSD => box_f32_canon(fa as f32),

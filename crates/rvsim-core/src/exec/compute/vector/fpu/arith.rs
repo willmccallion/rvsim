@@ -14,7 +14,7 @@ use crate::exec::compute::fpu::nan_handling::{
 };
 use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
 use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend,
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpClass, FpFlags, FpFormat, RoundingMode};
@@ -143,7 +143,7 @@ pub(super) fn compute_f32(
         }
         // Conversions: signed int -> float
         VectorOp::VFCvtFX => {
-            let signed = sign_extend(vs2_bits, Sew::E32) as i32;
+            let signed = Sew::E32.sign_extend(vs2_bits) as i32;
             let (r, flags) = on_host_f32(
                 frm,
                 || black_box(signed) as f32,
@@ -393,7 +393,7 @@ pub(super) fn compute_f16(
             (r as u16 as u64, f)
         }
         VectorOp::VFCvtFXu => round(vs2_bits as u16 as f64, FpFlags::NONE),
-        VectorOp::VFCvtFX => round(sign_extend(vs2_bits, Sew::E16) as i16 as f64, FpFlags::NONE),
+        VectorOp::VFCvtFX => round(Sew::E16.sign_extend(vs2_bits) as i16 as f64, FpFlags::NONE),
         VectorOp::VFRsqrt7 => {
             let (r, f) = vfrsqrt7_16(ha);
             (r as u64, f)

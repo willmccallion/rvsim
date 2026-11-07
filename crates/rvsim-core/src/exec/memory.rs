@@ -6,7 +6,7 @@ use crate::isa::op::MemWidth;
 /// zero-extended to its width, and NaN-boxed when it is a narrower
 /// floating-point value.
 pub const fn load_result(raw: u64, width: MemWidth, signed: bool, fp_dest: bool) -> u64 {
-    let value = sign_extend(raw, width, signed);
+    let value = extend_load(raw, width, signed);
     if !fp_dest {
         return value;
     }
@@ -19,7 +19,7 @@ pub const fn load_result(raw: u64, width: MemWidth, signed: bool, fp_dest: bool)
 
 /// Sign / zero-extends a raw load value according to the access width and
 /// the signed-load control bit.
-const fn sign_extend(raw: u64, width: MemWidth, signed: bool) -> u64 {
+const fn extend_load(raw: u64, width: MemWidth, signed: bool) -> u64 {
     if signed {
         match width {
             MemWidth::Byte => (raw as u8 as i8) as i64 as u64,
