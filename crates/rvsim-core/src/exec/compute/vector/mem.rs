@@ -9,7 +9,7 @@ use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::signals::ControlSignals;
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
-use crate::isa::rvv::{ElemIdx, Emul, Nf, Sew, VRegIdx, VtypeFields, parse_vtype};
+use crate::isa::rvv::{ElemIdx, Emul, Nf, Sew, VRegIdx, VectorConfig, VtypeFields, parse_vtype};
 
 /// Returns `(data_emul_regs, idx_emul_regs)` for a vec memory op.
 ///
@@ -204,12 +204,11 @@ pub fn element_accesses<V: VectorRegFile>(
     base_addr: u64,
     stride: i64,
     ctrl: &ControlSignals,
-    vtype_bits: u64,
-    vl: usize,
-    vstart: usize,
+    config: VectorConfig,
     vec_op: VectorOp,
 ) -> Vec<ElementAccess> {
-    let vtype = parse_vtype(vtype_bits);
+    let vtype = parse_vtype(config.vtype);
+    let (vl, vstart) = (config.vl as usize, config.vstart as usize);
     if vtype.vill && vec_op.depends_on_vtype() {
         return Vec::new();
     }

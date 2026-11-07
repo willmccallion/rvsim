@@ -3,10 +3,11 @@
 use std::ops::BitOr;
 
 /// RISC-V rounding mode encoding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum RoundingMode {
     /// Round to Nearest, ties to Even (default IEEE mode).
+    #[default]
     Rne = 0b000,
     /// Round towards Zero.
     Rtz = 0b001,

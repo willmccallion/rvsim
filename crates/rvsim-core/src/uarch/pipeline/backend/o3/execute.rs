@@ -216,11 +216,8 @@ mod tests {
             vec_src2_count: 0,
             vec_src3_count: 0,
             mask: None,
-            vec_vtype: 0,
-            vec_vl: 0,
-            vec_vstart: 0,
-            vec_vxrm: 0,
-            vec_frm: 0,
+            vector_config: crate::isa::rvv::VectorConfig::default(),
+            vector_rounding: crate::isa::rvv::VectorRounding::default(),
         };
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -283,11 +280,8 @@ mod tests {
             vec_src2_count: 0,
             vec_src3_count: 0,
             mask: None,
-            vec_vtype: 0,
-            vec_vl: 0,
-            vec_vstart: 0,
-            vec_vxrm: 0,
-            vec_frm: 0,
+            vector_config: crate::isa::rvv::VectorConfig::default(),
+            vector_rounding: crate::isa::rvv::VectorRounding::default(),
         };
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -354,11 +348,8 @@ mod tests {
             vec_src2_count: 0,
             vec_src3_count: 0,
             mask: None,
-            vec_vtype: 0,
-            vec_vl: 0,
-            vec_vstart: 0,
-            vec_vxrm: 0,
-            vec_frm: 0,
+            vector_config: crate::isa::rvv::VectorConfig::default(),
+            vector_rounding: crate::isa::rvv::VectorRounding::default(),
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -426,11 +417,8 @@ mod tests {
             vec_src2_count: 0,
             vec_src3_count: 0,
             mask: None,
-            vec_vtype: 0,
-            vec_vl: 0,
-            vec_vstart: 0,
-            vec_vxrm: 0,
-            vec_frm: 0,
+            vector_config: crate::isa::rvv::VectorConfig::default(),
+            vector_rounding: crate::isa::rvv::VectorRounding::default(),
         };
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -501,11 +489,8 @@ mod tests {
             vec_src2_count: 0,
             vec_src3_count: 0,
             mask: None,
-            vec_vtype: 0,
-            vec_vl: 0,
-            vec_vstart: 0,
-            vec_vxrm: 0,
-            vec_frm: 0,
+            vector_config: crate::isa::rvv::VectorConfig::default(),
+            vector_rounding: crate::isa::rvv::VectorRounding::default(),
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -572,11 +557,8 @@ mod tests {
             vec_src2_count: 0,
             vec_src3_count: 0,
             mask: None,
-            vec_vtype: 0,
-            vec_vl: 0,
-            vec_vstart: 0,
-            vec_vxrm: 0,
-            vec_frm: 0,
+            vector_config: crate::isa::rvv::VectorConfig::default(),
+            vector_rounding: crate::isa::rvv::VectorRounding::default(),
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);

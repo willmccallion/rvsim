@@ -173,11 +173,8 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
     let mut recorder = AgnosticRecorder::new(&mut shadow, commit_log_open(state));
     let result = execute_vec_op_on(
         &mut recorder,
-        csrs.vtype,
-        csrs.vl,
-        csrs.vstart,
-        csrs.vxrm,
-        csrs.frm,
+        csrs.vector_config(),
+        csrs.vector_rounding(),
         vector.elen,
         state.core().isa.extensions.contains(Extension::Zvfh),
         &id.inst,

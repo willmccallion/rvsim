@@ -261,6 +261,17 @@ impl Csrs {
         crate::isa::rvv::VectorConfig { vtype: self.vtype, vl: self.vl, vstart: self.vstart }
     }
 
+    /// The rounding modes `vxrm` and `frm` hold. A reserved `frm` reads as
+    /// RNE: execute raises illegal-instruction for any vector FP
+    /// instruction while `frm` is reserved, so nothing rounds by it.
+    #[must_use]
+    pub fn vector_rounding(&self) -> crate::isa::rvv::VectorRounding {
+        crate::isa::rvv::VectorRounding {
+            vxrm: crate::isa::rvv::Vxrm::from_bits(self.vxrm as u8),
+            frm: crate::isa::fp::RoundingMode::from_bits(self.frm as u8).unwrap_or_default(),
+        }
+    }
+
     /// Advances `mcycle` by one clock unless inhibited.
     pub const fn count_cycle(&mut self) {
         if self.mcountinhibit & MCOUNTINHIBIT_CY == 0 {
