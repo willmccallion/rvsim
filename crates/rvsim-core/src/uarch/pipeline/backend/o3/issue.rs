@@ -11,7 +11,7 @@ use crate::uarch::ctx::CoreCtx;
 use crate::uarch::mdp::MemDepAccess;
 use crate::uarch::pipeline::backend::shared::execute::record_vector_flags;
 use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
-use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, route_to_phys};
+use crate::uarch::pipeline::backend::shared::vec_mem::VecMemInflight;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPrfView};
 use crate::uarch::pipeline::squash::PendingSquash;
@@ -250,17 +250,13 @@ impl O3Engine {
         if let Some(mask) = entry.mask {
             mapping[0] = mask;
         }
-        let micro_ops = route_to_phys(
-            element_accesses(
-                &VecPrfView::new(&mut self.vec_prf, mapping),
-                result.alu,
-                result.store_data as i64,
-                ctrl,
-                entry.vector_config,
-                vec_op,
-            ),
-            &vd_phys,
-            vd_count,
+        let micro_ops = element_accesses(
+            &VecPrfView::new(&mut self.vec_prf, mapping),
+            result.alu,
+            result.store_data as i64,
+            ctrl,
+            entry.vector_config,
+            vec_op,
         );
 
         // Pre-copy old vd so tail / mask-undisturbed elements observe prior values.

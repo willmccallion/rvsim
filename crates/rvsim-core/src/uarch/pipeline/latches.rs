@@ -12,6 +12,7 @@ use std::collections::VecDeque;
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::{InstSeq, PhysAddr, VirtAddr};
+use crate::exec::compute::vector::mem::ElementAccess;
 use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::fp::FpFlags;
@@ -22,7 +23,6 @@ use crate::isa::reg::RegIdx;
 use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, Sew, VectorConfig, VectorRounding};
 use crate::sim::memory::write_log::WriteSeq;
-use crate::uarch::pipeline::backend::shared::vec_mem::VecMemAddrOp;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::RobTag;
@@ -182,8 +182,9 @@ pub enum VecMemTarget {
         elem_idx: ElemIdx,
         /// Effective element width for this access.
         eew: Sew,
-        /// Destination physical vector register for this element's data.
-        vd_phys: VecPhysReg,
+        /// Which register of the destination group the element's data
+        /// lands in, counting from `vd`.
+        dest_slot: usize,
     },
     /// Contiguous element accesses the vector memory datapath moves at once.
     Span(Box<VecMemSpan>),
@@ -196,7 +197,7 @@ pub enum VecMemTarget {
 pub struct VecMemSpan {
     /// The element accesses in address order, each with the micro-op it
     /// becomes when the span is taken apart.
-    pub elements: Vec<(MicroOpIdx, VecMemAddrOp)>,
+    pub elements: Vec<(MicroOpIdx, ElementAccess)>,
     /// The bytes a load's access read, once the memory system served it
     /// or a store forwarded them.
     pub data: Option<Box<[u8]>>,
@@ -221,7 +222,7 @@ impl VecMemSpan {
 
     /// Where an element access's bytes start within the span.
     #[must_use]
-    pub fn offset_of(&self, element: &VecMemAddrOp) -> usize {
+    pub fn offset_of(&self, element: &ElementAccess) -> usize {
         (element.vaddr.val() - self.vaddr().val()) as usize
     }
 }

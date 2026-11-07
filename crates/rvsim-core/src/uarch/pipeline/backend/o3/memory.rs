@@ -2,11 +2,12 @@
 //! memory2, the writeback of their results, and the vector memory
 //! micro-ops that flow through them.
 
-use crate::isa::rvv::ElemIdx;
+use crate::isa::rvv::{ElemIdx, MAX_GROUP_REGS};
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::{expand_span, retire_access};
 use crate::uarch::pipeline::backend::shared::{memory1, memory2, writeback};
 use crate::uarch::pipeline::latches::Mem2WbEntry;
+use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 
 use super::O3Engine;
 use super::complete::wake_vector_dests;
@@ -56,10 +57,15 @@ impl O3Engine {
             }
             let retired = retire_access(&wb, vme, &mut self.vec_mem_inflight, &mut self.rob);
             let vlen_bits = self.vec_prf.vlen().bits();
+            let vd_phys = self
+                .vec_mem_inflight
+                .iter()
+                .find(|m| m.rob_tag == wb.rob_tag)
+                .map_or([VecPhysReg::ZERO; MAX_GROUP_REGS], |parent| parent.vd_phys);
             for write in retired.writes {
                 let elems_per_reg = (vlen_bits / (write.eew.bytes() * 8)).max(1);
                 let local = ElemIdx::new(write.elem_idx.as_usize() % elems_per_reg);
-                self.vec_prf.write_element(write.vd_phys, local, write.eew, write.value);
+                self.vec_prf.write_element(vd_phys[write.dest_slot], local, write.eew, write.value);
             }
             // Dependents bulk-read all elements, so they wake on full completion only.
             if retired.completed

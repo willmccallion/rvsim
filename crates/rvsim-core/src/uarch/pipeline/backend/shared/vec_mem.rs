@@ -11,7 +11,6 @@
 
 use std::collections::VecDeque;
 
-use crate::common::VirtAddr;
 use crate::exec::compute::vector::mem::{ElementAccess, is_vec_store};
 use crate::exec::signals::ControlSignals;
 use crate::isa::fp::FpFlags;
@@ -24,46 +23,6 @@ use crate::uarch::pipeline::latches::{
 };
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
-
-/// An element access routed to the physical register it loads into.
-#[derive(Debug, Clone)]
-pub struct VecMemAddrOp {
-    /// Virtual address for this element access.
-    pub vaddr: VirtAddr,
-    /// The element's data for a store, 0 for a load.
-    pub store_data: u64,
-    /// Element index within the destination vector register.
-    pub elem_idx: ElemIdx,
-    /// Effective element width for this access.
-    pub eew: Sew,
-    /// Destination physical vector register for this element.
-    pub vd_phys: VecPhysReg,
-}
-
-/// Routes each access to its physical destination: the renamed register
-/// of its destination slot, or the zero register past the `vd_count`
-/// registers the instruction renamed.
-#[must_use]
-pub fn route_to_phys(
-    accesses: Vec<ElementAccess>,
-    vd_phys: &[VecPhysReg; MAX_GROUP_REGS],
-    vd_count: u8,
-) -> Vec<VecMemAddrOp> {
-    accesses
-        .into_iter()
-        .map(|access| VecMemAddrOp {
-            vaddr: access.vaddr,
-            store_data: access.store_data,
-            elem_idx: access.elem_idx,
-            eew: access.eew,
-            vd_phys: if access.dest_slot < vd_count as usize {
-                vd_phys[access.dest_slot]
-            } else {
-                VecPhysReg::ZERO
-            },
-        })
-        .collect()
-}
 
 /// One micro-op of a vector memory instruction on its way through the
 /// memory stages.
@@ -113,7 +72,7 @@ impl VecMemInflight {
     /// `vd_phys[..vd_count]`.
     pub fn plan(
         parent: &ExMem1Entry,
-        accesses: Vec<VecMemAddrOp>,
+        accesses: Vec<ElementAccess>,
         width: usize,
         vd_phys: [VecPhysReg; MAX_GROUP_REGS],
         vd_count: u8,
@@ -148,9 +107,9 @@ pub struct ElementFault {
 #[derive(Debug, Clone)]
 pub enum PlannedAccess {
     /// One element access on its own.
-    Element(VecMemAddrOp),
+    Element(ElementAccess),
     /// Element accesses moved as one span, each with its own micro-op.
-    Span(Vec<(MicroOpIdx, VecMemAddrOp)>),
+    Span(Vec<(MicroOpIdx, ElementAccess)>),
 }
 
 /// Convert an EEW byte count (1/2/4/8) to the corresponding `MemWidth`.
@@ -220,12 +179,12 @@ pub fn expected_load_micro_ops(
 /// numbered by its position, and each span a micro-op after them.
 #[must_use]
 pub fn plan_accesses(
-    addresses: Vec<VecMemAddrOp>,
+    addresses: Vec<ElementAccess>,
     in_spans: bool,
     width: usize,
 ) -> Vec<(MicroOpIdx, PlannedAccess)> {
     let mut planner = SpanPlanner { next_span: addresses.len(), planned: Vec::new() };
-    let mut run: Vec<(MicroOpIdx, VecMemAddrOp)> = Vec::new();
+    let mut run: Vec<(MicroOpIdx, ElementAccess)> = Vec::new();
     for (position, access) in addresses.into_iter().enumerate() {
         let micro_op = MicroOpIdx::new(position);
         if !in_spans || !is_naturally_aligned(&access) {
@@ -250,7 +209,7 @@ struct SpanPlanner {
 impl SpanPlanner {
     /// Plans `run`, the accesses of one window: alone when it holds one,
     /// else as the next span.
-    fn close(&mut self, mut run: Vec<(MicroOpIdx, VecMemAddrOp)>) {
+    fn close(&mut self, mut run: Vec<(MicroOpIdx, ElementAccess)>) {
         match run.len() {
             0 => {}
             1 => {
@@ -266,11 +225,11 @@ impl SpanPlanner {
     }
 }
 
-const fn is_naturally_aligned(access: &VecMemAddrOp) -> bool {
+const fn is_naturally_aligned(access: &ElementAccess) -> bool {
     access.vaddr.val().is_multiple_of(access.eew.bytes() as u64)
 }
 
-const fn window(access: &VecMemAddrOp, width: usize) -> u64 {
+const fn window(access: &ElementAccess, width: usize) -> u64 {
     access.vaddr.val() / width as u64
 }
 
@@ -296,13 +255,13 @@ pub fn micro_ops_for(
 const fn element_micro_op(
     parent: &ExMem1Entry,
     micro_op: MicroOpIdx,
-    element: &VecMemAddrOp,
+    element: &ElementAccess,
     is_store: bool,
 ) -> VecMemMicroOp {
     let target = VecMemTarget::Element {
         elem_idx: element.elem_idx,
         eew: element.eew,
-        vd_phys: element.vd_phys,
+        dest_slot: element.dest_slot,
     };
     let access = VecMemAccess { micro_op, is_store, target };
     let width = mem_width_from_eew_bytes(element.eew.bytes());
@@ -318,7 +277,7 @@ const fn element_micro_op(
 fn span_micro_op(
     parent: &ExMem1Entry,
     micro_op: MicroOpIdx,
-    elements: Vec<(MicroOpIdx, VecMemAddrOp)>,
+    elements: Vec<(MicroOpIdx, ElementAccess)>,
     is_store: bool,
 ) -> VecMemMicroOp {
     let span = VecMemSpan { elements, data: None };
@@ -391,8 +350,9 @@ pub struct ElementValue {
     pub elem_idx: ElemIdx,
     /// Its width.
     pub eew: Sew,
-    /// The physical register it goes to.
-    pub vd_phys: VecPhysReg,
+    /// Which register of the destination group it goes to, counting
+    /// from `vd`.
+    pub dest_slot: usize,
     /// The value, zero-extended.
     pub value: u64,
 }
@@ -458,10 +418,10 @@ pub fn retire_access(
 /// The elements a micro-op carries, with the values a load read for them.
 fn element_values(wb: &Mem2WbEntry, access: &VecMemAccess) -> Vec<ElementValue> {
     match &access.target {
-        VecMemTarget::Element { elem_idx, eew, vd_phys } => vec![ElementValue {
+        VecMemTarget::Element { elem_idx, eew, dest_slot } => vec![ElementValue {
             elem_idx: *elem_idx,
             eew: *eew,
-            vd_phys: *vd_phys,
+            dest_slot: *dest_slot,
             value: wb.load_data,
         }],
         VecMemTarget::Span(span) => span
@@ -479,7 +439,7 @@ fn element_values(wb: &Mem2WbEntry, access: &VecMemAccess) -> Vec<ElementValue> 
                 ElementValue {
                     elem_idx: element.elem_idx,
                     eew: element.eew,
-                    vd_phys: element.vd_phys,
+                    dest_slot: element.dest_slot,
                     value,
                 }
             })
@@ -492,13 +452,13 @@ mod tests {
     use super::*;
     use crate::common::VirtAddr;
 
-    fn access(elem: usize, vaddr: u64, eew: Sew) -> VecMemAddrOp {
-        VecMemAddrOp {
+    fn access(elem: usize, vaddr: u64, eew: Sew) -> ElementAccess {
+        ElementAccess {
             vaddr: VirtAddr::new(vaddr),
             store_data: 0,
             elem_idx: ElemIdx::new(elem),
             eew,
-            vd_phys: VecPhysReg::ZERO,
+            dest_slot: 0,
         }
     }
 
