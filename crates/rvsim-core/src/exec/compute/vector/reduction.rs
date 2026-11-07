@@ -14,28 +14,17 @@
 //! All reductions read the initial accumulator from `vs1[0]` and write the
 //! result to `vd[0]`; remaining elements of `vd` follow the tail policy.
 
-// IEEE 754 FEQ requires exact bit-pattern comparison — float_cmp is intentional here.
-#![allow(clippy::float_cmp)]
-
-use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
-use crate::exec::compute::fpu::half::{CANONICAL_NAN_F16, f16_to_f32, f64_to_f16, is_snan_f16};
-use crate::exec::compute::fpu::host::{
-    clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
-};
-use crate::exec::compute::fpu::nan_handling::{
-    box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
-};
-use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
+use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
 use crate::exec::compute::vector::context::{
     FpSew, FpWiden, VecExecCtx, VecExecResult, mask_active, widen_sew,
 };
+use crate::exec::compute::vector::fpu::{SoftF16, VecFloat};
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::FpFlags;
 use crate::isa::op::{
     FpReduceOp, FpWidenReduceOp, IntReduceOp, ReduceOp, VectorOp, WidenIntReduceOp,
 };
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
-use std::hint::black_box;
 
 /// Returns `true` if `op` is a reduction handled by this module.
 pub const fn is_reduction(op: VectorOp) -> bool {
@@ -249,9 +238,9 @@ fn exec_fp_reduction(
 
     let saved_rm = set_host_round_mode(ctx.frm);
     let (result_bits, flags) = match fp_sew {
-        FpSew::F16 => fp_reduce_f16(op, vpr, vs2, vs1, ctx),
-        FpSew::F32 => fp_reduce_f32(op, vpr, vs2, vs1, ctx),
-        FpSew::F64 => fp_reduce_f64(op, vpr, vs2, vs1, ctx),
+        FpSew::F16 => fp_reduce::<SoftF16>(op, vpr, vs2, vs1, ctx),
+        FpSew::F32 => fp_reduce::<f32>(op, vpr, vs2, vs1, ctx),
+        FpSew::F64 => fp_reduce::<f64>(op, vpr, vs2, vs1, ctx),
     };
     vpr.write_element(vd, ElemIdx::new(0), sew, result_bits);
     restore_host_round_mode(saved_rm);
@@ -266,183 +255,40 @@ fn exec_fp_reduction(
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
 }
 
-/// Single-precision (f32) reduction loop.
+/// One floating-point reduction loop. Per V 1.0 §14.2 and Zvfh, each step
+/// rounds to SEW.
 ///
-/// Returns `(result_bits, fp_flags)` where `result_bits` is the NaN-boxed
-/// canonical f32 result suitable for writing at SEW=32.
-fn fp_reduce_f32(
+/// Returns `(result_bits, fp_flags)`, the result as an element at SEW.
+fn fp_reduce<F: VecFloat>(
     op: FpReduceOp,
     vpr: &impl VectorRegFile,
     vs2: VRegIdx,
     vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> (u64, FpFlags) {
-    let sew = ctx.sew;
-    let init_bits = read_initial_accum(vpr, vs1, sew);
-    let mut acc = f32::from_bits(init_bits as u32);
+    let mut acc = F::from_elem(read_initial_accum(vpr, vs1, F::SEW));
     let mut flags = FpFlags::NONE;
 
     for i in ctx.vstart..ctx.vl {
         if !ctx.vm && !mask_active(vpr, i) {
             continue;
         }
-        let elem_bits = vpr.read_element(vs2, ElemIdx::new(i), sew);
-        let elem = f32::from_bits(elem_bits as u32);
-
-        match op {
-            FpReduceOp::OSum | FpReduceOp::USum => {
-                let (sum, f) = on_host_f32(
-                    ctx.frm,
-                    || black_box(acc) + black_box(elem),
-                    || exact::add(Exact::of_f32(acc), Exact::of_f32(elem)),
-                );
-                acc = sum;
-                flags = flags | f;
-            }
-            FpReduceOp::Min => {
-                if is_snan_f32(acc) || is_snan_f32(elem) {
-                    flags = flags | FpFlags::NV;
-                }
-                acc = fmin_f32(acc, elem);
-            }
-            FpReduceOp::Max => {
-                if is_snan_f32(acc) || is_snan_f32(elem) {
-                    flags = flags | FpFlags::NV;
-                }
-                acc = fmax_f32(acc, elem);
-            }
-        }
+        let elem = F::from_elem(vpr.read_element(vs2, ElemIdx::new(i), F::SEW));
+        let (next, f) = match op {
+            FpReduceOp::OSum | FpReduceOp::USum => acc.add(elem, ctx.frm),
+            FpReduceOp::Min => (acc.min(elem), invalid_if_signaling(acc, elem)),
+            FpReduceOp::Max => (acc.max(elem), invalid_if_signaling(acc, elem)),
+        };
+        acc = next;
+        flags = flags | f;
     }
 
-    (box_f32_canon(acc), flags)
+    (acc.canonical_elem_bits(), flags)
 }
 
-/// Double-precision (f64) reduction loop.
-///
-/// Returns `(result_bits, fp_flags)` where `result_bits` is the canonicalized
-/// f64 bit pattern suitable for writing at SEW=64.
-fn fp_reduce_f64(
-    op: FpReduceOp,
-    vpr: &impl VectorRegFile,
-    vs2: VRegIdx,
-    vs1: VRegIdx,
-    ctx: &VecExecCtx,
-) -> (u64, FpFlags) {
-    let sew = ctx.sew;
-    let init_bits = read_initial_accum(vpr, vs1, sew);
-    let mut acc = f64::from_bits(init_bits);
-    let mut flags = FpFlags::NONE;
-
-    for i in ctx.vstart..ctx.vl {
-        if !ctx.vm && !mask_active(vpr, i) {
-            continue;
-        }
-        let elem_bits = vpr.read_element(vs2, ElemIdx::new(i), sew);
-        let elem = f64::from_bits(elem_bits);
-
-        match op {
-            FpReduceOp::OSum | FpReduceOp::USum => {
-                let (sum, f) = on_host_f64(
-                    ctx.frm,
-                    || black_box(acc) + black_box(elem),
-                    || exact::add(Exact::of_f64(acc), Exact::of_f64(elem)),
-                );
-                acc = sum;
-                flags = flags | f;
-            }
-            FpReduceOp::Min => {
-                if is_snan_f64(acc) || is_snan_f64(elem) {
-                    flags = flags | FpFlags::NV;
-                }
-                acc = fmin_f64(acc, elem);
-            }
-            FpReduceOp::Max => {
-                if is_snan_f64(acc) || is_snan_f64(elem) {
-                    flags = flags | FpFlags::NV;
-                }
-                acc = fmax_f64(acc, elem);
-            }
-        }
-    }
-
-    (canonicalize_f64_bits(acc), flags)
-}
-
-/// Half-precision (f16, Zvfh) reduction loop.
-///
-/// Per V 1.0 §14.2 and Zvfh, ordered FP reductions accumulate at the
-/// destination precision; for SEW=E16 each step is rounded to f16. Inputs
-/// are widened to f32 (lossless), the host performs the arithmetic, and the
-/// result is rounded back to f16 with the current rounding mode (`ctx.frm`).
-///
-/// Returns `(result_bits, fp_flags)` where the f16 bit pattern is in the low
-/// 16 bits of the u64 (upper bits zero).
-fn fp_reduce_f16(
-    op: FpReduceOp,
-    vpr: &impl VectorRegFile,
-    vs2: VRegIdx,
-    vs1: VRegIdx,
-    ctx: &VecExecCtx,
-) -> (u64, FpFlags) {
-    let sew = ctx.sew;
-    let init_bits = read_initial_accum(vpr, vs1, sew) as u16;
-    let mut acc_bits: u16 = init_bits;
-    let mut flags = FpFlags::NONE;
-
-    for i in ctx.vstart..ctx.vl {
-        if !ctx.vm && !mask_active(vpr, i) {
-            continue;
-        }
-        let elem_bits = vpr.read_element(vs2, ElemIdx::new(i), sew) as u16;
-
-        match op {
-            FpReduceOp::OSum | FpReduceOp::USum => {
-                if is_snan_f16(acc_bits) || is_snan_f16(elem_bits) {
-                    flags = flags | FpFlags::NV;
-                }
-                let acc_f64 = f16_to_f32(acc_bits) as f64;
-                let elem_f64 = f16_to_f32(elem_bits) as f64;
-                clear_host_fp_flags();
-                let sum = std::hint::black_box(
-                    std::hint::black_box(acc_f64) + std::hint::black_box(elem_f64),
-                );
-                let host_flags = read_host_fp_flags();
-                let (rounded, round_flags) = f64_to_f16(sum, ctx.frm);
-                acc_bits = rounded;
-                flags = flags | host_flags | round_flags;
-            }
-            FpReduceOp::Min => {
-                if is_snan_f16(acc_bits) || is_snan_f16(elem_bits) {
-                    flags = flags | FpFlags::NV;
-                }
-                let a = f16_to_f32(acc_bits);
-                let b = f16_to_f32(elem_bits);
-                let r = fmin_f32(a, b);
-                acc_bits = if r.is_nan() {
-                    CANONICAL_NAN_F16
-                } else {
-                    let (bits, _) = f64_to_f16(r as f64, RoundingMode::Rne);
-                    bits
-                };
-            }
-            FpReduceOp::Max => {
-                if is_snan_f16(acc_bits) || is_snan_f16(elem_bits) {
-                    flags = flags | FpFlags::NV;
-                }
-                let a = f16_to_f32(acc_bits);
-                let b = f16_to_f32(elem_bits);
-                let r = fmax_f32(a, b);
-                acc_bits = if r.is_nan() {
-                    CANONICAL_NAN_F16
-                } else {
-                    let (bits, _) = f64_to_f16(r as f64, RoundingMode::Rne);
-                    bits
-                };
-            }
-        }
-    }
-
-    (acc_bits as u64, flags)
+/// NV when either operand is a signaling NaN, as minNum and maxNum raise.
+fn invalid_if_signaling<F: VecFloat>(a: F, b: F) -> FpFlags {
+    if a.is_signaling_nan() || b.is_signaling_nan() { FpFlags::NV } else { FpFlags::NONE }
 }
 
 /// Execute a widening FP reduction.
@@ -466,8 +312,8 @@ fn exec_fp_widen_reduction(
     let saved_rm = set_host_round_mode(ctx.frm);
 
     let (result_bits, flags) = match widen {
-        FpWiden::F32ToF64 => fp_widen_reduce_f32_to_f64(op, vpr, vs2, vs1, ctx, dst_sew),
-        FpWiden::F16ToF32 => fp_widen_reduce_f16_to_f32(op, vpr, vs2, vs1, ctx, dst_sew),
+        FpWiden::F32ToF64 => fp_widen_reduce::<f32, f64>(op, vpr, vs2, vs1, ctx),
+        FpWiden::F16ToF32 => fp_widen_reduce::<SoftF16, f32>(op, vpr, vs2, vs1, ctx),
     };
 
     vpr.write_element(vd, ElemIdx::new(0), dst_sew, result_bits);
@@ -484,80 +330,38 @@ fn exec_fp_widen_reduction(
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
 }
 
-/// E32→E64 widening FP reduction. Accumulator is f64, source elements f32.
-fn fp_widen_reduce_f32_to_f64(
+/// One widening floating-point reduction loop: `N` elements summed into a
+/// `W` accumulator, each step rounded to `W`.
+fn fp_widen_reduce<N: VecFloat, W: VecFloat>(
     op: FpWidenReduceOp,
     vpr: &impl VectorRegFile,
     vs2: VRegIdx,
     vs1: VRegIdx,
     ctx: &VecExecCtx,
-    dst_sew: Sew,
 ) -> (u64, FpFlags) {
-    let init_bits = read_initial_accum(vpr, vs1, dst_sew);
-    let mut acc = f64::from_bits(init_bits);
+    let mut acc = W::from_elem(read_initial_accum(vpr, vs1, W::SEW));
     let mut flags = FpFlags::NONE;
     for i in ctx.vstart..ctx.vl {
         if !ctx.vm && !mask_active(vpr, i) {
             continue;
         }
-        let elem_bits = vpr.read_element(vs2, ElemIdx::new(i), Sew::E32) as u32;
-        let wide = f32::from_bits(elem_bits) as f64;
+        let elem = N::from_elem(vpr.read_element(vs2, ElemIdx::new(i), N::SEW));
         match op {
             FpWidenReduceOp::OSum | FpWidenReduceOp::USum => {
-                if is_snan_f32(f32::from_bits(elem_bits)) {
+                if elem.is_signaling_nan() {
                     flags = flags | FpFlags::NV;
                 }
-                let (sum, f) = on_host_f64(
-                    ctx.frm,
-                    || black_box(acc) + black_box(wide),
-                    || exact::add(Exact::of_f64(acc), Exact::of_f64(wide)),
-                );
+                let (sum, f) = acc.add(W::from_f64_exact(elem.to_f64()), ctx.frm);
                 acc = sum;
                 flags = flags | f;
             }
         }
     }
-    (canonicalize_f64_bits(acc), flags)
-}
-
-/// E16→E32 widening FP reduction (Zvfh). Accumulator is f32, source elements f16.
-fn fp_widen_reduce_f16_to_f32(
-    op: FpWidenReduceOp,
-    vpr: &impl VectorRegFile,
-    vs2: VRegIdx,
-    vs1: VRegIdx,
-    ctx: &VecExecCtx,
-    dst_sew: Sew,
-) -> (u64, FpFlags) {
-    let init_bits = read_initial_accum(vpr, vs1, dst_sew) as u32;
-    let mut acc = f32::from_bits(init_bits);
-    let mut flags = FpFlags::NONE;
-    for i in ctx.vstart..ctx.vl {
-        if !ctx.vm && !mask_active(vpr, i) {
-            continue;
-        }
-        let elem_bits = vpr.read_element(vs2, ElemIdx::new(i), Sew::E16) as u16;
-        let wide = f16_to_f32(elem_bits);
-        match op {
-            FpWidenReduceOp::OSum | FpWidenReduceOp::USum => {
-                if is_snan_f16(elem_bits) {
-                    flags = flags | FpFlags::NV;
-                }
-                let (sum, f) = on_host_f32(
-                    ctx.frm,
-                    || black_box(acc) + black_box(wide),
-                    || exact::add(Exact::of_f32(acc), Exact::of_f32(wide)),
-                );
-                acc = sum;
-                flags = flags | f;
-            }
-        }
-    }
-    (box_f32_canon(acc), flags)
+    (acc.canonical_elem_bits(), flags)
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::float_cmp)]
 mod tests {
     use super::*;
     use crate::isa::op::VecClass;
