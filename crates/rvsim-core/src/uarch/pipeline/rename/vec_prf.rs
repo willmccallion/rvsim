@@ -8,6 +8,7 @@
 //! `VRegIdx` to physical `VecPhysReg` via a mapping table, enabling the VPU
 //! execution functions to operate transparently on physical registers.
 
+use crate::arch::regs::vec_storage::VecRegStorage;
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::rvv::{ElemIdx, MAX_GROUP_REGS, Sew, VRegIdx, Vlen};
 use crate::uarch::pipeline::rename::free_list::PhysRegister;
@@ -102,12 +103,9 @@ impl PhysRegister for VecPhysReg {
 /// Vector physical register file: flat byte storage with per-register ready bits.
 #[derive(Debug)]
 pub struct VecPhysRegFile {
-    /// Contiguous storage: `prf_vpr_size * vlen_bytes` bytes.
-    data: Vec<u8>,
+    storage: VecRegStorage,
     /// Per-register ready bits.
     ready: Vec<bool>,
-    /// VLEN configuration.
-    vlen: Vlen,
     /// Total number of physical registers.
     total: usize,
 }
@@ -117,57 +115,32 @@ impl VecPhysRegFile {
     ///
     /// `total` = total physical registers (including architectural slots 0..32).
     pub fn new(total: usize, vlen: Vlen) -> Self {
-        Self { data: vec![0u8; total * vlen.bytes()], ready: vec![false; total], vlen, total }
+        Self { storage: VecRegStorage::new(total, vlen), ready: vec![false; total], total }
     }
 
     /// Read a single element from a physical register.
     pub fn read_element(&self, p: VecPhysReg, index: ElemIdx, sew: Sew) -> u64 {
-        let off = self.offset(p, index, sew);
-        let bytes = sew.bytes();
-        debug_assert!(off + bytes <= self.data.len(), "VecPRF read out of bounds");
-        let mut val = 0u64;
-        for i in 0..bytes {
-            val |= (self.data[off + i] as u64) << (i * 8);
-        }
-        val
+        self.storage.read_element(p.as_usize(), index, sew)
     }
 
     /// Write a single element to a physical register.
     pub fn write_element(&mut self, p: VecPhysReg, index: ElemIdx, sew: Sew, val: u64) {
-        let off = self.offset(p, index, sew);
-        let bytes = sew.bytes();
-        debug_assert!(off + bytes <= self.data.len(), "VecPRF write out of bounds");
-        for i in 0..bytes {
-            self.data[off + i] = (val >> (i * 8)) as u8;
-        }
+        self.storage.write_element(p.as_usize(), index, sew, val);
     }
 
     /// Read a single mask bit from a physical register.
     pub fn read_mask_bit(&self, p: VecPhysReg, index: ElemIdx) -> bool {
-        let base = p.as_usize() * self.vlen.bytes();
-        let byte_off = base + index.as_usize() / 8;
-        let bit_off = index.as_usize() % 8;
-        debug_assert!(byte_off < self.data.len(), "VecPRF mask read out of bounds");
-        (self.data[byte_off] >> bit_off) & 1 != 0
+        self.storage.read_mask_bit(p.as_usize(), index)
     }
 
     /// Write a single mask bit in a physical register.
     pub fn write_mask_bit(&mut self, p: VecPhysReg, index: ElemIdx, val: bool) {
-        let base = p.as_usize() * self.vlen.bytes();
-        let byte_off = base + index.as_usize() / 8;
-        let bit_off = index.as_usize() % 8;
-        debug_assert!(byte_off < self.data.len(), "VecPRF mask write out of bounds");
-        if val {
-            self.data[byte_off] |= 1 << bit_off;
-        } else {
-            self.data[byte_off] &= !(1 << bit_off);
-        }
+        self.storage.write_mask_bit(p.as_usize(), index, val);
     }
 
     /// Read the raw bytes of a physical register.
     pub fn read_bytes(&self, p: VecPhysReg) -> &[u8] {
-        let start = p.as_usize() * self.vlen.bytes();
-        &self.data[start..start + self.vlen.bytes()]
+        self.storage.registers(p.as_usize(), 1)
     }
 
     /// Write raw bytes to a physical register.
@@ -176,20 +149,12 @@ impl VecPhysRegFile {
     ///
     /// Panics if `data.len() != vlen.bytes()`.
     pub fn write_bytes(&mut self, p: VecPhysReg, data: &[u8]) {
-        assert_eq!(data.len(), self.vlen.bytes(), "VecPRF write_bytes: length mismatch");
-        let start = p.as_usize() * self.vlen.bytes();
-        self.data[start..start + self.vlen.bytes()].copy_from_slice(data);
+        self.storage.registers_mut(p.as_usize(), 1).copy_from_slice(data);
     }
 
     /// Copy one physical register to another.
     pub fn copy_reg(&mut self, dst: VecPhysReg, src: VecPhysReg) {
-        if dst == src {
-            return;
-        }
-        let vlen_bytes = self.vlen.bytes();
-        let src_start = src.as_usize() * vlen_bytes;
-        let dst_start = dst.as_usize() * vlen_bytes;
-        self.data.copy_within(src_start..src_start + vlen_bytes, dst_start);
+        self.storage.copy_register(dst.as_usize(), src.as_usize());
     }
 
     /// Returns true if the physical register is ready (result available).
@@ -228,19 +193,13 @@ impl VecPhysRegFile {
     /// Returns the VLEN configuration.
     #[inline]
     pub const fn vlen(&self) -> Vlen {
-        self.vlen
+        self.storage.vlen()
     }
 
     /// Total number of physical vector registers.
     #[inline]
     pub const fn capacity(&self) -> usize {
         self.total
-    }
-
-    /// Byte offset for a given physical register and element.
-    #[inline]
-    const fn offset(&self, p: VecPhysReg, index: ElemIdx, sew: Sew) -> usize {
-        p.as_usize() * self.vlen.bytes() + index.as_usize() * sew.bytes()
     }
 }
 
@@ -267,26 +226,28 @@ impl<'a> VecPrfView<'a> {
     const fn translate(&self, vreg: VRegIdx) -> VecPhysReg {
         self.mapping[vreg.as_usize()]
     }
+
+    /// The physical register holding element `index` of the group at
+    /// `vreg`, and the element's index within it.
+    fn locate(&self, vreg: VRegIdx, index: ElemIdx, sew: Sew) -> (VecPhysReg, ElemIdx) {
+        let elems_per_reg = (self.prf.vlen().bytes() / sew.bytes()).max(1);
+        let reg_in_group = index.as_usize() / elems_per_reg;
+        let member = VRegIdx::new(vreg.as_u8() + reg_in_group as u8);
+        (self.translate(member), ElemIdx::new(index.as_usize() % elems_per_reg))
+    }
 }
 
 impl VectorRegFile for VecPrfView<'_> {
     #[inline]
     fn read_element(&self, vreg: VRegIdx, index: ElemIdx, sew: Sew) -> u64 {
-        // LMUL > 1: route element idx to the correct register in the group.
-        let elems_per_phys = (self.prf.vlen().bytes() / sew.bytes()).max(1);
-        let phys_offset = index.as_usize() / elems_per_phys;
-        let local_idx = ElemIdx::new(index.as_usize() % elems_per_phys);
-        let actual_vreg = VRegIdx::new(vreg.as_u8() + phys_offset as u8);
-        self.prf.read_element(self.translate(actual_vreg), local_idx, sew)
+        let (reg, local) = self.locate(vreg, index, sew);
+        self.prf.read_element(reg, local, sew)
     }
 
     #[inline]
     fn write_element(&mut self, vreg: VRegIdx, index: ElemIdx, sew: Sew, val: u64) {
-        let elems_per_phys = (self.prf.vlen().bytes() / sew.bytes()).max(1);
-        let phys_offset = index.as_usize() / elems_per_phys;
-        let local_idx = ElemIdx::new(index.as_usize() % elems_per_phys);
-        let actual_vreg = VRegIdx::new(vreg.as_u8() + phys_offset as u8);
-        self.prf.write_element(self.translate(actual_vreg), local_idx, sew, val);
+        let (reg, local) = self.locate(vreg, index, sew);
+        self.prf.write_element(reg, local, sew, val);
     }
 
     #[inline]

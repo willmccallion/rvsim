@@ -3,84 +3,52 @@
 //! Provides 32 × VLEN-bit vector registers with element-wise access at all SEW
 //! values and register group operations for LMUL > 1.
 
+use super::vec_storage::VecRegStorage;
 use crate::isa::rvv::{ElemIdx, LmulGroup, Sew, VRegIdx, Vlen};
 
 /// Architectural vector register file: 32 registers, each VLEN bits wide.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Vpr {
-    /// Contiguous storage: 32 * `vlen.bytes()` bytes.
-    data: Vec<u8>,
-    /// The configured VLEN.
-    vlen: Vlen,
+    storage: VecRegStorage,
 }
 
 impl Vpr {
     /// Create a new VPR with all registers zeroed.
     pub fn new(vlen: Vlen) -> Self {
-        Self { data: vec![0u8; 32 * vlen.bytes()], vlen }
+        Self { storage: VecRegStorage::new(VRegIdx::COUNT, vlen) }
     }
 
     /// All 32 registers' bytes, register 0 first.
     pub fn bytes(&self) -> &[u8] {
-        &self.data
+        self.storage.bytes()
     }
 
     /// Overwrites all 32 registers from `bytes`, laid out as [`Self::bytes`].
     pub fn set_bytes(&mut self, bytes: &[u8]) {
-        let len = self.data.len().min(bytes.len());
-        self.data[..len].copy_from_slice(&bytes[..len]);
+        let data = self.storage.bytes_mut();
+        let len = data.len().min(bytes.len());
+        data[..len].copy_from_slice(&bytes[..len]);
     }
 
     /// Returns the configured VLEN.
     #[inline]
     pub const fn vlen(&self) -> Vlen {
-        self.vlen
-    }
-
-    /// Byte offset for a given register and element.
-    #[inline]
-    const fn offset(&self, vreg: VRegIdx, index: ElemIdx, sew: Sew) -> usize {
-        vreg.as_usize() * self.vlen.bytes() + index.as_usize() * sew.bytes()
+        self.storage.vlen()
     }
 
     /// Read a single element from a vector register, zero-extended to u64.
     pub fn read_element(&self, vreg: VRegIdx, index: ElemIdx, sew: Sew) -> u64 {
-        let off = self.offset(vreg, index, sew);
-        let bytes = sew.bytes();
-        debug_assert!(
-            off + bytes <= self.data.len(),
-            "VPR read out of bounds: vreg={}, idx={}, sew={:?}",
-            vreg.as_u8(),
-            index.as_usize(),
-            sew
-        );
-        let mut val = 0u64;
-        for i in 0..bytes {
-            val |= (self.data[off + i] as u64) << (i * 8);
-        }
-        val
+        self.storage.read_element(vreg.as_usize(), index, sew)
     }
 
     /// Write a single element to a vector register, truncating `val` to SEW bits.
     pub fn write_element(&mut self, vreg: VRegIdx, index: ElemIdx, sew: Sew, val: u64) {
-        let off = self.offset(vreg, index, sew);
-        let bytes = sew.bytes();
-        debug_assert!(
-            off + bytes <= self.data.len(),
-            "VPR write out of bounds: vreg={}, idx={}, sew={:?}",
-            vreg.as_u8(),
-            index.as_usize(),
-            sew
-        );
-        for i in 0..bytes {
-            self.data[off + i] = (val >> (i * 8)) as u8;
-        }
+        self.storage.write_element(vreg.as_usize(), index, sew, val);
     }
 
     /// Read the raw bytes of a single vector register.
     pub fn read_bytes(&self, vreg: VRegIdx) -> &[u8] {
-        let start = vreg.as_usize() * self.vlen.bytes();
-        &self.data[start..start + self.vlen.bytes()]
+        self.storage.registers(vreg.as_usize(), 1)
     }
 
     /// Write raw bytes to a single vector register.
@@ -89,31 +57,19 @@ impl Vpr {
     ///
     /// Panics if `data.len() != vlen.bytes()`.
     pub fn write_bytes(&mut self, vreg: VRegIdx, data: &[u8]) {
-        assert_eq!(data.len(), self.vlen.bytes(), "write_bytes: length mismatch");
-        let start = vreg.as_usize() * self.vlen.bytes();
-        self.data[start..start + self.vlen.bytes()].copy_from_slice(data);
+        self.storage.registers_mut(vreg.as_usize(), 1).copy_from_slice(data);
     }
 
     /// Read a single mask bit from a vector register.
     ///
     /// Mask bit `i` is stored as bit `i % 8` of byte `i / 8` within the register.
     pub fn read_mask_bit(&self, vreg: VRegIdx, index: ElemIdx) -> bool {
-        let byte_off = vreg.as_usize() * self.vlen.bytes() + index.as_usize() / 8;
-        let bit_off = index.as_usize() % 8;
-        debug_assert!(byte_off < self.data.len(), "mask bit read out of bounds");
-        (self.data[byte_off] >> bit_off) & 1 != 0
+        self.storage.read_mask_bit(vreg.as_usize(), index)
     }
 
     /// Write a single mask bit in a vector register.
     pub fn write_mask_bit(&mut self, vreg: VRegIdx, index: ElemIdx, val: bool) {
-        let byte_off = vreg.as_usize() * self.vlen.bytes() + index.as_usize() / 8;
-        let bit_off = index.as_usize() % 8;
-        debug_assert!(byte_off < self.data.len(), "mask bit write out of bounds");
-        if val {
-            self.data[byte_off] |= 1 << bit_off;
-        } else {
-            self.data[byte_off] &= !(1 << bit_off);
-        }
+        self.storage.write_mask_bit(vreg.as_usize(), index, val);
     }
 
     /// Read the raw bytes of a register group (LMUL consecutive registers).
@@ -122,15 +78,8 @@ impl Vpr {
     ///
     /// Panics if `base` is not aligned to the group size.
     pub fn read_group(&self, base: VRegIdx, group: LmulGroup) -> &[u8] {
-        assert!(
-            base.is_aligned(group),
-            "register group base {} not aligned to LMUL group size {}",
-            base.as_u8(),
-            group.regs()
-        );
-        let start = base.as_usize() * self.vlen.bytes();
-        let len = group.regs_usize() * self.vlen.bytes();
-        &self.data[start..start + len]
+        assert_group_aligned(base, group);
+        self.storage.registers(base.as_usize(), group.regs_usize())
     }
 
     /// Write raw bytes to a register group (LMUL consecutive registers).
@@ -139,41 +88,28 @@ impl Vpr {
     ///
     /// Panics if `base` is not aligned or `data.len()` doesn't match.
     pub fn write_group(&mut self, base: VRegIdx, group: LmulGroup, data: &[u8]) {
-        assert!(
-            base.is_aligned(group),
-            "register group base {} not aligned to LMUL group size {}",
-            base.as_u8(),
-            group.regs()
-        );
-        let len = group.regs_usize() * self.vlen.bytes();
-        assert_eq!(data.len(), len, "write_group: length mismatch");
-        let start = base.as_usize() * self.vlen.bytes();
-        self.data[start..start + len].copy_from_slice(data);
+        assert_group_aligned(base, group);
+        self.storage.registers_mut(base.as_usize(), group.regs_usize()).copy_from_slice(data);
     }
 
     /// Copy one register to another.
     pub fn copy_reg(&mut self, dst: VRegIdx, src: VRegIdx) {
-        if dst == src {
-            return;
-        }
-        let vlen_bytes = self.vlen.bytes();
-        let src_start = src.as_usize() * vlen_bytes;
-        let dst_start = dst.as_usize() * vlen_bytes;
-        self.data.copy_within(src_start..src_start + vlen_bytes, dst_start);
+        self.storage.copy_register(dst.as_usize(), src.as_usize());
     }
 
     /// Zero a single register.
     pub fn zero_reg(&mut self, vreg: VRegIdx) {
-        let start = vreg.as_usize() * self.vlen.bytes();
-        let end = start + self.vlen.bytes();
-        self.data[start..end].fill(0);
+        self.storage.registers_mut(vreg.as_usize(), 1).fill(0);
     }
 }
 
-impl std::fmt::Debug for Vpr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Vpr").field("vlen", &self.vlen).field("data_len", &self.data.len()).finish()
-    }
+fn assert_group_aligned(base: VRegIdx, group: LmulGroup) {
+    assert!(
+        base.is_aligned(group),
+        "register group base {} not aligned to LMUL group size {}",
+        base.as_u8(),
+        group.regs()
+    );
 }
 
 #[cfg(test)]
@@ -188,8 +124,8 @@ mod tests {
     #[test]
     fn test_new_zeroed() {
         let vpr = vpr128();
-        assert_eq!(vpr.data.len(), 32 * 16);
-        assert!(vpr.data.iter().all(|&b| b == 0));
+        assert_eq!(vpr.bytes().len(), 32 * 16);
+        assert!(vpr.bytes().iter().all(|&b| b == 0));
     }
 
     #[test]
