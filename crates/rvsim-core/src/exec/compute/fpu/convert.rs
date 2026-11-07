@@ -1,6 +1,7 @@
 //! Float-to-integer conversion with RISC-V saturation and rounding to an
 //! integral float.
 
+use crate::isa::bits::sext_word;
 use crate::isa::op::AluOp;
 
 use crate::isa::fp::{FpFlags, RoundingMode};
@@ -62,7 +63,7 @@ pub(super) fn fp_to_int_convert(op: AluOp, val: f64, rm: RoundingMode) -> (u64, 
         flags = flags | FpFlags::NV;
         let result = match op {
             AluOp::FCvtWS => i32::MAX as i64 as u64,
-            AluOp::FCvtWUS => u32::MAX as i32 as i64 as u64,
+            AluOp::FCvtWUS => sext_word(u32::MAX),
             AluOp::FCvtLS => i64::MAX as u64,
             AluOp::FCvtLUS => u64::MAX,
             _ => 0,
@@ -74,7 +75,7 @@ pub(super) fn fp_to_int_convert(op: AluOp, val: f64, rm: RoundingMode) -> (u64, 
         let result = match (op, val > 0.0) {
             (AluOp::FCvtWS, true) => i32::MAX as i64 as u64,
             (AluOp::FCvtWS, false) => i32::MIN as i64 as u64,
-            (AluOp::FCvtWUS, true) => u32::MAX as i32 as i64 as u64,
+            (AluOp::FCvtWUS, true) => sext_word(u32::MAX),
             (AluOp::FCvtLS, true) => i64::MAX as u64,
             (AluOp::FCvtLS, false) => i64::MIN as u64,
             (AluOp::FCvtLUS, true) => u64::MAX,
@@ -96,9 +97,9 @@ pub(super) fn fp_to_int_convert(op: AluOp, val: f64, rm: RoundingMode) -> (u64, 
         }
         AluOp::FCvtWUS => {
             if (0.0..U32_MAX_P1_F64).contains(&rounded) {
-                (false, rounded as u32 as i32 as i64 as u64)
+                (false, sext_word(rounded as u32))
             } else {
-                (true, if rounded > 0.0 { u32::MAX as i32 as i64 as u64 } else { 0 })
+                (true, if rounded > 0.0 { sext_word(u32::MAX) } else { 0 })
             }
         }
         AluOp::FCvtLS => {

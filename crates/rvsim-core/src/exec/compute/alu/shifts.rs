@@ -7,6 +7,7 @@
 //! for RV32, per RISC-V spec §2.4. All 32-bit results are sign-extended
 //! from bit 31 to 64 bits.
 
+use crate::isa::bits::sext_word;
 use crate::isa::op::{AluOp, IntWidth};
 
 const SHAMT_MASK_RV64: u64 = 0x3f;
@@ -34,9 +35,7 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
             IntWidth::Double => a.wrapping_shl(sh6),
         },
         AluOp::Srl => match width {
-            IntWidth::Word => {
-                ((a as u32).wrapping_shr(b as u32 & SHAMT_MASK_RV32)) as i32 as i64 as u64
-            }
+            IntWidth::Word => sext_word((a as u32).wrapping_shr(b as u32 & SHAMT_MASK_RV32)),
             IntWidth::Double => a.wrapping_shr(sh6),
         },
         AluOp::Sra => match width {

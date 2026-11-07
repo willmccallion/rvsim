@@ -1,7 +1,7 @@
 //! Integer comparisons and add/subtract-with-carry into mask registers.
 
 use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend,
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::op::{CarryOp, CompareOp};
@@ -10,8 +10,8 @@ use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 /// Evaluate a comparison for one element, returning a bool for the mask bit.
 #[inline]
 pub(super) const fn compute_compare(op: CompareOp, vs2: u64, op1: u64, sew: Sew) -> bool {
-    let s2 = sign_extend(vs2, sew);
-    let s1 = sign_extend(op1, sew);
+    let s2 = sew.sign_extend(vs2);
+    let s1 = sew.sign_extend(op1);
     match op {
         CompareOp::Eq => vs2 == op1,
         CompareOp::Ne => vs2 != op1,

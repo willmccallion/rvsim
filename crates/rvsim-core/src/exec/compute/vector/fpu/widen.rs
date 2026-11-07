@@ -12,7 +12,7 @@ use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, is_snan_f32, is_snan_f64,
 };
 use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend, widen_sew,
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, widen_sew,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
@@ -106,7 +106,7 @@ pub(super) fn exec_fp_widening(
                     }
                     VectorOp::VFWCvtFXu => ((vs2_raw as u32 as f64).to_bits(), FpFlags::NONE),
                     VectorOp::VFWCvtFX => {
-                        ((sign_extend(vs2_raw, ctx.sew) as i32 as f64).to_bits(), FpFlags::NONE)
+                        ((ctx.sew.sign_extend(vs2_raw) as i32 as f64).to_bits(), FpFlags::NONE)
                     }
                     _ => (0, FpFlags::NONE),
                 };
@@ -136,7 +136,7 @@ pub(super) fn exec_fp_widening(
             // Zvfh: an 8-bit integer to f16, which holds every one exactly.
             let value = match op {
                 VectorOp::VFWCvtFXu => Some(f64::from(vs2_raw as u8)),
-                VectorOp::VFWCvtFX => Some(sign_extend(vs2_raw, Sew::E8) as f64),
+                VectorOp::VFWCvtFX => Some(Sew::E8.sign_extend(vs2_raw) as f64),
                 _ => None,
             };
             if let Some(value) = value {
@@ -179,7 +179,7 @@ pub(super) fn exec_fp_widening(
                         (u64::from(f32::from(vs2_raw as u16).to_bits()), FpFlags::NONE)
                     }
                     VectorOp::VFWCvtFX => {
-                        let signed = sign_extend(vs2_raw, Sew::E16) as i16;
+                        let signed = Sew::E16.sign_extend(vs2_raw) as i16;
                         (u64::from(f32::from(signed).to_bits()), FpFlags::NONE)
                     }
                     _ => (0, FpFlags::NONE),
@@ -425,7 +425,7 @@ pub(super) fn exec_fp_narrowing(
                 VectorOp::VFNCvtFX => {
                     // Convert full 2*SEW signed integer to SEW float.
                     // Must not truncate to i32 first — the source is a 64-bit integer.
-                    let signed = sign_extend(vs2_raw, src_sew);
+                    let signed = src_sew.sign_extend(vs2_raw);
                     let (r, f) = on_host_f32(
                         ctx.frm,
                         || black_box(signed) as f32,
@@ -480,8 +480,7 @@ pub(super) fn exec_fp_narrowing(
                 }
                 VectorOp::VFNCvtFX => {
                     // 2*SEW signed int (i32) → f16
-                    let (bits, f) =
-                        f64_to_f16(sign_extend(vs2_raw, src_sew) as i32 as f64, ctx.frm);
+                    let (bits, f) = f64_to_f16(src_sew.sign_extend(vs2_raw) as i32 as f64, ctx.frm);
                     (bits as u64, f)
                 }
                 _ => (0, FpFlags::NONE),

@@ -3,7 +3,7 @@
 
 use crate::exec::compute::vector::alu::frac_sew;
 use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend,
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::op::{ExtendOp, IntOp, MaccOp};
@@ -40,8 +40,8 @@ pub(super) const fn rounding_incr(v: u64, d: u32, vxrm: Vxrm) -> u64 {
 pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vxrm) -> (u64, bool) {
     let mask = sew.mask();
     let bits = sew.bits();
-    let s2 = sign_extend(vs2, sew);
-    let s1 = sign_extend(op1, sew);
+    let s2 = sew.sign_extend(vs2);
+    let s1 = sew.sign_extend(op1);
 
     match op {
         IntOp::Add => (vs2.wrapping_add(op1) & mask, false),
@@ -491,7 +491,7 @@ pub(super) fn exec_extension(
 
         let src_val = vpr.read_element(vs2_idx, ElemIdx::new(i), src_sew);
         let result =
-            if is_signed { sign_extend(src_val, src_sew) as u64 & ctx.sew.mask() } else { src_val };
+            if is_signed { src_sew.sign_extend(src_val) as u64 & ctx.sew.mask() } else { src_val };
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 

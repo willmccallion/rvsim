@@ -2,7 +2,7 @@
 
 use crate::exec::compute::vector::alu::integer::rounding_incr;
 use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend, widen_sew,
+    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, widen_sew,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::op::{NarrowOp, WidenMaccOp, WidenOp};
@@ -21,13 +21,13 @@ pub(super) const fn compute_widening(
     let wmask = wsew.mask();
 
     // Sign- and zero-extend narrow operands to the wide width.
-    let s2_narrow = sign_extend(vs2_val, sew) as u64 & wmask;
+    let s2_narrow = sew.sign_extend(vs2_val) as u64 & wmask;
     let u2_narrow = vs2_val & sew.mask();
-    let s1 = sign_extend(op1_val, sew) as u64 & wmask;
+    let s1 = sew.sign_extend(op1_val) as u64 & wmask;
     let u1 = op1_val & sew.mask();
 
     // For `.w` variants, vs2 is already wide.
-    let s2_wide = sign_extend(vs2_val, wsew) as u64 & wmask;
+    let s2_wide = wsew.sign_extend(vs2_val) as u64 & wmask;
     let u2_wide = vs2_val & wmask;
 
     match op {
@@ -46,11 +46,11 @@ pub(super) const fn compute_widening(
             prod as u64 & wmask
         }
         WidenOp::Mul => {
-            let prod = (sign_extend(vs2_val, sew) as i128) * (sign_extend(op1_val, sew) as i128);
+            let prod = (sew.sign_extend(vs2_val) as i128) * (sew.sign_extend(op1_val) as i128);
             prod as u64 & wmask
         }
         WidenOp::MulSU => {
-            let prod = (sign_extend(vs2_val, sew) as i128) * (u1 as i128);
+            let prod = (sew.sign_extend(vs2_val) as i128) * (u1 as i128);
             prod as u64 & wmask
         }
 
@@ -83,17 +83,17 @@ pub(super) const fn compute_widening_macc(
             (prod as u64).wrapping_add(acc) & wmask
         }
         WidenMaccOp::Macc => {
-            let prod = (sign_extend(vs2_val, sew) as i128) * (sign_extend(op1_val, sew) as i128);
+            let prod = (sew.sign_extend(vs2_val) as i128) * (sew.sign_extend(op1_val) as i128);
             (prod as u64).wrapping_add(acc) & wmask
         }
         WidenMaccOp::MaccSU => {
             // signed(rs1/vs1) * unsigned(vs2)
-            let prod = (sign_extend(op1_val, sew) as i128) * (u2 as i128);
+            let prod = (sew.sign_extend(op1_val) as i128) * (u2 as i128);
             (prod as u64).wrapping_add(acc) & wmask
         }
         WidenMaccOp::MaccUS => {
             // unsigned(rs1) * signed(vs2)  (.vx form only)
-            let prod = (u1 as i128) * (sign_extend(vs2_val, sew) as i128);
+            let prod = (u1 as i128) * (sew.sign_extend(vs2_val) as i128);
             (prod as u64).wrapping_add(acc) & wmask
         }
     }
@@ -120,7 +120,7 @@ pub(super) const fn compute_narrowing(
             (result & mask, false)
         }
         NarrowOp::Sra => {
-            let s = sign_extend(vs2_val, wsew);
+            let s = wsew.sign_extend(vs2_val);
             let result = (s >> shamt) as u64;
             (result & mask, false)
         }
@@ -130,7 +130,7 @@ pub(super) const fn compute_narrowing(
             if shifted > mask { (mask, true) } else { (shifted & mask, false) }
         }
         NarrowOp::Clip => {
-            let s = sign_extend(vs2_val, wsew);
+            let s = wsew.sign_extend(vs2_val);
             let r = rounding_incr(vs2_val, shamt, vxrm) as i64;
             let shifted = (s >> shamt).wrapping_add(r);
             let max_pos = (1i64 << (sew.bits() - 1)) - 1;

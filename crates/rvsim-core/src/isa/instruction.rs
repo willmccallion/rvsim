@@ -1,6 +1,7 @@
 //! Instruction encodings: sizes, field extraction, and decoding a 32-bit
 //! encoding into its fields and sign-extended immediate.
 
+use crate::isa::bits;
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64f::opcodes as fp_opcodes;
 use crate::isa::encoding::rv64i::opcodes;
@@ -180,9 +181,6 @@ pub struct Decoded {
     pub imm: i64,
 }
 
-/// Total width of a RISC-V instruction in bits.
-const INSTRUCTION_WIDTH: u32 = 32;
-
 /// Bit shift for extracting I-Type immediate field (bits 20-31).
 ///
 /// I-Type format: `imm[11:0] | rs1 | funct3 | rd | opcode`
@@ -359,7 +357,7 @@ const fn decode_s_type_imm(inst: u32) -> i64 {
     let low = (inst >> S_IMM_LOW_SHIFT) & S_IMM_LOW_MASK;
     let high = (inst >> S_IMM_HIGH_SHIFT) & S_IMM_HIGH_MASK;
     let combined = (high << S_IMM_COMBINED_SHIFT) | low;
-    sign_extend(combined, S_IMM_BITS)
+    bits::sign_extend((combined) as u64, S_IMM_BITS)
 }
 
 /// Decodes the immediate value for B-Type instructions.
@@ -376,7 +374,7 @@ pub(crate) const fn decode_b_type_imm(inst: u32) -> i64 {
         | (bit_11 << B_IMM_11_POS)
         | (bits_10_5 << B_IMM_10_5_POS)
         | (bits_4_1 << B_IMM_4_1_POS);
-    sign_extend(combined, B_IMM_BITS)
+    bits::sign_extend((combined) as u64, B_IMM_BITS)
 }
 
 /// Decodes the immediate value for U-Type instructions.
@@ -401,16 +399,5 @@ pub(crate) const fn decode_j_type_imm(inst: u32) -> i64 {
         | (bits_19_12 << J_IMM_19_12_POS)
         | (bit_11 << J_IMM_11_POS)
         | (bits_10_1 << J_IMM_10_1_POS);
-    sign_extend(combined, J_IMM_BITS)
-}
-
-/// Sign extends a value of `bits` width to a 64-bit signed integer.
-///
-/// # Arguments
-///
-/// * `val` - The value to extend.
-/// * `bits` - The number of valid bits in `val`.
-const fn sign_extend(val: u32, bits: u32) -> i64 {
-    let shift = INSTRUCTION_WIDTH - bits;
-    ((val as i32) << shift >> shift) as i64
+    bits::sign_extend((combined) as u64, J_IMM_BITS)
 }

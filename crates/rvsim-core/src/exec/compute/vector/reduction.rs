@@ -27,7 +27,7 @@ use crate::exec::compute::fpu::nan_handling::{
 };
 use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
 use crate::exec::compute::vector::context::{
-    FpSew, FpWiden, VecExecCtx, VecExecResult, mask_active, sign_extend, widen_sew,
+    FpSew, FpWiden, VecExecCtx, VecExecResult, mask_active, widen_sew,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
@@ -161,8 +161,8 @@ const fn int_reduce_step(op: IntReduceOp, acc: u64, elem: u64, sew: Sew, mask: u
             }
         }
         IntReduceOp::Min => {
-            let sa = sign_extend(acc, sew);
-            let se = sign_extend(elem, sew);
+            let sa = sew.sign_extend(acc);
+            let se = sew.sign_extend(elem);
             if se < sa { elem } else { acc }
         }
         IntReduceOp::MaxU => {
@@ -173,8 +173,8 @@ const fn int_reduce_step(op: IntReduceOp, acc: u64, elem: u64, sew: Sew, mask: u
             }
         }
         IntReduceOp::Max => {
-            let sa = sign_extend(acc, sew);
-            let se = sign_extend(elem, sew);
+            let sa = sew.sign_extend(acc);
+            let se = sew.sign_extend(elem);
             if se > sa { elem } else { acc }
         }
     }
@@ -208,7 +208,7 @@ fn exec_widen_int_reduction(
 
         let wide = match op {
             WidenIntReduceOp::SumU => elem,
-            WidenIntReduceOp::Sum => (sign_extend(elem, src_sew) as u64) & dst_mask,
+            WidenIntReduceOp::Sum => (src_sew.sign_extend(elem) as u64) & dst_mask,
         };
 
         acc = acc.wrapping_add(wide) & dst_mask;
