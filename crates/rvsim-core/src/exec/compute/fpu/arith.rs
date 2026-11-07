@@ -71,24 +71,24 @@ pub(super) fn execute_f32(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
     let fc = unbox_f32(c);
 
     match op {
-        // --- Arithmetic (canonicalize NaN results) ---
+        // Results canonicalize a NaN.
         AluOp::FAdd => box_f32_canon(fa + fb),
         AluOp::FSub => box_f32_canon(fa - fb),
         AluOp::FMul => box_f32_canon(fa * fb),
         AluOp::FDiv => box_f32_canon(fa / fb),
         AluOp::FSqrt => box_f32_canon(fa.sqrt()),
 
-        // --- Min/Max (IEEE 754-2008 minNum/maxNum) ---
+        // IEEE 754-2008 minNum/maxNum.
         AluOp::FMin => box_f32(fmin_f32(fa, fb)),
         AluOp::FMax => box_f32(fmax_f32(fa, fb)),
 
-        // --- Fused multiply-add family (canonicalize) ---
+        // Results canonicalize a NaN.
         AluOp::FMAdd => box_f32_canon(fa.mul_add(fb, fc)),
         AluOp::FMSub => box_f32_canon(fa.mul_add(fb, -fc)),
         AluOp::FNMAdd => box_f32_canon((-fa).mul_add(fb, -fc)),
         AluOp::FNMSub => box_f32_canon((-fa).mul_add(fb, fc)),
 
-        // --- Sign injection (operates on raw bits, no canonicalization) ---
+        // On the raw bits: no canonicalization.
         AluOp::FSgnJ => {
             box_f32(f32::from_bits((fa.to_bits() & !F32_SIGN_BIT) | (fb.to_bits() & F32_SIGN_BIT)))
         }
@@ -97,12 +97,10 @@ pub(super) fn execute_f32(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         }
         AluOp::FSgnJX => box_f32(f32::from_bits(fa.to_bits() ^ (fb.to_bits() & F32_SIGN_BIT))),
 
-        // --- Comparisons (return integer 0 or 1, not boxed) ---
+        // An integer 0 or 1, not NaN-boxed.
         AluOp::FEq => (fa == fb) as u64,
         AluOp::FLt => (fa < fb) as u64,
         AluOp::FLe => (fa <= fb) as u64,
-
-        // --- Classify ---
         AluOp::FClass => {
             let bits = fa.to_bits();
             let sign = (bits >> 31) & 1;
@@ -110,8 +108,6 @@ pub(super) fn execute_f32(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
             let frac = bits & 0x007F_FFFF;
             classify_f32(sign, exp, frac) as u64
         }
-
-        // --- Conversions (float → integer) ---
         // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
         // NaN → positive max per RISC-V spec.
         AluOp::FCvtWS => f64_to_i32_rv(fa as f64) as i64 as u64,
@@ -119,19 +115,15 @@ pub(super) fn execute_f32(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         AluOp::FCvtLS => f64_to_i64_rv(fa as f64) as u64,
         AluOp::FCvtLUS => f64_to_u64_rv(fa as f64),
 
-        // --- Conversions (double → single, identity in f32 path) ---
+        // Identity in the f32 path.
         AluOp::FCvtSD => box_f32_canon(fa),
 
-        // --- Conversions (integer → float, use raw `a` for integer bits) ---
+        // The raw `a` holds the integer bits.
         AluOp::FCvtSW => ((a as i32) as f64).to_bits(),
         AluOp::FCvtSWU => ((a as u32) as f64).to_bits(),
         AluOp::FCvtSL => ((a as i64) as f64).to_bits(),
         AluOp::FCvtSLU => (a as f64).to_bits(),
-
-        // --- Conversions (single → double) ---
         AluOp::FCvtDS => (unbox_f32(a) as f64).to_bits(),
-
-        // --- Move operations ---
         AluOp::FMvToF => box_f32(f32::from_bits(a as u32)),
         AluOp::FMvToX => (a as i32) as u64,
 
@@ -148,24 +140,22 @@ pub(super) fn execute_f64(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
     let fc = f64::from_bits(c);
 
     match op {
-        // --- Arithmetic (canonicalize NaN results) ---
+        // Results canonicalize a NaN.
         AluOp::FAdd => canonicalize_f64_bits(fa + fb),
         AluOp::FSub => canonicalize_f64_bits(fa - fb),
         AluOp::FMul => canonicalize_f64_bits(fa * fb),
         AluOp::FDiv => canonicalize_f64_bits(fa / fb),
         AluOp::FSqrt => canonicalize_f64_bits(fa.sqrt()),
 
-        // --- Min/Max (IEEE 754-2008 minNum/maxNum) ---
+        // IEEE 754-2008 minNum/maxNum.
         AluOp::FMin => fmin_f64(fa, fb).to_bits(),
         AluOp::FMax => fmax_f64(fa, fb).to_bits(),
 
-        // --- Fused multiply-add family (canonicalize) ---
+        // Results canonicalize a NaN.
         AluOp::FMAdd => canonicalize_f64_bits(fa.mul_add(fb, fc)),
         AluOp::FMSub => canonicalize_f64_bits(fa.mul_add(fb, -fc)),
         AluOp::FNMAdd => canonicalize_f64_bits((-fa).mul_add(fb, -fc)),
         AluOp::FNMSub => canonicalize_f64_bits((-fa).mul_add(fb, fc)),
-
-        // --- Sign injection ---
         AluOp::FSgnJ => {
             f64::from_bits((fa.to_bits() & !F64_SIGN_BIT) | (fb.to_bits() & F64_SIGN_BIT)).to_bits()
         }
@@ -174,13 +164,9 @@ pub(super) fn execute_f64(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
                 .to_bits()
         }
         AluOp::FSgnJX => f64::from_bits(fa.to_bits() ^ (fb.to_bits() & F64_SIGN_BIT)).to_bits(),
-
-        // --- Comparisons ---
         AluOp::FEq => (fa == fb) as u64,
         AluOp::FLt => (fa < fb) as u64,
         AluOp::FLe => (fa <= fb) as u64,
-
-        // --- Classify ---
         AluOp::FClass => {
             let bits = fa.to_bits();
             let sign = (bits >> 63) & 1;
@@ -188,8 +174,6 @@ pub(super) fn execute_f64(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
             let frac = bits & 0x000F_FFFF_FFFF_FFFF;
             classify_f64(sign, exp, frac)
         }
-
-        // --- Conversions ---
         // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
         // NaN → positive max per RISC-V spec.
         AluOp::FCvtWS => f64_to_i32_rv(fa) as i64 as u64,
@@ -202,7 +186,7 @@ pub(super) fn execute_f64(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         AluOp::FCvtSL => ((a as i64) as f64).to_bits(),
         AluOp::FCvtSLU => (a as f64).to_bits(),
 
-        // --- Move operations (64-bit path: no boxing needed) ---
+        // No NaN-boxing in the 64-bit path.
         AluOp::FMvToF | AluOp::FMvToX => a,
 
         _ => 0,

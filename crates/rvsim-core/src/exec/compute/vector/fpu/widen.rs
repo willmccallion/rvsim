@@ -21,7 +21,6 @@ use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use std::hint::black_box;
 
 /// Widening FP operations: read at SEW, write at 2*SEW.
-#[allow(clippy::too_many_lines)]
 pub(super) fn exec_fp_widening(
     op: VectorOp,
     vpr: &mut impl VectorRegFile,

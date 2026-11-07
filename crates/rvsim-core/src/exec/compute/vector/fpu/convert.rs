@@ -5,7 +5,6 @@ use crate::isa::fp::{FpFlags, RoundingMode};
 /// Compute one standard FP element at SEW=32.
 ///
 /// Returns `(result_bits, flags)`.
-#[allow(clippy::too_many_lines)]
 /// Round `a` to an integer-valued float per FRM. Used by vfcvt.x.f / vfcvt.xu.f
 /// because Rust's `f32 as i32` cast is hardcoded to round-toward-zero and does
 /// not honour the host FPU's rounding mode.
