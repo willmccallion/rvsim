@@ -32,6 +32,17 @@ pub enum Renamed {
     Stalled(Box<IdExEntry>),
 }
 
+/// What decode does with an instruction that reads a register an earlier
+/// one in its decode bundle writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BundleHazard {
+    /// Nothing: rename maps the read to the earlier write's register.
+    Renamed,
+    /// It ends the bundle before the reader, which decodes once the writer
+    /// has issued.
+    EndsBundle,
+}
+
 /// The execution engine trait — implemented by `InOrderEngine` and `O3Engine`.
 ///
 /// Covers the entire backend: Issue → Execute → Memory1 → Memory2 →
@@ -77,9 +88,9 @@ pub trait ExecutionEngine {
         self.rob().youngest_vec_csr_update().unwrap_or_else(|| csrs.vector_config())
     }
 
-    /// Whether the backend renames registers, so decode can skip the
-    /// intra-bundle RAW hazard check.
-    fn has_register_renaming(&self) -> bool;
+    /// What decode does with an instruction that reads a register an
+    /// earlier one in its bundle writes.
+    fn bundle_hazard(&self) -> BundleHazard;
 
     /// Whether fetch spends the cycle this tick's redirect reaches it
     /// squashing and fetches from the target the cycle after: every
