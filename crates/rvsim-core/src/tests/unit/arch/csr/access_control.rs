@@ -15,7 +15,7 @@ use crate::isa::csr::CsrAddr;
 fn csr_default_all_zero() {
     let csrs = Csrs::default();
     assert_eq!(csrs.mstatus, 0);
-    assert_eq!(csrs.misa, 0);
+    assert_eq!(csrs.misa.bits(), 0);
     assert_eq!(csrs.mie, 0);
     assert_eq!(csrs.mip, 0);
     assert_eq!(csrs.mepc, 0);

@@ -255,11 +255,9 @@ impl SystemState {
         };
 
         // --- Hart architectural state ----------------------------------
-        let configured_misa = config.misa().bits();
-
         let csrs = Csrs {
             mstatus: MSTATUS_DEFAULT_RV64,
-            misa: configured_misa,
+            misa: config.misa(),
             stimecmp: u64::MAX,
             vlenb: config.pipeline.vlen.bytes() as u64,
             ..Default::default()

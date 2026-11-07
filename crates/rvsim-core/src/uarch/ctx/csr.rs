@@ -37,7 +37,7 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
         csr::MIDELEG => hart.csrs.mideleg,
         csr::MIE => hart.csrs.mie,
         csr::MTVEC => hart.csrs.mtvec,
-        csr::MISA => hart.csrs.misa,
+        csr::MISA => hart.csrs.misa.bits(),
         csr::MSCRATCH => hart.csrs.mscratch,
         csr::MEPC => hart.csrs.mepc,
         csr::MCAUSE => hart.csrs.mcause,

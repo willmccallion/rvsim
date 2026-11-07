@@ -6,13 +6,14 @@ use crate::isa::csr::{
     CBIE_FLUSH, CBIE_ILLEGAL, CBIE_INVAL, CBIE_RESERVED, CYCLE, CsrAddr, ENVCFG_CBIE, FCSR, FFLAGS,
     FRM, INSTRET, MCAUSE, MCOUNTEREN, MCOUNTINHIBIT, MCOUNTINHIBIT_CY, MCOUNTINHIBIT_IR,
     MCOUNTINHIBIT_WRITABLE, MCYCLE, MEDELEG, MENVCFG, MENVCFG_CBCFE, MENVCFG_CBIE_MASK,
-    MENVCFG_CBIE_SHIFT, MENVCFG_CBZE, MEPC, MIDELEG, MIE, MINSTRET, MIP, MISA, MISA_EXT_C,
-    MSCRATCH, MSTATUS, MSTATUS_FS, MSTATUS_FS_DIRTY, MSTATUS_SD, MSTATUS_VS, MSTATUS_VS_DIRTY,
-    MTVAL, MTVEC, SATP, SATP_MODE_BARE, SATP_MODE_MASK, SATP_MODE_SHIFT, SCAUSE, SCOUNTEREN,
-    SENVCFG, SENVCFG_CBCFE, SENVCFG_CBZE, SEPC, SIE, SIP, SSCRATCH, SSTATUS, SSTATUS_VISIBLE,
-    SSTATUS_WRITABLE, STVAL, STVEC, VCSR, VL, VLENB, VSTART, VTYPE, VXRM, VXSAT,
+    MENVCFG_CBIE_SHIFT, MENVCFG_CBZE, MEPC, MIDELEG, MIE, MINSTRET, MIP, MISA, MSCRATCH, MSTATUS,
+    MSTATUS_FS, MSTATUS_FS_DIRTY, MSTATUS_SD, MSTATUS_VS, MSTATUS_VS_DIRTY, MTVAL, MTVEC, SATP,
+    SATP_MODE_BARE, SATP_MODE_MASK, SATP_MODE_SHIFT, SCAUSE, SCOUNTEREN, SENVCFG, SENVCFG_CBCFE,
+    SENVCFG_CBZE, SEPC, SIE, SIP, SSCRATCH, SSTATUS, SSTATUS_VISIBLE, SSTATUS_WRITABLE, STVAL,
+    STVEC, VCSR, VL, VLENB, VSTART, VTYPE, VXRM, VXSAT,
 };
 use crate::isa::fp::{FpFlags, Frm};
+use crate::isa::misa::Misa;
 use crate::isa::privileged::PagingMode;
 use crate::isa::rvv::Vxrm;
 
@@ -128,8 +129,8 @@ pub const fn with_state_dirty(status: u64) -> u64 {
 /// The low PC bits IALIGN keeps clear: bit 0 with the C extension
 /// (IALIGN=16), bits 1:0 without it (IALIGN=32).
 #[must_use]
-pub const fn ialign_low_bits(misa: u64) -> u64 {
-    if misa & MISA_EXT_C != 0 { 0b01 } else { 0b11 }
+pub const fn ialign_low_bits(misa: Misa) -> u64 {
+    if misa.has_c() { 0b01 } else { 0b11 }
 }
 
 /// CSR serialization requirement classification.
@@ -168,7 +169,7 @@ pub struct Csrs {
     /// Machine status register.
     pub mstatus: u64,
     /// Machine ISA register.
-    pub misa: u64,
+    pub misa: Misa,
     /// Machine exception delegation.
     pub medeleg: u64,
     /// Machine interrupt delegation.
@@ -336,7 +337,7 @@ impl Csrs {
             FRM => self.frm.bits(),
             FCSR => self.fcsr(),
             MSTATUS => with_state_dirty(self.mstatus),
-            MISA => self.misa,
+            MISA => self.misa.bits(),
             MEDELEG => self.medeleg,
             MIDELEG => self.mideleg,
             MIE => self.mie,
@@ -380,7 +381,7 @@ impl Csrs {
             FRM => self.frm = Frm::from_bits(val),
             FCSR => self.set_fcsr(val),
             MSTATUS => self.mstatus = val,
-            MISA => self.misa = val,
+            MISA => self.misa = Misa::from_bits(val),
             MEDELEG => self.medeleg = val,
             MIDELEG => self.mideleg = val,
             MIE => self.mie = val,
