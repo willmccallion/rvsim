@@ -266,6 +266,18 @@ pub const MCOUNTINHIBIT_IR: u64 = 1 << 2;
 /// no hardware performance counters count).
 pub const MCOUNTINHIBIT_WRITABLE: u64 = MCOUNTINHIBIT_CY | MCOUNTINHIBIT_IR;
 
+/// The `mcounteren`/`scounteren` bits that exist: CY, TM and IR.
+pub const COUNTEREN_WRITABLE: u64 = 0b111;
+
+/// `vxsat`'s one bit.
+pub const VXSAT_BIT: u64 = 1;
+
+/// `tcontrol`'s writable bits: MTE (3) and MPTE (7).
+pub const TCONTROL_WRITABLE: u64 = (1 << 3) | (1 << 7);
+
+/// `tinfo`'s value: only `mcontrol` (type 2) triggers are supported.
+pub const TINFO_MCONTROL: u64 = 1 << 2;
+
 /// First machine hardware performance-monitoring event selector (mhpmevent3).
 pub const MHPMEVENT3: CsrAddr = CsrAddr::from_u32(0x323);
 

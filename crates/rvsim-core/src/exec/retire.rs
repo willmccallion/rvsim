@@ -68,7 +68,7 @@ pub const fn write_int(hart: &mut Hart, rd: RegIdx, value: u64) {
 /// Writes a floating-point register and marks the FP state dirty.
 pub const fn write_fp(hart: &mut Hart, rd: RegIdx, value: u64) {
     hart.regs.write_f(rd, value);
-    mark_fp_dirty(hart);
+    hart.csrs.mark_fs_dirty();
 }
 
 /// Applies a vector instruction's register writes.
@@ -96,7 +96,7 @@ pub const fn finish_vector_instruction(hart: &mut Hart) {
 pub const fn accrue_fp_flags(hart: &mut Hart, flags: FpFlags) {
     if !flags.is_empty() {
         hart.csrs.fflags = hart.csrs.fflags.union(flags);
-        mark_fp_dirty(hart);
+        hart.csrs.mark_fs_dirty();
     }
 }
 
@@ -118,10 +118,6 @@ pub const fn wfi(hart: &mut Hart) -> bool {
         hart.wfi_waiting = true;
     }
     waits
-}
-
-const fn mark_fp_dirty(hart: &mut Hart) {
-    hart.csrs.mstatus = (hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
 }
 
 #[cfg(test)]

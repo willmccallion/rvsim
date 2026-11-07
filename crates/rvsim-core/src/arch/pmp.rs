@@ -171,6 +171,20 @@ impl Pmp {
         if idx < self.entries.len() { self.entries[idx].cfg } else { 0 }
     }
 
+    /// The eight configuration bytes from entry `first` up, as `pmpcfg0` or
+    /// `pmpcfg2` packs them.
+    pub fn cfg_word(&self, first: usize) -> u64 {
+        (0..8).fold(0, |word, i| word | (u64::from(self.get_cfg(first + i)) << (8 * i)))
+    }
+
+    /// Writes the eight configuration bytes from entry `first` up from
+    /// `word`, as a write to `pmpcfg0` or `pmpcfg2` does.
+    pub fn set_cfg_word(&mut self, first: usize, word: u64) {
+        for (i, byte) in word.to_le_bytes().into_iter().enumerate() {
+            self.set_cfg(first + i, byte);
+        }
+    }
+
     /// Reads the address register for entry `idx`.
     pub fn get_addr(&self, idx: usize) -> u64 {
         if idx < self.entries.len() { self.entries[idx].addr } else { 0 }
