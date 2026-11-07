@@ -11,6 +11,7 @@
 //! the unit when it issues, and the unit reports when the result is ready.
 
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
+use crate::isa::fence::Fence;
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::reg::ArchReg;
 use crate::trace_issue;
@@ -121,18 +122,14 @@ impl InOrderIssueUnit {
                 break;
             }
 
-            if entry.inst.ctrl.system_op == SystemOp::Fence {
-                let pred_bits = ((entry.inst.bits >> 24) & 0xF) as u8;
-                let pred_r = pred_bits & 0b0010 != 0;
-                let pred_w = pred_bits & 0b0001 != 0;
-                if !rob.fence_pred_satisfied(entry.rob_tag, pred_r, pred_w) {
-                    held = Some(IssueHold::Ordering);
-                    break;
-                }
+            if entry.inst.ctrl.system_op == SystemOp::Fence
+                && !rob.fence_pred_satisfied(entry.rob_tag, Fence::decode(entry.inst.bits).pred)
+            {
+                held = Some(IssueHold::Ordering);
+                break;
             }
 
-            let (reads, writes) = (entry.inst.ctrl.reads_memory(), entry.inst.ctrl.writes_memory());
-            if (reads || writes) && rob.has_fence_blocking(entry.rob_tag, reads, writes) {
+            if rob.has_fence_blocking(entry.rob_tag, entry.inst.ctrl.memory_accesses()) {
                 held = Some(IssueHold::Ordering);
                 break;
             }

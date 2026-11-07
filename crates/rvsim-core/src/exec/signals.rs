@@ -4,6 +4,7 @@
 //! accesses memory and what system action it takes.
 
 use crate::isa::csr::CsrAddr;
+use crate::isa::fence::FenceSet;
 use crate::isa::fp::Rounding;
 use crate::isa::op::{
     AluOp, AtomicOp, CsrOp, MemWidth, OperandFormat, SystemOp, VecSrcEncoding, VectorOp,
@@ -170,6 +171,11 @@ impl ControlSignals {
     /// configuration instructions have no mask.
     pub const fn is_masked_vector_op(&self) -> bool {
         !self.vm && !matches!(self.vec_op, VectorOp::None) && !self.vec_op.is_config()
+    }
+
+    /// The memory accesses this instruction makes, as a FENCE names them.
+    pub const fn memory_accesses(&self) -> FenceSet {
+        FenceSet::memory(self.reads_memory(), self.writes_memory())
     }
 
     /// True for anything that reads memory: a scalar load, LR, an AMO, or a

@@ -186,18 +186,18 @@ fn test_fence_pred_satisfied() {
     let t_fence = alloc_with_inst(&mut rob, encode_fence(0b0011, 0b0011), fence_ctrl).unwrap();
 
     // pred.r=true, pred.w=true: both older load and store must complete
-    assert!(!rob.fence_pred_satisfied(t_fence, true, true));
+    assert!(!rob.fence_pred_satisfied(t_fence, FenceSet::memory(true, true)));
 
     // Complete the store — still blocked by uncompleted load (pred.r)
     rob.complete(t_store, 0);
-    assert!(!rob.fence_pred_satisfied(t_fence, true, true));
+    assert!(!rob.fence_pred_satisfied(t_fence, FenceSet::memory(true, true)));
 
     // But pred.w only (FENCE w,*) would be satisfied now
-    assert!(rob.fence_pred_satisfied(t_fence, false, true));
+    assert!(rob.fence_pred_satisfied(t_fence, FenceSet::memory(false, true)));
 
     // Complete the load — now fully satisfied
     rob.complete(t_load, 0);
-    assert!(rob.fence_pred_satisfied(t_fence, true, true));
+    assert!(rob.fence_pred_satisfied(t_fence, FenceSet::memory(true, true)));
 }
 
 #[test]
@@ -216,9 +216,9 @@ fn test_has_fence_blocking() {
     let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
 
     // Load is blocked (succ.r = true)
-    assert!(rob.has_fence_blocking(t_load, true, false));
+    assert!(rob.has_fence_blocking(t_load, FenceSet::memory(true, false)));
     // Store is NOT blocked (succ.w = false)
-    assert!(!rob.has_fence_blocking(t_store, false, true));
+    assert!(!rob.has_fence_blocking(t_store, FenceSet::memory(false, true)));
 }
 
 #[test]
@@ -237,10 +237,10 @@ fn an_acquire_atomic_holds_younger_loads_until_it_completes() {
     let t_load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
     let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
 
-    assert!(rob.has_fence_blocking(t_load, true, false));
-    assert!(!rob.has_fence_blocking(t_store, false, true));
+    assert!(rob.has_fence_blocking(t_load, FenceSet::memory(true, false)));
+    assert!(!rob.has_fence_blocking(t_store, FenceSet::memory(false, true)));
     rob.complete(t_amo, 0);
-    assert!(!rob.has_fence_blocking(t_load, true, false));
+    assert!(!rob.has_fence_blocking(t_load, FenceSet::memory(true, false)));
 }
 
 #[test]
@@ -253,9 +253,9 @@ fn a_fence_waits_for_an_older_vector_store() {
     let t_store = alloc_with_inst(&mut rob, 0, vector_store).unwrap();
     let t_fence = alloc_with_inst(&mut rob, encode_fence(0b0001, 0b0001), fence_ctrl).unwrap();
 
-    assert!(!rob.fence_pred_satisfied(t_fence, false, true));
+    assert!(!rob.fence_pred_satisfied(t_fence, FenceSet::memory(false, true)));
     rob.complete(t_store, 0);
-    assert!(rob.fence_pred_satisfied(t_fence, false, true));
+    assert!(rob.fence_pred_satisfied(t_fence, FenceSet::memory(false, true)));
 }
 
 #[test]
@@ -299,8 +299,8 @@ fn test_fence_tso_blocking() {
     let t_store = alloc_with_inst(&mut rob, 0, store_ctrl).unwrap();
 
     // Both loads and stores are blocked
-    assert!(rob.has_fence_blocking(t_load, true, false));
-    assert!(rob.has_fence_blocking(t_store, false, true));
+    assert!(rob.has_fence_blocking(t_load, FenceSet::memory(true, false)));
+    assert!(rob.has_fence_blocking(t_store, FenceSet::memory(false, true)));
 }
 
 #[test]

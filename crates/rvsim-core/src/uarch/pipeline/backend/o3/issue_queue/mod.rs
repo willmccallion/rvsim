@@ -7,6 +7,7 @@
 //! - **Select**: each cycle, the oldest entries with all operands ready are
 //!   selected for execution (up to `width`).
 
+use crate::isa::fence::Fence;
 use crate::isa::op::SystemOp;
 use crate::isa::reg::ArchReg;
 use crate::uarch::mdp::MemDepState;
@@ -533,17 +534,12 @@ impl IssueQueue {
                 return false;
             }
         }
-        if ctrl.system_op == SystemOp::Fence {
-            let pred_bits = ((iq.entry.inst.bits >> 24) & 0xF) as u8;
-            let pred_r = pred_bits & 0b0010 != 0;
-            let pred_w = pred_bits & 0b0001 != 0;
-            if !rob.fence_pred_satisfied(iq.entry.rob_tag, pred_r, pred_w) {
-                return false;
-            }
+        if ctrl.system_op == SystemOp::Fence
+            && !rob.fence_pred_satisfied(iq.entry.rob_tag, Fence::decode(iq.entry.inst.bits).pred)
+        {
+            return false;
         }
-        let reads = ctrl.reads_memory();
-        let writes = ctrl.writes_memory();
-        !((reads || writes) && rob.has_fence_blocking(iq.entry.rob_tag, reads, writes))
+        !rob.has_fence_blocking(iq.entry.rob_tag, ctrl.memory_accesses())
     }
 
     /// The operand value at select time; `NotReady` only for faulted
