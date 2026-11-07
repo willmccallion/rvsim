@@ -51,6 +51,18 @@ pub struct PySimulator {
     pub(crate) inner: Simulator,
 }
 
+/// The privilege level Python names by `letter`: ``"M"``, ``"S"`` or ``"U"``.
+fn privilege_named(letter: &str) -> PyResult<PrivilegeMode> {
+    match letter {
+        "M" => Ok(PrivilegeMode::Machine),
+        "S" => Ok(PrivilegeMode::Supervisor),
+        "U" => Ok(PrivilegeMode::User),
+        _ => Err(PyValueError::new_err(format!(
+            "privilege must be \"M\", \"S\" or \"U\", got {letter:?}"
+        ))),
+    }
+}
+
 impl PySimulator {
     pub(crate) fn privilege_str(&self, hart: usize) -> &'static str {
         match self.inner.hart(hart).privilege {
@@ -711,6 +723,7 @@ impl PySimulator {
                 "run_until() requires at least one of: predicate, pc=, or privilege=",
             ));
         }
+        let privilege = privilege.map(privilege_named).transpose()?;
 
         let slf_py: Py<Self> = slf.unbind();
         let mut cycles_run = 0u64;
@@ -736,7 +749,7 @@ impl PySimulator {
             let stop = {
                 let cpu = slf_py.borrow(py);
                 pc.is_some_and(|p| cpu.inner.hart(0).pc == p)
-                    || privilege.is_some_and(|priv_str| cpu.privilege_str(0) == priv_str)
+                    || privilege.is_some_and(|mode| cpu.inner.hart(0).privilege == mode)
             };
             if stop {
                 return Ok(None);
