@@ -8,10 +8,11 @@
 //! hot prediction/speculation path free of heap indirection and bounds checks.
 
 use super::folded_history::FoldedHistory;
+use crate::config::MAX_TAGE_BANKS;
 use crate::uarch::bpred::Ghr;
 
 /// Maximum number of banks supported: [`crate::config::MAX_TAGE_BANKS`].
-pub const MAX_BANKS: usize = crate::config::MAX_TAGE_BANKS;
+pub const MAX_BANKS: usize = MAX_TAGE_BANKS;
 
 /// Manages N sets of `FoldedHistory` CSRs for geometric-history tagged tables.
 ///

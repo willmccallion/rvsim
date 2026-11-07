@@ -10,6 +10,7 @@
 //! An instruction also needs a free functional unit of its kind; it takes
 //! the unit when it issues, and the unit reports when the result is ready.
 
+use crate::common::trace::Hex;
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::isa::op::VectorOp;
 use crate::isa::reg::ArchReg;
@@ -222,7 +223,7 @@ fn read_operands(entry: &InOrderEntry, rob: &Rob, state: &StageCtx<'_>) -> Optio
         return Some([v1, v2, v3]);
     }
     trace_issue!(state.config.general.trace_instructions;
-        pc       = %crate::common::trace::Hex(entry.inst.pc.val()),
+        pc       = %Hex(entry.inst.pc.val()),
         rs1      = entry.inst.rs1.as_usize(),
         rs1_tag  = ?entry.regs.rs1,
         rs1_rdy  = rv1.is_some(),

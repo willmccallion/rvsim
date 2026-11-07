@@ -7,6 +7,7 @@
 
 use super::InOrderEngine;
 use super::issue::ProducerTags;
+use crate::common::trace::Hex;
 use crate::exec::compute::vector::mem::is_vec_store;
 use crate::exec::inst::Inst;
 use crate::trace_rename;
@@ -73,7 +74,7 @@ impl InOrderEngine {
         };
 
         trace_rename!(state.config.general.trace_instructions;
-            pc         = %crate::common::trace::Hex(entry.inst.pc.val()),
+            pc         = %Hex(entry.inst.pc.val()),
             rob_tag    = %entry.rob_tag,
             rd         = entry.inst.rd.as_usize(),
             rs1        = entry.inst.rs1.as_usize(),

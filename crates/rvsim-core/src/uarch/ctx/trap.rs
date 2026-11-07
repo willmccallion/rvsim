@@ -2,9 +2,12 @@
 
 use super::CoreCtx;
 use crate::common::VirtAddr;
+use crate::common::trace::Hex;
 use crate::isa::csr;
 use crate::isa::privileged::{PrivilegeMode, Trap, TrapCause};
 use crate::trace_trap;
+#[cfg(feature = "commit-log")]
+use crate::uarch::pipeline::commit_log::write_trap;
 
 /// Where a trap with `cause` enters through `tvec`: its base, plus four
 /// bytes per interrupt code in vectored mode.
@@ -45,11 +48,11 @@ impl CoreCtx<'_> {
 
         trace_trap!(self.trace_trap_enabled(cause);
             event      = "taken",
-            epc        = %crate::common::trace::Hex(epc.val()),
+            epc        = %Hex(epc.val()),
             cause      = ?cause,
             priv_mode  = ?self.hart.privilege,
-            stvec      = %crate::common::trace::Hex(self.hart.csrs.stvec),
-            mtvec      = %crate::common::trace::Hex(self.hart.csrs.mtvec),
+            stvec      = %Hex(self.hart.csrs.stvec),
+            mtvec      = %Hex(self.hart.csrs.mtvec),
             "trap taken"
         );
         let trap_cause = cause.cause();
@@ -65,13 +68,7 @@ impl CoreCtx<'_> {
 
         #[cfg(feature = "commit-log")]
         if let Some(log) = self.uncore.commit_log.as_mut() {
-            let _ = crate::uarch::pipeline::commit_log::write_trap(
-                log,
-                cause.mcause_code(),
-                epc,
-                cause.tval(),
-                self.uncore.cycle,
-            );
+            let _ = write_trap(log, cause.mcause_code(), epc, cause.tval(), self.uncore.cycle);
         }
 
         let hart_paths = self.hart_paths();
@@ -82,7 +79,7 @@ impl CoreCtx<'_> {
     /// would under Linux, by the signal the trap raises. What faulted,
     /// where and on what are left in the machine CSRs for a post-mortem.
     fn end_program_on_trap(&mut self, cause: &Trap, epc: VirtAddr) {
-        tracing::error!(target: "rvsim::trap", ?cause, pc = %crate::common::trace::Hex(epc.val()), "the program faulted in SE mode");
+        tracing::error!(target: "rvsim::trap", ?cause, pc = %Hex(epc.val()), "the program faulted in SE mode");
         self.hart.csrs.mcause = cause.cause().code();
         self.hart.csrs.mepc = epc.val();
         self.hart.csrs.mtval = cause.tval();

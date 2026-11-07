@@ -27,6 +27,7 @@ use crate::isa::op::MemWidth;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::stats::paths::HartPaths;
 use crate::soc::uncore::Uncore;
+use crate::system::process::loader::park;
 use crate::uarch::CoreUnits;
 use crate::uarch::pipeline::trace::{Departure, Stage};
 
@@ -52,7 +53,7 @@ impl CoreCtx<'_> {
     /// thread has ended or waits; when that ended the last process, the
     /// run ends with `run_exit`.
     pub fn park_thread(&mut self, run_exit: Option<u64>) {
-        crate::system::process::loader::park(self.hart);
+        park(self.hart);
         if let Some(code) = run_exit {
             self.signal_exit(code);
         }

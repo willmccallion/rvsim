@@ -21,6 +21,8 @@ use crate::exec::cbo::CboEffect;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
+#[cfg(feature = "commit-log")]
+use crate::uarch::pipeline::commit_log::MemEffect;
 use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::squash::SquashScope;
 
@@ -561,22 +563,13 @@ impl StoreBuffer {
     /// The write a committed plain store makes, for the commit log; `None`
     /// for a cache-block operation or a tag the buffer does not hold.
     #[cfg(feature = "commit-log")]
-    pub fn committed_write(
-        &self,
-        rob_tag: RobTag,
-    ) -> Option<crate::uarch::pipeline::commit_log::MemEffect> {
+    pub fn committed_write(&self, rob_tag: RobTag) -> Option<MemEffect> {
         let entry = self.find_by_tag(rob_tag)?;
         let StoreResolution::Committed { paddr, data: StoreData::Bytes(data) } = entry.resolution
         else {
             return None;
         };
-        Some(crate::uarch::pipeline::commit_log::MemEffect::new(
-            entry.vaddr,
-            paddr,
-            entry.width,
-            None,
-            Some(data),
-        ))
+        Some(MemEffect::new(entry.vaddr, paddr, entry.width, None, Some(data)))
     }
 
     fn position(&self, rob_tag: RobTag) -> Option<usize> {

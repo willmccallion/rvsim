@@ -4,6 +4,7 @@
 
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::PteUpdate;
+use crate::common::trace::Hex;
 use crate::common::{PhysAddr, VirtAddr};
 use crate::exec::retire;
 use crate::isa::fence::Fence;
@@ -15,6 +16,8 @@ use crate::system::process::loader::park;
 use crate::system::process::syscall::flush_all;
 use crate::trace_trap;
 use crate::uarch::ctx::CoreCtx;
+#[cfg(feature = "commit-log")]
+use crate::uarch::pipeline::commit_log::write_faulted;
 use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, PendingTrap, TrapProgress};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
@@ -62,11 +65,11 @@ pub(super) fn trap_or_interrupt(
         if drained {
             trace_trap!(state.trace_trap_enabled(&interrupt_trap);
                 event      = "interrupt",
-                epc        = %crate::common::trace::Hex(epc.val()),
+                epc        = %Hex(epc.val()),
                 cause      = ?interrupt_trap,
-                mip        = %crate::common::trace::Hex(state.hart.csrs.mip),
-                mie        = %crate::common::trace::Hex(state.hart.csrs.mie),
-                mstatus    = %crate::common::trace::Hex(state.hart.csrs.mstatus),
+                mip        = %Hex(state.hart.csrs.mip),
+                mie        = %Hex(state.hart.csrs.mie),
+                mstatus    = %Hex(state.hart.csrs.mstatus),
                 priv_mode  = ?state.hart.privilege,
                 "CM: interrupt detected — pipeline drained"
             );
@@ -138,7 +141,7 @@ pub(super) fn gate_head(
         state.uncore.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
         trace_trap!(state.config.general.trace_instructions;
             event   = "coherence-reexecute",
-            pc      = %crate::common::trace::Hex(head.pc.val()),
+            pc      = %Hex(head.pc.val()),
             rob_tag = %head.tag,
             "CM: LR read a line another hart has since written — re-executing"
         );
@@ -151,7 +154,7 @@ pub(super) fn gate_head(
     {
         trace_trap!(state.config.general.trace_instructions;
             event   = "pte-changed-reexecute",
-            pc      = %crate::common::trace::Hex(head.pc.val()),
+            pc      = %Hex(head.pc.val()),
             rob_tag = %head.tag,
             "CM: store's PTE changed since its walk — re-executing"
         );
@@ -207,22 +210,17 @@ fn take_fault(
                 | Trap::InstructionAddressMisaligned(_)
         );
         if !fetch_fault {
-            let _ = crate::uarch::pipeline::commit_log::write_faulted(
-                log,
-                entry.pc,
-                entry.bits,
-                state.hart.privilege,
-                state.uncore.cycle,
-            );
+            let _ =
+                write_faulted(log, entry.pc, entry.bits, state.hart.privilege, state.uncore.cycle);
         }
     }
     trace_trap!(state.trace_trap_enabled(the_trap);
         event     = "sync-exception",
-        pc        = %crate::common::trace::Hex(entry.pc.val()),
+        pc        = %Hex(entry.pc.val()),
         rob_tag   = %entry.tag,
         cause     = ?the_trap,
         priv_mode = ?state.hart.privilege,
-        mstatus   = %crate::common::trace::Hex(state.hart.csrs.mstatus),
+        mstatus   = %Hex(state.hart.csrs.mstatus),
         "CM: synchronous exception at commit"
     );
     // Elements a vector load returned before the faulting one.

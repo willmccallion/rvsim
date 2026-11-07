@@ -3,12 +3,10 @@
 use crate::exec::signals::ControlFlow;
 use crate::isa::op::{AluOpGroup, SystemOp, VecOpGroup, VectorOp};
 use crate::uarch::ctx::CoreCtx;
+use crate::uarch::pipeline::rob::RobEntry;
 
 /// Updates instruction statistics based on the committed entry.
-pub(super) fn update_instruction_stats(
-    state: &mut CoreCtx<'_>,
-    entry: &crate::uarch::pipeline::rob::RobEntry,
-) {
+pub(super) fn update_instruction_stats(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     // Check vec ops first: vec loads/stores also set mem_read/mem_write.
     if !matches!(entry.ctrl.vec_op, VectorOp::None) {
         update_vec_instruction_stats(state, entry.ctrl.vec_op);

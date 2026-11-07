@@ -25,6 +25,7 @@
 
 use crate::arch::reservation::LrScRecord;
 use crate::common::PhysAddr;
+use crate::common::trace::Hex;
 use crate::exec::memory::load_result;
 use crate::isa::op::{AtomicOp, MemWidth};
 use crate::trace_fwd;
@@ -74,7 +75,7 @@ pub fn memory2_stage(
             trace_trap!(state.trace_trap_enabled(trap);
                 event   = "propagate",
                 stage   = "M2",
-                pc      = %crate::common::trace::Hex(mem.op.pc.val()),
+                pc      = %Hex(mem.op.pc.val()),
                 rob_tag = %mem.op.rob_tag,
                 trap    = ?trap,
                 "M2: trap propagated through memory2"
@@ -121,9 +122,9 @@ pub fn memory2_stage(
                 {
                     trace_fwd!(state.config.general.trace_instructions;
                         event           = "violation",
-                        store_pc        = %crate::common::trace::Hex(mem.op.pc.val()),
+                        store_pc        = %Hex(mem.op.pc.val()),
                         store_tag       = %mem.op.rob_tag,
-                        paddr           = %crate::common::trace::Hex(paddr.val()),
+                        paddr           = %Hex(paddr.val()),
                         width           = ?width,
                         violation_flush = %violating_tag,
                         "M2: memory ordering VIOLATION — younger load executed with stale data"
@@ -136,7 +137,7 @@ pub fn memory2_stage(
             trace_mem!(state.config.general.trace_instructions;
                 stage   = "M2",
                 rob_tag = %mem.op.rob_tag,
-                pc      = %crate::common::trace::Hex(mem.op.pc.val()),
+                pc      = %Hex(mem.op.pc.val()),
                 op      = "passthrough",
                 "M2: non-memory instruction pass-through"
             );
@@ -168,23 +169,23 @@ pub fn finalize_load(
         trace_fwd!(state.config.general.trace_instructions;
             event         = "forward",
             stage         = stage,
-            load_pc       = %crate::common::trace::Hex(mem.op.pc.val()),
+            load_pc       = %Hex(mem.op.pc.val()),
             load_tag      = %mem.op.rob_tag,
-            paddr         = %crate::common::trace::Hex(mem.paddr.val()),
+            paddr         = %Hex(mem.paddr.val()),
             width         = ?mem.op.ctrl.width,
             signed        = mem.op.ctrl.signed_load,
-            forwarded_val = %crate::common::trace::Hex(load_data),
+            forwarded_val = %Hex(load_data),
             "load satisfied from store buffer (memory1 hit)"
         );
     } else {
         trace_mem!(state.config.general.trace_instructions;
             stage         = stage,
             rob_tag   = %mem.op.rob_tag,
-            pc        = %crate::common::trace::Hex(mem.op.pc.val()),
+            pc        = %Hex(mem.op.pc.val()),
             op        = "load",
-            paddr     = %crate::common::trace::Hex(mem.paddr.val()),
+            paddr     = %Hex(mem.paddr.val()),
             width     = ?mem.op.ctrl.width,
-            load_data = %crate::common::trace::Hex(load_data),
+            load_data = %Hex(load_data),
             "load value finalized"
         );
     }

@@ -5,6 +5,8 @@
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
 use super::O3Entry;
+use crate::common::trace::Hex;
+use crate::common::trace::Hex32;
 use crate::exec::execute::{evaluate, illegal_in_current_state, operands, perform_csr_access};
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
@@ -40,16 +42,16 @@ pub fn execute_one(
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = %issued.rob_tag,
-        pc       = %crate::common::trace::Hex(issued.inst.pc.val()),
-        inst     = %crate::common::trace::Hex32(issued.inst.bits),
+        pc       = %Hex(issued.inst.pc.val()),
+        inst     = %Hex32(issued.inst.bits),
         rd       = issued.inst.rd.as_usize(),
         rd_phys  = issued.regs.rd_phys.index(),
         rs1      = issued.inst.rs1.as_usize(),
         rs1_phys = issued.regs.rs1_phys.index(),
-        rv1      = %crate::common::trace::Hex(issued.inst.rv1),
+        rv1      = %Hex(issued.inst.rv1),
         rs2      = issued.inst.rs2.as_usize(),
         rs2_phys = issued.regs.rs2_phys.index(),
-        rv2      = %crate::common::trace::Hex(issued.inst.rv2),
+        rv2      = %Hex(issued.inst.rv2),
         imm      = issued.inst.imm,
         a_src    = ?issued.inst.ctrl.a_src,
         b_src    = ?issued.inst.ctrl.b_src,
@@ -105,11 +107,11 @@ fn execute_system_o3(
             if matches!(issued.inst.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
                 trace_trap!(state.config.general.trace_instructions;
                     event     = "return",
-                    pc        = %crate::common::trace::Hex(issued.inst.pc.val()),
+                    pc        = %Hex(issued.inst.pc.val()),
                     rob_tag   = %issued.rob_tag,
                     insn      = ?issued.inst.ctrl.system_op,
                     priv_mode = ?state.hart().privilege,
-                    mstatus   = %crate::common::trace::Hex(state.hart().csrs.mstatus),
+                    mstatus   = %Hex(state.hart().csrs.mstatus),
                     "EX: xRET queued (privilege restore deferred to commit)"
                 );
             }

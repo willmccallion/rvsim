@@ -22,6 +22,10 @@ use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::{ElemIdx, Sew, VectorConfig, VectorRounding};
 use crate::sim::memory::write_log::WriteSeq;
+#[cfg(feature = "commit-log")]
+use crate::uarch::pipeline::commit_log::MemEffect;
+#[cfg(feature = "commit-log")]
+use crate::uarch::pipeline::commit_log::VectorElementAccess;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rob::RobTag;
 
@@ -509,10 +513,10 @@ pub struct Mem2WbEntry {
     pub mem_access: Option<MemAccess>,
     /// The access a load, LR, SC or AMO performed, for the commit log.
     #[cfg(feature = "commit-log")]
-    pub mem_effect: Option<crate::uarch::pipeline::commit_log::MemEffect>,
+    pub mem_effect: Option<MemEffect>,
     /// The element accesses a vector memory micro-op made, for the commit log.
     #[cfg(feature = "commit-log")]
-    pub vec_mem_effects: Vec<crate::uarch::pipeline::commit_log::VectorElementAccess>,
+    pub vec_mem_effects: Vec<VectorElementAccess>,
 }
 
 impl Mem2WbEntry {
@@ -538,10 +542,9 @@ impl Mem2WbEntry {
     pub fn from_memory2(mem: Mem1Mem2Entry, load_data: u64, lr_sc: Option<LrScRecord>) -> Self {
         let mem_access = MemAccess::of_memory2(&mem);
         #[cfg(feature = "commit-log")]
-        let mem_effect = crate::uarch::pipeline::commit_log::MemEffect::of_memory2(&mem);
+        let mem_effect = MemEffect::of_memory2(&mem);
         #[cfg(feature = "commit-log")]
-        let vec_mem_effects =
-            crate::uarch::pipeline::commit_log::VectorElementAccess::of_memory2(&mem);
+        let vec_mem_effects = VectorElementAccess::of_memory2(&mem);
         Self {
             op: mem.op,
             mem_access,

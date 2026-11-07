@@ -23,6 +23,7 @@ use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::components::{CacheId, PipelineId};
 use crate::uarch::ctx::CoreCtx;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
     CommitEvent, CommitRegisters, CommitResources,
 };
@@ -32,12 +33,15 @@ use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, expand_span, retire_access,
 };
 use crate::uarch::pipeline::backend::shared::{commit, memory1, memory2, writeback};
+use crate::uarch::pipeline::engine::Renamed;
 use crate::uarch::pipeline::engine::{
     BackendCommon, BundleHazard, DataCacheFlush, ExecutionEngine,
 };
+use crate::uarch::pipeline::latches::IdExEntry;
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry, SourceReadiness,
 };
+use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
@@ -518,17 +522,11 @@ impl ExecutionEngine for InOrderEngine {
         false
     }
 
-    fn load_queue_mut(
-        &mut self,
-    ) -> Option<&mut crate::uarch::pipeline::lsq::load_queue::LoadQueue> {
+    fn load_queue_mut(&mut self) -> Option<&mut LoadQueue> {
         None
     }
 
-    fn rename(
-        &mut self,
-        state: &mut crate::uarch::ctx::StageCtx<'_>,
-        decoded: crate::uarch::pipeline::latches::IdExEntry,
-    ) -> crate::uarch::pipeline::engine::Renamed<ProducerTags> {
+    fn rename(&mut self, state: &mut StageCtx<'_>, decoded: IdExEntry) -> Renamed<ProducerTags> {
         self.rename_one(state, decoded)
     }
 

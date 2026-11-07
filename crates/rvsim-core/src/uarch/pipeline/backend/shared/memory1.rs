@@ -37,6 +37,7 @@
 use std::ops::ControlFlow;
 
 use crate::arch::translation::{DirtyUpdates, PteUpdate, TranslationResult};
+use crate::common::trace::Hex;
 use crate::common::{AccessType, PhysAddr, VirtAddr, crosses_cache_line};
 use crate::exec::cbo;
 use crate::exec::compute::misaligned;
@@ -48,6 +49,7 @@ use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::ctx::stage::PteUpdateOutcome;
 use crate::uarch::mmu::TranslateOutcome;
+use crate::uarch::mmu::ptw::WalkState;
 use crate::uarch::pipeline::backend::shared::memory2;
 use crate::uarch::pipeline::engine::{ExecutionEngine, TrapProgress};
 use crate::uarch::pipeline::latches::{
@@ -767,9 +769,9 @@ fn resolve_store<E: ExecutionEngine>(
     {
         trace_fwd!(state.config.general.trace_instructions;
             event           = "violation",
-            store_pc        = %crate::common::trace::Hex(ex.op.pc.val()),
+            store_pc        = %Hex(ex.op.pc.val()),
             store_tag       = %ex.op.rob_tag,
-            paddr           = %crate::common::trace::Hex(paddr.val()),
+            paddr           = %Hex(paddr.val()),
             violation_flush = %found.load,
             "M1: memory ordering violation, a younger load already read this location"
         );
@@ -778,10 +780,10 @@ fn resolve_store<E: ExecutionEngine>(
     trace_mem!(state.config.general.trace_instructions;
         stage      = "M1",
         rob_tag    = %ex.op.rob_tag,
-        pc         = %crate::common::trace::Hex(ex.op.pc.val()),
+        pc         = %Hex(ex.op.pc.val()),
         op         = "store-resolve",
-        paddr      = %crate::common::trace::Hex(paddr.val()),
-        store_data = %crate::common::trace::Hex(ex.store_data),
+        paddr      = %Hex(paddr.val()),
+        store_data = %Hex(ex.store_data),
         "M1: store resolved into store buffer (write deferred to commit)"
     );
 }
@@ -1008,7 +1010,7 @@ fn send_load_prefetches<E: ExecutionEngine>(
 fn park_walk<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
-    walk_state: crate::uarch::mmu::ptw::WalkState,
+    walk_state: WalkState,
     pte_addr: PhysAddr,
     access_size: u64,
     ex: ExMem1Entry,

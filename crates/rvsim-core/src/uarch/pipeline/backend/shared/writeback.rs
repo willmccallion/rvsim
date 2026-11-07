@@ -7,6 +7,7 @@
 //! it (FP flags, PTE A/D updates, SFENCE.VMA operands, LR/SC reservation
 //! records).
 
+use crate::common::trace::Hex;
 use crate::exec::signals::ControlFlow;
 use crate::trace_trap;
 use crate::trace_writeback;
@@ -30,7 +31,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             rob.fault(wb.op.rob_tag, trap.clone());
             trace_trap!(state.trace_trap_enabled(trap);
                 event   = "writeback-fault",
-                pc      = %crate::common::trace::Hex(wb.op.pc.val()),
+                pc      = %Hex(wb.op.pc.val()),
                 rob_tag = %wb.op.rob_tag,
                 trap    = ?trap,
                 "WB: entry marked faulted in ROB"
@@ -66,8 +67,8 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
 
         trace_writeback!(state.config.general.trace_instructions;
             rob_tag  = %wb.op.rob_tag,
-            pc       = %crate::common::trace::Hex(wb.op.pc.val()),
-            result   = %crate::common::trace::Hex(val),
+            pc       = %Hex(wb.op.pc.val()),
+            result   = %Hex(val),
             from     = if wb.op.ctrl.mem_read { "load" } else if wb.op.ctrl.control_flow == ControlFlow::Jump { "jump_link" } else { "alu" },
             rd       = wb.op.rd.as_usize(),
             rd_phys  = wb.op.rd_phys.index(),

@@ -27,6 +27,8 @@
 #![allow(clippy::cast_ptr_alignment)]
 
 use crate::arch::csr::ialign_low_bits;
+use crate::common::trace::Hex;
+use crate::common::trace::Hex32;
 use crate::common::{AccessType, FetchSeq, InstSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::isa::instruction::{InstSize, instruction_size};
 use crate::isa::privileged::Trap;
@@ -38,6 +40,7 @@ use crate::uarch::bpred::ControlInst;
 use crate::uarch::bpred::btb::BranchKind;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::mmu::TranslateOutcome;
+use crate::uarch::mmu::ptw::WalkState;
 use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine, FetchRestart};
 use crate::uarch::pipeline::frontend::read_inst_half;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, Latch};
@@ -186,7 +189,7 @@ const fn fault_entry(seq: InstSeq, pc: VirtAddr, trap: Trap) -> Fetch1Fetch2Entr
 fn park_fetch_walk<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
-    walk_state: crate::uarch::mmu::ptw::WalkState,
+    walk_state: WalkState,
     pte_addr: PhysAddr,
     entry: Fetch1Fetch2Entry,
 ) {
@@ -255,7 +258,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
     group: OutstandingFetch,
 ) {
     trace_fetch!(state.config.general.trace_instructions;
-        line        = %crate::common::trace::Hex(line.val()),
+        line        = %Hex(line.val()),
         fetch_seq   = group.fetch_seq.val(),
         entries     = group.entries.len(),
         "F1: line fetch issued"
@@ -451,7 +454,7 @@ fn fetch_lower_half<E: ExecutionEngine>(
         FetchHalf::Ready(paddr) => Some(paddr),
         FetchHalf::Fault(trap) => {
             trace_fetch!(state.config.general.trace_instructions;
-                pc          = %crate::common::trace::Hex(pc.val()),
+                pc          = %Hex(pc.val()),
                 trap        = ?trap,
                 "F1: fetch trap"
             );
@@ -482,8 +485,8 @@ fn fetch_upper_half<E: ExecutionEngine>(
         FetchHalf::Ready(upper) => Some(Fetch1Fetch2Entry { upper_paddr: Some(upper), ..lower }),
         FetchHalf::Fault(trap) => {
             trace_fetch!(state.config.general.trace_instructions;
-                pc           = %crate::common::trace::Hex(lower.pc.val()),
-                paddr        = %crate::common::trace::Hex(lower.paddr.val()),
+                pc           = %Hex(lower.pc.val()),
+                paddr        = %Hex(lower.paddr.val()),
                 trap         = ?trap,
                 crosses_page = true,
                 "F1: fetch trap on the upper half-word"
@@ -542,21 +545,21 @@ fn push_fetched<E: ExecutionEngine>(
     if let Some(kind) = prediction.kind {
         trace_branch!(state.config.general.trace_instructions;
             event       = "predict",
-            pc          = %crate::common::trace::Hex(entry.pc.val()),
-            paddr       = %crate::common::trace::Hex(entry.paddr.val()),
-            inst        = %crate::common::trace::Hex32(bits),
+            pc          = %Hex(entry.pc.val()),
+            paddr       = %Hex(entry.paddr.val()),
+            inst        = %Hex32(bits),
             bp_type     = kind,
             pred_taken  = prediction.target.is_some(),
-            next_pc     = %crate::common::trace::Hex(next_pc.val()),
+            next_pc     = %Hex(next_pc.val()),
             "F1: control-flow prediction"
         );
     }
     trace_fetch!(state.config.general.trace_instructions;
-        pc          = %crate::common::trace::Hex(entry.pc.val()),
-        paddr       = %crate::common::trace::Hex(entry.paddr.val()),
+        pc          = %Hex(entry.pc.val()),
+        paddr       = %Hex(entry.paddr.val()),
         compressed  = matches!(size, InstSize::Compressed(_)),
         pred_taken  = prediction.target.is_some(),
-        next_pc     = %crate::common::trace::Hex(next_pc.val()),
+        next_pc     = %Hex(next_pc.val()),
         "F1: fetch entry issued"
     );
     let entry = Fetch1Fetch2Entry { predicted_target: prediction.target, ..entry };
