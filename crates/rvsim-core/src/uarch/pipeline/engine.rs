@@ -25,6 +25,21 @@ use crate::uarch::pipeline::snapshot::LatchSnapshot;
 use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::squash::SquashScope;
 
+/// Where the next fetch1 pass starts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FetchRestart {
+    /// At the frontend's fetch PC.
+    #[default]
+    FromPc,
+    /// Nowhere yet: a fetch is parked on a page-table walk, and fetch1
+    /// waits for it rather than emit the same PC every cycle (gem5
+    /// `MinorCPU`'s IFU `ItlbWait` state).
+    AwaitingWalk,
+    /// At the instruction a completed walk or an L2 ITLB hit held fetch
+    /// on, fetched again now its translation is in the L1 TLB.
+    At(VirtAddr),
+}
+
 /// What renaming one decoded instruction produced.
 #[derive(Debug)]
 pub enum Renamed<R> {
@@ -299,14 +314,8 @@ pub struct BackendCommon {
     /// Advanced when a contiguous run drains from `fetch_reorder`; bumped to
     /// `next_fetch_seq` on flush so post-flush fetches stay in order.
     pub next_emit_fetch_seq: FetchSeq,
-    /// True while a fetch is parked on a page-table walk. fetch1 stalls
-    /// instead of re-emitting the same PC every cycle (gem5 `MinorCPU`'s
-    /// IFU `ItlbWait` state). Cleared when the matching walk completes.
-    pub fetch_walk_pending: bool,
-    /// Where fetch continues once a parked fetch walk has completed: the
-    /// end of the parked instruction, whose size is known only when its
-    /// translation arrives. Taken by the next fetch1 pass.
-    pub fetch_resume_pc: Option<VirtAddr>,
+    /// Where the next fetch1 pass starts.
+    pub fetch_restart: FetchRestart,
     /// Oldest load the mailbox drain found inconsistent with an older
     /// load's fresh value (see `LoadQueue::check_coherence_violation`);
     /// the out-of-order engine squashes from it after memory2.
@@ -494,8 +503,7 @@ impl BackendCommon {
             )
         });
         self.fetch_reorder.clear();
-        self.fetch_walk_pending = false;
-        self.fetch_resume_pc = None;
+        self.fetch_restart = FetchRestart::FromPc;
         self.fetch_hold_until = 0;
         self.next_emit_fetch_seq = self.next_fetch_seq;
     }
@@ -508,7 +516,7 @@ impl BackendCommon {
     pub fn fetch_in_flight(&self) -> bool {
         !self.outstanding_fetches.is_empty()
             || !self.fetch_reorder.is_empty()
-            || self.fetch_walk_pending
+            || self.fetch_restart == FetchRestart::AwaitingWalk
     }
 
     /// True while fetch is waiting out an L2 ITLB hit's latency.
@@ -617,7 +625,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             && common.forwarded_results.is_empty()
             && common.commit_notices.is_empty()
             && common.fetch_reorder.is_empty()
-            && !common.fetch_walk_pending
+            && common.fetch_restart != FetchRestart::AwaitingWalk
             && self.rename_output.is_empty()
             && self.redirect.is_none()
             && !self.engine.is_recovering_from_squash()

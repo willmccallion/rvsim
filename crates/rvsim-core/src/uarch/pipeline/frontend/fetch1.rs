@@ -38,7 +38,7 @@ use crate::uarch::bpred::ControlInst;
 use crate::uarch::bpred::btb::BranchKind;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::mmu::TranslateOutcome;
-use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine};
+use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine, FetchRestart};
 use crate::uarch::pipeline::frontend::read_inst_half;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::uarch::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
@@ -162,7 +162,7 @@ fn predict_control_flow(
 fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: VirtAddr, cycles: u64) {
     let common = engine.common_mut();
     common.fetch_hold_until = state.cycle + cycles;
-    common.fetch_resume_pc = Some(pc);
+    common.fetch_restart = FetchRestart::At(pc);
 }
 
 /// Fetch translates a half-word at a time, the smallest instruction.
@@ -203,7 +203,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
             continuation: WalkContinuation::Fetch { fetch_seq, entry },
         },
     );
-    common.fetch_walk_pending = true;
+    common.fetch_restart = FetchRestart::AwaitingWalk;
 
     let cycle = state.cycle;
     state.events().schedule(
@@ -323,7 +323,14 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     latch: &mut Latch<Fetch1Fetch2Entry>,
     fetch_pc: &mut VirtAddr,
 ) {
-    let pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
+    let common = engine.common_mut();
+    let pc = match common.fetch_restart {
+        FetchRestart::At(pc) => {
+            common.fetch_restart = FetchRestart::FromPc;
+            pc
+        }
+        FetchRestart::FromPc | FetchRestart::AwaitingWalk => *fetch_pc,
+    };
     let line_bytes = state.core().l1_i_cache.line_bytes() as u64;
     let mut cursor = FetchCursor {
         pc,
