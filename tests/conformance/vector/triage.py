@@ -15,6 +15,7 @@ import os
 import struct
 import subprocess
 import sys
+import tempfile
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 sys.path.insert(0, REPO_ROOT)
@@ -60,6 +61,46 @@ def hex_window(b, offset, before=16, after=32):
     return "\n".join(out)
 
 
+def run_spike(elf: str, isa: str) -> tuple[bytes, str]:
+    """Runs ``elf`` on spike with ``isa``; returns its signature and log.
+
+    The files spike writes go in a directory of their own, so concurrent
+    runs do not overwrite each other's."""
+    with tempfile.TemporaryDirectory(prefix="triage-") as tmp:
+        sig_path = os.path.join(tmp, "spike.sig")
+        log_path = os.path.join(tmp, "spike.log")
+        res = subprocess.run(
+            [
+                SPIKE,
+                f"--isa={isa}",
+                f"--log={log_path}",
+                "--log-commits",
+                f"+signature={sig_path}",
+                "+signature-granularity=4",
+                elf,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if not os.path.isfile(sig_path):
+            sys.exit(
+                f"spike did not produce a signature (rc={res.returncode})\n"
+                f"stderr: {res.stderr.strip()[:400]}\n"
+                f"isa was: {isa}"
+            )
+        signature = bytearray()
+        with open(sig_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    signature.extend(struct.pack("<I", int(line, 16)))
+        with open(log_path) as f:
+            log = f.read()
+    return bytes(signature), log
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("elf")
@@ -80,39 +121,7 @@ def main():
 
     isa = f"{args.march}_zvl{args.vlen}b"
 
-    # ── spike ────────────────────────────────────────────────────────────────
-    sig_path = "/tmp/triage.spike.sig"
-    log_path = "/tmp/triage.spike.log"
-    if os.path.exists(sig_path):
-        os.remove(sig_path)
-    res = subprocess.run(
-        [
-            SPIKE,
-            f"--isa={isa}",
-            f"--log={log_path}",
-            "--log-commits",
-            f"+signature={sig_path}",
-            "+signature-granularity=4",
-            args.elf,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        check=False,
-    )
-    if not os.path.isfile(sig_path):
-        sys.exit(
-            f"spike did not produce a signature (rc={res.returncode})\n"
-            f"stderr: {res.stderr.strip()[:400]}\n"
-            f"isa was: {isa}"
-        )
-    spike_bytes = bytearray()
-    with open(sig_path) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                spike_bytes.extend(struct.pack("<I", int(line, 16)))
-    spike_sig = bytes(spike_bytes)
+    spike_sig, spike_log = run_spike(args.elf, isa)
 
     # ── rvsim ────────────────────────────────────────────────────────────────
     cfg = dict(PIPELINES)["inorder w1"].replace(vlen=args.vlen)
@@ -139,8 +148,7 @@ def main():
     print(hex_window(rvsim_sig, diff))
 
     print("\n--- spike commit log (last 40 vector lines) ---")
-    with open(log_path) as f:
-        lines = f.readlines()
+    lines = spike_log.splitlines(keepends=True)
     vec_lines = [
         ln
         for ln in lines
