@@ -429,6 +429,21 @@ pub struct Mem1Mem2Entry {
 }
 
 impl ExMem1Entry {
+    /// The address of the instruction after this one.
+    pub const fn next_pc(&self) -> VirtAddr {
+        self.pc.wrapping_add(self.inst_size.as_u64())
+    }
+
+    /// The value a non-memory instruction writes to `rd`: a jump's return
+    /// address, else the ALU result.
+    pub const fn register_value(&self) -> u64 {
+        if matches!(self.ctrl.control_flow, ControlFlow::Jump) {
+            self.next_pc().val()
+        } else {
+            self.alu
+        }
+    }
+
     /// The result of executing `id`: `alu` and `store_data` for memory1,
     /// with no trap, FP flags or deferred side effects.
     pub const fn from_issue(id: &RenameIssueEntry, alu: u64, store_data: u64) -> Self {
@@ -528,13 +543,18 @@ pub struct Mem2WbEntry {
 }
 
 impl Mem2WbEntry {
+    /// The address of the instruction after this one.
+    pub const fn next_pc(&self) -> VirtAddr {
+        self.pc.wrapping_add(self.inst_size.as_u64())
+    }
+
     /// The value the instruction writes to `rd`: what a load or atomic
     /// read, a jump's return address, or else the ALU result.
     pub fn written_value(&self) -> u64 {
         if self.ctrl.mem_read || self.ctrl.atomic_op.is_some() {
             self.load_data
         } else if self.ctrl.control_flow == ControlFlow::Jump {
-            self.pc.wrapping_add(self.inst_size.as_u64()).val()
+            self.next_pc().val()
         } else {
             self.alu
         }

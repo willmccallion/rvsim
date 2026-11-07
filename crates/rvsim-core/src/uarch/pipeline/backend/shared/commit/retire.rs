@@ -156,7 +156,7 @@ fn apply_retirement(
 /// Advances the architectural PC to the retired instruction's successor:
 /// a taken branch's target, so an interrupt's EPC is right.
 fn advance_pc(state: &mut CoreCtx<'_>, entry: &RobEntry) {
-    let fall_through = entry.pc.wrapping_add(entry.inst_size.as_u64());
+    let fall_through = entry.next_pc();
     state.hart.pc = match entry.ctrl.control_flow {
         ControlFlow::Jump => entry.bp_target.unwrap_or(fall_through),
         ControlFlow::Branch if entry.bp_outcome.taken => entry.bp_target.unwrap_or(fall_through),
@@ -335,14 +335,11 @@ fn retire_system(
         // happens here too: Rocket's from WB, BOOM's when the access commits.
         let squash = csr_update.addr == csr::SATP
             || squashes_after_csr(state, Some(csr_update.addr.as_u32()));
-        let redirect = squash
-            .then(|| CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64())));
+        let redirect = squash.then(|| CommitEvent::SquashAfter(entry.next_pc()));
         return CommitFlow::Stop(redirect);
     }
     if entry.ctrl.system_op == SystemOp::Csr && squashes_after_csr(state, None) {
-        return CommitFlow::Stop(Some(CommitEvent::SquashAfter(
-            entry.pc.wrapping_add(entry.inst_size.as_u64()),
-        )));
+        return CommitFlow::Stop(Some(CommitEvent::SquashAfter(entry.next_pc())));
     }
 
     match entry.ctrl.system_op {
@@ -375,8 +372,7 @@ fn retire_system(
             CommitFlow::Stop(Some(CommitEvent::SquashAfter(state.hart.pc)))
         }
         SystemOp::Wfi => CommitFlow::Stop(
-            (!retire::wfi(state.hart))
-                .then(|| CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64()))),
+            (!retire::wfi(state.hart)).then(|| CommitEvent::SquashAfter(entry.next_pc())),
         ),
         // The instructions fetched behind a served ecall read registers and
         // mappings it changed, so they are refetched, as after a CSR write.
@@ -391,9 +387,7 @@ fn retire_system(
                 Some(Outcome::Ended { run_exit }) => state.park_thread(run_exit),
                 None => return CommitFlow::Continue,
             }
-            CommitFlow::Stop(Some(CommitEvent::SquashAfter(
-                entry.pc.wrapping_add(entry.inst_size.as_u64()),
-            )))
+            CommitFlow::Stop(Some(CommitEvent::SquashAfter(entry.next_pc())))
         }
         SystemOp::Pseudo => retire_pseudo_op(state, entry),
         _ => CommitFlow::Continue,
@@ -426,9 +420,7 @@ fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
         }
         PseudoOp::Rpns | PseudoOp::Sum => {}
         PseudoOp::ReadFile | PseudoOp::WriteFile => {
-            return CommitFlow::Stop(Some(CommitEvent::SquashAfter(
-                entry.pc.wrapping_add(entry.inst_size.as_u64()),
-            )));
+            return CommitFlow::Stop(Some(CommitEvent::SquashAfter(entry.next_pc())));
         }
         PseudoOp::ResetStats => state.uncore.request(SimOp::ResetStats),
         PseudoOp::DumpStats => state.uncore.request(SimOp::DumpStats { label: a0 }),
@@ -501,7 +493,7 @@ fn squashes_after_csr(state: &CoreCtx<'_>, written: Option<u32>) -> bool {
 /// younger instructions fetched or translated before it; a FENCE squashes
 /// them too on a core that flushes after one.
 fn retire_fence(state: &mut CoreCtx<'_>, entry: &RobEntry) -> Option<CommitEvent> {
-    let squash_younger = CommitEvent::SquashAfter(entry.pc.wrapping_add(entry.inst_size.as_u64()));
+    let squash_younger = CommitEvent::SquashAfter(entry.next_pc());
     if entry.ctrl.system_op == SystemOp::FenceI {
         state.core.l1_i_cache.invalidate_all(&mut state.uncore.stats);
         return Some(squash_younger);
