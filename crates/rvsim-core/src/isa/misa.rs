@@ -6,6 +6,34 @@ use crate::isa::csr::{
     MISA_EXT_M, MISA_EXT_S, MISA_EXT_U, MISA_EXT_V, MISA_XLEN_64,
 };
 
+/// A single-letter extension an instruction can require.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MisaLetter {
+    /// Atomics.
+    A,
+    /// Integer multiply and divide.
+    M,
+    /// Single-precision floating point.
+    F,
+    /// Double-precision floating point.
+    D,
+    /// Vectors.
+    V,
+}
+
+impl MisaLetter {
+    /// Its `misa` bit.
+    const fn bit(self) -> u64 {
+        match self {
+            Self::A => MISA_EXT_A,
+            Self::M => MISA_EXT_M,
+            Self::F => MISA_EXT_F,
+            Self::D => MISA_EXT_D,
+            Self::V => MISA_EXT_V,
+        }
+    }
+}
+
 /// A `misa` value parsed from the single-letter part of an ISA string
 /// such as `"RV64IMAFDC"` or `"rv64gcv"`.
 ///
@@ -55,6 +83,12 @@ impl Misa {
     #[must_use]
     pub const fn with_b(self, on: bool) -> Self {
         if on { Self(self.0 | MISA_EXT_B) } else { Self(self.0 & !MISA_EXT_B) }
+    }
+
+    /// True when `letter` is set.
+    #[must_use]
+    pub const fn has_letter(self, letter: MisaLetter) -> bool {
+        self.0 & letter.bit() != 0
     }
 
     /// True when C is set, which makes IALIGN 16.

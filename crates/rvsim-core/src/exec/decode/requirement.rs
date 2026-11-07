@@ -4,6 +4,7 @@
 use crate::exec::signals::ControlSignals;
 use crate::isa::extension::{Extension, Requirement};
 use crate::isa::instruction::InstructionBits;
+use crate::isa::misa::MisaLetter;
 use crate::isa::op::{AluOp, SystemOp, VectorOp};
 use crate::isa::op::{CryptoOp, IntOp, VecAluOp, VecClass};
 
@@ -16,7 +17,7 @@ pub fn requirement(ctrl: &ControlSignals, inst: u32) -> Requirement {
         return vector_requirement(ctrl.vec_op);
     }
     if ctrl.atomic_op.is_some() {
-        return Requirement::Letter('a');
+        return Requirement::Letter(MisaLetter::A);
     }
     match ctrl.system_op {
         SystemOp::CboZero => return Requirement::any_of(&[Extension::Zicboz]),
@@ -42,7 +43,7 @@ pub fn requirement(ctrl: &ControlSignals, inst: u32) -> Requirement {
             | AluOp::Rem
             | AluOp::Remu
     ) {
-        return Requirement::Letter('m');
+        return Requirement::Letter(MisaLetter::M);
     }
     Requirement::Base
 }
@@ -103,7 +104,7 @@ fn fp_requirement(ctrl: &ControlSignals) -> Requirement {
     } else {
         !ctrl.is_rv32 || matches!(ctrl.alu, AluOp::FCvtSD | AluOp::FCvtDS)
     };
-    Requirement::Letter(if double { 'd' } else { 'f' })
+    Requirement::Letter(if double { MisaLetter::D } else { MisaLetter::F })
 }
 
 /// The requirement of a vector operation: the vector crypto and
@@ -131,9 +132,9 @@ fn vector_requirement(op: VectorOp) -> Requirement {
             IntOp::AndN | IntOp::Brev8 | IntOp::Rev8 | IntOp::Rol | IntOp::Ror => &[Zvbb, Zvkb],
             IntOp::Brev | IntOp::Clz | IntOp::Ctz | IntOp::CpopV => &[Zvbb],
             IntOp::ClMul | IntOp::ClMulH => &[Zvbc],
-            _ => return Requirement::Letter('v'),
+            _ => return Requirement::Letter(MisaLetter::V),
         },
-        _ => return Requirement::Letter('v'),
+        _ => return Requirement::Letter(MisaLetter::V),
     };
     Requirement::any_of(extensions)
 }
@@ -158,12 +159,12 @@ mod tests {
 
     #[test]
     fn multiply_atomics_and_floating_point_need_their_letters() {
-        assert_eq!(requirement_of(0x0220_0033), Requirement::Letter('m')); // mul x0, x0, x2
-        assert_eq!(requirement_of(0x1000_202f), Requirement::Letter('a')); // lr.w x0, (x0)
-        assert_eq!(requirement_of(0x0000_0053), Requirement::Letter('f')); // fadd.s f0, f0, f0
-        assert_eq!(requirement_of(0x0200_0053), Requirement::Letter('d')); // fadd.d f0, f0, f0
-        assert_eq!(requirement_of(0x0000_2007), Requirement::Letter('f')); // flw f0, 0(x0)
-        assert_eq!(requirement_of(0x0000_3007), Requirement::Letter('d')); // fld f0, 0(x0)
+        assert_eq!(requirement_of(0x0220_0033), Requirement::Letter(MisaLetter::M)); // mul x0, x0, x2
+        assert_eq!(requirement_of(0x1000_202f), Requirement::Letter(MisaLetter::A)); // lr.w x0, (x0)
+        assert_eq!(requirement_of(0x0000_0053), Requirement::Letter(MisaLetter::F)); // fadd.s f0, f0, f0
+        assert_eq!(requirement_of(0x0200_0053), Requirement::Letter(MisaLetter::D)); // fadd.d f0, f0, f0
+        assert_eq!(requirement_of(0x0000_2007), Requirement::Letter(MisaLetter::F)); // flw f0, 0(x0)
+        assert_eq!(requirement_of(0x0000_3007), Requirement::Letter(MisaLetter::D)); // fld f0, 0(x0)
     }
 
     #[test]
@@ -195,7 +196,7 @@ mod tests {
 
     #[test]
     fn vector_instructions_need_v_or_their_vector_extension() {
-        assert_eq!(requirement_of(0x0200_0057), Requirement::Letter('v')); // vadd.vv
+        assert_eq!(requirement_of(0x0200_0057), Requirement::Letter(MisaLetter::V)); // vadd.vv
         assert_eq!(
             requirement_of(0x0600_0057),
             Requirement::any_of(&[Extension::Zvbb, Extension::Zvkb])
