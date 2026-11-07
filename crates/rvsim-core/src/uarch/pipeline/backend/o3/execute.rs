@@ -14,7 +14,6 @@ use crate::uarch::pipeline::backend::shared::execute::{
     fault, propagate_trap, resolve_control_flow,
 };
 use crate::uarch::pipeline::backend::shared::vector_config::set_vector_config;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rob::Rob;
 use crate::uarch::pipeline::squash::{Redirect, SquashCause};
@@ -98,7 +97,7 @@ fn faulted(
     id: &RenameIssueEntry,
     trap: Trap,
 ) -> (ExMem1Entry, Option<Redirect>) {
-    (fault(state, id, trap, ExceptionStage::Execute), None)
+    (fault(state, id, trap), None)
 }
 
 /// Executes a system instruction; `None` for everything else, FENCE
@@ -207,7 +206,6 @@ mod tests {
             rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
-            exception_stage: None,
             predicted_target: None,
             seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
@@ -275,7 +273,6 @@ mod tests {
             rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: Some(Trap::IllegalInstruction(0)),
-            exception_stage: Some(ExceptionStage::Decode),
             predicted_target: None,
             seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
@@ -347,7 +344,6 @@ mod tests {
             rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
-            exception_stage: None,
             predicted_target: None,
             seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
@@ -420,7 +416,6 @@ mod tests {
             rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
-            exception_stage: None,
             predicted_target: None,
             seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
@@ -495,7 +490,6 @@ mod tests {
             rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
-            exception_stage: None,
             predicted_target: None,
             // Predicted NOT taken
             seq: crate::common::InstSeq::default(),
@@ -567,7 +561,6 @@ mod tests {
             rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
-            exception_stage: None,
             predicted_target: Some(0),
             // Predicted incorrectly
             seq: crate::common::InstSeq::default(),

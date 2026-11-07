@@ -20,7 +20,6 @@ use crate::isa::instruction::{InstSize, instruction_size};
 use crate::isa::privileged::Trap;
 use crate::isa::rvc::expand;
 use crate::uarch::ctx::StageCtx;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::frontend::read_inst_half;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, IfIdEntry};
 use crate::{trace_fetch, trace_trap};
@@ -52,7 +51,6 @@ pub fn fetch2_stage(
                 inst_size: InstSize::Standard,
                 predicted_target: f1.predicted_target,
                 trap: f1.trap,
-                exception_stage: f1.exception_stage,
                 seq: f1.seq,
             });
             break;
@@ -91,7 +89,6 @@ pub fn fetch2_stage(
                 inst_size: step,
                 predicted_target: f1.predicted_target,
                 trap: Some(t),
-                exception_stage: Some(ExceptionStage::Fetch),
                 seq: f1.seq,
             });
             break;
@@ -111,7 +108,6 @@ pub fn fetch2_stage(
             inst_size: step,
             predicted_target: f1.predicted_target,
             trap: None,
-            exception_stage: None,
             seq: f1.seq,
         });
     }

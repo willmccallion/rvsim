@@ -22,7 +22,6 @@ use crate::isa::reg::RegIdx;
 use crate::isa::rvv::{ElemIdx, Sew};
 use crate::sim::memory::write_log::WriteSeq;
 use crate::uarch::pipeline::backend::shared::vec_mem::VecMemAddrOp;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::RobTag;
@@ -243,8 +242,6 @@ pub struct IfIdEntry {
     pub predicted_target: Option<u64>,
     /// Trap that occurred during fetch, if any.
     pub trap: Option<Trap>,
-    /// Pipeline stage where the exception was first detected.
-    pub exception_stage: Option<ExceptionStage>,
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
 }
@@ -258,8 +255,6 @@ pub struct IdExEntry {
     pub inst: Inst,
     /// Trap that occurred during decode, if any.
     pub trap: Option<Trap>,
-    /// Pipeline stage where the exception was first detected.
-    pub exception_stage: Option<ExceptionStage>,
     /// Where the branch predictor sent fetch next, when it predicted
     /// this instruction taken.
     pub predicted_target: Option<u64>,
@@ -285,8 +280,6 @@ pub struct Fetch1Fetch2Entry {
     pub predicted_target: Option<u64>,
     /// Trap during fetch (alignment, TLB fault).
     pub trap: Option<Trap>,
-    /// Pipeline stage where the exception was detected.
-    pub exception_stage: Option<ExceptionStage>,
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
 }
@@ -317,8 +310,6 @@ pub struct RenameIssueEntry {
     pub rd_phys: PhysReg,
     /// Trap from earlier stages.
     pub trap: Option<Trap>,
-    /// Exception stage.
-    pub exception_stage: Option<ExceptionStage>,
     /// Where the branch predictor sent fetch next, when it predicted
     /// this instruction taken.
     pub predicted_target: Option<u64>,
@@ -375,8 +366,6 @@ pub struct ExMem1Entry {
     pub ctrl: ControlSignals,
     /// Trap from execute.
     pub trap: Option<Trap>,
-    /// Exception stage.
-    pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
     pub fp_flags: FpFlags,
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
@@ -427,8 +416,6 @@ pub struct Mem1Mem2Entry {
     pub ctrl: ControlSignals,
     /// Trap from memory1 (translation fault).
     pub trap: Option<Trap>,
-    /// Exception stage.
-    pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
     pub fp_flags: FpFlags,
     /// Cycle at which this entry's memory operation completes (O3 per-op latency).
@@ -461,7 +448,6 @@ impl ExMem1Entry {
             store_data,
             ctrl: id.inst.ctrl,
             trap: None,
-            exception_stage: None,
             fp_flags: FpFlags::NONE,
             sfence_vma: None,
             vec_mem: None,
@@ -490,7 +476,6 @@ impl Mem1Mem2Entry {
             sb_forwarded: false,
             ctrl: ex.ctrl,
             trap: ex.trap,
-            exception_stage: ex.exception_stage,
             fp_flags: ex.fp_flags,
             complete_cycle: 0,
             dirty_updates: DirtyUpdates::NONE,
@@ -524,8 +509,6 @@ pub struct Mem2WbEntry {
     pub ctrl: ControlSignals,
     /// Trap from memory2.
     pub trap: Option<Trap>,
-    /// Exception stage.
-    pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
     pub fp_flags: FpFlags,
     /// The D-bit updates the access applies when it retires.
@@ -583,7 +566,6 @@ impl Mem2WbEntry {
             load_data,
             ctrl: mem.ctrl,
             trap: mem.trap,
-            exception_stage: mem.exception_stage,
             fp_flags: mem.fp_flags,
             dirty_updates: mem.dirty_updates,
             sfence_vma: mem.sfence_vma,

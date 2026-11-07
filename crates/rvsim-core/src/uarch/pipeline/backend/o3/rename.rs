@@ -246,7 +246,6 @@ impl O3Engine {
             rs2_tag: None,
             rs3_tag: None,
             trap: id.trap,
-            exception_stage: id.exception_stage,
             predicted_target: id.predicted_target,
             seq: id.seq,
             vs1_phys,

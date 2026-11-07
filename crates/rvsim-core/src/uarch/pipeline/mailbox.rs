@@ -27,7 +27,6 @@ use crate::uarch::ctx::StageCtx;
 use crate::uarch::ctx::stage::PteUpdateOutcome;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, ExecutionEngine, Pipeline};
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::uarch::pipeline::latches::Mem1Mem2Entry;
 use crate::uarch::pipeline::outstanding::{
@@ -230,7 +229,6 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
             }
             state.trace_fetched(entry.seq, entry.pc);
             entry.trap = result.trap;
-            entry.exception_stage = Some(ExceptionStage::Fetch);
             entry.paddr = PhysAddr::new(0);
             dispatch_fetch_group(
                 state,
@@ -269,7 +267,6 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 // Stamp the trap on the entry so memory1 propagates it to
                 // memory2 / writeback rather than walking again.
                 entry.trap = Some(trap);
-                entry.exception_stage = Some(ExceptionStage::Memory);
             }
             pipeline.engine.execute_mem1_mut().push(entry);
         }

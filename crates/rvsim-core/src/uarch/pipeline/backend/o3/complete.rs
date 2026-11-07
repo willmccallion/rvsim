@@ -3,7 +3,6 @@
 
 use crate::exec::signals::ControlFlow;
 use crate::uarch::ctx::CoreCtx;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPhysRegFile};
 use crate::uarch::pipeline::trace::Stage;
 
@@ -58,8 +57,7 @@ impl O3Engine {
                 state.trace_stage(seq, Stage::Writeback);
             }
             if let Some(trap) = entry.trap {
-                let stage = entry.exception_stage.unwrap_or(ExceptionStage::Execute);
-                self.rob.fault(entry.rob_tag, trap, stage);
+                self.rob.fault(entry.rob_tag, trap);
                 continue;
             }
             let val = if entry.ctrl.control_flow == ControlFlow::Jump {

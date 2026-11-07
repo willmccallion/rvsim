@@ -18,7 +18,6 @@ use crate::isa::fp::FpFlags;
 use crate::isa::op::{MemWidth, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen, parse_vtype};
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
 };
@@ -114,8 +113,6 @@ pub struct ElementFault {
     pub element: ElemIdx,
     /// Its trap.
     pub trap: Trap,
-    /// The stage that raised it.
-    pub stage: ExceptionStage,
 }
 
 /// How an instruction's element accesses go to memory.
@@ -329,7 +326,6 @@ const fn memory_entry(
         store_data,
         ctrl,
         trap: None,
-        exception_stage: None,
         fp_flags: FpFlags::NONE,
         sfence_vma: None,
         vec_mem: Some(access),
@@ -408,9 +404,7 @@ pub fn retire_access(
                 rob.set_vl_trim(wb.rob_tag, first.elem_idx.as_usize() as u64);
             }
         } else if parent.fault.as_ref().is_none_or(|fault| first.elem_idx < fault.element) {
-            let stage = wb.exception_stage.unwrap_or(ExceptionStage::Memory);
-            parent.fault =
-                Some(ElementFault { element: first.elem_idx, trap: trap.clone(), stage });
+            parent.fault = Some(ElementFault { element: first.elem_idx, trap: trap.clone() });
         }
     }
     let writes = if wb.trap.is_some() || access.is_store {
@@ -424,7 +418,7 @@ pub fn retire_access(
         match parent.fault.take() {
             Some(fault) => {
                 let element = fault.element.as_usize() as u64;
-                rob.fault_element(wb.rob_tag, fault.trap, fault.stage, element);
+                rob.fault_element(wb.rob_tag, fault.trap, element);
             }
             None => rob.complete(wb.rob_tag, 0),
         }

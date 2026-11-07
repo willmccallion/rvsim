@@ -35,7 +35,6 @@ fn make_entry(rob_tag: u32) -> RenameIssueEntry {
         rs3_phys: PhysReg(0),
         rd_phys: PhysReg(0),
         trap: None,
-        exception_stage: None,
         predicted_target: None,
         seq: crate::common::InstSeq::default(),
         vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],

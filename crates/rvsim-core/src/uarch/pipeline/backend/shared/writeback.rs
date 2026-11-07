@@ -11,7 +11,6 @@ use crate::exec::signals::ControlFlow;
 use crate::trace_trap;
 use crate::trace_writeback;
 use crate::uarch::ctx::StageCtx;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::Mem2WbEntry;
 use crate::uarch::pipeline::rob::Rob;
 use crate::uarch::pipeline::trace::Stage;
@@ -28,17 +27,12 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             if !wb.fp_flags.is_empty() {
                 rob.set_fp_flags(wb.rob_tag, wb.fp_flags);
             }
-            rob.fault(
-                wb.rob_tag,
-                trap.clone(),
-                wb.exception_stage.unwrap_or(ExceptionStage::Memory),
-            );
+            rob.fault(wb.rob_tag, trap.clone());
             trace_trap!(state.trace_trap_enabled(trap);
                 event   = "writeback-fault",
                 pc      = %crate::common::trace::Hex(wb.pc),
                 rob_tag = %wb.rob_tag,
                 trap    = ?trap,
-                stage   = ?wb.exception_stage,
                 "WB: entry marked faulted in ROB"
             );
             continue;

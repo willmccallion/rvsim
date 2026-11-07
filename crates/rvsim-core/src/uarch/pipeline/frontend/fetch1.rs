@@ -39,7 +39,6 @@ use crate::uarch::bpred::btb::BranchKind;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine};
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::frontend::read_inst_half;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, Latch};
 use crate::uarch::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
@@ -177,7 +176,6 @@ const fn fault_entry(seq: InstSeq, pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
         upper_paddr: None,
         predicted_target: None,
         trap: Some(trap),
-        exception_stage: Some(ExceptionStage::Fetch),
         seq,
     }
 }
@@ -369,7 +367,6 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     upper_paddr: None,
                     predicted_target: None,
                     trap: None,
-                    exception_stage: None,
                     seq,
                 };
                 park_fetch_walk(state, engine, walk_state, pte_addr, pending);
@@ -458,7 +455,6 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                             upper_paddr: None,
                             predicted_target: None,
                             trap: None,
-                            exception_stage: None,
                             seq,
                         };
                         park_fetch_walk(state, engine, walk_state, pte_addr, pending);
@@ -514,7 +510,6 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             upper_paddr,
             predicted_target,
             trap: None,
-            exception_stage: None,
             seq,
         };
         group.push(engine.common_mut(), entry, Some(line));
