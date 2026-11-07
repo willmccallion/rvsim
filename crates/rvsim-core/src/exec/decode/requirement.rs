@@ -3,6 +3,7 @@
 
 use crate::exec::signals::ControlSignals;
 use crate::isa::extension::{Extension, Requirement};
+use crate::isa::fp::FpFormat;
 use crate::isa::instruction::InstructionBits;
 use crate::isa::misa::MisaLetter;
 use crate::isa::op::{AluOp, SystemOp, VectorOp};
@@ -94,7 +95,8 @@ const fn uses_fp_registers(ctrl: &ControlSignals) -> bool {
 /// The requirement of a floating-point operation: Zfh for half
 /// precision, else F or D by the operand width.
 fn fp_requirement(ctrl: &ControlSignals) -> Requirement {
-    let half = ctrl.is_f16
+    let format = ctrl.format.fp_format();
+    let half = format == FpFormat::Half
         || matches!(ctrl.alu, AluOp::FCvtSH | AluOp::FCvtHS | AluOp::FCvtDH | AluOp::FCvtHD);
     if half {
         return Requirement::any_of(&[Extension::Zfh]);
@@ -102,7 +104,7 @@ fn fp_requirement(ctrl: &ControlSignals) -> Requirement {
     let double = if ctrl.mem_read || ctrl.mem_write {
         ctrl.width.bytes() == 8
     } else {
-        !ctrl.is_rv32 || matches!(ctrl.alu, AluOp::FCvtSD | AluOp::FCvtDS)
+        format != FpFormat::Single || matches!(ctrl.alu, AluOp::FCvtSD | AluOp::FCvtDS)
     };
     Requirement::Letter(if double { MisaLetter::D } else { MisaLetter::F })
 }

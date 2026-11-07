@@ -55,7 +55,7 @@ pub fn execute_one(
         a_src    = ?id.inst.ctrl.a_src,
         b_src    = ?id.inst.ctrl.b_src,
         alu_op   = ?id.inst.ctrl.alu,
-        is_rv32  = id.inst.ctrl.is_rv32,
+        format   = ?id.inst.ctrl.format,
         is_fp    = id.inst.ctrl.fp_reg_write,
         "EX: begin"
     );

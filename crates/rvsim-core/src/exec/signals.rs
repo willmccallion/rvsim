@@ -5,7 +5,9 @@
 
 use crate::isa::csr::CsrAddr;
 use crate::isa::fp::Rounding;
-use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp, VecSrcEncoding, VectorOp};
+use crate::isa::op::{
+    AluOp, AtomicOp, CsrOp, MemWidth, OperandFormat, SystemOp, VecSrcEncoding, VectorOp,
+};
 use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvv::{Sew, VRegIdx};
 
@@ -68,11 +70,8 @@ pub struct ControlSignals {
     pub mem_write: bool,
     /// Control flow type (sequential, branch, or jump).
     pub control_flow: ControlFlow,
-    /// Instruction uses 32-bit operands.
-    pub is_rv32: bool,
-    /// Instruction operates on 16-bit half-precision floats (Zfh).
-    /// When set, `is_rv32` is ignored by the FP units.
-    pub is_f16: bool,
+    /// What its operands are: integers of a width or floats of a format.
+    pub format: OperandFormat,
     /// Width of memory access.
     pub width: MemWidth,
     /// Load should be sign-extended.

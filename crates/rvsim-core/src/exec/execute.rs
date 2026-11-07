@@ -21,7 +21,7 @@ use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
 use crate::isa::fp::{FpFlags, FpFormat, Rounding, RoundingMode};
-use crate::isa::op::{AluOp, CsrOp, SystemOp, VectorOp};
+use crate::isa::op::{AluOp, CsrOp, OperandFormat, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
 
@@ -353,7 +353,7 @@ pub fn evaluate(state: &impl ArchState, inst: &Inst, op_a: u64, op_b: u64) -> (u
         Some(Rounding::Dynamic) => frm_mode(state.hart()),
         None => None,
     };
-    compute_alu(inst.ctrl.alu, op_a, op_b, inst.rv3, inst.ctrl.is_f16, inst.ctrl.is_rv32, fp_rm)
+    compute_alu(inst.ctrl.alu, op_a, op_b, inst.rv3, inst.ctrl.format, fp_rm)
 }
 
 /// Checks a taken branch or jump target's alignment: four bytes without
@@ -413,20 +413,23 @@ fn on_host_fpu(rm: RoundingMode, convert: impl FnOnce() -> u64) -> (u64, FpFlags
 
 /// Runs a rounding conversion on the host FPU in `rm`, and under RMM, which
 /// the host rounds as nearest-even, rounds `exact` (the value converted) in
-/// software instead when the host's result was inexact. `single` picks the
+/// software instead when the host's result was inexact. `format` is the
 /// destination format.
 fn convert_rounded(
     rm: RoundingMode,
-    single: bool,
+    format: FpFormat,
     convert: impl FnOnce() -> u64,
     exact: impl FnOnce() -> Exact,
 ) -> (u64, FpFlags) {
     use crate::exec::compute::fpu::nan_handling::box_f32_canon;
     let (value, flags) = on_host_fpu(rm, convert);
-    let format = if single { FpFormat::Single } else { FpFormat::Double };
     match exact::rmm_correction(rm, flags, format, || Some(exact())) {
         Some((bits, flags)) => {
-            let boxed = if single { box_f32_canon(f32::from_bits(bits as u32)) } else { bits };
+            let boxed = if format == FpFormat::Single {
+                box_f32_canon(f32::from_bits(bits as u32))
+            } else {
+                bits
+            };
             (boxed, flags)
         }
         None => (value, flags),
@@ -440,8 +443,7 @@ pub fn compute_alu(
     op_a: u64,
     op_b: u64,
     op_c: u64,
-    is_f16: bool,
-    is_rv32: bool,
+    format: OperandFormat,
     fp_rm: Option<RoundingMode>,
 ) -> (u64, FpFlags) {
     use crate::exec::compute::fpu::half::{box_f16, f16_to_f32, unbox_f16};
@@ -451,72 +453,72 @@ pub fn compute_alu(
     use std::hint::black_box;
 
     let rm = fp_rm.unwrap_or(RoundingMode::Rne);
+    let fp = format.fp_format();
+    let half = fp == FpFormat::Half;
+    let single = fp == FpFormat::Single;
     match alu_op {
-        AluOp::FCvtSW if !is_f16 => convert_rounded(
+        AluOp::FCvtSW if !half => convert_rounded(
             rm,
-            is_rv32,
+            fp,
             || {
                 let v = black_box(op_a as i32);
-                if is_rv32 { box_f32(v as f32) } else { f64::from(v).to_bits() }
+                if single { box_f32(v as f32) } else { f64::from(v).to_bits() }
             },
             || Exact::of_integer(i128::from(op_a as i32)),
         ),
-        AluOp::FCvtSWU if !is_f16 => convert_rounded(
+        AluOp::FCvtSWU if !half => convert_rounded(
             rm,
-            is_rv32,
+            fp,
             || {
                 let v = black_box(op_a as u32);
-                if is_rv32 { box_f32(v as f32) } else { f64::from(v).to_bits() }
+                if single { box_f32(v as f32) } else { f64::from(v).to_bits() }
             },
             || Exact::of_unsigned(u128::from(op_a as u32)),
         ),
-        AluOp::FCvtSL if !is_f16 => convert_rounded(
+        AluOp::FCvtSL if !half => convert_rounded(
             rm,
-            is_rv32,
+            fp,
             || {
                 let v = black_box(op_a as i64);
-                if is_rv32 { box_f32(v as f32) } else { (v as f64).to_bits() }
+                if single { box_f32(v as f32) } else { (v as f64).to_bits() }
             },
             || Exact::of_integer(i128::from(op_a as i64)),
         ),
-        AluOp::FCvtSLU if !is_f16 => convert_rounded(
+        AluOp::FCvtSLU if !half => convert_rounded(
             rm,
-            is_rv32,
+            fp,
             || {
                 let v = black_box(op_a);
-                if is_rv32 { box_f32(v as f32) } else { (v as f64).to_bits() }
+                if single { box_f32(v as f32) } else { (v as f64).to_bits() }
             },
             || Exact::of_unsigned(u128::from(op_a)),
         ),
-        AluOp::FCvtSD if !is_f16 => convert_rounded(
+        AluOp::FCvtSD if !half => convert_rounded(
             rm,
-            true,
+            FpFormat::Single,
             || box_f32_canon(black_box(f64::from_bits(op_a)) as f32),
             || Exact::of_f64(f64::from_bits(op_a)),
         ),
-        AluOp::FCvtDS if !is_f16 => {
+        AluOp::FCvtDS if !half => {
             on_host_fpu(rm, || canonicalize_f64_bits(f64::from(black_box(unbox_f32(op_a)))))
         }
-        AluOp::FCvtSH if !is_f16 => on_host_fpu(rm, || box_f32_canon(f16_to_f32(unbox_f16(op_a)))),
-        AluOp::FCvtDH if !is_f16 => on_host_fpu(rm, || {
+        AluOp::FCvtSH if !half => on_host_fpu(rm, || box_f32_canon(f16_to_f32(unbox_f16(op_a)))),
+        AluOp::FCvtDH if !half => on_host_fpu(rm, || {
             canonicalize_f64_bits(f64::from(black_box(f16_to_f32(unbox_f16(op_a)))))
         }),
         AluOp::FMvToF => {
-            let value = if is_f16 {
-                box_f16(op_a as u16)
-            } else if is_rv32 {
-                box_f32(f32::from_bits(op_a as u32))
-            } else {
-                op_a
+            let value = match fp {
+                FpFormat::Half => box_f16(op_a as u16),
+                FpFormat::Single => box_f32(f32::from_bits(op_a as u32)),
+                FpFormat::Double => op_a,
             };
             (value, FpFlags::NONE)
         }
         _ if is_fp_op(alu_op) => {
-            let (result, fp_flags) =
-                fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_f16, is_rv32, rm);
+            let (result, fp_flags) = fpu::execute_full_rm(alu_op, op_a, op_b, op_c, fp, rm);
             (result, fp_flags)
         }
-        _ => (alu::execute(alu_op, op_a, op_b, is_rv32), FpFlags::NONE),
+        _ => (alu::execute(alu_op, op_a, op_b, format.int_width()), FpFlags::NONE),
     }
 }
 
@@ -567,19 +569,27 @@ mod tests {
     fn int_to_float_conversions_are_exact_for_small_values() {
         let rne = Some(RoundingMode::Rne);
 
-        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false, false, rne);
+        let (res, flags) =
+            compute_alu(AluOp::FCvtSW, 1, 0, 0, OperandFormat::Fp(FpFormat::Double), rne);
         assert_eq!(res, (1.0f64).to_bits());
         assert_eq!(flags, FpFlags::NONE);
 
-        let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false, true, rne);
+        let (res, flags) =
+            compute_alu(AluOp::FCvtSW, 1, 0, 0, OperandFormat::Fp(FpFormat::Single), rne);
         assert_eq!(res, 0xFFFF_FFFF_0000_0000 | u64::from((1.0f32).to_bits()));
         assert_eq!(flags, FpFlags::NONE);
     }
 
     #[test]
     fn move_to_float_passes_the_bits_through() {
-        let (res, flags) =
-            compute_alu(AluOp::FMvToF, 42, 0, 0, false, false, Some(RoundingMode::Rne));
+        let (res, flags) = compute_alu(
+            AluOp::FMvToF,
+            42,
+            0,
+            0,
+            OperandFormat::Fp(FpFormat::Double),
+            Some(RoundingMode::Rne),
+        );
 
         assert_eq!(res, 42);
         assert_eq!(flags, FpFlags::NONE);
@@ -592,8 +602,7 @@ mod tests {
             (1u64 << 60) + 1,
             0,
             0,
-            false,
-            true,
+            OperandFormat::Fp(FpFormat::Single),
             Some(RoundingMode::Rne),
         );
 

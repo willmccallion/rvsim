@@ -4,8 +4,8 @@
 
 use crate::exec::decode::{DecodedInst, decode_inst};
 use crate::exec::signals::ControlFlow;
-use crate::isa::fp::{Rounding, RoundingMode};
-use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp};
+use crate::isa::fp::{FpFormat, Rounding, RoundingMode};
+use crate::isa::op::{AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp};
 use crate::isa::privileged::Trap;
 use crate::isa::reg::{ArchReg, RegIdx};
 
@@ -70,14 +70,13 @@ fn decode(word: u32) -> DecodedInst {
     decode_inst(word, PC, 0)
 }
 
-fn format_of(decoded: &DecodedInst, expected: Format) -> Format {
-    match (expected, decoded.ctrl.is_rv32, decoded.ctrl.is_f16) {
-        (X | W, true, false) => W,
-        (X | W, false, false) => X,
-        (_, true, false) => S,
-        (_, false, false) => D,
-        (_, false, true) => H,
-        (_, true, true) => panic!("both is_rv32 and is_f16 are set"),
+fn format_of(decoded: &DecodedInst) -> Format {
+    match decoded.ctrl.format {
+        OperandFormat::Int(IntWidth::Word) => W,
+        OperandFormat::Int(IntWidth::Double) => X,
+        OperandFormat::Fp(FpFormat::Single) => S,
+        OperandFormat::Fp(FpFormat::Double) => D,
+        OperandFormat::Fp(FpFormat::Half) => H,
     }
 }
 
@@ -244,9 +243,9 @@ const COMPUTE: &[(&str, u32, Compute)] = &[
 
 #[test]
 fn each_compute_instruction_decodes_to_its_operation_format_and_destination() {
-    check_rows(COMPUTE, |decoded, Compute(_, format, _)| {
+    check_rows(COMPUTE, |decoded, _| {
         let dest = dest_of(decoded).unwrap_or_else(|| panic!("{decoded:?} writes no register"));
-        Compute(decoded.ctrl.alu, format_of(decoded, *format), dest)
+        Compute(decoded.ctrl.alu, format_of(decoded), dest)
     });
 }
 

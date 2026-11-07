@@ -1,12 +1,14 @@
 //! The operations instructions perform, as the decoder names them.
 
 mod alu;
+mod format;
 mod memory;
 pub mod pseudo;
 mod system;
 mod vector;
 
 pub use alu::AluOp;
+pub use format::{IntWidth, OperandFormat};
 pub use memory::{AtomicOp, MemWidth};
 pub use system::{CsrOp, SystemOp};
 pub use vector::{

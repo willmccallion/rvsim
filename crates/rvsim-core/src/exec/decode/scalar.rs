@@ -14,9 +14,9 @@ use crate::isa::encoding::rv64i::{funct3 as i_funct3, funct7 as i_funct7, opcode
 use crate::isa::encoding::rv64m::{funct3 as m_funct3, opcodes as m_opcodes};
 use crate::isa::encoding::rv64zfh::funct7 as h_funct7;
 use crate::isa::encoding::zicboz;
-use crate::isa::fp::Rounding;
+use crate::isa::fp::{FpFormat, Rounding};
 use crate::isa::instruction::{Decoded, InstructionBits};
-use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp};
+use crate::isa::op::{AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp};
 use crate::isa::privileged::Trap;
 
 /// JALR's only defined funct3.
@@ -126,7 +126,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
         i_opcodes::OP_IMM_32 => {
             c.reg_write = true;
             c.alu = op_imm_32(inst, d).ok_or(Trap::IllegalInstruction(inst))?;
-            c.is_rv32 = !is_unsigned_word_op(c.alu);
+            c.format = OperandFormat::Int(word_op_width(c.alu));
         }
         i_opcodes::OP_REG => {
             c.reg_write = true;
@@ -137,7 +137,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
             c.alu = op_32(d).ok_or(Trap::IllegalInstruction(inst))?;
-            c.is_rv32 = !is_unsigned_word_op(c.alu);
+            c.format = OperandFormat::Int(word_op_width(c.alu));
         }
         a_opcodes::OP_AMO => {
             c.width = match d.funct3 {
@@ -183,19 +183,21 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 c.mem_read = true;
                 c.alu = AluOp::Add;
                 c.width = MemWidth::Half;
-                c.is_f16 = true;
+                c.format = OperandFormat::Fp(FpFormat::Half);
             }
             FP_WIDTH_WORD => {
                 c.fp_reg_write = true;
                 c.mem_read = true;
                 c.alu = AluOp::Add;
                 c.width = MemWidth::Word;
+                c.format = OperandFormat::Fp(FpFormat::Single);
             }
             FP_WIDTH_DOUBLE => {
                 c.fp_reg_write = true;
                 c.mem_read = true;
                 c.alu = AluOp::Add;
                 c.width = MemWidth::Double;
+                c.format = OperandFormat::Fp(FpFormat::Double);
             }
             VEC_WIDTH_8 | VEC_WIDTH_16 | VEC_WIDTH_32 | VEC_WIDTH_64 => {
                 vector::decode_vec_load(inst, d.funct3, c)?;
@@ -210,7 +212,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 c.b_src = OpBSrc::Imm;
                 c.alu = AluOp::Add;
                 c.width = MemWidth::Half;
-                c.is_f16 = true;
+                c.format = OperandFormat::Fp(FpFormat::Half);
             }
             FP_WIDTH_WORD => {
                 c.mem_write = true;
@@ -219,6 +221,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 c.b_src = OpBSrc::Imm;
                 c.alu = AluOp::Add;
                 c.width = MemWidth::Word;
+                c.format = OperandFormat::Fp(FpFormat::Single);
             }
             FP_WIDTH_DOUBLE => {
                 c.mem_write = true;
@@ -227,6 +230,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 c.b_src = OpBSrc::Imm;
                 c.alu = AluOp::Add;
                 c.width = MemWidth::Double;
+                c.format = OperandFormat::Fp(FpFormat::Double);
             }
             VEC_WIDTH_8 | VEC_WIDTH_16 | VEC_WIDTH_32 | VEC_WIDTH_64 => {
                 vector::decode_vec_store(inst, d.funct3, c)?;
@@ -234,14 +238,8 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
             _ => return Err(Trap::IllegalInstruction(inst)),
         },
         f_opcodes::OP_FP => {
-            let fmt = d.funct7 & 0x3;
-            c.is_rv32 = fmt == FP_FMT_SINGLE;
-            c.is_f16 = fmt == FP_FMT_HALF;
-            let is_double = fmt == FP_FMT_DOUBLE;
-
-            if !c.is_rv32 && !is_double && !c.is_f16 {
-                return Err(Trap::IllegalInstruction(inst));
-            }
+            c.format =
+                OperandFormat::Fp(fp_format(d.funct7).ok_or(Trap::IllegalInstruction(inst))?);
 
             c.rs1_fp = true;
             c.rs2_fp = true;
@@ -326,8 +324,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 // FP↔FP conversion: target fmt in funct7[1:0], source fmt in rs2[1:0].
                 f_funct7::FCVT_DS => {
                     // Target = double (fmt=01). Source selected by rs2.
-                    c.is_rv32 = false;
-                    c.is_f16 = false;
+                    c.format = OperandFormat::Fp(FpFormat::Double);
                     match d.rs2.as_u8() {
                         0 => AluOp::FCvtDS, // fcvt.d.s (source single)
                         2 => AluOp::FCvtDH, // fcvt.d.h (source half)
@@ -336,8 +333,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 }
                 d_funct7::FCVT_S_D => {
                     // Target = single (fmt=00). Source selected by rs2.
-                    c.is_rv32 = true;
-                    c.is_f16 = false;
+                    c.format = OperandFormat::Fp(FpFormat::Single);
                     match d.rs2.as_u8() {
                         1 => AluOp::FCvtSD, // fcvt.s.d (source double)
                         2 => AluOp::FCvtSH, // fcvt.s.h (source half)
@@ -346,8 +342,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 }
                 h_funct7::FCVT_H_FP => {
                     // Target = half (fmt=10). Source selected by rs2.
-                    c.is_rv32 = false;
-                    c.is_f16 = true;
+                    c.format = OperandFormat::Fp(FpFormat::Half);
                     match d.rs2.as_u8() {
                         0 => AluOp::FCvtHS, // fcvt.h.s (source single)
                         1 => AluOp::FCvtHD, // fcvt.h.d (source double)
@@ -366,13 +361,8 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
             c.rs3_fp = true;
             c.fp_reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            let fmt = d.funct7 & 0x3;
-            c.is_rv32 = fmt == FP_FMT_SINGLE;
-            c.is_f16 = fmt == FP_FMT_HALF;
-            let is_double = fmt == FP_FMT_DOUBLE;
-            if !c.is_rv32 && !c.is_f16 && !is_double {
-                return Err(Trap::IllegalInstruction(inst));
-            }
+            c.format =
+                OperandFormat::Fp(fp_format(d.funct7).ok_or(Trap::IllegalInstruction(inst))?);
             c.fp_rm = Some(rounding(inst, d)?);
 
             c.alu = match d.opcode {
@@ -442,9 +432,26 @@ const fn imm12(inst: u32) -> u32 {
     (inst >> b_funct3::I_IMM_SHIFT) & 0xFFF
 }
 
-/// Zba's `.uw` ops sit in the W opcodes but produce a full 64-bit result.
-const fn is_unsigned_word_op(op: AluOp) -> bool {
-    matches!(op, AluOp::AddUw | AluOp::Sh1AddUw | AluOp::Sh2AddUw | AluOp::Sh3AddUw | AluOp::SlliUw)
+/// The width a W-opcode operation computes at: Zba's `.uw` ops sit in the
+/// W opcodes but produce a full 64-bit result.
+const fn word_op_width(op: AluOp) -> IntWidth {
+    match op {
+        AluOp::AddUw | AluOp::Sh1AddUw | AluOp::Sh2AddUw | AluOp::Sh3AddUw | AluOp::SlliUw => {
+            IntWidth::Double
+        }
+        _ => IntWidth::Word,
+    }
+}
+
+/// The format an FP instruction's `fmt` field (`funct7[1:0]`) names, or
+/// `None` for the quad-precision encoding, which is not implemented.
+const fn fp_format(funct7: u32) -> Option<FpFormat> {
+    match funct7 & 0x3 {
+        FP_FMT_SINGLE => Some(FpFormat::Single),
+        FP_FMT_DOUBLE => Some(FpFormat::Double),
+        FP_FMT_HALF => Some(FpFormat::Half),
+        _ => None,
+    }
 }
 
 /// The operation an OP-IMM word encodes, or `None` for a reserved one.
