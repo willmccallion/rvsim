@@ -308,23 +308,19 @@ fn retire_system(
     syscall: Option<Outcome>,
 ) -> CommitFlow {
     if let Some(csr_update) = &entry.csr_update {
-        // O3 applies fflags/fcsr eagerly at complete time; don't re-apply.
-        if !csr_update.applied {
-            let pc_before = state.hart.pc;
-            state.csr_write(csr_update.addr, csr_update.new_val);
-            // A write that trapped (the simulator panic CSR) moved the PC to a handler.
-            if state.hart.pc != pc_before {
-                return CommitFlow::Stop(Some(CommitEvent::SquashAfter(state.hart.pc)));
-            }
+        let pc_before = state.hart.pc;
+        state.csr_write(csr_update.addr, csr_update.new_val);
+        // A write that trapped (the simulator panic CSR) moved the PC to a handler.
+        if state.hart.pc != pc_before {
+            return CommitFlow::Stop(Some(CommitEvent::SquashAfter(state.hart.pc)));
         }
         trace_csr!(state.config.general.trace_instructions;
-            op       = if csr_update.applied { "write-eager" } else { "write-deferred" },
+            op       = "write-deferred",
             pc       = %crate::common::trace::Hex(entry.pc),
             rob_tag  = %entry.tag,
             csr_addr = %crate::common::trace::Hex32(csr_update.addr.as_u32()),
             old_val  = %crate::common::trace::Hex(csr_update.old_val),
             new_val  = %crate::common::trace::Hex(csr_update.new_val),
-            deferred = !csr_update.applied,
             "CM: CSR write applied at commit"
         );
         // SATP redirect: post-execute fetches used old tables; refetch from

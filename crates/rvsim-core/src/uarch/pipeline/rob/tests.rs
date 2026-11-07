@@ -129,10 +129,7 @@ fn test_flush_after() {
 fn test_csr_update() {
     let mut rob = Rob::new(4);
     let tag = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
-    rob.set_csr_update(
-        tag,
-        CsrUpdate { addr: CsrAddr::from_u32(0x300), old_val: 10, new_val: 20, applied: false },
-    );
+    rob.set_csr_update(tag, CsrUpdate { addr: CsrAddr::from_u32(0x300), old_val: 10, new_val: 20 });
     rob.complete(tag, 10);
 
     let entry = rob.commit_head().unwrap();

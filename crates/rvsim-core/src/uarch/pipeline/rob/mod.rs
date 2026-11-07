@@ -141,13 +141,11 @@ pub struct CsrUpdate {
     pub old_val: u64,
     /// New value to write at commit.
     pub new_val: u64,
-    /// Whether this CSR write has already been applied (e.g. at complete time for O3).
-    pub applied: bool,
 }
 
 impl From<CsrWrite> for CsrUpdate {
     fn from(write: CsrWrite) -> Self {
-        Self { addr: write.addr, old_val: write.old, new_val: write.new, applied: false }
+        Self { addr: write.addr, old_val: write.old, new_val: write.new }
     }
 }
 
