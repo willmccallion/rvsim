@@ -33,7 +33,7 @@ impl O3Engine {
     /// queue slots every instruction needs, as gem5's rename checks each
     /// instruction's own resources.
     pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, id: IdExEntry) -> Renamed {
-        if !self.serialization.admits(self.cycle) {
+        if !self.serialization.admits(state.cycle) {
             state.counter(state.core().stat_paths.pipeline.stalls_serialize).inc();
             return Renamed::Stalled(Box::new(id));
         }
