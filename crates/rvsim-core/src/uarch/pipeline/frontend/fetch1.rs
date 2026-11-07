@@ -26,6 +26,7 @@
 // RISC-V instructions may be misaligned (compressed 16-bit instructions); read_unaligned is intentional.
 #![allow(clippy::cast_ptr_alignment)]
 
+use crate::arch::csr::ialign_low_bits;
 use crate::common::{AccessType, FetchSeq, InstSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::isa::instruction::{InstSize, instruction_size};
 use crate::isa::privileged::Trap;
@@ -322,201 +323,236 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     latch: &mut Latch<Fetch1Fetch2Entry>,
     fetch_pc: &mut VirtAddr,
 ) {
-    let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
-    let align_mask = crate::arch::csr::ialign_low_bits(state.hart().csrs.misa);
-
+    let pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
     let line_bytes = state.core().l1_i_cache.line_bytes() as u64;
-    let mut line_end = (current_pc.val() | (line_bytes - 1)) + 1;
-    let mut group = GroupBuilder::default();
-
+    let mut cursor = FetchCursor {
+        pc,
+        line_bytes,
+        line_end: (pc.val() | (line_bytes - 1)) + 1,
+        group: GroupBuilder::default(),
+    };
     for _ in 0..state.config.pipeline.fetch_width() {
-        if current_pc.val() + 2 > line_end {
+        if matches!(fetch_instruction(state, engine, fetch_buffer, &mut cursor), FetchStep::Stop) {
             break;
         }
+    }
+    if let Some(group) = cursor.group.finish() {
+        dispatch_fetch_group(state, engine, fetch_buffer, latch, group);
+    }
+    *fetch_pc = cursor.pc;
+}
 
-        let fetch_trap = if (current_pc.val() & align_mask) != 0 {
-            Some(Trap::InstructionAddressMisaligned(current_pc.val()))
-        } else {
-            None
+/// One cycle's fetch so far: the next PC, the end of the cache line it
+/// fetches from, and the group of instructions fetched.
+struct FetchCursor {
+    pc: VirtAddr,
+    line_bytes: u64,
+    line_end: u64,
+    group: GroupBuilder,
+}
+
+/// Whether fetch goes on to another instruction this cycle.
+enum FetchStep {
+    Next,
+    Stop,
+}
+
+/// What translating one half-word of an instruction for fetch gave.
+enum FetchHalf {
+    Ready(PhysAddr),
+    Fault(Trap),
+    /// Fetch stops at it: the L2 ITLB answered, or a page-table walk is
+    /// parked. Either way the encoding, and so the next PC, is unknown.
+    Stalled,
+}
+
+/// Fetches the instruction at the cursor's PC into its group.
+fn fetch_instruction<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    fetch_buffer: &FetchBuffer,
+    cursor: &mut FetchCursor,
+) -> FetchStep {
+    let pc = cursor.pc;
+    if pc.val() + FETCH_TRANSLATION_BYTES > cursor.line_end {
+        return FetchStep::Stop;
+    }
+    let Some(paddr) = fetch_lower_half(state, engine, &mut cursor.group, pc) else {
+        return FetchStep::Stop;
+    };
+    let half_word = read_inst_half(state, paddr.val());
+    let size = instruction_size(half_word, state.hart().csrs.misa);
+    let is_compressed = matches!(size, InstSize::Compressed(_));
+    // A 32-bit instruction whose upper half lies in the next line
+    // completes only when that line arrives: it heads a group that
+    // fetches the next line, once this line is in the fetch buffer.
+    let straddles_line = !is_compressed && pc.wrapping_add(4).val() > cursor.line_end;
+    if straddles_line {
+        let line = LineAddr::from_phys(paddr, cursor.line_bytes);
+        if !cursor.group.entries.is_empty() {
+            return FetchStep::Stop;
+        }
+        if !fetch_buffer.holds(line, state.core().l1_i_cache.invalidations()) {
+            cursor.group.request_line(engine.common_mut(), line);
+            return FetchStep::Stop;
+        }
+        cursor.line_end += cursor.line_bytes;
+    }
+    let seq = engine.common_mut().alloc_inst_seq();
+    state.trace_fetched(seq, pc);
+    let lower = Fetch1Fetch2Entry { pc, paddr, seq, ..Fetch1Fetch2Entry::default() };
+    let (entry, bits, line_paddr) = if is_compressed {
+        (lower, u32::from(half_word), paddr)
+    } else {
+        let Some(entry) = fetch_upper_half(state, engine, &mut cursor.group, lower) else {
+            return FetchStep::Stop;
         };
+        let upper = entry
+            .upper_paddr
+            .unwrap_or_else(|| PhysAddr::new(paddr.val() + FETCH_TRANSLATION_BYTES));
+        let upper_half = read_inst_half(state, upper.val());
+        let line_paddr = if straddles_line { upper } else { paddr };
+        (entry, (u32::from(upper_half) << 16) | u32::from(half_word), line_paddr)
+    };
+    let line = LineAddr::from_phys(line_paddr, cursor.line_bytes);
+    push_fetched(state, engine, cursor, FetchedInst { entry, bits, size, line })
+}
 
-        // 1. Translate the PC.
-        let translated = if fetch_trap.is_none() {
-            state.translate(current_pc, AccessType::Fetch, FETCH_TRANSLATION_BYTES)
-        } else {
-            TranslateOutcome::Ready(crate::arch::translation::TranslationResult::success(
-                PhysAddr::new(0),
-                0,
-            ))
-        };
-
-        let (paddr, trap) = match translated {
-            TranslateOutcome::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
-                hold_fetch(state, engine, current_pc, r.cycles);
-                break;
-            }
-            TranslateOutcome::Ready(r) => (r.paddr, r.trap),
-            TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
-                // Not reported to the trace yet: the instruction is fetched
-                // again, under a new number, once the walk completes.
-                let seq = engine.common_mut().alloc_inst_seq();
-                let pending = Fetch1Fetch2Entry {
-                    pc: current_pc,
-                    paddr: PhysAddr::new(0),
-                    upper_paddr: None,
-                    predicted_target: None,
-                    trap: None,
-                    seq,
-                };
-                park_fetch_walk(state, engine, walk_state, pte_addr, pending);
-                // Fetch holds here until the translation returns: the
-                // encoding, and so the next PC, is unknown until then.
-                break;
-            }
-        };
-
-        if let Some(trap_cause) = fetch_trap.or(trap) {
+/// The physical address of the instruction at `pc`, or `None` when fetch
+/// stops at it: a misaligned PC or a translation fault ends the group with
+/// a fault entry.
+fn fetch_lower_half<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    group: &mut GroupBuilder,
+    pc: VirtAddr,
+) -> Option<PhysAddr> {
+    let is_misaligned = pc.val() & ialign_low_bits(state.hart().csrs.misa) != 0;
+    let lower = if is_misaligned {
+        FetchHalf::Fault(Trap::InstructionAddressMisaligned(pc.val()))
+    } else {
+        // Not reported to the trace yet on a walk: the instruction is
+        // fetched again, under a new number, once the walk completes.
+        translate_fetch_half(state, engine, pc, pc, |common| Fetch1Fetch2Entry {
+            pc,
+            seq: common.alloc_inst_seq(),
+            ..Fetch1Fetch2Entry::default()
+        })
+    };
+    match lower {
+        FetchHalf::Ready(paddr) => Some(paddr),
+        FetchHalf::Fault(trap) => {
             trace_fetch!(state.config.general.trace_instructions;
-                pc          = %crate::common::trace::Hex(current_pc.val()),
-                trap        = ?trap_cause,
+                pc          = %crate::common::trace::Hex(pc.val()),
+                trap        = ?trap,
                 "F1: fetch trap"
             );
             let seq = engine.common_mut().alloc_inst_seq();
-            state.trace_fetched(seq, current_pc);
-            group.push(engine.common_mut(), fault_entry(seq, current_pc, trap_cause), None);
-            break;
+            state.trace_fetched(seq, pc);
+            group.push(engine.common_mut(), fault_entry(seq, pc, trap), None);
+            None
         }
+        FetchHalf::Stalled => None,
+    }
+}
 
-        let phys_addr = paddr.val();
-        let mut line = LineAddr::from_phys(paddr, line_bytes);
-        let half_word = read_inst_half(state, phys_addr);
-        let step = instruction_size(half_word, state.hart().csrs.misa);
-        let is_compressed = matches!(step, InstSize::Compressed(_));
-
-        // A 32-bit instruction whose upper half lies in the next line
-        // completes only when that line arrives: it heads a group that
-        // fetches the next line, once this line is in the fetch buffer.
-        let straddles_line = !is_compressed && current_pc.wrapping_add(4).val() > line_end;
-        if straddles_line {
-            if !group.entries.is_empty() {
-                break;
-            }
-            if !fetch_buffer.holds(line, state.core().l1_i_cache.invalidations()) {
-                group.request_line(engine.common_mut(), line);
-                break;
-            }
-            line_end += line_bytes;
-        }
-
-        let mut next_pc_calc = current_pc.wrapping_add(step.as_u64());
-        let mut predicted_target = None;
-        let mut upper_paddr = None;
-        let seq = engine.common_mut().alloc_inst_seq();
-        state.trace_fetched(seq, current_pc);
-
-        let fetched_bits = if is_compressed {
-            u32::from(half_word)
-        } else {
-            let upper_va = current_pc.wrapping_add(2);
-            let crosses_page = current_pc.page_number() != upper_va.page_number();
-            let upper_phys = if crosses_page {
-                match state.translate(upper_va, AccessType::Fetch, FETCH_TRANSLATION_BYTES) {
-                    TranslateOutcome::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
-                        hold_fetch(state, engine, current_pc, r.cycles);
-                        break;
-                    }
-                    TranslateOutcome::Ready(r) => {
-                        if let Some(trap) = r.trap {
-                            trace_fetch!(state.config.general.trace_instructions;
-                                pc           = %crate::common::trace::Hex(current_pc.val()),
-                                paddr        = %crate::common::trace::Hex(phys_addr),
-                                trap         = ?trap,
-                                crosses_page = true,
-                                "F1: fetch trap on the upper half-word"
-                            );
-                            group.push(
-                                engine.common_mut(),
-                                fault_entry(seq, current_pc, trap),
-                                None,
-                            );
-                            break;
-                        }
-                        r.paddr
-                    }
-                    TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
-                        let pending = Fetch1Fetch2Entry {
-                            pc: current_pc,
-                            paddr,
-                            upper_paddr: None,
-                            predicted_target: None,
-                            trap: None,
-                            seq,
-                        };
-                        park_fetch_walk(state, engine, walk_state, pte_addr, pending);
-                        // As for the lower half: fetch holds until the
-                        // translation returns, then fetches this again.
-                        break;
-                    }
-                }
-            } else {
-                PhysAddr::new(phys_addr + 2)
-            };
-            upper_paddr = crosses_page.then_some(upper_phys);
-            if straddles_line {
-                line = LineAddr::from_phys(upper_phys, line_bytes);
-            }
-
-            let upper_raw = upper_phys.val();
-            let upper_half = read_inst_half(state, upper_raw);
-            (upper_half as u32) << 16 | (half_word as u32)
-        };
-
-        let prediction = predict_control_flow(state, seq, current_pc, step);
-        if let Some(target) = prediction.target {
-            next_pc_calc = target;
-            predicted_target = Some(target);
-        }
-        let stop_fetch = prediction.stop;
-        if let Some(kind) = prediction.kind {
-            trace_branch!(state.config.general.trace_instructions;
-                event       = "predict",
-                pc          = %crate::common::trace::Hex(current_pc.val()),
-                paddr       = %crate::common::trace::Hex(phys_addr),
-                inst        = %crate::common::trace::Hex32(fetched_bits),
-                bp_type     = kind,
-                pred_taken  = predicted_target.is_some(),
-                next_pc     = %crate::common::trace::Hex(next_pc_calc.val()),
-                "F1: control-flow prediction"
+/// `lower`, a 32-bit instruction's entry, with its upper half-word's
+/// physical address when that lies on the next page; `None` when fetch
+/// stops at it, a translation fault ending the group with a fault entry.
+fn fetch_upper_half<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    group: &mut GroupBuilder,
+    lower: Fetch1Fetch2Entry,
+) -> Option<Fetch1Fetch2Entry> {
+    let upper_va = lower.pc.wrapping_add(FETCH_TRANSLATION_BYTES);
+    if lower.pc.page_number() == upper_va.page_number() {
+        return Some(lower);
+    }
+    let pending = lower.clone();
+    match translate_fetch_half(state, engine, lower.pc, upper_va, |_| pending) {
+        FetchHalf::Ready(upper) => Some(Fetch1Fetch2Entry { upper_paddr: Some(upper), ..lower }),
+        FetchHalf::Fault(trap) => {
+            trace_fetch!(state.config.general.trace_instructions;
+                pc           = %crate::common::trace::Hex(lower.pc.val()),
+                paddr        = %crate::common::trace::Hex(lower.paddr.val()),
+                trap         = ?trap,
+                crosses_page = true,
+                "F1: fetch trap on the upper half-word"
             );
+            group.push(engine.common_mut(), fault_entry(lower.seq, lower.pc, trap), None);
+            None
         }
+        FetchHalf::Stalled => None,
+    }
+}
 
-        trace_fetch!(state.config.general.trace_instructions;
-            pc          = %crate::common::trace::Hex(current_pc.val()),
-            paddr       = %crate::common::trace::Hex(phys_addr),
-            compressed  = is_compressed,
-            pred_taken  = predicted_target.is_some(),
-            next_pc     = %crate::common::trace::Hex(next_pc_calc.val()),
-            "F1: fetch entry issued"
+/// Translates the half-word at `va` of the instruction at `pc` for fetch.
+/// An L2 ITLB hit holds fetch at `pc`; a page-table walk parks the entry
+/// `pending` builds until the walk completes and fetch tries `pc` again.
+fn translate_fetch_half<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    pc: VirtAddr,
+    va: VirtAddr,
+    pending: impl FnOnce(&mut BackendCommon) -> Fetch1Fetch2Entry,
+) -> FetchHalf {
+    match state.translate(va, AccessType::Fetch, FETCH_TRANSLATION_BYTES) {
+        TranslateOutcome::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
+            hold_fetch(state, engine, pc, r.cycles);
+            FetchHalf::Stalled
+        }
+        TranslateOutcome::Ready(r) => r.trap.map_or(FetchHalf::Ready(r.paddr), FetchHalf::Fault),
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
+            let entry = pending(engine.common_mut());
+            park_fetch_walk(state, engine, walk_state, pte_addr, entry);
+            FetchHalf::Stalled
+        }
+    }
+}
+
+/// An instruction fetch read: its latch entry, encoding, size and the
+/// cache line it is fetched from.
+struct FetchedInst {
+    entry: Fetch1Fetch2Entry,
+    bits: u32,
+    size: InstSize,
+    line: LineAddr,
+}
+
+/// Adds `fetched` to the cursor's group with its predicted next PC, and
+/// moves the cursor there.
+fn push_fetched<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    cursor: &mut FetchCursor,
+    fetched: FetchedInst,
+) -> FetchStep {
+    let FetchedInst { entry, bits, size, line } = fetched;
+    let prediction = predict_control_flow(state, entry.seq, entry.pc, size);
+    let next_pc = prediction.target.unwrap_or_else(|| entry.pc.wrapping_add(size.as_u64()));
+    if let Some(kind) = prediction.kind {
+        trace_branch!(state.config.general.trace_instructions;
+            event       = "predict",
+            pc          = %crate::common::trace::Hex(entry.pc.val()),
+            paddr       = %crate::common::trace::Hex(entry.paddr.val()),
+            inst        = %crate::common::trace::Hex32(bits),
+            bp_type     = kind,
+            pred_taken  = prediction.target.is_some(),
+            next_pc     = %crate::common::trace::Hex(next_pc.val()),
+            "F1: control-flow prediction"
         );
-
-        let entry = Fetch1Fetch2Entry {
-            pc: current_pc,
-            paddr,
-            upper_paddr,
-            predicted_target,
-            trap: None,
-            seq,
-        };
-        group.push(engine.common_mut(), entry, Some(line));
-
-        current_pc = next_pc_calc;
-        if stop_fetch {
-            break;
-        }
     }
-
-    if let Some(group) = group.finish() {
-        dispatch_fetch_group(state, engine, fetch_buffer, latch, group);
-    }
-    *fetch_pc = current_pc;
+    trace_fetch!(state.config.general.trace_instructions;
+        pc          = %crate::common::trace::Hex(entry.pc.val()),
+        paddr       = %crate::common::trace::Hex(entry.paddr.val()),
+        compressed  = matches!(size, InstSize::Compressed(_)),
+        pred_taken  = prediction.target.is_some(),
+        next_pc     = %crate::common::trace::Hex(next_pc.val()),
+        "F1: fetch entry issued"
+    );
+    let entry = Fetch1Fetch2Entry { predicted_target: prediction.target, ..entry };
+    cursor.group.push(engine.common_mut(), entry, Some(line));
+    cursor.pc = next_pc;
+    if prediction.stop { FetchStep::Stop } else { FetchStep::Next }
 }
