@@ -177,7 +177,7 @@ pub struct Cache {
     /// When false, accesses bypass this cache and forward straight downstream.
     pub enabled: bool,
     /// Optional hardware prefetcher.
-    pub prefetcher: Option<Box<dyn Prefetcher + Send + Sync>>,
+    pub prefetcher: Option<Box<dyn Prefetcher>>,
     /// Prefetcher for the next level, fed by this cache's store misses.
     store_prefetcher: Option<StoreStreamPrefetcher>,
     /// Stat paths rooted at this cache's subject.
@@ -195,7 +195,7 @@ pub struct Cache {
     num_sets: usize,
     ways: usize,
     line_bytes: usize,
-    policy: Box<dyn ReplacementPolicy + Send + Sync>,
+    policy: Box<dyn ReplacementPolicy>,
     mshrs: MshrTable,
     targets_per_mshr: usize,
     /// The MSHR that reached `targets_per_mshr`, blocking the cache until
@@ -257,7 +257,7 @@ impl Cache {
         let num_lines = safe_size / safe_line;
         let num_sets = (num_lines / safe_ways).max(1);
 
-        let policy: Box<dyn ReplacementPolicy + Send + Sync> = match config.policy {
+        let policy: Box<dyn ReplacementPolicy> = match config.policy {
             ReplacementPolicyKind::Fifo => Box::new(FifoPolicy::new(num_sets, safe_ways)),
             ReplacementPolicyKind::Random => Box::new(RandomPolicy::new(num_sets, safe_ways)),
             ReplacementPolicyKind::Plru => Box::new(PlruPolicy::new(num_sets, safe_ways)),
@@ -265,7 +265,7 @@ impl Cache {
             ReplacementPolicyKind::Mru => Box::new(MruPolicy::new(num_sets, safe_ways)),
         };
 
-        let prefetcher: Option<Box<dyn Prefetcher + Send + Sync>> = match config.prefetcher {
+        let prefetcher: Option<Box<dyn Prefetcher>> = match config.prefetcher {
             PrefetcherKind::NextLine => {
                 Some(Box::new(NextLinePrefetcher::new(safe_line, config.prefetch_degree)))
             }

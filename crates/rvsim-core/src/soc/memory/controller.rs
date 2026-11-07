@@ -274,7 +274,7 @@ impl Handle for DramController {
 
 /// Pluggable memory controller. Any type that implements [`Handle`] and is
 /// `Send + Sync` can be dropped into `SystemState::mem_controller` as a
-/// `Box<dyn MemoryController + Send + Sync>`.
+/// `Box<dyn MemoryController>`.
 ///
 /// [`Self::tick`] is invoked once per simulator cycle. Controllers that
 /// service requests synchronously in `handle` (fixed-latency [`SimpleController`],

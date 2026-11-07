@@ -105,7 +105,7 @@ pub struct Uncore {
     /// IO interconnect; routes accesses to RAM and MMIO devices.
     pub bus: Bus,
     /// Main memory controller.
-    pub mem_controller: Box<dyn MemoryController + Send + Sync>,
+    pub mem_controller: Box<dyn MemoryController>,
     /// Shared last-level cache.
     pub l3_cache: Cache,
     /// Home agent and interconnect between the private L2s and the LLC;
