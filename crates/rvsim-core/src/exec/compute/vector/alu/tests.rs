@@ -4,7 +4,7 @@ use super::*;
 use crate::arch::regs::vpr::Vpr;
 use crate::exec::compute::vector::context::{VecExecResult, VecOperand};
 use crate::isa::op::{IntOp, VecAluOp, VecClass, VectorOp};
-use crate::isa::rvv::{ElemIdx, Vlen};
+use crate::isa::rvv::{ElemIdx, TailPolicy, Vlen, Vlmul, Vxrm};
 
 /// Helper: create a 128-bit VLEN VPR.
 fn make_vpr() -> Vpr {
@@ -30,21 +30,7 @@ fn run(
     sew: Sew,
     vl: usize,
 ) -> VecExecResult {
-    vec_execute(
-        alu(op),
-        vpr,
-        vd,
-        vs2,
-        operand1,
-        sew,
-        vl,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        true,
-        Vxrm::RoundToNearestUp,
-    )
+    vec_execute(alu(op), vpr, vd, vs2, operand1, &VecExecCtx::unmasked(sew, vl))
 }
 
 #[test]
@@ -214,14 +200,7 @@ fn test_vwaddu() {
         vd,
         vs2,
         VecOperand::Scalar(1),
-        Sew::E16,
-        1,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        true,
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx::unmasked(Sew::E16, 1),
     );
     assert!(!res.vxsat);
     // 0xFFFF + 1 = 0x10000 (doesn't overflow because result is E32)
@@ -250,14 +229,7 @@ fn test_vwaddu_mf8_widen() {
         vd,
         vs2,
         VecOperand::Scalar(3),
-        Sew::E8,
-        2,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::Mf8,
-        true,
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx { vlmul: Vlmul::Mf8, ..VecExecCtx::unmasked(Sew::E8, 2) },
     );
 
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E16), 0x0008);
@@ -281,14 +253,7 @@ fn test_vwadd_signed() {
         vd,
         vs2,
         VecOperand::Scalar(0xFE),
-        Sew::E8,
-        1,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        true,
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx::unmasked(Sew::E8, 1),
     );
     let result = vpr.read_element(vd, ElemIdx::new(0), Sew::E16);
     // sign_extend(0xFF, E8) = -1, sign_extend(0xFE, E8) = -2, sum = -3
@@ -343,14 +308,7 @@ fn test_masked_operation() {
         vd,
         vs2,
         VecOperand::Scalar(5),
-        Sew::E32,
-        2,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        false, // masked
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx { vm: false, ..VecExecCtx::unmasked(Sew::E32, 2) },
     );
 
     // Element 0 is active: 10 + 5 = 15
@@ -369,20 +327,14 @@ fn test_tail_agnostic() {
     // Pre-fill tail element
     vpr.write_element(vd, ElemIdx::new(1), Sew::E32, 0x1234);
 
+    // vl = 1, so element 1 is tail.
     let _ = vec_execute(
         alu(VectorOp::VAdd),
         &mut vpr,
         vd,
         vs2,
         VecOperand::Scalar(5),
-        Sew::E32,
-        1, // vl=1, so element 1 is tail
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Agnostic,
-        Vlmul::M1,
-        true,
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx { vta: TailPolicy::Agnostic, ..VecExecCtx::unmasked(Sew::E32, 1) },
     );
 
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 15);
@@ -409,14 +361,7 @@ fn test_vmerge() {
         vd,
         vs2,
         VecOperand::Scalar(0xCCCC),
-        Sew::E32,
-        2,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        false, // masked merge
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx { vm: false, ..VecExecCtx::unmasked(Sew::E32, 2) },
     );
 
     // Element 0: mask bit=0 → take vs2 = 0xAAAA
@@ -452,15 +397,8 @@ fn test_vsext_vf2() {
         &mut vpr,
         vd,
         vs2,
-        VecOperand::Scalar(0), // unused for extension ops
-        Sew::E16,
-        1,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        true,
-        Vxrm::RoundToNearestUp,
+        VecOperand::Scalar(0),
+        &VecExecCtx::unmasked(Sew::E16, 1),
     );
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E16), 0xFFFF);
 }
@@ -478,14 +416,7 @@ fn test_vzext_vf2() {
         vd,
         vs2,
         VecOperand::Scalar(0),
-        Sew::E16,
-        1,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        true,
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx::unmasked(Sew::E16, 1),
     );
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E16), 0x00FF);
 }
@@ -506,14 +437,7 @@ fn test_vadc() {
         vd,
         vs2,
         VecOperand::Scalar(20),
-        Sew::E32,
-        1,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        false, // use v0 as carry
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx { vm: false, ..VecExecCtx::unmasked(Sew::E32, 1) },
     );
 
     // 10 + 20 + 1 (carry) = 31
@@ -534,14 +458,7 @@ fn test_vnsrl() {
         vd,
         vs2,
         VecOperand::Scalar(8),
-        Sew::E8, // destination SEW
-        1,
-        0,
-        MaskPolicy::Undisturbed,
-        TailPolicy::Undisturbed,
-        Vlmul::M1,
-        true,
-        Vxrm::RoundToNearestUp,
+        &VecExecCtx::unmasked(Sew::E8, 1),
     );
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E8), 0x12);
 }

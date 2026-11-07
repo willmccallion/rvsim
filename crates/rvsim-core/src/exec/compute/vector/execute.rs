@@ -247,21 +247,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
             );
             VecExecResult::default()
         }
-        VecClass::Alu(op) => vec_execute(
-            op,
-            vpr,
-            vd,
-            vs2,
-            operand1,
-            ctx.sew,
-            ctx.vl,
-            ctx.vstart,
-            ctx.vma,
-            ctx.vta,
-            ctx.vlmul,
-            inst.ctrl.vm,
-            ctx.vxrm,
-        ),
+        VecClass::Alu(op) => vec_execute(op, vpr, vd, vs2, operand1, &ctx),
         VecClass::None | VecClass::Config | VecClass::Load | VecClass::Store => {
             debug_assert!(false, "execute_vec_op_on called with a config or memory op");
             VecExecResult::default()

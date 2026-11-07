@@ -303,22 +303,7 @@ mod tests {
     use crate::arch::regs::vpr::Vpr;
     use crate::isa::fp::FpFlags;
     use crate::isa::fp::RoundingMode;
-    use crate::isa::rvv::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
-
-    fn make_ctx(sew: Sew, vl: usize) -> VecExecCtx {
-        VecExecCtx {
-            sew,
-            vl,
-            vstart: 0,
-            vma: MaskPolicy::Undisturbed,
-            vta: TailPolicy::Undisturbed,
-            vlmul: Vlmul::M1,
-            vm: true,
-            vxrm: Vxrm::RoundToNearestUp,
-            frm: RoundingMode::Rne,
-            zvfh: false,
-        }
-    }
+    use crate::isa::rvv::Vlen;
 
     fn vpr128() -> Vpr {
         Vpr::new(Vlen::new_unchecked(128))
@@ -328,7 +313,7 @@ mod tests {
     /// with `vd[0]` as an FMA's addend.
     fn f16_flags(op: VectorOp, vs2: u16, vs1: u16, vd: u16) -> FpFlags {
         let mut vpr = vpr128();
-        let ctx = VecExecCtx { zvfh: true, ..make_ctx(Sew::E16, 1) };
+        let ctx = VecExecCtx { zvfh: true, ..VecExecCtx::unmasked(Sew::E16, 1) };
         let (v1, v2, v3) = (VRegIdx::new(1), VRegIdx::new(2), VRegIdx::new(3));
         vpr.write_element(v2, ElemIdx::new(0), Sew::E16, u64::from(vs2));
         vpr.write_element(v1, ElemIdx::new(0), Sew::E16, u64::from(vs1));
@@ -341,7 +326,7 @@ mod tests {
     /// ones in `vs1[0]` and the (double-width) `vd[0]`.
     fn widening_flags_with_signaling_nan(op: VectorOp, sew: Sew, snan: u64, one: u64) -> FpFlags {
         let mut vpr = vpr128();
-        let ctx = VecExecCtx { zvfh: true, ..make_ctx(sew, 1) };
+        let ctx = VecExecCtx { zvfh: true, ..VecExecCtx::unmasked(sew, 1) };
         let (v1, v2, v4) = (VRegIdx::new(1), VRegIdx::new(2), VRegIdx::new(4));
         vpr.write_element(v2, ElemIdx::new(0), sew, snan);
         vpr.write_element(v1, ElemIdx::new(0), sew, one);
@@ -409,7 +394,7 @@ mod tests {
         frm: RoundingMode,
     ) -> (u64, FpFlags) {
         let mut vpr = vpr128();
-        let ctx = VecExecCtx { frm, zvfh, ..make_ctx(sew, 1) };
+        let ctx = VecExecCtx { frm, zvfh, ..VecExecCtx::unmasked(sew, 1) };
         let (v2, v4) = (VRegIdx::new(2), VRegIdx::new(4));
         vpr.write_element(v2, ElemIdx::new(0), src_sew, src);
         let flags = vec_fp_execute(op, &mut vpr, v4, v2, VecOperand::Vector(v2), &ctx).fp_flags;
@@ -551,7 +536,7 @@ mod tests {
     #[test]
     fn a_zvfh_widening_add_whose_sum_needs_more_than_single_precision_is_inexact() {
         let mut vpr = vpr128();
-        let ctx = VecExecCtx { zvfh: true, ..make_ctx(Sew::E16, 1) };
+        let ctx = VecExecCtx { zvfh: true, ..VecExecCtx::unmasked(Sew::E16, 1) };
         let (v1, v2, v4) = (VRegIdx::new(1), VRegIdx::new(2), VRegIdx::new(4));
         let f16_two_to_15 = 0x7800;
         let f16_two_to_minus_24 = 0x0001;
@@ -584,7 +569,7 @@ mod tests {
     #[test]
     fn test_vfadd_f32() {
         let mut vpr = vpr128();
-        let ctx = make_ctx(Sew::E32, 4);
+        let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
         let v2 = VRegIdx::new(2);
         let v3 = VRegIdx::new(3);
@@ -609,7 +594,7 @@ mod tests {
     #[test]
     fn test_vfclass_f32() {
         let mut vpr = vpr128();
-        let ctx = make_ctx(Sew::E32, 4);
+        let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
         let v2 = VRegIdx::new(2);
 
@@ -631,7 +616,7 @@ mod tests {
     #[test]
     fn test_vfmv_sf() {
         let mut vpr = vpr128();
-        let ctx = make_ctx(Sew::E32, 4);
+        let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
 
         let scalar = 42.0f32.to_bits() as u64;
@@ -652,7 +637,7 @@ mod tests {
     #[test]
     fn test_vfmv_fs() {
         let mut vpr = vpr128();
-        let ctx = make_ctx(Sew::E32, 4);
+        let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
 
         vpr.write_element(v1, ElemIdx::new(0), Sew::E32, 99.5f32.to_bits() as u64);
