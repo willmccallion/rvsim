@@ -7,7 +7,6 @@ use crate::arch::translation::PteUpdate;
 use crate::common::trace::Hex;
 use crate::common::{PhysAddr, VirtAddr};
 use crate::exec::retire;
-use crate::isa::fence::Fence;
 use crate::isa::instruction::InstSize;
 use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::privileged::Trap;
@@ -337,9 +336,9 @@ fn advance_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut BackendCommon)
 /// program's memory. An atomic that needs older stores written waits for
 /// them before it issues, and a CBO is ordered with them in the store
 /// buffer.
-fn waits_for_older_stores(head: &RobEntry) -> bool {
+const fn waits_for_older_stores(head: &RobEntry) -> bool {
     matches!(head.ctrl.system_op, SystemOp::SfenceVma | SystemOp::FenceI)
-        || (head.ctrl.system_op == SystemOp::Fence && Fence::decode(head.bits).pred.w)
+        || matches!(head.ctrl.system_op, SystemOp::Fence(fence) if fence.pred.w)
         || head.result_at_commit()
             && matches!(head.ctrl.system_op, SystemOp::Ecall | SystemOp::Pseudo)
 }

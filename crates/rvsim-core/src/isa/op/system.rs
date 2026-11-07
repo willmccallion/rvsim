@@ -1,5 +1,7 @@
 //! System operations: fences, environment calls, trap returns, CSR access.
 
+use crate::isa::fence::Fence;
+
 /// System operation classification.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SystemOp {
@@ -16,8 +18,8 @@ pub enum SystemOp {
     /// `WFI` — wait for interrupt.
     Wfi,
 
-    /// `FENCE` — memory ordering fence.
-    Fence,
+    /// `FENCE` — memory ordering fence, with the accesses it orders.
+    Fence(Fence),
 
     /// `FENCE.I` — instruction fence.
     FenceI,

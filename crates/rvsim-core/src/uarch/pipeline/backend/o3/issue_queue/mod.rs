@@ -496,8 +496,7 @@ impl IssueQueue {
         // executes only once it is the oldest instruction: nothing older can
         // still change that state or squash it.
         let ctrl = &iq.entry.inst.ctrl;
-        if ctrl.system_op != SystemOp::None
-            && ctrl.system_op != SystemOp::Fence
+        if !matches!(ctrl.system_op, SystemOp::None | SystemOp::Fence(_))
             && !ctrl.system_op.is_cbo()
             && !head.is(iq.entry.rob_tag)
         {

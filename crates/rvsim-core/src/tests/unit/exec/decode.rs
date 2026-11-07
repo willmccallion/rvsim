@@ -4,9 +4,8 @@
 
 use crate::common::VirtAddr;
 use crate::exec::decode::{DecodedInst, decode_inst};
-use crate::exec::signals::BranchCond;
-use crate::exec::signals::ControlFlow;
-use crate::exec::signals::JumpKind;
+use crate::exec::signals::{BranchCond, ControlFlow, JumpKind};
+use crate::isa::fence::Fence;
 use crate::isa::fp::{FpFormat, Rounding, RoundingMode};
 use crate::isa::op::{
     AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp, VecSrcEncoding,
@@ -356,7 +355,7 @@ const SYSTEM: &[(&str, u32, System)] = &[
     ("csrrwi a0, mstatus, 5", 0x3002d573, Csr(CsrOp::Rwi)),
     ("csrrsi a0, mstatus, 5", 0x3002e573, Csr(CsrOp::Rsi)),
     ("csrrci zero, mstatus, 5", 0x3002f073, Csr(CsrOp::Rci)),
-    ("fence rw, rw", 0x0330000f, Plain(SystemOp::Fence)),
+    ("fence rw, rw", 0x0330000f, Plain(SystemOp::Fence(Fence::decode(0x0330000f)))),
     ("fence.i", 0x0000100f, Plain(SystemOp::FenceI)),
     ("cbo.zero (a1)", 0x0045a00f, Plain(SystemOp::CboZero)),
     ("cbo.inval (a1)", 0x0005a00f, Plain(SystemOp::CboInval)),

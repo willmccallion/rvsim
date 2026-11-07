@@ -171,7 +171,7 @@ pub fn system_effect(state: &impl ArchState, inst: &Inst) -> SystemEffect {
         return SystemEffect::Trap(trap);
     }
     match inst.ctrl.system_op {
-        SystemOp::None | SystemOp::Fence => SystemEffect::NotSystem,
+        SystemOp::None | SystemOp::Fence(_) => SystemEffect::NotSystem,
         SystemOp::FenceI | SystemOp::Mret | SystemOp::Sret | SystemOp::Wfi | SystemOp::Pseudo => {
             SystemEffect::AtRetire
         }
