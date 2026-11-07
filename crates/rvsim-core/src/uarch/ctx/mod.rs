@@ -30,6 +30,9 @@ use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
 use crate::uarch::pipeline::trace::{Departure, Stage};
 
+/// The exit status a fatal signal adds its number to.
+const SIGNAL_EXIT_BASE: u64 = 128;
+
 /// What a pipeline works on: its hart, its core, and the uncore.
 ///
 /// Built by [`crate::system::SystemState::core_ctx`] from disjoint borrows. Derefs to
@@ -55,9 +58,11 @@ impl CoreCtx<'_> {
         }
     }
 
-    /// Ends the process of this hart's thread as a fatal signal does, with
-    /// exit status `status`, and parks the hart.
-    pub fn end_process_by_signal(&mut self, status: u64) {
+    /// Ends the process of this hart's thread as fatal signal `signal`
+    /// does, with exit status 128 plus the signal as a shell reports it,
+    /// and parks the hart.
+    pub fn end_process_by_signal(&mut self, signal: u8) {
+        let status = SIGNAL_EXIT_BASE + u64::from(signal);
         let hart = self.hart.hart_id;
         let processes = &mut self.uncore.processes;
         let run_exit = if let Some(thread) = processes.thread_on(hart) {

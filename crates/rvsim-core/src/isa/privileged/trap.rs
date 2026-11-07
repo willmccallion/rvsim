@@ -206,6 +206,26 @@ impl Trap {
         }
     }
 
+    /// The value `mtval`/`stval` takes: the faulting address, the illegal
+    /// instruction's encoding, or zero.
+    #[must_use]
+    pub const fn tval(&self) -> u64 {
+        match *self {
+            Self::InstructionAddressMisaligned(a)
+            | Self::InstructionAccessFault(a)
+            | Self::Breakpoint(a)
+            | Self::LoadAddressMisaligned(a)
+            | Self::LoadAccessFault(a)
+            | Self::StoreAddressMisaligned(a)
+            | Self::StoreAccessFault(a)
+            | Self::InstructionPageFault(a)
+            | Self::LoadPageFault(a)
+            | Self::StorePageFault(a) => a,
+            Self::IllegalInstruction(inst) => inst as u64,
+            _ => 0,
+        }
+    }
+
     /// The full `mcause` value: the code with the interrupt bit set for interrupts.
     #[must_use]
     pub const fn mcause_code(&self) -> u64 {
