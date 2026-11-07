@@ -223,13 +223,13 @@ impl O3Engine {
     fn start_vector_memory(&mut self, state: &CoreCtx<'_>, issued: IssuedVector<'_>, now: u64) {
         let IssuedVector { entry, result, fu_type, dest, complete_cycle } = issued;
         let ctrl = &entry.inst.ctrl;
-        let vec_op = result.op.ctrl.vec_op;
+        let vec_op = ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
         let vd = dest.map_or(VecRegGroup::EMPTY, |d| d.group);
 
         // Reject illegal EMUL (>8) before element_accesses would panic.
         let vtype = parse_vtype(entry.vector_config.vtype);
-        if let Err(trap) = check_vec_mem_emul(result.op.bits, vec_op, ctrl, vtype) {
+        if let Err(trap) = check_vec_mem_emul(result.op.bits, ctrl, vtype) {
             self.rob.fault(result.op.rob_tag, trap);
             return;
         }
@@ -246,7 +246,6 @@ impl O3Engine {
             result.store_data as i64,
             ctrl,
             entry.vector_config,
-            vec_op,
         );
 
         // Pre-copy old vd so tail / mask-undisturbed elements observe prior values.
