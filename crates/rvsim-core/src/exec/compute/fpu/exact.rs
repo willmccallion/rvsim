@@ -8,21 +8,10 @@
 //! zero), so RMM results come from here.
 
 use super::host::{clear_host_fp_flags, read_host_fp_flags};
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::AluOp;
 
-/// An IEEE 754 binary format.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Format {
-    /// binary16.
-    Half,
-    /// binary32.
-    Single,
-    /// binary64.
-    Double,
-}
-
-impl Format {
+impl FpFormat {
     /// Significand bits, the hidden bit included.
     const fn precision(self) -> i32 {
         match self {
@@ -88,7 +77,7 @@ pub struct Exact {
 impl Exact {
     /// The value of the finite encoding `bits` in `format`.
     #[must_use]
-    pub const fn of(bits: u64, format: Format) -> Self {
+    pub const fn of(bits: u64, format: FpFormat) -> Self {
         let fraction_bits = format.fraction_bits();
         let exponent_field = ((bits >> fraction_bits) & ((1 << format.exponent_bits()) - 1)) as i32;
         let fraction = (bits & ((1 << fraction_bits) - 1)) as u128;
@@ -104,13 +93,13 @@ impl Exact {
     /// The value of a finite `value`.
     #[must_use]
     pub const fn of_f32(value: f32) -> Self {
-        Self::of(value.to_bits() as u64, Format::Single)
+        Self::of(value.to_bits() as u64, FpFormat::Single)
     }
 
     /// The value of a finite `value`.
     #[must_use]
     pub const fn of_f64(value: f64) -> Self {
-        Self::of(value.to_bits(), Format::Double)
+        Self::of(value.to_bits(), FpFormat::Double)
     }
 
     /// The value of an integer.
@@ -318,7 +307,7 @@ pub const fn of_operation(op: AluOp, a: Exact, b: Exact, c: Exact) -> Option<Exa
 pub fn rmm_correction(
     rm: RoundingMode,
     host_flags: FpFlags,
-    format: Format,
+    format: FpFormat,
     exact: impl FnOnce() -> Option<Exact>,
 ) -> Option<(u64, FpFlags)> {
     if rm != RoundingMode::Rmm
@@ -341,7 +330,7 @@ pub fn on_host_f32(
     clear_host_fp_flags();
     let result = std::hint::black_box(host());
     let flags = read_host_fp_flags();
-    match rmm_correction(rm, flags, Format::Single, || Some(exact())) {
+    match rmm_correction(rm, flags, FpFormat::Single, || Some(exact())) {
         Some((bits, flags)) => (f32::from_bits(bits as u32), flags),
         None => (result, flags),
     }
@@ -356,7 +345,7 @@ pub fn on_host_f64(
     clear_host_fp_flags();
     let result = std::hint::black_box(host());
     let flags = read_host_fp_flags();
-    match rmm_correction(rm, flags, Format::Double, || Some(exact())) {
+    match rmm_correction(rm, flags, FpFormat::Double, || Some(exact())) {
         Some((bits, flags)) => (f64::from_bits(bits), flags),
         None => (result, flags),
     }
@@ -409,7 +398,7 @@ const fn round_to_multiple(x: Exact, lsb_exponent: i32, rm: RoundingMode) -> (u1
 
 /// The result an overflow in `rm` gives: infinity, or the largest finite
 /// number when the mode rounds toward zero on that side.
-const fn overflowed(format: Format, negative: bool, rm: RoundingMode) -> u64 {
+const fn overflowed(format: FpFormat, negative: bool, rm: RoundingMode) -> u64 {
     let sign = if negative { format.sign_bit() } else { 0 };
     let to_largest = match rm {
         RoundingMode::Rne | RoundingMode::Rmm => false,
@@ -422,7 +411,7 @@ const fn overflowed(format: Format, negative: bool, rm: RoundingMode) -> u64 {
 
 /// `x` rounded to `format` in `rm`, with the flags rounding raises.
 #[must_use]
-pub const fn round(x: Exact, format: Format, rm: RoundingMode) -> (u64, FpFlags) {
+pub const fn round(x: Exact, format: FpFormat, rm: RoundingMode) -> (u64, FpFlags) {
     let sign = if x.negative { format.sign_bit() } else { 0 };
     if x.is_zero() {
         return (sign, FpFlags::NONE);
@@ -463,7 +452,7 @@ pub const fn round(x: Exact, format: Format, rm: RoundingMode) -> (u64, FpFlags)
 const fn tiny_after_rounding(
     x: Exact,
     unbounded_lsb: i32,
-    format: Format,
+    format: FpFormat,
     rm: RoundingMode,
 ) -> bool {
     let (kept, _) = round_to_multiple(x, unbounded_lsb, rm);

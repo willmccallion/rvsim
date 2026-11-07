@@ -7,10 +7,10 @@
 //! back to f16 with the RISC-V rounding mode.
 
 use super::convert::fp_to_int_convert;
-use super::exact::{self, Exact, Format};
+use super::exact::{self, Exact};
 use super::host::{restore_host_round_mode, set_host_round_mode};
 use super::nan_handling::{fmax_f32, fmin_f32, is_snan_f32, is_snan_f64, unbox_f32};
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::AluOp;
 
 /// Canonical quiet NaN for IEEE 754 half-precision (sign=0, exp=all-1,
@@ -292,7 +292,7 @@ pub(super) fn execute_f16_inner(
         let (bits, flags) = f64_to_f16(a.mul_add(b, c), rm);
         if flags.contains(FpFlags::NX) && a.is_finite() && b.is_finite() && c.is_finite() {
             let value = exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c));
-            let (bits, flags) = exact::round(value, Format::Half, rm);
+            let (bits, flags) = exact::round(value, FpFormat::Half, rm);
             return (box_f16(bits as u16), flags | extra);
         }
         (box_f16(bits), flags | extra)

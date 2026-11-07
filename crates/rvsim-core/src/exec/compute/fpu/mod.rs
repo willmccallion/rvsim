@@ -23,13 +23,13 @@ pub mod half;
 use crate::isa::op::AluOp;
 
 use self::nan_handling::unbox_f32;
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use arith::{execute_f32, execute_f64};
 use convert::{
     I32_MAX_P1_F64, I32_MIN_F64, I64_MAX_P1_F64, I64_MIN_F64, U32_MAX_P1_F64, U64_MAX_P1_F64,
     round_to_integer,
 };
-use exact::{Exact, Format};
+use exact::Exact;
 use half::execute_f16;
 use host::{clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode};
 use nan_handling::box_f32_canon;
@@ -344,7 +344,7 @@ pub fn execute_full_rm(
         let flags = read_host_fp_flags();
         restore_host_round_mode(saved);
 
-        let format = if is32 { Format::Single } else { Format::Double };
+        let format = if is32 { FpFormat::Single } else { FpFormat::Double };
         let operand = |value: u64| {
             if is32 {
                 Exact::of_f32(unbox_f32(value))
