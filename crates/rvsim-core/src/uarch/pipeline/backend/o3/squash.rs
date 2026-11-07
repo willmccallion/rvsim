@@ -126,7 +126,7 @@ impl O3Engine {
         self.rename_map = self.committed_rename_map.clone();
         for entry in self.rob.iter() {
             if let Some(dest) = entry.ctrl.dest(entry.rd) {
-                self.rename_map.set(dest, entry.phys_dst);
+                self.rename_map.set(dest, entry.dst.phys);
             }
             if entry.vec_dst_count > 0 {
                 let vd_base = entry.ctrl.vd.as_u8();
@@ -145,7 +145,7 @@ impl O3Engine {
             state.trace_left(seq, Departure::Squashed);
         }
         for entry in self.rob.iter_squashed(scope) {
-            self.free_list.reclaim(entry.phys_dst);
+            self.free_list.reclaim(entry.dst.phys);
             for &vec_dst in &entry.vec_phys_dst[..entry.vec_dst_count as usize] {
                 self.vec_free_list.reclaim(vec_dst);
             }

@@ -13,7 +13,7 @@ use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};
-use crate::uarch::pipeline::rename::prf::PhysReg;
+use crate::uarch::pipeline::rob::RenamedDst;
 use crate::uarch::pipeline::trace::Stage;
 
 impl InOrderEngine {
@@ -37,16 +37,7 @@ impl InOrderEngine {
             return Renamed::Stalled(Box::new(decoded));
         }
         let vector = self.vector_config(&state.hart().csrs);
-        let Some(rob_tag) = self.rob.allocate(
-            decoded.inst.pc,
-            decoded.inst.bits,
-            decoded.inst.size,
-            decoded.inst.rd,
-            decoded.inst.ctrl,
-            PhysReg::ZERO,
-            PhysReg::ZERO,
-            decoded.seq,
-        ) else {
+        let Some(rob_tag) = self.rob.allocate(&decoded.inst, decoded.seq, RenamedDst::NONE) else {
             return Renamed::Stalled(Box::new(decoded));
         };
         state.trace_stage(decoded.seq, Stage::Rename);

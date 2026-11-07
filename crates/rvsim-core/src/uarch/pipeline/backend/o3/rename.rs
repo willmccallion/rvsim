@@ -28,6 +28,7 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::rob::RenamedDst;
 use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::trace::Stage;
 
@@ -75,7 +76,7 @@ impl O3Engine {
             self.rob.set_checkpoint_id(dests.rob_tag, checkpoint_id);
         }
         let entry = renamed_entry(decoded, sources, &dests, vector);
-        trace_renamed(state, &entry, dests.old_phys_dst);
+        trace_renamed(state, &entry, dests.renamed.old);
         if entry.inst.ctrl.system_op.serializes_after() {
             self.serialization = super::serialize::Serialization::after(entry.rob_tag);
         }
@@ -133,28 +134,21 @@ impl O3Engine {
         let inst = &decoded.inst;
         // x0 stays unrenamed: hardwired zero, never freed at commit.
         let dest = inst.ctrl.dest(inst.rd);
-        let (rd_phys, old_phys_dst) = match dest {
-            Some(dest) => (self.free_list.allocate()?, self.rename_map.get(dest)),
-            None => (PhysReg::ZERO, PhysReg::ZERO),
+        let renamed = match dest {
+            Some(dest) => {
+                RenamedDst { phys: self.free_list.allocate()?, old: self.rename_map.get(dest) }
+            }
+            None => RenamedDst::NONE,
         };
         let vd_count = if inst.ctrl.vec_reg_write { vd_count } else { 0 };
         let vd_regs = self.vec_free_list.reserve(vd_count as usize);
         let rob_tag = vd_regs.as_ref().and_then(|_| {
             let rob = &mut self.rob;
-            rob.allocate(
-                inst.pc,
-                inst.bits,
-                inst.size,
-                inst.rd,
-                inst.ctrl,
-                rd_phys,
-                old_phys_dst,
-                decoded.seq,
-            )
+            rob.allocate(inst, decoded.seq, renamed)
         });
         let (Some(vd_regs), Some(rob_tag)) = (vd_regs, rob_tag) else {
             if dest.is_some() {
-                self.free_list.reclaim(rd_phys);
+                self.free_list.reclaim(renamed.phys);
             }
             return None;
         };
@@ -163,8 +157,8 @@ impl O3Engine {
             *slot = reg;
         }
         if let Some(dest) = dest {
-            self.rename_map.set(dest, rd_phys);
-            self.prf.allocate(rd_phys);
+            self.rename_map.set(dest, renamed.phys);
+            self.prf.allocate(renamed.phys);
         }
         if vd_count > 0 {
             let renamed = &vd_phys[..vd_count as usize];
@@ -174,7 +168,7 @@ impl O3Engine {
             }
             self.rob.set_vec_phys_dst(rob_tag, vd_phys, vec_old_phys, vd_count);
         }
-        Some(Destinations { rob_tag, rd_phys, old_phys_dst, vd_phys })
+        Some(Destinations { rob_tag, renamed, vd_phys })
     }
     /// Takes `ctrl`'s store-buffer or load-queue slots for ROB entry
     /// `rob_tag`, which `has_room_for` saw free.
@@ -220,9 +214,7 @@ struct VectorContext {
 /// instruction's results.
 struct Destinations {
     rob_tag: RobTag,
-    rd_phys: PhysReg,
-    /// The register `rd` mapped to before, freed when this one commits.
-    old_phys_dst: PhysReg,
+    renamed: RenamedDst,
     vd_phys: [VecPhysReg; MAX_GROUP_REGS],
 }
 
@@ -242,7 +234,7 @@ const fn renamed_entry(
         seq: decoded.seq,
         vector_config: vector.config,
         vector_rounding: vector.rounding,
-        regs: RenamedRegisters { rd_phys: dests.rd_phys, vd_phys: dests.vd_phys, ..sources },
+        regs: RenamedRegisters { rd_phys: dests.renamed.phys, vd_phys: dests.vd_phys, ..sources },
     }
 }
 

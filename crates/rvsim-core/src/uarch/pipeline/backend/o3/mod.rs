@@ -278,7 +278,7 @@ impl O3Engine {
         if !cfg!(debug_assertions) {
             return;
         }
-        let in_flight = self.rob.iter().filter(|entry| !entry.phys_dst.is_hardwired()).count();
+        let in_flight = self.rob.iter().filter(|entry| !entry.dst.phys.is_hardwired()).count();
         debug_assert_eq!(
             self.free_list.available() + ARCH_SCALAR_REGS + in_flight,
             self.prf.capacity(),

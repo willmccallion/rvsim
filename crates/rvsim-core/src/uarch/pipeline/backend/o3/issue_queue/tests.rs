@@ -342,14 +342,16 @@ fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
         ControlSignals { vec_op: crate::isa::op::VectorOp::VLoadUnit, ..Default::default() };
     let alloc = |rob: &mut Rob, ctrl| {
         rob.allocate(
-            VirtAddr::new(0),
-            0,
-            InstSize::Standard,
-            RegIdx::new(0),
-            ctrl,
-            PhysReg::ZERO,
-            PhysReg::ZERO,
+            &crate::exec::inst::Inst {
+                pc: VirtAddr::new(0),
+                bits: 0,
+                size: InstSize::Standard,
+                rd: RegIdx::new(0),
+                ctrl,
+                ..Default::default()
+            },
             crate::common::InstSeq::default(),
+            crate::uarch::pipeline::rob::RenamedDst::NONE,
         )
         .unwrap()
     };
@@ -436,14 +438,16 @@ fn tags_across_the_wrap() -> Vec<RobTag> {
     (0..4)
         .map(|_| {
             rob.allocate(
-                VirtAddr::new(0),
-                0,
-                InstSize::Standard,
-                RegIdx::new(0),
-                ControlSignals::default(),
-                PhysReg::ZERO,
-                PhysReg::ZERO,
+                &crate::exec::inst::Inst {
+                    pc: VirtAddr::new(0),
+                    bits: 0,
+                    size: InstSize::Standard,
+                    rd: RegIdx::new(0),
+                    ctrl: ControlSignals::default(),
+                    ..Default::default()
+                },
                 crate::common::InstSeq::default(),
+                crate::uarch::pipeline::rob::RenamedDst::NONE,
             )
             .unwrap()
         })
