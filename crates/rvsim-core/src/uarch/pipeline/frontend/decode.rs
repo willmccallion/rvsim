@@ -19,6 +19,7 @@ use crate::isa::reg::{self, ArchReg};
 use crate::isa::rvv::VectorConfig;
 use crate::uarch::bpred::ControlInst;
 use crate::uarch::ctx::StageCtx;
+use crate::uarch::pipeline::engine::BundleHazard;
 use crate::uarch::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::uarch::pipeline::trace::Stage;
 
@@ -33,7 +34,7 @@ pub fn decode_stage(
     state: &mut StageCtx<'_>,
     input: &mut Vec<IfIdEntry>,
     output: &mut Vec<IdExEntry>,
-    has_register_renaming: bool,
+    bundle_hazard: BundleHazard,
     vector: VectorConfig,
 ) -> DecodeOutcome {
     let mut consumed_count = 0;
@@ -77,9 +78,8 @@ pub fn decode_stage(
             ctrl.reg_write = true;
         }
 
-        // O3 rename resolves RAW hazards via PRF, so this check applies only in-order.
         let rs3_idx = inst.rs3();
-        if !has_register_renaming {
+        if bundle_hazard == BundleHazard::EndsBundle {
             let sources = [Some(ctrl.src1(d.rs1)), Some(ctrl.src2(d.rs2)), ctrl.src3(rs3_idx)];
             if sources.into_iter().flatten().any(|src| bundle_writes.contains(&src)) {
                 break;

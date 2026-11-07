@@ -31,7 +31,9 @@ use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, expand_span, retire_access,
 };
 use crate::uarch::pipeline::backend::shared::{commit, memory1, memory2, writeback};
-use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, ExecutionEngine};
+use crate::uarch::pipeline::engine::{
+    BackendCommon, BundleHazard, DataCacheFlush, ExecutionEngine,
+};
 use crate::uarch::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
@@ -517,8 +519,8 @@ impl ExecutionEngine for InOrderEngine {
         &mut self.vec_store_buffer
     }
 
-    fn has_register_renaming(&self) -> bool {
-        false
+    fn bundle_hazard(&self) -> BundleHazard {
+        BundleHazard::EndsBundle
     }
 
     /// Minor's fetch follows a branch the cycle it arrives.

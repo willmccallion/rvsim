@@ -21,7 +21,7 @@ use crate::uarch::ctx::CoreCtx;
 use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit;
 use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, VecMemMicroOp};
-use crate::uarch::pipeline::engine::{DataCacheFlush, ExecutionEngine};
+use crate::uarch::pipeline::engine::{BundleHazard, DataCacheFlush, ExecutionEngine};
 use crate::uarch::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
 use crate::uarch::pipeline::lsq::load_queue::{LoadQueue, OrderViolation};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
@@ -431,8 +431,8 @@ impl ExecutionEngine for O3Engine {
         Some(&mut self.load_queue)
     }
 
-    fn has_register_renaming(&self) -> bool {
-        true
+    fn bundle_hazard(&self) -> BundleHazard {
+        BundleHazard::Renamed
     }
 
     fn fetch_squashes_for_a_cycle(&self) -> bool {

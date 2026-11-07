@@ -89,13 +89,8 @@ impl<E: ExecutionEngine> Frontend<E> {
         {
             let vector = engine.vector_config(&state.hart().csrs);
             let mut decoded = Vec::new();
-            let outcome = decode::decode_stage(
-                state,
-                fetched,
-                &mut decoded,
-                engine.has_register_renaming(),
-                vector,
-            );
+            let outcome =
+                decode::decode_stage(state, fetched, &mut decoded, engine.bundle_hazard(), vector);
             engine.common_mut().vector_config_unresolved = outcome.ended_at_vsetvl;
             self.decode_rename.push(now, decoded);
             if self.decode_rename.delay() == 0 {
