@@ -101,6 +101,13 @@ pub struct TranslationResult {
 }
 
 impl TranslationResult {
+    /// This translation once its latency has been waited out: an L2 TLB
+    /// hit has refilled the L1 TLB, which now answers it at once.
+    #[must_use]
+    pub const fn settled(self) -> Self {
+        Self { cycles: 0, ..self }
+    }
+
     /// Creates a successful translation result.
     #[inline]
     pub const fn success(paddr: PhysAddr, cycles: u64) -> Self {

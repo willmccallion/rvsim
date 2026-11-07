@@ -429,6 +429,11 @@ pub struct Mem1Mem2Entry {
 }
 
 impl ExMem1Entry {
+    /// The virtual address a memory access computed into `alu`.
+    pub const fn vaddr(&self) -> VirtAddr {
+        VirtAddr::new(self.alu)
+    }
+
     /// The address of the instruction after this one.
     pub const fn next_pc(&self) -> VirtAddr {
         self.pc.wrapping_add(self.inst_size.as_u64())
