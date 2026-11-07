@@ -76,15 +76,15 @@ fn forward_loads(rob: &mut Rob, delivered: &[Mem2WbEntry]) {
 #[derive(Debug)]
 pub struct InOrderEngine {
     /// Reorder buffer.
-    pub rob: Rob,
+    pub(crate) rob: Rob,
     /// Store buffer.
-    pub store_buffer: StoreBuffer,
+    store_buffer: StoreBuffer,
     /// Tag-based register scoreboard.
-    pub scoreboard: Scoreboard,
+    scoreboard: Scoreboard,
     /// FIFO issue unit.
-    pub issuer: InOrderIssueUnit,
+    issuer: InOrderIssueUnit,
     /// Functional units, taken at issue.
-    pub fu_pool: FuPool,
+    fu_pool: FuPool,
     /// Results a unit has yet to deliver: forwarded to dependents and sent
     /// down the memory stages at `complete_cycle`.
     pending: Vec<PendingResult>,
@@ -101,13 +101,13 @@ pub struct InOrderEngine {
     /// commit.
     vec_store_buffer: VecStoreBuffer,
     /// Execute → Memory1 latch.
-    pub execute_mem1: Vec<ExMem1Entry>,
+    execute_mem1: Vec<ExMem1Entry>,
     /// Memory1 → Memory2 latch.
-    pub mem1_mem2: Vec<Mem1Mem2Entry>,
+    mem1_mem2: Vec<Mem1Mem2Entry>,
     /// Memory2 → Writeback latch.
-    pub mem2_wb: Vec<Mem2WbEntry>,
+    mem2_wb: Vec<Mem2WbEntry>,
     /// In-flight memory bookkeeping: mailbox + outstanding tables + routing IDs.
-    pub common: BackendCommon,
+    common: BackendCommon,
     /// Cycles from a result that redirects to the squash being taken.
     redirect_latency: u64,
     /// Whether a renamed bundle issues the cycle it reaches the backend

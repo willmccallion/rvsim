@@ -557,6 +557,40 @@ impl Mem2WbEntry {
     }
 }
 
+/// The address a load, store or atomic touched, for stops on a watched
+/// range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MemAccess {
+    /// Where the access began.
+    pub vaddr: VirtAddr,
+    /// How many bytes it covered.
+    pub bytes: u64,
+    /// Whether it read memory.
+    pub read: bool,
+    /// Whether it wrote memory.
+    pub write: bool,
+}
+
+impl MemAccess {
+    /// The scalar access leaving memory2, if it performed one.
+    #[must_use]
+    pub const fn of_memory2(mem: &Mem1Mem2Entry) -> Option<Self> {
+        if mem.op.trap.is_some() || mem.op.vec_mem.is_some() || mem.op.ctrl.system_op.is_cbo() {
+            return None;
+        }
+        let (read, write) = match mem.op.ctrl.atomic_op {
+            Some(AtomicOp::Lr) => (true, false),
+            Some(AtomicOp::Sc) => (false, mem.load_data == 0),
+            Some(_) => (true, true),
+            None => (mem.op.ctrl.mem_read, mem.op.ctrl.mem_write),
+        };
+        if !read && !write {
+            return None;
+        }
+        Some(Self { vaddr: mem.vaddr, bytes: mem.op.ctrl.width.bytes(), read, write })
+    }
+}
+
 #[cfg(test)]
 mod latch_tests {
     use super::Latch;
@@ -611,39 +645,5 @@ mod latch_tests {
         assert!(latch.take(1).is_empty());
         assert_eq!(latch.len(), 1);
         assert_eq!(latch.take(2), vec![9]);
-    }
-}
-
-/// The address a load, store or atomic touched, for stops on a watched
-/// range.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MemAccess {
-    /// Where the access began.
-    pub vaddr: VirtAddr,
-    /// How many bytes it covered.
-    pub bytes: u64,
-    /// Whether it read memory.
-    pub read: bool,
-    /// Whether it wrote memory.
-    pub write: bool,
-}
-
-impl MemAccess {
-    /// The scalar access leaving memory2, if it performed one.
-    #[must_use]
-    pub const fn of_memory2(mem: &Mem1Mem2Entry) -> Option<Self> {
-        if mem.op.trap.is_some() || mem.op.vec_mem.is_some() || mem.op.ctrl.system_op.is_cbo() {
-            return None;
-        }
-        let (read, write) = match mem.op.ctrl.atomic_op {
-            Some(AtomicOp::Lr) => (true, false),
-            Some(AtomicOp::Sc) => (false, mem.load_data == 0),
-            Some(_) => (true, true),
-            None => (mem.op.ctrl.mem_read, mem.op.ctrl.mem_write),
-        };
-        if !read && !write {
-            return None;
-        }
-        Some(Self { vaddr: mem.vaddr, bytes: mem.op.ctrl.width.bytes(), read, write })
     }
 }
