@@ -3,8 +3,8 @@
 mod access;
 
 use crate::isa::csr::{
-    CBIE_FLUSH, CBIE_ILLEGAL, CBIE_INVAL, CBIE_RESERVED, CYCLE, CsrAddr, ENVCFG_CBIE, FCSR, FFLAGS,
-    FRM, INSTRET, MCAUSE, MCOUNTEREN, MCOUNTINHIBIT, MCOUNTINHIBIT_CY, MCOUNTINHIBIT_IR,
+    CBIE_FLUSH, CBIE_ILLEGAL, CBIE_RESERVED, CYCLE, CsrAddr, ENVCFG_CBIE, FCSR, FFLAGS, FRM,
+    INSTRET, MCAUSE, MCOUNTEREN, MCOUNTINHIBIT, MCOUNTINHIBIT_CY, MCOUNTINHIBIT_IR,
     MCOUNTINHIBIT_WRITABLE, MCYCLE, MEDELEG, MENVCFG, MENVCFG_CBCFE, MENVCFG_CBIE_MASK,
     MENVCFG_CBIE_SHIFT, MENVCFG_CBZE, MEPC, MIDELEG, MIE, MINSTRET, MIP, MISA, MSCRATCH, MSTATUS,
     MSTATUS_FS, MSTATUS_FS_DIRTY, MSTATUS_SD, MSTATUS_VS, MSTATUS_VS_DIRTY, MTVAL, MTVEC, SATP,
@@ -82,33 +82,52 @@ pub const fn cbo_inval_action(
     privilege: crate::isa::privileged::PrivilegeMode,
 ) -> CboInvalAction {
     use crate::isa::privileged::PrivilegeMode;
-    let m_field = (menvcfg >> MENVCFG_CBIE_SHIFT) & MENVCFG_CBIE_MASK;
-    let s_field = (senvcfg >> MENVCFG_CBIE_SHIFT) & MENVCFG_CBIE_MASK;
     let effective = match privilege {
-        PrivilegeMode::Machine => CBIE_INVAL,
-        PrivilegeMode::Supervisor => m_field,
-        PrivilegeMode::User => cbie_intersect(m_field, s_field),
+        PrivilegeMode::Machine => Cbie::Invalidate,
+        PrivilegeMode::Supervisor => Cbie::of(menvcfg),
+        PrivilegeMode::User => Cbie::of(menvcfg).intersect(Cbie::of(senvcfg)),
     };
     match effective {
-        CBIE_FLUSH => CboInvalAction::Flush,
-        CBIE_INVAL => CboInvalAction::Invalidate,
-        // CBIE_ILLEGAL (0b00) and the reserved 0b10 encoding both trap.
-        _ => CboInvalAction::Illegal,
+        Cbie::Flush => CboInvalAction::Flush,
+        Cbie::Invalidate => CboInvalAction::Invalidate,
+        Cbie::Illegal | Cbie::Reserved => CboInvalAction::Illegal,
     }
 }
 
-/// Combines two CBIE field values via the spec's most-restrictive rule:
-/// 00 dominates 01 dominates 11. The 10 encoding is reserved and treated
-/// as illegal.
-const fn cbie_intersect(a: u64, b: u64) -> u64 {
-    if a == CBIE_ILLEGAL || b == CBIE_ILLEGAL {
-        CBIE_ILLEGAL
-    } else if a == CBIE_FLUSH || b == CBIE_FLUSH {
-        CBIE_FLUSH
-    } else if a == CBIE_INVAL && b == CBIE_INVAL {
-        CBIE_INVAL
-    } else {
-        CBIE_ILLEGAL
+/// An envcfg register's CBIE field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Cbie {
+    /// `0b00`: `cbo.inval` is illegal.
+    Illegal,
+    /// `0b01`: `cbo.inval` flushes.
+    Flush,
+    /// `0b10`: reserved, which a debugger's raw write can still store.
+    Reserved,
+    /// `0b11`: `cbo.inval` invalidates.
+    Invalidate,
+}
+
+impl Cbie {
+    /// The CBIE field of `envcfg`.
+    const fn of(envcfg: u64) -> Self {
+        match (envcfg >> MENVCFG_CBIE_SHIFT) & MENVCFG_CBIE_MASK {
+            CBIE_ILLEGAL => Self::Illegal,
+            CBIE_FLUSH => Self::Flush,
+            CBIE_RESERVED => Self::Reserved,
+            _ => Self::Invalidate,
+        }
+    }
+
+    /// The spec's most-restrictive combination of two fields: Illegal
+    /// dominates Flush dominates Invalidate, and Reserved acts as Illegal
+    /// except beside a Flush.
+    const fn intersect(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Illegal, _) | (_, Self::Illegal) => Self::Illegal,
+            (Self::Flush, _) | (_, Self::Flush) => Self::Flush,
+            (Self::Invalidate, Self::Invalidate) => Self::Invalidate,
+            _ => Self::Illegal,
+        }
     }
 }
 
