@@ -43,6 +43,11 @@ enum PcStop {
     Any(Vec<u64>),
 }
 
+/// Ticks between checks for a Python signal such as Ctrl-C.
+const SIGNAL_CHECK_INTERVAL_TICKS: u64 = 10_000;
+/// How long the gdb server sleeps between checks for a connection.
+const GDB_ACCEPT_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
 /// The running simulator.
 #[pyclass(name = "Simulator", subclass, module = "rvsim._core")]
 #[derive(Debug)]
@@ -553,7 +558,7 @@ impl PySimulator {
                         if !keep_going() {
                             return Ok(Outcome::Interrupted);
                         }
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        std::thread::sleep(GDB_ACCEPT_POLL);
                     }
                     Err(e) => return Err(PyOSError::new_err(e.to_string())),
                 }
@@ -585,7 +590,7 @@ impl PySimulator {
         let retired_before = self.inner.hart(0).instructions_retired;
         let mut ticks: u64 = 0;
         while self.inner.cycle() - start_cycle < max_cycles {
-            if ticks.is_multiple_of(10_000) {
+            if ticks.is_multiple_of(SIGNAL_CHECK_INTERVAL_TICKS) {
                 py.check_signals()?;
             }
             self.inner.tick().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
