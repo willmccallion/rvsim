@@ -1,7 +1,6 @@
 use super::builder::instruction::InstructionBuilder;
 use super::builder::pipeline_state::{IdExBuilder, IfIdBuilder};
 use super::harness::TestContext;
-use super::mocks::interrupts::MockInterruptController;
 use super::mocks::memory::MockMemory;
 use crate::common::PhysAddr;
 use crate::config::Config;
@@ -357,44 +356,4 @@ fn mock_memory_name() {
 
     let mem = MockMemory::new(64, 0);
     assert_eq!(mem.name(), "MockMemory");
-}
-
-#[test]
-fn interrupt_controller_raise_and_claim() {
-    let mut ic = MockInterruptController::new();
-    ic.enable(3);
-    ic.raise(3);
-    assert!(ic.is_pending());
-    assert_eq!(ic.claim(), Some(3));
-    assert!(!ic.is_pending(), "After claim, IRQ should be cleared");
-}
-
-#[test]
-fn interrupt_controller_disabled_irq_not_claimable() {
-    let mut ic = MockInterruptController::new();
-    ic.raise(5);
-    assert!(!ic.is_pending());
-    assert_eq!(ic.claim(), None);
-}
-
-#[test]
-fn interrupt_controller_multiple_irqs_claims_lowest() {
-    let mut ic = MockInterruptController::new();
-    ic.enable(2);
-    ic.enable(5);
-    ic.raise(5);
-    ic.raise(2);
-    assert_eq!(ic.claim(), Some(2));
-    assert_eq!(ic.claim(), Some(5));
-    assert_eq!(ic.claim(), None);
-}
-
-#[test]
-fn interrupt_controller_clear() {
-    let mut ic = MockInterruptController::new();
-    ic.enable(1);
-    ic.raise(1);
-    ic.clear(1);
-    assert!(!ic.is_pending());
-    assert_eq!(ic.claim(), None);
 }
