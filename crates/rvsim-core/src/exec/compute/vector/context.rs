@@ -75,6 +75,24 @@ impl FillTarget {
 }
 
 impl VecExecCtx {
+    /// An unmasked context at LMUL 1 with undisturbed policies, `vxrm`
+    /// RNU, `frm` RNE and no Zvfh: what a unit test starts from.
+    #[cfg(test)]
+    pub(crate) const fn unmasked(sew: Sew, vl: usize) -> Self {
+        Self {
+            sew,
+            vl,
+            vstart: 0,
+            vma: MaskPolicy::Undisturbed,
+            vta: TailPolicy::Undisturbed,
+            vlmul: Vlmul::M1,
+            vm: true,
+            vxrm: Vxrm::RoundToNearestUp,
+            frm: RoundingMode::Rne,
+            zvfh: false,
+        }
+    }
+
     /// Whether element `i` is skipped as prestart, tail or masked off. A
     /// tail element is filled into `dest` when `vta` is agnostic, and a
     /// masked-off one when `vma` is.
