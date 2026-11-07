@@ -67,20 +67,7 @@ impl InOrderEngine {
         debug_assert!(slot_allocated, "the store slot was checked before allocating");
 
         let entry = RenameIssueEntry {
-            inst: Inst {
-                pc: id.inst.pc,
-                bits: id.inst.bits,
-                size: id.inst.size,
-                rs1: id.inst.rs1,
-                rs2: id.inst.rs2,
-                rs3: id.inst.rs3,
-                rd: id.inst.rd,
-                imm: id.inst.imm,
-                rv1: 0,
-                rv2: 0,
-                rv3: 0,
-                ctrl: id.inst.ctrl,
-            },
+            inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..id.inst },
             rob_tag,
             rs1_phys: PhysReg(0),
             rs2_phys: PhysReg(0),
