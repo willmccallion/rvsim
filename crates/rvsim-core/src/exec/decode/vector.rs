@@ -58,11 +58,14 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
 
                 if bit31 == 0 {
                     // vsetvli: zimm[10:0] from bits 30:20
-                    c.vec_op = VectorOp::Vsetvli;
+                    c.vec_op = VectorOp::Vsetvli { vtype: v_enc::zimm_vsetvli(inst) };
                     c.reg_write = true;
                 } else if bit30 == 1 {
                     // vsetivli: zimm[9:0] from bits 29:20, uimm[4:0] from bits 19:15
-                    c.vec_op = VectorOp::Vsetivli;
+                    c.vec_op = VectorOp::Vsetivli {
+                        avl: v_enc::uimm_vsetivli(inst),
+                        vtype: v_enc::zimm_vsetivli(inst),
+                    };
                     c.reg_write = true;
                 } else {
                     // vsetvl: vtype from rs2
