@@ -50,84 +50,72 @@ impl CoreCtx<'_> {
     /// Per-hart work at the top of a cycle, before the clock advances:
     /// hang detection and folding this hart's interrupt lines into `mip`.
     pub fn pre_tick(&mut self, irqs: HartIrqs) {
+        self.detect_hang();
+        self.update_mip(irqs);
+    }
+
+    /// Counts cycles at one PC and, at the threshold, traces whether the
+    /// hart waits in WFI or may be hung.
+    fn detect_hang(&mut self) {
         let hart_idx = self.hart.hart_id.as_index();
         let debug = &mut self.uncore.per_hart_debug[hart_idx];
-        if self.hart.pc == debug.last_pc {
-            debug.same_pc_count += 1;
-            if debug.same_pc_count == HANG_DETECTION_THRESHOLD {
-                let asid = Satp::new(self.hart.csrs.satp).asid();
-                // Hang detection reads the instruction at the stuck PC for
-                // tracing straight from the memory image (bench-side
-                // observability — no cache modelling needed).
-                let paddr_raw =
-                    if let Some(hit) = self.core.mmu.dtlb.peek(self.hart.pc.page_number(), asid) {
-                        hit.ppn.to_addr() | self.hart.pc.page_offset()
-                    } else {
-                        self.hart.pc.val()
-                    };
-                let inst = self.memory.read(PhysAddr::new(paddr_raw), 4).unwrap_or(0) as u32;
-
-                if inst == WFI {
-                    trace_trap!(self.config.general.trace_instructions;
-                        event = "wfi-wait",
-                        pc    = %crate::common::trace::Hex(self.hart.pc.val()),
-                        "CPU stuck in WFI — waiting for interrupt"
-                    );
-                } else {
-                    trace_trap!(self.config.general.trace_instructions;
-                        event = "potential-hang",
-                        pc    = %crate::common::trace::Hex(self.hart.pc.val()),
-                        inst  = inst,
-                        "CPU potential hang detected"
-                    );
-                }
-            }
-        } else {
+        if self.hart.pc != debug.last_pc {
             debug.last_pc = self.hart.pc;
             debug.same_pc_count = 0;
+            return;
         }
-
-        let mut mip = self.hart.csrs.mip;
-
-        if irqs.mtip {
-            mip |= csr::MIP_MTIP;
+        debug.same_pc_count += 1;
+        if debug.same_pc_count != HANG_DETECTION_THRESHOLD {
+            return;
+        }
+        let asid = Satp::new(self.hart.csrs.satp).asid();
+        // Hang detection reads the instruction at the stuck PC for
+        // tracing straight from the memory image (bench-side
+        // observability — no cache modelling needed).
+        let paddr_raw = if let Some(hit) = self.core.mmu.dtlb.peek(self.hart.pc.page_number(), asid)
+        {
+            hit.ppn.to_addr() | self.hart.pc.page_offset()
         } else {
-            mip &= !csr::MIP_MTIP;
-        }
-
-        if irqs.msip {
-            mip |= csr::MIP_MSIP;
+            self.hart.pc.val()
+        };
+        let inst = self.memory.read(PhysAddr::new(paddr_raw), 4).unwrap_or(0) as u32;
+        if inst == WFI {
+            trace_trap!(self.config.general.trace_instructions;
+                event = "wfi-wait",
+                pc    = %crate::common::trace::Hex(self.hart.pc.val()),
+                "CPU stuck in WFI — waiting for interrupt"
+            );
         } else {
-            mip &= !csr::MIP_MSIP;
+            trace_trap!(self.config.general.trace_instructions;
+                event = "potential-hang",
+                pc    = %crate::common::trace::Hex(self.hart.pc.val()),
+                inst  = inst,
+                "CPU potential hang detected"
+            );
         }
+    }
 
-        if irqs.meip {
-            mip |= csr::MIP_MEIP;
-        } else {
-            mip &= !csr::MIP_MEIP;
-        }
+    /// Folds the interrupt lines `irqs` into `mip`.
+    fn update_mip(&mut self, irqs: HartIrqs) {
+        // With Sstc, hardware compares `time` (the CLINT's mtime) against
+        // stimecmp. Without it, OpenSBI injects STIP via `csrw mip`, so STIP
+        // stays under software control.
+        let sstc = (self.hart.csrs.menvcfg & csr::MENVCFG_STCE) != 0;
+        let stip = sstc.then(|| self.bus.mtime() >= self.hart.csrs.stimecmp);
+        let sw_seip = self.hart.sw_seip;
+        let mip = &mut self.hart.csrs.mip;
+        set_bits(mip, csr::MIP_MTIP, irqs.mtip);
+        set_bits(mip, csr::MIP_MSIP, irqs.msip);
+        set_bits(mip, csr::MIP_MEIP, irqs.meip);
         // SEIP is the logical-OR of the hardware signal (PLIC) and the
-        // software-written bit.  Only clear the hardware component; preserve
-        // the software-written bit so M-mode can inject S-mode external
-        // interrupts via `csrw mip`.
-        if irqs.seip {
-            mip |= csr::MIP_SEIP;
-        } else if !self.hart.sw_seip {
-            mip &= !csr::MIP_SEIP;
+        // software-written bit: a low line leaves a software-set bit alone,
+        // so M-mode can inject S-mode external interrupts via `csrw mip`.
+        if irqs.seip || !sw_seip {
+            set_bits(mip, csr::MIP_SEIP, irqs.seip);
         }
-
-        // STIP management: when Sstc is enabled, hardware compares `time`
-        // (the CLINT's mtime) against stimecmp. Without it, OpenSBI injects
-        // STIP via `csrw mip`, so STIP stays under software control.
-        if (self.hart.csrs.menvcfg & csr::MENVCFG_STCE) != 0 {
-            if self.bus.mtime() >= self.hart.csrs.stimecmp {
-                mip |= csr::MIP_STIP;
-            } else {
-                mip &= !csr::MIP_STIP;
-            }
+        if let Some(due) = stip {
+            set_bits(mip, csr::MIP_STIP, due);
         }
-
-        self.hart.csrs.mip = mip;
     }
 
     /// Post-tick: zero x0, privilege tracing, status printing.
@@ -169,6 +157,15 @@ impl CoreCtx<'_> {
             PrivilegeMode::Supervisor => self.stats.counter(hart_paths.cycles_kernel).inc(),
             PrivilegeMode::Machine => self.stats.counter(hart_paths.cycles_machine).inc(),
         }
+    }
+}
+
+/// Sets `mask`'s bits in `word` when `on`, else clears them.
+const fn set_bits(word: &mut u64, mask: u64, on: bool) {
+    if on {
+        *word |= mask;
+    } else {
+        *word &= !mask;
     }
 }
 
