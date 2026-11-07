@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::common::NANOS_PER_SECOND;
 use crate::common::VirtAddr;
 use crate::isa::privileged::PagingMode;
 use crate::sim::memory::GlobalMemory;
@@ -71,8 +72,6 @@ pub struct ProcessState {
     #[serde(default)]
     program: Option<String>,
 }
-
-const NANOS_PER_SECOND: u128 = 1_000_000_000;
 
 /// Where a process's regions start, relative to the address space's top.
 struct Layout {
@@ -154,13 +153,13 @@ impl Process {
     /// process's clock.
     #[must_use]
     pub fn nanoseconds_at(&self, cycle: u64) -> u128 {
-        u128::from(cycle) * NANOS_PER_SECOND / u128::from(self.clock_hz.max(1))
+        u128::from(cycle) * u128::from(NANOS_PER_SECOND) / u128::from(self.clock_hz.max(1))
     }
 
     /// The first cycle at which [`Self::nanoseconds_at`] reaches `ns`.
     #[must_use]
     pub fn cycle_at_nanoseconds(&self, ns: u128) -> u64 {
-        let cycles = (ns * u128::from(self.clock_hz.max(1))).div_ceil(NANOS_PER_SECOND);
+        let cycles = (ns * u128::from(self.clock_hz.max(1))).div_ceil(u128::from(NANOS_PER_SECOND));
         u64::try_from(cycles).unwrap_or(u64::MAX)
     }
 

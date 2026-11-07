@@ -8,7 +8,7 @@ mod thread;
 
 use thread::ThreadCall;
 
-use super::files::{Stat, errno, io_errno, open_flags};
+use super::files::{PATH_MAX, Stat, errno, io_errno, open_flags};
 use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, SpaceError, ThreadRef, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
 use crate::common::VirtAddr;
@@ -138,7 +138,6 @@ const HWPROBE_PAIR_BYTES: u64 = 16;
 /// The epoch `CLOCK_REALTIME` starts from: 2023-11-14, so dates are sane
 /// and every run sees the same clock.
 const REALTIME_EPOCH_SECONDS: u64 = 1_700_000_000;
-const PATH_MAX: usize = 4096;
 const CPU_ONLINE: &str = "/sys/devices/system/cpu/online";
 const CPU_POSSIBLE: &str = "/sys/devices/system/cpu/possible";
 const CPU_PRESENT: &str = "/sys/devices/system/cpu/present";

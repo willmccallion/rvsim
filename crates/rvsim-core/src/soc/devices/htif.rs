@@ -27,7 +27,7 @@ use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
 use crate::soc::terminal::SharedTerminal;
-use crate::system::process::files::{FileTable, Stat, errno, io_errno};
+use crate::system::process::files::{FileTable, PATH_MAX, Stat, errno, io_errno};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -276,7 +276,7 @@ impl Host<'_> {
         let mut cursor = addr;
         loop {
             let byte = self.memory.read(PhysAddr::new(cursor), 1).ok_or(-errno::EFAULT)? as u8;
-            if byte == 0 || out.len() >= 4096 {
+            if byte == 0 || out.len() >= PATH_MAX {
                 return Ok(out);
             }
             out.push(byte);

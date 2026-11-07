@@ -10,7 +10,7 @@ use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
-use crate::common::{HartId, PhysAddr, SimError};
+use crate::common::{HartId, NANOS_PER_SECOND, PhysAddr, SimError};
 use crate::config::{Config, InclusionPolicy, MemoryControllerKind, ValidConfig};
 use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{ComponentId, MemCtrlId};
@@ -188,7 +188,7 @@ impl SystemState {
         let syscon = SysCon::new(config.system.syscon_base, exit_signal.clone());
         let rtc = GoldfishRtc::new(
             crate::config::RTC_BASE,
-            config.system.rtc_epoch_seconds.saturating_mul(1_000_000_000),
+            config.system.rtc_epoch_seconds.saturating_mul(NANOS_PER_SECOND),
             config.system.cpu_clock_mhz,
         );
 
@@ -227,7 +227,7 @@ impl SystemState {
                     .unwrap_or(std::num::NonZeroU64::MAX);
                 Box::new(SimpleController::new(
                     config.memory.simple_latency,
-                    Bandwidth::new(bytes_per_second, config.system.cpu_clock_mhz * 1_000_000),
+                    Bandwidth::new(bytes_per_second, config.system.cpu_clock_hz()),
                 ))
             }
             MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
