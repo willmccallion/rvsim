@@ -166,7 +166,7 @@ impl O3Engine {
     /// last cycle that have yet to enter the issue queue; store-buffer
     /// slots as they stood a cycle ago, since this cycle's write
     /// acknowledgements have already landed, less the stores renamed since.
-    const fn take_rename_view(&mut self, pending_dispatch: usize) {
+    fn take_rename_view(&mut self, pending_dispatch: usize) {
         self.rename_view = RenameView {
             rob: self.rob.free_slots(),
             iq: self.issue_queue.available_slots().saturating_sub(pending_dispatch),
@@ -274,7 +274,7 @@ impl O3Engine {
         if !cfg!(debug_assertions) {
             return;
         }
-        let in_flight = self.rob.iter_all().filter(|entry| !entry.phys_dst.is_hardwired()).count();
+        let in_flight = self.rob.iter().filter(|entry| !entry.phys_dst.is_hardwired()).count();
         debug_assert_eq!(
             self.free_list.available() + ARCH_SCALAR_REGS + in_flight,
             self.prf.capacity(),
@@ -282,7 +282,7 @@ impl O3Engine {
             self.free_list.available(),
         );
         let vec_in_flight: usize =
-            self.rob.iter_all().map(|entry| usize::from(entry.vec_dst_count)).sum();
+            self.rob.iter().map(|entry| usize::from(entry.vec_dst_count)).sum();
         debug_assert_eq!(
             self.vec_free_list.available() + ARCH_VECTOR_REGS + vec_in_flight,
             self.vec_prf.capacity(),

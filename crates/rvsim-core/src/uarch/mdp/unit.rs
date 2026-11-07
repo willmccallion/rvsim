@@ -188,7 +188,7 @@ impl MemDepUnit {
         self.deps.retain(|&tag, _| tag.is_older_or_eq(keep_tag));
         if let PredictorKind::StoreSet(predictor) = &mut self.predictor {
             predictor.flush_after(keep_tag);
-            for entry in rob.iter_in_order() {
+            for entry in rob.iter() {
                 if entry.ctrl.mem_write {
                     predictor.rebuild_lfst_entry(entry.pc.val(), entry.tag);
                 }
