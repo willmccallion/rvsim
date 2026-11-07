@@ -34,7 +34,9 @@
 //!   - For **stores**: pass to M1→M2 with the resolved `paddr`. Memory2
 //!     resolves the store buffer and checks for ordering violations.
 
-use crate::arch::translation::{DirtyUpdates, TranslationResult};
+use std::ops::ControlFlow;
+
+use crate::arch::translation::{DirtyUpdates, PteUpdate, TranslationResult};
 use crate::common::{AccessType, PhysAddr, VirtAddr, crosses_cache_line};
 use crate::exec::cbo;
 use crate::exec::compute::misaligned;
@@ -175,166 +177,275 @@ fn process_entry<E: ExecutionEngine>(
     translated: PageTranslations,
     resolved: &mut Memory1Outcome,
 ) -> EntryOutcome {
-    // 1. Trap propagation. An entry execute already faulted carries its
-    // trap from here on and performs no access.
-    if ex.trap.is_some() {
-        push_passthrough_with_trap(engine, ex);
+    let Some(ex) = pass_on_fault(engine, ex) else {
         return EntryOutcome::Done;
-    }
-    if let Some(faulted) =
-        engine.rob().find_entry(ex.rob_tag).filter(|e| e.state == RobState::Faulted)
-    {
-        let mut ex = ex;
-        ex.trap.clone_from(&faulted.trap);
-        push_passthrough_with_trap(engine, ex);
-        return EntryOutcome::Done;
-    }
-
+    };
     if ex.ctrl.system_op.is_cbo() {
         return translate_cbo(state, engine, ex, translated.first, resolved);
     }
     if ex.vec_mem.as_ref().is_some_and(|access| matches!(access.target, VecMemTarget::Span(_))) {
         return process_span(state, engine, ex, translated.first);
     }
-
-    let needs_translation = ex.ctrl.mem_read || ex.ctrl.mem_write;
-    if !needs_translation {
+    if !ex.ctrl.mem_read && !ex.ctrl.mem_write {
         push_passthrough(engine, ex);
         return EntryOutcome::Done;
     }
-
-    // 2. Alignment.
-    let size = ex.ctrl.width.bytes();
-    let is_atomic = ex.ctrl.atomic_op.is_some();
-    if !misaligned::is_aligned(ex.alu, size)
-        && (state.config.memory.misaligned_access_trap || is_atomic)
-    {
-        let trap = if ex.ctrl.mem_write {
-            misaligned::store_misaligned_trap(ex.alu)
-        } else {
-            misaligned::load_misaligned_trap(ex.alu)
-        };
+    if let Err(trap) = check_access(state, &ex) {
         push_trap(engine, ex, trap);
         return EntryOutcome::Done;
     }
-
-    // 3. Sdtrig load/store triggers: the breakpoint's tval is the address.
-    if ex.ctrl.mem_read && !is_atomic && state.check_load_trigger(ex.alu) {
-        let trap = Trap::Breakpoint(ex.alu);
-        push_trap(engine, ex, trap);
-        return EntryOutcome::Done;
-    }
-    if ex.ctrl.mem_write && !is_atomic && state.check_store_trigger(ex.alu) {
-        let trap = Trap::Breakpoint(ex.alu);
-        push_trap(engine, ex, trap);
-        return EntryOutcome::Done;
-    }
-
-    // 4. Translation. An L2 TLB hit refills the L1 and costs its latency
-    // before the access continues; the L1 TLB answers in the same cycle.
-    let access_type = if ex.ctrl.mem_write { AccessType::Write } else { AccessType::Read };
-    let (ex, first) =
-        match translate_first_page(state, engine, ex, translated.first, access_type, size) {
-            FirstPage::Translated(ex, first) => (ex, first),
-            FirstPage::Waiting(waiting) => return waiting,
-        };
-    if let Some(trap) = first.trap {
-        push_trap(engine, ex, trap);
-        return EntryOutcome::Done;
-    }
-    let paddr = first.paddr;
-
-    // 4b. A misaligned access that spills into the next page translates
-    // that page as well; the two halves must then be physically adjacent
-    // for the single-request data path, otherwise the access is left to
-    // the misaligned trap handler like a real split-unaware LSU.
-    let mut second_dirty_update = None;
-    if let Some(second_va) = misaligned::second_page_start(ex.alu, size) {
-        let outcome = translated.second.map_or_else(
-            || state.translate(VirtAddr::new(second_va), access_type, 1),
-            TranslateOutcome::Ready,
-        );
-        match outcome {
-            TranslateOutcome::Ready(r) => {
-                if let Some(trap) = r.trap {
-                    push_trap(engine, ex, trap);
-                    return EntryOutcome::Done;
-                }
-                if r.cycles > 0 {
-                    let second = Some(TranslationResult { cycles: 0, ..r });
-                    let translations = PageTranslations { first: Some(first), second };
-                    return EntryOutcome::Delayed(DelayedAccess {
-                        ready_cycle: state.cycle + r.cycles,
-                        entry: ex,
-                        translations,
-                    });
-                }
-                let first_page_bytes = second_va.wrapping_sub(ex.alu);
-                if r.paddr.val() != paddr.val().wrapping_add(first_page_bytes) {
-                    let trap = if ex.ctrl.mem_write {
-                        misaligned::store_misaligned_trap(ex.alu)
-                    } else {
-                        misaligned::load_misaligned_trap(ex.alu)
-                    };
-                    push_trap(engine, ex, trap);
-                    return EntryOutcome::Done;
-                }
-                second_dirty_update = r.dirty_update;
-            }
-            TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
-                let translations = PageTranslations { first: Some(first), second: None };
-                park_walk(state, engine, walk_state, pte_addr, 1, ex, translations);
-                return EntryOutcome::ParkedWalk;
-            }
-        }
-    }
-    let dirty_updates = DirtyUpdates::of(first.dirty_update, second_dirty_update);
-
-    // 5. Load-queue address fill (O3).
-    if ex.ctrl.mem_read
+    let access = match translate_access(state, engine, ex, translated) {
+        ControlFlow::Continue(access) => access,
+        ControlFlow::Break(outcome) => return outcome,
+    };
+    if access.ex.ctrl.mem_read
         && let Some(lq) = engine.load_queue_mut()
     {
-        let micro_op = ex.vec_mem.as_ref().map(|v| v.micro_op);
-        lq.fill_address(ex.rob_tag, micro_op, VirtAddr::new(ex.alu), paddr);
+        let micro_op = access.ex.vec_mem.as_ref().map(|v| v.micro_op);
+        lq.fill_address(access.ex.rob_tag, micro_op, access.ex.vaddr(), access.paddr);
     }
-
-    // 6. Operation dispatch.
-    let vaddr = VirtAddr::new(ex.alu);
-
-    if ex.ctrl.mem_write && !is_atomic {
-        if ex.vec_mem.is_none() {
-            resolve_store(state, engine, &ex, paddr, vaddr, resolved);
-        }
-        push_resolved_store(engine, ex, paddr, vaddr, dirty_updates);
+    if access.ex.ctrl.atomic_op.is_some() {
+        return perform_atomic(state, engine, access);
+    }
+    if access.ex.ctrl.mem_write {
+        perform_store(state, engine, access, resolved);
         return EntryOutcome::Done;
     }
+    perform_load(state, engine, access)
+}
 
-    if is_atomic {
-        if ex.ctrl.performs_at_rob_head() {
-            // It follows every older store to memory, sets its PTE's D bit
-            // as its translation completes, then takes effect in the cache.
-            if !takes_effect_now(engine, ex.rob_tag) || older_stores_pending(state, engine) {
-                return EntryOutcome::Replay(ex);
-            }
-            if !apply_dirty_updates(state, engine, dirty_updates) {
-                return EntryOutcome::Replay(ex);
-            }
-            emit_load_req(state, engine, ex, paddr, vaddr, DirtyUpdates::NONE);
-            return EntryOutcome::Done;
+/// `ex`, unless it or its ROB entry already faulted: then it carries the
+/// trap on from here and performs no access.
+fn pass_on_fault<E: ExecutionEngine>(engine: &mut E, mut ex: ExMem1Entry) -> Option<ExMem1Entry> {
+    if ex.trap.is_none() {
+        let rob_trap = engine.rob().find_entry(ex.rob_tag).filter(|e| e.state == RobState::Faulted);
+        let Some(trap) = rob_trap.map(|faulted| faulted.trap.clone()) else {
+            return Some(ex);
+        };
+        ex.trap = trap;
+    }
+    push_passthrough_with_trap(engine, ex);
+    None
+}
+
+/// The fault an access raises before it is translated: misalignment where
+/// that traps, then an Sdtrig load or store trigger on its address, whose
+/// breakpoint's tval is the address.
+fn check_access(state: &StageCtx<'_>, ex: &ExMem1Entry) -> Result<(), Trap> {
+    let is_atomic = ex.ctrl.atomic_op.is_some();
+    let traps_misaligned = state.config.memory.misaligned_access_trap || is_atomic;
+    if traps_misaligned && !misaligned::is_aligned(ex.alu, ex.ctrl.width.bytes()) {
+        return Err(misaligned_trap(ex));
+    }
+    let is_triggered = !is_atomic
+        && ((ex.ctrl.mem_read && state.check_load_trigger(ex.alu))
+            || (ex.ctrl.mem_write && state.check_store_trigger(ex.alu)));
+    if is_triggered {
+        return Err(Trap::Breakpoint(ex.alu));
+    }
+    Ok(())
+}
+
+/// The misaligned-address fault `ex` raises, a load's or a store's.
+const fn misaligned_trap(ex: &ExMem1Entry) -> Trap {
+    if ex.ctrl.mem_write {
+        misaligned::store_misaligned_trap(ex.alu)
+    } else {
+        misaligned::load_misaligned_trap(ex.alu)
+    }
+}
+
+/// An access with its translation: the physical address of its first
+/// byte, and the D-bit updates a store makes as it retires.
+struct TranslatedAccess {
+    ex: ExMem1Entry,
+    paddr: PhysAddr,
+    dirty_updates: DirtyUpdates,
+}
+
+/// Translates `ex`, unless `known` already has, and the next page too when
+/// a misaligned access spills into it. Breaks with the outcome when the
+/// translation faults or the access has to wait for it.
+fn translate_access<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    ex: ExMem1Entry,
+    known: PageTranslations,
+) -> ControlFlow<EntryOutcome, TranslatedAccess> {
+    let (access_type, size) = (access_type(&ex), ex.ctrl.width.bytes());
+    let (ex, first) = match translate_first_page(state, engine, ex, known.first, access_type, size)
+    {
+        FirstPage::Translated(ex, first) => (ex, first),
+        FirstPage::Waiting(waiting) => return ControlFlow::Break(waiting),
+    };
+    if let Some(trap) = first.trap {
+        push_trap(engine, ex, trap);
+        return ControlFlow::Break(EntryOutcome::Done);
+    }
+    let (ex, second_dirty_update) = translate_second_page(state, engine, ex, &first, known.second)?;
+    let dirty_updates = DirtyUpdates::of(first.dirty_update, second_dirty_update);
+    ControlFlow::Continue(TranslatedAccess { ex, paddr: first.paddr, dirty_updates })
+}
+
+/// The read or write `ex` makes of memory.
+const fn access_type(ex: &ExMem1Entry) -> AccessType {
+    if ex.ctrl.mem_write { AccessType::Write } else { AccessType::Read }
+}
+
+/// How translating the page of an access's first byte came out.
+enum FirstPage {
+    /// The access with its translation, whose fault the caller raises.
+    Translated(ExMem1Entry, TranslationResult),
+    /// The access waits: out an L2 TLB hit's latency, or on a walk.
+    Waiting(EntryOutcome),
+}
+
+/// Translates the page of `ex`'s first byte, unless `known` already has.
+/// An L2 TLB hit refills the L1 and costs its latency before the access
+/// continues; the L1 TLB answers in the same cycle.
+fn translate_first_page<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    ex: ExMem1Entry,
+    known: Option<TranslationResult>,
+    access_type: AccessType,
+    size: u64,
+) -> FirstPage {
+    let outcome = known
+        .map_or_else(|| state.translate(ex.vaddr(), access_type, size), TranslateOutcome::Ready);
+    match outcome {
+        TranslateOutcome::Ready(r) if r.trap.is_none() && r.cycles > 0 => {
+            let cycles = r.cycles;
+            let translations = PageTranslations { first: Some(r.settled()), second: None };
+            FirstPage::Waiting(wait_for_l2_tlb(state, ex, translations, cycles))
         }
-        // LR: wait for older stores to this address to drain.
-        if older_store_unwritten(state, engine, &ex, paddr, size) {
+        TranslateOutcome::Ready(r) => FirstPage::Translated(ex, r),
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
+            let translations = PageTranslations::default();
+            park_walk(state, engine, walk_state, pte_addr, size, ex, translations);
+            FirstPage::Waiting(EntryOutcome::ParkedWalk)
+        }
+    }
+}
+
+/// `ex` with the D-bit update of the next page, which a misaligned access
+/// spilling into it translates as well, unless `known` already has. The
+/// two halves must be physically adjacent for the single-request data
+/// path; otherwise the access is left to the misaligned trap handler, like
+/// a real split-unaware LSU.
+fn translate_second_page<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    ex: ExMem1Entry,
+    first: &TranslationResult,
+    known: Option<TranslationResult>,
+) -> ControlFlow<EntryOutcome, (ExMem1Entry, Option<PteUpdate>)> {
+    let Some(second_va) = misaligned::second_page_start(ex.alu, ex.ctrl.width.bytes()) else {
+        return ControlFlow::Continue((ex, None));
+    };
+    let outcome = known.map_or_else(
+        || state.translate(VirtAddr::new(second_va), access_type(&ex), 1),
+        TranslateOutcome::Ready,
+    );
+    let r = match outcome {
+        TranslateOutcome::Ready(r) => r,
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
+            let translations = PageTranslations { first: Some(first.clone()), second: None };
+            park_walk(state, engine, walk_state, pte_addr, 1, ex, translations);
+            return ControlFlow::Break(EntryOutcome::ParkedWalk);
+        }
+    };
+    if let Some(trap) = r.trap {
+        push_trap(engine, ex, trap);
+        return ControlFlow::Break(EntryOutcome::Done);
+    }
+    if r.cycles > 0 {
+        let cycles = r.cycles;
+        let translations =
+            PageTranslations { first: Some(first.clone()), second: Some(r.settled()) };
+        return ControlFlow::Break(wait_for_l2_tlb(state, ex, translations, cycles));
+    }
+    let first_page_bytes = second_va.wrapping_sub(ex.alu);
+    if r.paddr.val() != first.paddr.val().wrapping_add(first_page_bytes) {
+        let trap = misaligned_trap(&ex);
+        push_trap(engine, ex, trap);
+        return ControlFlow::Break(EntryOutcome::Done);
+    }
+    ControlFlow::Continue((ex, r.dirty_update))
+}
+
+/// `ex` waiting out the `cycles` an L2 TLB hit costs, to continue with
+/// `translations`.
+fn wait_for_l2_tlb(
+    state: &StageCtx<'_>,
+    ex: ExMem1Entry,
+    translations: PageTranslations,
+    cycles: u64,
+) -> EntryOutcome {
+    EntryOutcome::Delayed(DelayedAccess {
+        ready_cycle: state.cycle + cycles,
+        entry: ex,
+        translations,
+    })
+}
+
+/// Resolves a plain store: a scalar one into its store-buffer slot, and
+/// either on to memory2.
+fn perform_store<E: ExecutionEngine>(
+    state: &StageCtx<'_>,
+    engine: &mut E,
+    access: TranslatedAccess,
+    resolved: &mut Memory1Outcome,
+) {
+    let TranslatedAccess { ex, paddr, dirty_updates } = access;
+    let vaddr = ex.vaddr();
+    if ex.vec_mem.is_none() {
+        resolve_store(state, engine, &ex, paddr, vaddr, resolved);
+    }
+    push_resolved_store(engine, ex, paddr, vaddr, dirty_updates);
+}
+
+/// Sends an LR, SC or AMO to the cache, replaying it until it may go.
+fn perform_atomic<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    access: TranslatedAccess,
+) -> EntryOutcome {
+    let TranslatedAccess { ex, paddr, dirty_updates } = access;
+    let vaddr = ex.vaddr();
+    if ex.ctrl.performs_at_rob_head() {
+        // It follows every older store to memory, sets its PTE's D bit
+        // as its translation completes, then takes effect in the cache.
+        if !takes_effect_now(engine, ex.rob_tag) || older_stores_pending(state, engine) {
             return EntryOutcome::Replay(ex);
         }
-        if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.rob_tag) {
+        if !apply_dirty_updates(state, engine, dirty_updates) {
             return EntryOutcome::Replay(ex);
         }
-        emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
+        emit_load_req(state, engine, ex, paddr, vaddr, DirtyUpdates::NONE);
         return EntryOutcome::Done;
     }
+    // LR: wait for older stores to this address to drain.
+    let size = ex.ctrl.width.bytes();
+    if older_store_unwritten(state, engine, &ex, paddr, size) {
+        return EntryOutcome::Replay(ex);
+    }
+    if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.rob_tag) {
+        return EntryOutcome::Replay(ex);
+    }
+    emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
+    EntryOutcome::Done
+}
 
-    let pc = ex.pc;
-
+/// Sends a load to a device or the cache, or forwards it from the store
+/// buffer, replaying it until it may go.
+fn perform_load<E: ExecutionEngine>(
+    state: &mut StageCtx<'_>,
+    engine: &mut E,
+    access: TranslatedAccess,
+) -> EntryOutcome {
+    let TranslatedAccess { ex, paddr, dirty_updates } = access;
+    let (pc, vaddr, size) = (ex.pc, ex.vaddr(), ex.ctrl.width.bytes());
     // A device read has side effects, so it waits until nothing older can
     // still fault, redirect or be interrupted: the load must be the oldest
     // instruction in the machine. A register need not read back what was
@@ -349,59 +460,15 @@ fn process_entry<E: ExecutionEngine>(
         send_load_prefetches(state, engine, pc, vaddr, paddr);
         return EntryOutcome::Done;
     }
-
     match forward_from_pending_stores(state, engine, &ex, paddr, size as usize) {
         ForwardResult::Hit(raw_val) => {
             push_sb_forwarded_load(state, engine, ex, paddr, vaddr, dirty_updates, raw_val);
-            send_load_prefetches(state, engine, pc, vaddr, paddr);
-            EntryOutcome::Done
         }
-        ForwardResult::Stall => EntryOutcome::Replay(ex),
-        ForwardResult::Miss => {
-            emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
-            send_load_prefetches(state, engine, pc, vaddr, paddr);
-            EntryOutcome::Done
-        }
+        ForwardResult::Stall => return EntryOutcome::Replay(ex),
+        ForwardResult::Miss => emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates),
     }
-}
-
-/// How translating the page of an access's first byte came out.
-enum FirstPage {
-    /// The access with its translation, whose fault the caller raises.
-    Translated(ExMem1Entry, TranslationResult),
-    /// The access waits: out an L2 TLB hit's latency, or on a walk.
-    Waiting(EntryOutcome),
-}
-
-/// Translates the page of `ex`'s first byte, unless `known` already has.
-fn translate_first_page<E: ExecutionEngine>(
-    state: &mut StageCtx<'_>,
-    engine: &mut E,
-    ex: ExMem1Entry,
-    known: Option<TranslationResult>,
-    access_type: AccessType,
-    size: u64,
-) -> FirstPage {
-    let outcome = known.map_or_else(
-        || state.translate(VirtAddr::new(ex.alu), access_type, size),
-        TranslateOutcome::Ready,
-    );
-    match outcome {
-        TranslateOutcome::Ready(r) if r.trap.is_none() && r.cycles > 0 => {
-            let first = Some(TranslationResult { cycles: 0, ..r });
-            FirstPage::Waiting(EntryOutcome::Delayed(DelayedAccess {
-                ready_cycle: state.cycle + r.cycles,
-                entry: ex,
-                translations: PageTranslations { first, second: None },
-            }))
-        }
-        TranslateOutcome::Ready(r) => FirstPage::Translated(ex, r),
-        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
-            let translations = PageTranslations::default();
-            park_walk(state, engine, walk_state, pte_addr, size, ex, translations);
-            FirstPage::Waiting(EntryOutcome::ParkedWalk)
-        }
-    }
+    send_load_prefetches(state, engine, pc, vaddr, paddr);
+    EntryOutcome::Done
 }
 
 /// Processes a vector span: one translation, then one access for all its
@@ -548,12 +615,9 @@ fn translate_cbo<E: ExecutionEngine>(
                 return EntryOutcome::Done;
             }
             if r.cycles > 0 {
-                let first = Some(TranslationResult { cycles: 0, ..r });
-                return EntryOutcome::Delayed(DelayedAccess {
-                    ready_cycle: state.cycle + r.cycles,
-                    entry: ex,
-                    translations: PageTranslations { first, second: None },
-                });
+                let cycles = r.cycles;
+                let translations = PageTranslations { first: Some(r.settled()), second: None };
+                return wait_for_l2_tlb(state, ex, translations, cycles);
             }
             (r.paddr, r.dirty_update)
         }
@@ -665,13 +729,13 @@ fn push_passthrough<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
 
 /// Forwards an entry that already carries a trap from an earlier stage.
 fn push_passthrough_with_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry) {
-    let vaddr = VirtAddr::new(ex.alu);
+    let vaddr = ex.vaddr();
     engine.mem1_mem2_mut().push(Mem1Mem2Entry::from_execute(ex, vaddr, PhysAddr::new(0)));
 }
 
 /// Emits a fresh trap entry into the M1→M2 latch.
 fn push_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry, trap: Trap) {
-    let vaddr = VirtAddr::new(ex.alu);
+    let vaddr = ex.vaddr();
     engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         trap: Some(trap),
         ..Mem1Mem2Entry::from_execute(ex, vaddr, PhysAddr::new(0))
