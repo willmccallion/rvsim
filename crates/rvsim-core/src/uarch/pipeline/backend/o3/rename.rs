@@ -13,7 +13,7 @@ use crate::exec::compute::vector::mem::{
 use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::op::VecOperandGroups;
-use crate::isa::rvv::{VRegIdx, VectorConfig, parse_vtype};
+use crate::isa::rvv::{VRegIdx, VectorConfig, VectorRounding, parse_vtype};
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::expected_load_micro_ops;
@@ -25,6 +25,7 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::trace::Stage;
 
 impl O3Engine {
@@ -38,221 +39,248 @@ impl O3Engine {
             state.counter(state.core().stat_paths.pipeline.stalls_serialize).inc();
             return Renamed::Stalled(Box::new(id));
         }
-        let vector = self.vector_config(&state.hart().csrs);
-        let load_slots = self.load_slots_for(&id, &vector, state);
-        let is_branch_or_jump =
-            matches!(id.inst.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump);
-        let checkpoint = if is_branch_or_jump && self.checkpoints.capacity() > 0 {
-            let Some(reserved) = self.checkpoints.reserve() else {
+        let csrs = &state.hart().csrs;
+        let vector =
+            VectorContext { config: self.vector_config(csrs), rounding: csrs.vector_rounding() };
+        let load_slots = self.load_slots_for(&id, &vector.config, state);
+        let checkpoint = if self.needs_checkpoint(&id.inst.ctrl) {
+            let Some(slot) = self.checkpoints.free_slot() else {
                 state.counter(state.core().stat_paths.pipeline.stalls_checkpoint).inc();
                 return Renamed::Stalled(Box::new(id));
             };
-            Some(reserved)
+            Some(slot)
         } else {
             None
         };
-        let slots = BackendSlots {
+        if !self.backend_slots().has_room_for(&id, load_slots) {
+            return Renamed::Stalled(Box::new(id));
+        }
+        let groups = vector_operand_groups(&id.inst.ctrl, &vector.config);
+        let sources = self.capture_sources(&id.inst, groups);
+        let Some(dests) = self.allocate_destinations(&id, groups.vd) else {
+            return Renamed::Stalled(Box::new(id));
+        };
+        state.trace_stage(id.seq, Stage::Rename);
+        self.allocate_memory_slots(dests.rob_tag, &id.inst.ctrl, load_slots);
+        // After the destinations: the checkpoint holds the branch's own rd.
+        if let Some(slot) = checkpoint {
+            let checkpoint_id = slot.fill(&mut self.checkpoints, dests.rob_tag, &self.rename_map);
+            self.rob.set_checkpoint_id(dests.rob_tag, checkpoint_id);
+        }
+        let entry = renamed_entry(id, &sources, &dests, vector);
+        trace_renamed(state, &entry, dests.old_phys_dst);
+        if entry.inst.ctrl.system_op.serializes_after() {
+            self.serialization = super::serialize::Serialization::after(entry.rob_tag);
+        }
+        Renamed::Accepted(Box::new(entry))
+    }
+
+    /// Whether a branch or jump takes a rename-map checkpoint for its
+    /// recovery.
+    const fn needs_checkpoint(&self, ctrl: &ControlSignals) -> bool {
+        matches!(ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump)
+            && self.checkpoints.capacity() > 0
+    }
+
+    const fn backend_slots(&self) -> BackendSlots<'_> {
+        BackendSlots {
             store_buffer: &self.store_buffer,
             vec_store_buffer: &self.vec_store_buffer,
             load_queue: &self.load_queue,
             free_list: &self.free_list,
             view: self.rename_view,
-        };
-        if !slots.has_room_for(&id, load_slots) {
-            return Renamed::Stalled(Box::new(id));
         }
+    }
 
-        // Capture source physical regs BEFORE updating rename map for rd.
-        let ctrl = id.inst.ctrl;
-        let rs1_phys = self.rename_map.get(ctrl.src1(id.inst.rs1));
-        let rs2_phys = self.rename_map.get(ctrl.src2(id.inst.rs2));
-        let rs3_phys = ctrl.src3(id.inst.rs3).map_or(PhysReg(0), |rs3| self.rename_map.get(rs3));
-
-        // Capture vector source mappings before vd is renamed.
-        let lmul = id.inst.ctrl.vec_lmul_regs;
-        let grp = vector_operand_groups(&id.inst.ctrl, &vector);
-        let mut vs1_phys = [VecPhysReg::ZERO; 8];
-        let mut vs2_phys = [VecPhysReg::ZERO; 8];
-        let mut vs3_phys = [VecPhysReg::ZERO; 8];
-        let mut vec_src1_count: u8 = 0;
-        let mut vec_src2_count: u8 = 0;
-        let mut vec_src3_count: u8 = 0;
-
-        if lmul > 0 {
-            if grp.vs2 > 0 {
-                vec_src2_count = grp.vs2;
-                let vs2_base = id.inst.ctrl.vs2.as_u8();
-                for (i, slot) in vs2_phys.iter_mut().enumerate().take(grp.vs2 as usize) {
-                    *slot = self.rename_map.get_vec(VRegIdx::new(vs2_base + i as u8));
-                }
-            }
-
-            if grp.vs1 > 0 {
-                vec_src1_count = grp.vs1;
-                let vs1_base = id.inst.ctrl.vs1.as_u8();
-                for (i, slot) in vs1_phys.iter_mut().enumerate().take(grp.vs1 as usize) {
-                    *slot = self.rename_map.get_vec(VRegIdx::new(vs1_base + i as u8));
-                }
-            }
-
-            // vs3 = old vd; needed for tail/mask merging and as store data source.
-            if grp.vd > 0 && (id.inst.ctrl.vec_reg_write || is_vec_store(id.inst.ctrl.vec_op)) {
-                vec_src3_count = grp.vd;
-                let vd_base = id.inst.ctrl.vd.as_u8();
-                for (i, slot) in vs3_phys.iter_mut().enumerate().take(grp.vd as usize) {
-                    *slot = self.rename_map.get_vec(VRegIdx::new(vd_base + i as u8));
-                }
-            }
+    /// The physical registers `inst` reads, mapped before its destinations
+    /// are renamed: a masked compare writing v0 is masked by the old v0.
+    fn capture_sources(&self, inst: &Inst, groups: VecOperandGroups) -> Sources {
+        let ctrl = &inst.ctrl;
+        let map = &self.rename_map;
+        let is_vector = ctrl.vec_lmul_regs > 0;
+        let vs1_count = if is_vector { groups.vs1 } else { 0 };
+        let vs2_count = if is_vector { groups.vs2 } else { 0 };
+        let reads_old_vd = is_vector && (ctrl.vec_reg_write || is_vec_store(ctrl.vec_op));
+        let vs3_count = if reads_old_vd { groups.vd } else { 0 };
+        Sources {
+            rs1: map.get(ctrl.src1(inst.rs1)),
+            rs2: map.get(ctrl.src2(inst.rs2)),
+            rs3: ctrl.src3(inst.rs3).map_or(PhysReg(0), |rs3| map.get(rs3)),
+            vs1: map.vec_group(ctrl.vs1, vs1_count),
+            vs2: map.vec_group(ctrl.vs2, vs2_count),
+            vs3: map.vec_group(ctrl.vd, vs3_count),
+            vs1_count,
+            vs2_count,
+            vs3_count,
+            mask: ctrl.is_masked_vector_op().then(|| map.get_vec(VRegIdx::new(0))),
         }
+    }
 
-        // Before vd is renamed: a masked compare may write v0 itself.
-        let mask = ctrl.is_masked_vector_op().then(|| self.rename_map.get_vec(VRegIdx::new(0)));
-
+    /// Allocates the physical registers and ROB entry `id` writes and
+    /// renames its destinations to them, its vector group `vd_count`
+    /// registers long; `None` when a vector register or the ROB entry is
+    /// short, with nothing left allocated.
+    fn allocate_destinations(&mut self, id: &IdExEntry, vd_count: u8) -> Option<Destinations> {
+        let inst = &id.inst;
         // x0 stays unrenamed: hardwired zero, never freed at commit.
-        let dest = ctrl.dest(id.inst.rd);
-        let (rd_phys, old_phys_dst) = if let Some(dest) = dest {
-            let Some(new_p) = self.free_list.allocate() else {
-                return Renamed::Stalled(Box::new(id));
-            };
-            (new_p, self.rename_map.get(dest))
-        } else {
-            (PhysReg(0), PhysReg(0))
+        let dest = inst.ctrl.dest(inst.rd);
+        let (rd_phys, old_phys_dst) = match dest {
+            Some(dest) => (self.free_list.allocate()?, self.rename_map.get(dest)),
+            None => (PhysReg(0), PhysReg(0)),
         };
-
-        let vec_dst_count = if id.inst.ctrl.vec_reg_write && grp.vd > 0 { grp.vd } else { 0 };
-        let Some(vec_dst_regs) = self.vec_free_list.reserve(vec_dst_count as usize) else {
+        let vd_count = if inst.ctrl.vec_reg_write { vd_count } else { 0 };
+        let vd_regs = self.vec_free_list.reserve(vd_count as usize);
+        let rob_tag = vd_regs.as_ref().and_then(|_| {
+            let rob = &mut self.rob;
+            rob.allocate(
+                inst.pc,
+                inst.bits,
+                inst.size,
+                inst.rd,
+                inst.ctrl,
+                rd_phys,
+                old_phys_dst,
+                id.seq,
+            )
+        });
+        let (Some(vd_regs), Some(rob_tag)) = (vd_regs, rob_tag) else {
             if dest.is_some() {
                 self.free_list.reclaim(rd_phys);
             }
-            return Renamed::Stalled(Box::new(id));
+            return None;
         };
-
-        let Some(rob_tag) = self.rob.allocate(
-            id.inst.pc,
-            id.inst.bits,
-            id.inst.size,
-            id.inst.rd,
-            id.inst.ctrl,
-            rd_phys,
-            old_phys_dst,
-            id.seq,
-        ) else {
-            if dest.is_some() {
-                self.free_list.reclaim(rd_phys);
-            }
-            return Renamed::Stalled(Box::new(id));
-        };
-        state.trace_stage(id.seq, Stage::Rename);
-
+        let mut vd_phys = [VecPhysReg::ZERO; 8];
+        for (slot, reg) in vd_phys.iter_mut().zip(vd_regs.take()) {
+            *slot = reg;
+        }
         if let Some(dest) = dest {
             self.rename_map.set(dest, rd_phys);
             self.prf.allocate(rd_phys);
         }
-
-        let mut vd_phys = [VecPhysReg::ZERO; 8];
-        if vec_dst_count > 0 {
-            let mut vec_old_phys = [VecPhysReg::ZERO; 8];
-            let vd_base = id.inst.ctrl.vd.as_u8();
-            for (i, new_p) in vec_dst_regs.take().enumerate() {
-                let vreg = VRegIdx::new(vd_base + i as u8);
-                vec_old_phys[i] = self.rename_map.get_vec(vreg);
-                vd_phys[i] = new_p;
-                self.rename_map.set_vec(vreg, new_p);
-                self.vec_prf.allocate(new_p);
+        if vd_count > 0 {
+            let renamed = &vd_phys[..vd_count as usize];
+            let vec_old_phys = self.rename_map.rename_vec_group(inst.ctrl.vd, renamed);
+            for &reg in renamed {
+                self.vec_prf.allocate(reg);
             }
-            self.rob.set_vec_phys_dst(rob_tag, vd_phys, vec_old_phys, vec_dst_count);
+            self.rob.set_vec_phys_dst(rob_tag, vd_phys, vec_old_phys, vd_count);
         }
-
-        let store_slot_allocated = if id.inst.ctrl.uses_store_buffer() {
-            self.store_buffer.allocate(rob_tag, id.inst.ctrl.width)
-        } else if is_vec_store(id.inst.ctrl.vec_op) {
+        Some(Destinations { rob_tag, rd_phys, old_phys_dst, vd_phys })
+    }
+    /// Takes `ctrl`'s store-buffer or load-queue slots for ROB entry
+    /// `rob_tag`, which `has_room_for` saw free.
+    fn allocate_memory_slots(
+        &mut self,
+        rob_tag: RobTag,
+        ctrl: &ControlSignals,
+        load_slots: LoadSlots,
+    ) {
+        let store_slot_allocated = if ctrl.uses_store_buffer() {
+            self.store_buffer.allocate(rob_tag, ctrl.width)
+        } else if is_vec_store(ctrl.vec_op) {
             self.vec_store_buffer.allocate(rob_tag)
         } else {
             true
         };
         let load_slot_allocated = match load_slots {
             LoadSlots::None => true,
-            LoadSlots::Scalar => {
-                self.load_queue.allocate(rob_tag, id.inst.ctrl.width.bytes() as usize)
-            }
+            LoadSlots::Scalar => self.load_queue.allocate(rob_tag, ctrl.width.bytes() as usize),
             LoadSlots::Vector(count) => self.load_queue.reserve(rob_tag, count),
         };
         debug_assert!(
             store_slot_allocated && load_slot_allocated,
             "has_room_for checked the memory slots"
         );
-        if id.inst.ctrl.uses_store_buffer() {
+        if ctrl.uses_store_buffer() {
             self.rename_view.sq -= 1;
             self.stores_renamed_this_cycle += 1;
         }
         self.rename_view.lq -= load_slots.count();
-
-        // Snapshot rename map *after* rd has been renamed.
-        if let Some(checkpoint) = checkpoint {
-            let ckpt_id = checkpoint.fill(rob_tag, &self.rename_map);
-            self.rob.set_checkpoint_id(rob_tag, ckpt_id);
-        }
-
-        let entry = RenameIssueEntry {
-            inst: Inst {
-                pc: id.inst.pc,
-                bits: id.inst.bits,
-                size: id.inst.size,
-                rs1: id.inst.rs1,
-                rs2: id.inst.rs2,
-                rs3: id.inst.rs3,
-                rd: id.inst.rd,
-                imm: id.inst.imm,
-                rv1: 0,
-                rv2: 0,
-                rv3: 0,
-                ctrl: id.inst.ctrl,
-            },
-            rob_tag,
-            rs1_phys,
-            rs2_phys,
-            rs3_phys,
-            rd_phys,
-            rs1_tag: None,
-            rs2_tag: None,
-            rs3_tag: None,
-            trap: id.trap,
-            predicted_target: id.predicted_target,
-            seq: id.seq,
-            vs1_phys,
-            vs2_phys,
-            vs3_phys,
-            vd_phys,
-            vec_src1_count,
-            vec_src2_count,
-            vec_src3_count,
-            mask,
-            // Snapshot vector CSRs so execute uses dispatch-time context even after vsetvl.
-            vector_config: vector,
-            vector_rounding: state.hart().csrs.vector_rounding(),
-        };
-
-        trace_rename!(state.config.general.trace_instructions;
-            pc         = %crate::common::trace::Hex(entry.inst.pc.val()),
-            rob_tag    = %entry.rob_tag,
-            rd         = entry.inst.rd.as_usize(),
-            rd_phys    = rd_phys.0,
-            old_phys   = old_phys_dst.0,
-            rs1        = entry.inst.rs1.as_usize(),
-            rs1_phys   = rs1_phys.0,
-            rs2        = entry.inst.rs2.as_usize(),
-            rs2_phys   = rs2_phys.0,
-            is_store   = entry.inst.ctrl.mem_write,
-            is_load    = entry.inst.ctrl.mem_read,
-            is_fp      = entry.inst.ctrl.fp_reg_write,
-            "RN: O3 rename"
-        );
-
-        if entry.inst.ctrl.system_op.serializes_after() {
-            self.serialization = super::serialize::Serialization::after(entry.rob_tag);
-        }
-        Renamed::Accepted(Box::new(entry))
     }
+}
+
+/// The vector CSR state an instruction executes with, taken at rename so a
+/// `vsetvl` still in flight cannot change it.
+#[derive(Clone, Copy)]
+struct VectorContext {
+    config: VectorConfig,
+    rounding: VectorRounding,
+}
+
+/// The physical registers an instruction reads, as rename found them.
+struct Sources {
+    rs1: PhysReg,
+    rs2: PhysReg,
+    rs3: PhysReg,
+    vs1: [VecPhysReg; 8],
+    vs2: [VecPhysReg; 8],
+    /// The old destination group, for tail and mask merging and as store data.
+    vs3: [VecPhysReg; 8],
+    vs1_count: u8,
+    vs2_count: u8,
+    vs3_count: u8,
+    mask: Option<VecPhysReg>,
+}
+
+/// The ROB entry and physical registers rename allocated for an
+/// instruction's results.
+struct Destinations {
+    rob_tag: RobTag,
+    rd_phys: PhysReg,
+    /// The register `rd` mapped to before, freed when this one commits.
+    old_phys_dst: PhysReg,
+    vd_phys: [VecPhysReg; 8],
+}
+
+/// The issue-queue entry for `id`, renamed to `sources` and `dests`.
+const fn renamed_entry(
+    id: IdExEntry,
+    sources: &Sources,
+    dests: &Destinations,
+    vector: VectorContext,
+) -> RenameIssueEntry {
+    RenameIssueEntry {
+        inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..id.inst },
+        rob_tag: dests.rob_tag,
+        rs1_phys: sources.rs1,
+        rs2_phys: sources.rs2,
+        rs3_phys: sources.rs3,
+        rd_phys: dests.rd_phys,
+        rs1_tag: None,
+        rs2_tag: None,
+        rs3_tag: None,
+        trap: id.trap,
+        predicted_target: id.predicted_target,
+        seq: id.seq,
+        vs1_phys: sources.vs1,
+        vs2_phys: sources.vs2,
+        vs3_phys: sources.vs3,
+        vd_phys: dests.vd_phys,
+        vec_src1_count: sources.vs1_count,
+        vec_src2_count: sources.vs2_count,
+        vec_src3_count: sources.vs3_count,
+        mask: sources.mask,
+        vector_config: vector.config,
+        vector_rounding: vector.rounding,
+    }
+}
+
+fn trace_renamed(state: &StageCtx<'_>, entry: &RenameIssueEntry, old_phys_dst: PhysReg) {
+    trace_rename!(state.config.general.trace_instructions;
+        pc         = %crate::common::trace::Hex(entry.inst.pc.val()),
+        rob_tag    = %entry.rob_tag,
+        rd         = entry.inst.rd.as_usize(),
+        rd_phys    = entry.rd_phys.0,
+        old_phys   = old_phys_dst.0,
+        rs1        = entry.inst.rs1.as_usize(),
+        rs1_phys   = entry.rs1_phys.0,
+        rs2        = entry.inst.rs2.as_usize(),
+        rs2_phys   = entry.rs2_phys.0,
+        is_store   = entry.inst.ctrl.mem_write,
+        is_load    = entry.inst.ctrl.mem_read,
+        is_fp      = entry.inst.ctrl.fp_reg_write,
+        "RN: O3 rename"
+    );
 }
 
 /// The load-queue slots an instruction takes at rename.

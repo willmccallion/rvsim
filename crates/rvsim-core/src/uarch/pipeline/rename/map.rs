@@ -70,6 +70,26 @@ impl RenameMap {
     pub const fn set_vec(&mut self, vreg: VRegIdx, p: VecPhysReg) {
         self.vpr[vreg.as_usize()] = p;
     }
+
+    /// The physical registers the `count` vector registers from `base` map
+    /// to, the rest of the group left as `VecPhysReg::ZERO`.
+    pub fn vec_group(&self, base: VRegIdx, count: u8) -> [VecPhysReg; 8] {
+        let mut group = [VecPhysReg::ZERO; 8];
+        for (offset, slot) in group.iter_mut().enumerate().take(count as usize) {
+            *slot = self.get_vec(VRegIdx::new(base.as_u8() + offset as u8));
+        }
+        group
+    }
+
+    /// Maps the vector registers from `base` to `regs` in order, returning
+    /// the group they mapped to before.
+    pub fn rename_vec_group(&mut self, base: VRegIdx, regs: &[VecPhysReg]) -> [VecPhysReg; 8] {
+        let old = self.vec_group(base, regs.len() as u8);
+        for (offset, &reg) in regs.iter().enumerate() {
+            self.set_vec(VRegIdx::new(base.as_u8() + offset as u8), reg);
+        }
+        old
+    }
 }
 
 impl Default for RenameMap {
