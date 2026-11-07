@@ -16,13 +16,11 @@ use crate::exec::execute::fpu::host::{
 };
 use crate::exec::execute::fpu::nan_handling::box_f32;
 use crate::exec::inst::Inst;
-use crate::exec::signals::{OpASrc, OpBSrc};
+use crate::exec::signals::{ControlFlow, JumpKind, OpASrc, OpBSrc};
 use crate::exec::state::ArchState;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
-use crate::isa::encoding::rv64i::{funct3, opcodes};
 use crate::isa::fp::{FpFlags, FpFormat, Rounding, RoundingMode};
-use crate::isa::instruction::{FUNCT3_MASK, FUNCT3_SHIFT};
 use crate::isa::op::{AluOp, CsrOp, OperandFormat, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
@@ -358,31 +356,10 @@ pub const fn check_target_alignment(hart: &Hart, target: VirtAddr) -> Result<(),
     Err(Trap::InstructionAddressMisaligned(target.val()))
 }
 
-/// Whether the conditional branch `inst` is taken with operands `op_a` and
-/// `op_b`.
-#[must_use]
-pub const fn branch_taken(inst: u32, op_a: u64, op_b: u64) -> bool {
-    match (inst >> FUNCT3_SHIFT) & FUNCT3_MASK {
-        funct3::BEQ => op_a == op_b,
-        funct3::BNE => op_a != op_b,
-        funct3::BLT => (op_a as i64) < (op_b as i64),
-        funct3::BGE => (op_a as i64) >= (op_b as i64),
-        funct3::BLTU => op_a < op_b,
-        funct3::BGEU => op_a >= op_b,
-        _ => false,
-    }
-}
-
-/// Whether `inst` is a JALR (rather than a JAL).
-#[must_use]
-pub const fn is_jalr(inst: &Inst) -> bool {
-    (inst.bits & crate::isa::instruction::OPCODE_MASK) == opcodes::OP_JALR
-}
-
 /// Where the JAL or JALR `id` jumps.
 #[must_use]
-pub const fn jump_target(inst: &Inst) -> VirtAddr {
-    if is_jalr(inst) {
+pub fn jump_target(inst: &Inst) -> VirtAddr {
+    if inst.ctrl.control_flow == ControlFlow::Jump(JumpKind::Jalr) {
         VirtAddr::new(inst.rv1.wrapping_add(inst.imm as u64) & JALR_ALIGNMENT_MASK)
     } else {
         inst.pc.wrapping_add(inst.imm as u64)

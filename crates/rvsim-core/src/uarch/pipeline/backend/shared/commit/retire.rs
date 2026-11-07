@@ -164,8 +164,8 @@ fn advance_pc(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     let target = entry.control.and_then(|control| control.target).unwrap_or(fall_through);
     let is_taken = entry.control.is_some_and(|control| control.outcome.taken);
     state.hart.pc = match entry.ctrl.control_flow {
-        ControlFlow::Jump => target,
-        ControlFlow::Branch if is_taken => target,
+        ControlFlow::Jump(_) => target,
+        ControlFlow::Branch(_) if is_taken => target,
         _ => fall_through,
     };
 }

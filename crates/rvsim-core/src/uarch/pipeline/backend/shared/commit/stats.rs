@@ -27,7 +27,7 @@ pub(super) fn update_instruction_stats(state: &mut CoreCtx<'_>, entry: &RobEntry
         } else {
             state.uncore.stats.counter(state.core.stat_paths.commit.op_store).inc();
         }
-    } else if matches!(entry.ctrl.control_flow, ControlFlow::Branch | ControlFlow::Jump) {
+    } else if matches!(entry.ctrl.control_flow, ControlFlow::Branch(_) | ControlFlow::Jump(_)) {
         state.uncore.stats.counter(state.core.stat_paths.commit.op_branch).inc();
     } else if !matches!(entry.ctrl.system_op, SystemOp::None) {
         state.uncore.stats.counter(state.core.stat_paths.commit.op_system).inc();

@@ -48,10 +48,51 @@ pub enum ControlFlow {
     Sequential,
 
     /// Conditional branch instruction.
-    Branch,
+    Branch(BranchCond),
 
-    /// Unconditional jump (`JAL`/`JALR`).
-    Jump,
+    /// Unconditional jump.
+    Jump(JumpKind),
+}
+
+/// The comparison a conditional branch takes on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BranchCond {
+    /// `beq`.
+    Eq,
+    /// `bne`.
+    Ne,
+    /// `blt`, signed.
+    Lt,
+    /// `bge`, signed.
+    Ge,
+    /// `bltu`.
+    Ltu,
+    /// `bgeu`.
+    Geu,
+}
+
+impl BranchCond {
+    /// Whether the branch is taken with operands `a` (rs1) and `b` (rs2).
+    #[must_use]
+    pub const fn is_taken(self, a: u64, b: u64) -> bool {
+        match self {
+            Self::Eq => a == b,
+            Self::Ne => a != b,
+            Self::Lt => (a as i64) < (b as i64),
+            Self::Ge => (a as i64) >= (b as i64),
+            Self::Ltu => a < b,
+            Self::Geu => a >= b,
+        }
+    }
+}
+
+/// Which jump an unconditional jump is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JumpKind {
+    /// `jal`: PC-relative.
+    Jal,
+    /// `jalr`: relative to rs1.
+    Jalr,
 }
 
 /// Control signals for pipeline stage execution.

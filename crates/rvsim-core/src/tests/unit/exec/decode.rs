@@ -4,7 +4,9 @@
 
 use crate::common::VirtAddr;
 use crate::exec::decode::{DecodedInst, decode_inst};
+use crate::exec::signals::BranchCond;
 use crate::exec::signals::ControlFlow;
+use crate::exec::signals::JumpKind;
 use crate::isa::fp::{FpFormat, Rounding, RoundingMode};
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp};
 use crate::isa::privileged::Trap;
@@ -324,14 +326,14 @@ fn each_atomic_decodes_to_its_operation_width_and_ordering() {
 const FLOW: &[(&str, u32, ControlFlow)] = &[
     ("lui a0, 0x12345", 0x12345537, ControlFlow::Sequential),
     ("auipc a0, 0x12345", 0x12345517, ControlFlow::Sequential),
-    ("jal ra, .+8", 0x008000ef, ControlFlow::Jump),
-    ("jalr ra, 8(a1)", 0x008580e7, ControlFlow::Jump),
-    ("beq a1, a2, .+16", 0x00c58863, ControlFlow::Branch),
-    ("bne a1, a2, .+16", 0x00c59863, ControlFlow::Branch),
-    ("blt a1, a2, .+16", 0x00c5c863, ControlFlow::Branch),
-    ("bge a1, a2, .+16", 0x00c5d863, ControlFlow::Branch),
-    ("bltu a1, a2, .+16", 0x00c5e863, ControlFlow::Branch),
-    ("bgeu a1, a2, .+16", 0x00c5f863, ControlFlow::Branch),
+    ("jal ra, .+8", 0x008000ef, ControlFlow::Jump(JumpKind::Jal)),
+    ("jalr ra, 8(a1)", 0x008580e7, ControlFlow::Jump(JumpKind::Jalr)),
+    ("beq a1, a2, .+16", 0x00c58863, ControlFlow::Branch(BranchCond::Eq)),
+    ("bne a1, a2, .+16", 0x00c59863, ControlFlow::Branch(BranchCond::Ne)),
+    ("blt a1, a2, .+16", 0x00c5c863, ControlFlow::Branch(BranchCond::Lt)),
+    ("bge a1, a2, .+16", 0x00c5d863, ControlFlow::Branch(BranchCond::Ge)),
+    ("bltu a1, a2, .+16", 0x00c5e863, ControlFlow::Branch(BranchCond::Ltu)),
+    ("bgeu a1, a2, .+16", 0x00c5f863, ControlFlow::Branch(BranchCond::Geu)),
 ];
 
 #[test]
