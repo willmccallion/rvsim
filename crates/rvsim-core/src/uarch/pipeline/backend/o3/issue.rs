@@ -11,9 +11,7 @@ use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::execute::record_vector_flags;
 use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
-use crate::uarch::pipeline::backend::shared::vec_mem::{
-    VecMemInflight, micro_ops_for, moves_in_spans, plan_accesses, route_to_phys,
-};
+use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, route_to_phys};
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPrfView};
 use crate::uarch::pipeline::squash::PendingSquash;
@@ -283,19 +281,8 @@ impl O3Engine {
             return;
         }
         let width = state.config.pipeline.vector_mem_width_bytes();
-        let planned = plan_accesses(micro_ops, moves_in_spans(vec_op), width);
-        let all_micro_ops = micro_ops_for(&result, planned, is_store);
-        self.vec_mem_inflight.push(VecMemInflight {
-            rob_tag: result.rob_tag,
-            remaining: all_micro_ops.len(),
-            vd_phys,
-            vd_count,
-            wakeup_fired: false,
-            pending_micro_ops: all_micro_ops,
-            trimmed_at: None,
-            fault: None,
-            outgrew_load_slots: false,
-        });
+        self.vec_mem_inflight
+            .push(VecMemInflight::plan(&result, micro_ops, width, vd_phys, vd_count));
     }
 
     /// Dispatches renamed instructions into the issue queue, each with the

@@ -12,7 +12,7 @@
 use std::collections::VecDeque;
 
 use crate::common::VirtAddr;
-use crate::exec::compute::vector::mem::ElementAccess;
+use crate::exec::compute::vector::mem::{ElementAccess, is_vec_store};
 use crate::exec::signals::ControlSignals;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::{MemWidth, VectorOp};
@@ -104,6 +104,34 @@ pub struct VecMemInflight {
     /// A load with more micro-ops than the load-queue slots it reserved,
     /// which reuses them only as the oldest memory access in flight.
     pub outgrew_load_slots: bool,
+}
+
+impl VecMemInflight {
+    /// Plans vector memory instruction `parent`'s element `accesses` into
+    /// micro-ops at most `width` bytes wide, writing its destination group
+    /// `vd_phys[..vd_count]`.
+    pub fn plan(
+        parent: &ExMem1Entry,
+        accesses: Vec<VecMemAddrOp>,
+        width: usize,
+        vd_phys: [VecPhysReg; 8],
+        vd_count: u8,
+    ) -> Self {
+        let vec_op = parent.ctrl.vec_op;
+        let planned = plan_accesses(accesses, moves_in_spans(vec_op), width);
+        let pending_micro_ops = micro_ops_for(parent, planned, is_vec_store(vec_op));
+        Self {
+            rob_tag: parent.rob_tag,
+            remaining: pending_micro_ops.len(),
+            vd_phys,
+            vd_count,
+            wakeup_fired: false,
+            pending_micro_ops,
+            trimmed_at: None,
+            fault: None,
+            outgrew_load_slots: false,
+        }
+    }
 }
 
 /// A fault an element of a vector memory instruction met.

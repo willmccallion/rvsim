@@ -28,7 +28,7 @@ use crate::uarch::pipeline::backend::shared::commit::{
 use crate::uarch::pipeline::backend::shared::flush_stats::count_flush;
 use crate::uarch::pipeline::backend::shared::issue_stats::{IssueHold, count_issue_stalls};
 use crate::uarch::pipeline::backend::shared::vec_mem::{
-    VecMemInflight, expand_span, micro_ops_for, moves_in_spans, plan_accesses, retire_access,
+    VecMemInflight, expand_span, retire_access,
 };
 use crate::uarch::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, ExecutionEngine};
@@ -243,19 +243,8 @@ impl InOrderEngine {
         }
         let parent = ExMem1Entry::from_issue(entry, entry.inst.rv1, entry.inst.rv2);
         let width = state.config.pipeline.vector_mem_width_bytes();
-        let planned = plan_accesses(addresses, moves_in_spans(vec_op), width);
-        let micro_ops = micro_ops_for(&parent, planned, is_store);
-        self.vec_mem_inflight.push(VecMemInflight {
-            rob_tag: entry.rob_tag,
-            remaining: micro_ops.len(),
-            vd_phys: vd_regs,
-            vd_count,
-            wakeup_fired: false,
-            pending_micro_ops: micro_ops,
-            trimmed_at: None,
-            fault: None,
-            outgrew_load_slots: false,
-        });
+        self.vec_mem_inflight
+            .push(VecMemInflight::plan(&parent, addresses, width, vd_regs, vd_count));
     }
 
     /// Moves vector memory micro-ops into the memory pipeline, as many per cycle
