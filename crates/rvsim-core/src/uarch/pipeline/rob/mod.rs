@@ -240,6 +240,11 @@ pub struct RobEntry {
 }
 
 impl RobEntry {
+    /// The address of the instruction after this one.
+    pub const fn next_pc(&self) -> VirtAddr {
+        self.pc.wrapping_add(self.inst_size.as_u64())
+    }
+
     /// True when the entry's result exists only once it commits: a CSR
     /// access the in-order backend deferred, a syscall (an `ecall` with
     /// `a0` as its destination in SE mode) or a pseudo-operation that

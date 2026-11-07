@@ -1,7 +1,6 @@
 //! Completing results the functional units have finished: writing them
 //! back, completing their ROB entries and waking their dependents.
 
-use crate::exec::signals::ControlFlow;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPhysRegFile};
 use crate::uarch::pipeline::trace::Stage;
@@ -60,11 +59,7 @@ impl O3Engine {
                 self.rob.fault(entry.rob_tag, trap);
                 continue;
             }
-            let val = if entry.ctrl.control_flow == ControlFlow::Jump {
-                entry.pc.wrapping_add(entry.inst_size.as_u64()).val()
-            } else {
-                entry.alu
-            };
+            let val = entry.register_value();
             if !entry.fp_flags.is_empty() {
                 self.rob.set_fp_flags(entry.rob_tag, entry.fp_flags);
             }

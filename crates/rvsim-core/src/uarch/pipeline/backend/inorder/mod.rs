@@ -42,7 +42,6 @@ use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::trace::Departure;
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
-use crate::exec::signals::ControlFlow;
 use crate::uarch::pipeline::backend::o3::fu_pool::FuPool;
 use crate::uarch::pipeline::backend::shared::vec_mem::route_to_phys;
 
@@ -53,8 +52,6 @@ struct PendingResult {
     entry: ExMem1Entry,
 }
 
-/// The value a non-memory result forwards: the link address for a jump,
-/// otherwise the ALU output.
 /// Forwards each scalar load's value the cycle it is known, at memory2 or
 /// when a store forwards it, so a dependent issues then rather than after
 /// writeback, as Rocket bypasses its D-cache response into the next
@@ -65,14 +62,6 @@ fn forward_loads(rob: &mut Rob, delivered: &[Mem2WbEntry]) {
         if scalar_load && wb.trap.is_none() && wb.vec_mem.is_none() {
             rob.forward(wb.rob_tag, wb.load_data);
         }
-    }
-}
-
-const fn forwarded_value(entry: &ExMem1Entry) -> u64 {
-    if matches!(entry.ctrl.control_flow, ControlFlow::Jump) {
-        entry.pc.wrapping_add(entry.inst_size.as_u64()).val()
-    } else {
-        entry.alu
     }
 }
 
@@ -133,7 +122,7 @@ impl InOrderEngine {
                 continue;
             }
             let done = self.pending.swap_remove(i);
-            self.rob.forward(done.entry.rob_tag, forwarded_value(&done.entry));
+            self.rob.forward(done.entry.rob_tag, done.entry.register_value());
             self.execute_mem1.push(done.entry);
         }
     }
