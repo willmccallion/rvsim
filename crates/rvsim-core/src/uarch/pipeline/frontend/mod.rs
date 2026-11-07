@@ -115,10 +115,10 @@ impl<E: ExecutionEngine> Frontend<E> {
             self.fetch2_decode.push(now, decoded);
         }
 
-        if engine.common().trap.stops_fetch() {
+        if engine.common().commit.trap.stops_fetch() {
             return;
         }
-        if engine.common().fetch_in_flight() || engine.common().fetch_held(state.cycle) {
+        if engine.common().fetch.is_waiting() || engine.common().fetch_held(state.cycle) {
             state.counter(state.core().stat_paths.pipeline.stalls_fetch_wait).inc();
             return;
         }

@@ -110,9 +110,9 @@ pub fn memory1_stage<E: ExecutionEngine>(
 ) -> Memory1Outcome {
     let mut outcome = Memory1Outcome::default();
     let now = state.cycle;
-    let mut entries = std::mem::take(&mut engine.common_mut().mem1_replay);
+    let mut entries = std::mem::take(&mut engine.common_mut().memory.mem1_replay);
     entries.append(input);
-    let delayed = &mut engine.common_mut().mem1_delayed;
+    let delayed = &mut engine.common_mut().memory.mem1_delayed;
     let mut ready: Vec<DelayedAccess> = Vec::new();
     delayed.retain(|access| {
         if access.ready_cycle <= now {
@@ -155,9 +155,9 @@ pub fn memory1_stage<E: ExecutionEngine>(
                     state.counter(state.core().stat_paths.lsq.rescheduled_mem_ops).inc();
                 }
                 ex.replaying = true;
-                engine.common_mut().mem1_replay.push(ex);
+                engine.common_mut().memory.mem1_replay.push(ex);
             }
-            EntryOutcome::Delayed(access) => engine.common_mut().mem1_delayed.push(access),
+            EntryOutcome::Delayed(access) => engine.common_mut().memory.mem1_delayed.push(access),
             EntryOutcome::Expand(span) => outcome.expanded_spans.push(span),
             EntryOutcome::ParkedWalk => {
                 input.extend(iter);
@@ -715,9 +715,9 @@ fn reads_a_device(state: &StageCtx<'_>, paddr: PhysAddr, size: u64) -> bool {
 /// everything in flight.
 fn takes_effect_now<E: ExecutionEngine>(engine: &E, tag: RobTag) -> bool {
     let common = engine.common();
-    common.head_at_cycle_start.is(tag)
+    common.commit.head_at_cycle_start.is(tag)
         && !common.will_squash(tag)
-        && !matches!(common.trap, TrapProgress::Pending(_))
+        && !matches!(common.commit.trap, TrapProgress::Pending(_))
 }
 
 /// Pushes an ALU/non-memory entry directly into the M1→M2 latch.
@@ -830,11 +830,12 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
     let latency = forward_latency(state);
     if latency == 0 {
         let result = memory2::finalize_load(state, entry, engine.load_queue_mut(), "M1");
-        engine.common_mut().forwarded_results.push(result);
+        engine.common_mut().memory.forwarded_results.push(result);
         return;
     }
     engine
         .common_mut()
+        .memory
         .forwarded_loads
         .push(ForwardedLoad { ready_cycle: state.cycle + latency, entry });
 }
@@ -858,6 +859,7 @@ fn push_forwarded_span<E: ExecutionEngine>(
         Mem1Mem2Entry { sb_forwarded: true, ..Mem1Mem2Entry::from_execute(ex, vaddr, paddr) };
     engine
         .common_mut()
+        .memory
         .forwarded_loads
         .push(ForwardedLoad { ready_cycle: state.cycle + latency, entry });
 }
@@ -884,7 +886,7 @@ fn emit_span_read<E: ExecutionEngine>(
         pipeline,
         Packet::MemReq { req_id, paddr, vaddr: Some(vaddr), pc: Some(pc), size, op: MemOp::Read },
     );
-    let _ = engine.common_mut().outstanding_loads.insert(
+    let _ = engine.common_mut().memory.outstanding_loads.insert(
         req_id,
         OutstandingLoad {
             entry: ex,
@@ -941,7 +943,7 @@ fn emit_load_req<E: ExecutionEngine>(
     if let (Some(second), Some(low)) = (second_line, low_bytes) {
         let common = engine.common_mut();
         let second_id = common.alloc_req_id();
-        let _ = common.load_parts.insert(second_id, req_id);
+        let _ = common.memory.load_parts.insert(second_id, req_id);
         state.events().schedule(
             cycle,
             target,
@@ -963,7 +965,7 @@ fn emit_load_req<E: ExecutionEngine>(
         low: None,
         high: None,
     });
-    let _ = engine.common_mut().outstanding_loads.insert(
+    let _ = engine.common_mut().memory.outstanding_loads.insert(
         req_id,
         OutstandingLoad { entry: ex, paddr, vaddr, dirty_updates, side_effecting, parts },
     );
@@ -1016,7 +1018,7 @@ fn park_walk<E: ExecutionEngine>(
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
-    let _ = common.outstanding_walks.insert(
+    let _ = common.memory.outstanding_walks.insert(
         req_id,
         OutstandingWalk {
             state: walk_state,

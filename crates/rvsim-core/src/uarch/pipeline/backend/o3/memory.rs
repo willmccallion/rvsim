@@ -103,7 +103,7 @@ impl O3Engine {
         state: &mut CoreCtx<'_>,
         slots: usize,
     ) -> usize {
-        let mut now = std::mem::take(&mut self.common.forwarded_results);
+        let mut now = std::mem::take(&mut self.common.memory.forwarded_results);
         let mut later = now.split_off(slots.min(now.len()));
         let used = now.len();
         self.write_back(state, now);
