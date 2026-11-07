@@ -340,7 +340,7 @@ const fn waits_for_older_stores(head: &RobEntry) -> bool {
     matches!(head.ctrl.system_op, SystemOp::SfenceVma | SystemOp::FenceI)
         || matches!(head.ctrl.system_op, SystemOp::Fence(fence) if fence.pred.w)
         || head.result_at_commit()
-            && matches!(head.ctrl.system_op, SystemOp::Ecall | SystemOp::Pseudo)
+            && matches!(head.ctrl.system_op, SystemOp::Ecall | SystemOp::Pseudo(_))
 }
 
 /// True while a committed scalar or vector store has not finished writing.

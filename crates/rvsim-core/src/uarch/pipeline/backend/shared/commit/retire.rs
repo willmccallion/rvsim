@@ -106,10 +106,13 @@ pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> 
 /// older instruction has retired and every older store has been written;
 /// the result becomes the entry's, destined for `a0`.
 pub(super) fn perform_pseudo_result(state: &mut CoreCtx<'_>, entry: &mut RobEntry) {
-    if entry.ctrl.system_op != SystemOp::Pseudo || !entry.ctrl.reg_write {
+    let SystemOp::Pseudo(op) = entry.ctrl.system_op else {
+        return;
+    };
+    if !entry.ctrl.reg_write {
         return;
     }
-    let result = match PseudoOp::of(entry.bits) {
+    let result = match op {
         PseudoOp::ReadFile => host_files::read_file(state) as u64,
         PseudoOp::WriteFile => host_files::write_file(state) as u64,
         PseudoOp::Rpns => simulated_nanoseconds(state),
@@ -395,7 +398,7 @@ fn retire_system(
             }
             CommitFlow::Stop(Some(CommitEvent::SquashAfter(entry.next_pc())))
         }
-        SystemOp::Pseudo => retire_pseudo_op(state, entry),
+        SystemOp::Pseudo(op) => retire_pseudo_op(state, entry, op),
         _ => CommitFlow::Continue,
     }
 }
@@ -406,10 +409,10 @@ fn retire_system(
 /// operation was performed before the
 /// entry's result was written; the instructions fetched behind it may
 /// have read the memory it changed, so they are refetched.
-fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
+fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry, op: PseudoOp) -> CommitFlow {
     let a0 = state.hart.regs.read(REG_A0);
     let a1 = state.hart.regs.read(REG_A1);
-    match PseudoOp::of(entry.bits) {
+    match op {
         PseudoOp::Exit => {
             state.signal_exit(0);
             return CommitFlow::Stop(None);

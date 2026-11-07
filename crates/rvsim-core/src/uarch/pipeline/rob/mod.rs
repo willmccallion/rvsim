@@ -299,7 +299,7 @@ impl RobEntry {
         use crate::isa::op::SystemOp;
 
         self.csr_request.is_some()
-            || (matches!(self.ctrl.system_op, SystemOp::Ecall | SystemOp::Pseudo)
+            || (matches!(self.ctrl.system_op, SystemOp::Ecall | SystemOp::Pseudo(_))
                 && self.ctrl.reg_write)
     }
 }

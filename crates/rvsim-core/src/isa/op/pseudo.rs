@@ -52,8 +52,8 @@ pub enum PseudoOp {
     SwitchCpu,
     /// `m5_panic`: the guest gave up; the run ends with exit code 1.
     Panic,
-    /// An m5op rvsim does not perform.
-    Unknown(u32),
+    /// An m5op rvsim does not perform, by its function number.
+    Unknown(u8),
 }
 
 impl PseudoOp {
@@ -76,7 +76,7 @@ impl PseudoOp {
             0x54 => Self::Panic,
             0x5a => Self::WorkBegin,
             0x5b => Self::WorkEnd,
-            func => Self::Unknown(func),
+            func => Self::Unknown(func as u8),
         }
     }
 
