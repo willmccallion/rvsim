@@ -10,6 +10,7 @@ use super::{
     SYS_TKILL, ok, user_pointer,
 };
 use crate::arch::Hart;
+use crate::common::NANOS_PER_SECOND;
 use crate::common::VirtAddr;
 use crate::common::trace::Hex;
 use crate::isa::reg;
@@ -51,7 +52,6 @@ const FUTEX_PRIVATE_FLAG: u32 = 128;
 const FUTEX_CLOCK_REALTIME: u32 = 256;
 /// The bitset a plain `FUTEX_WAIT` or `FUTEX_WAKE` uses: every bit.
 const FUTEX_BITSET_MATCH_ANY: u32 = u32::MAX;
-const NANOS_PER_SECOND: u128 = 1_000_000_000;
 
 /// The highest signal number, `_NSIG`.
 const MAX_SIGNAL: u64 = 64;
@@ -237,11 +237,11 @@ impl ThreadCall<'_> {
         if seconds < 0 || !(0..NANOS_PER_SECOND as i64).contains(&nanos) {
             return Err(-errno::EINVAL);
         }
-        let ns = seconds as u128 * NANOS_PER_SECOND + nanos as u128;
+        let ns = seconds as u128 * u128::from(NANOS_PER_SECOND) + nanos as u128;
         let monotonic = if cmd == FUTEX_WAIT {
             process.nanoseconds_at(cycle) + ns
         } else if realtime {
-            ns.saturating_sub(u128::from(REALTIME_EPOCH_SECONDS) * NANOS_PER_SECOND)
+            ns.saturating_sub(u128::from(REALTIME_EPOCH_SECONDS) * u128::from(NANOS_PER_SECOND))
         } else {
             ns
         };

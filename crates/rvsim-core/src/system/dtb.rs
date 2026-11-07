@@ -14,6 +14,10 @@ use crate::isa::privileged::PagingMode;
 
 // FDT constants
 const FDT_MAGIC: u32 = 0xd00dfeed;
+/// Bytes in the flattened device tree header.
+const FDT_HEADER_BYTES: u32 = 40;
+/// Bytes in a memory reservation block holding only its terminating entry.
+const FDT_EMPTY_MEMRSV_BYTES: u32 = 16;
 const FDT_VERSION: u32 = 17;
 const FDT_LAST_COMP_VERSION: u32 = 16;
 const FDT_BEGIN_NODE: u32 = 1;
@@ -139,12 +143,7 @@ impl FdtBuilder {
         let struct_size = self.struct_buf.len() as u32;
         let strings_size = self.strings_buf.len() as u32;
 
-        // Header is 40 bytes
-        let header_size = 40u32;
-        // Memory reservation block: one empty entry (16 bytes of zeros)
-        let memrsv_size = 16u32;
-
-        let dt_struct_offset = header_size + memrsv_size;
+        let dt_struct_offset = FDT_HEADER_BYTES + FDT_EMPTY_MEMRSV_BYTES;
         let dt_strings_offset = dt_struct_offset + struct_size;
         let total_size = dt_strings_offset + strings_size;
 
@@ -155,15 +154,14 @@ impl FdtBuilder {
         out.extend_from_slice(&total_size.to_be_bytes());
         out.extend_from_slice(&dt_struct_offset.to_be_bytes());
         out.extend_from_slice(&dt_strings_offset.to_be_bytes());
-        out.extend_from_slice(&(header_size).to_be_bytes()); // off_mem_rsvmap
+        out.extend_from_slice(&FDT_HEADER_BYTES.to_be_bytes()); // off_mem_rsvmap
         out.extend_from_slice(&FDT_VERSION.to_be_bytes());
         out.extend_from_slice(&FDT_LAST_COMP_VERSION.to_be_bytes());
         out.extend_from_slice(&0u32.to_be_bytes()); // boot_cpuid_phys
         out.extend_from_slice(&strings_size.to_be_bytes());
         out.extend_from_slice(&struct_size.to_be_bytes());
 
-        // Memory reservation block (empty)
-        out.extend_from_slice(&[0u8; 16]);
+        out.extend_from_slice(&[0u8; FDT_EMPTY_MEMRSV_BYTES as usize]);
 
         // Structure block
         out.extend_from_slice(&self.struct_buf);

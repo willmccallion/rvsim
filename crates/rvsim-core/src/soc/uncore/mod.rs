@@ -32,6 +32,10 @@ use debug::HartDebug;
 /// rest of its panic message reaches the console before the run stops.
 pub const KERNEL_PANIC_GRACE_CYCLES: u64 = 10_000;
 
+/// The commit log is written through a buffer this large.
+#[cfg(feature = "commit-log")]
+const COMMIT_LOG_BUFFER_BYTES: usize = 1 << 20;
+
 /// What the trace macros print once tracing is armed.
 ///
 /// Every event, or only those of some harts, inside a cycle window, or for
@@ -324,7 +328,7 @@ impl Uncore {
             path: path.to_owned(),
             source,
         })?;
-        self.commit_log = Some(BufWriter::with_capacity(1 << 20, file));
+        self.commit_log = Some(BufWriter::with_capacity(COMMIT_LOG_BUFFER_BYTES, file));
         Ok(())
     }
 

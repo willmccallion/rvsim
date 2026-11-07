@@ -8,6 +8,9 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 /// Linux `errno` values a syscall returns negated.
+/// The longest path a guest may pass, as Linux's `PATH_MAX`.
+pub const PATH_MAX: usize = 4096;
+
 pub mod errno {
     pub const ENOENT: i64 = 2;
     pub const ESRCH: i64 = 3;

@@ -45,12 +45,10 @@ impl Firmware {
         if let Some(path) = &boot.firmware {
             return Some(Self::Jump(path.clone()));
         }
-        let jump = "software/linux/output/fw_jump.bin";
-        let dynamic = "software/linux/output/fw_dynamic.bin";
-        if fs::metadata(jump).is_ok() {
-            Some(Self::Jump(jump.to_owned()))
-        } else if fs::metadata(dynamic).is_ok() {
-            Some(Self::Dynamic(dynamic.to_owned()))
+        if fs::metadata(DEFAULT_FW_JUMP).is_ok() {
+            Some(Self::Jump(DEFAULT_FW_JUMP.to_owned()))
+        } else if fs::metadata(DEFAULT_FW_DYNAMIC).is_ok() {
+            Some(Self::Dynamic(DEFAULT_FW_DYNAMIC.to_owned()))
         } else {
             None
         }
@@ -62,6 +60,11 @@ impl Firmware {
         }
     }
 }
+
+/// The images `make linux` builds, used when a boot names none.
+const DEFAULT_KERNEL: &str = "software/linux/output/Image";
+const DEFAULT_FW_JUMP: &str = "software/linux/output/fw_jump.bin";
+const DEFAULT_FW_DYNAMIC: &str = "software/linux/output/fw_dynamic.bin";
 
 /// Where a kernel boot places the device tree, from RAM base.
 const DTB_OFFSET: u64 = 0x0220_0000;
@@ -98,8 +101,7 @@ pub(crate) fn setup_kernel_load(
         let sbi_data = load_binary(firmware.path())?;
         state.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
 
-        let default_kernel_path = "software/linux/output/Image";
-        let kernel_path = boot.kernel.as_deref().unwrap_or(default_kernel_path);
+        let kernel_path = boot.kernel.as_deref().unwrap_or(DEFAULT_KERNEL);
 
         if fs::metadata(kernel_path).is_ok() {
             let kernel_data = load_binary(kernel_path)?;
