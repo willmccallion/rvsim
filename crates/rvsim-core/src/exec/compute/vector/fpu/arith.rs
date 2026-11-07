@@ -1,8 +1,5 @@
 //! Single-width floating-point arithmetic, element by element.
 
-use super::convert::{
-    f32_to_i32_frm, f32_to_u32_frm, f64_to_i16_frm, f64_to_i64_frm, f64_to_u16_frm, f64_to_u64_frm,
-};
 use super::estimate::{vfrec7_16, vfrec7_32, vfrec7_64, vfrsqrt7_16, vfrsqrt7_32, vfrsqrt7_64};
 use super::{F32_SIGN_BIT, F64_SIGN_BIT, elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
@@ -13,6 +10,7 @@ use crate::exec::compute::fpu::nan_handling::{
     box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
 };
 use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
+use crate::exec::compute::fpu::{IntTarget, fp_to_int};
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
@@ -112,25 +110,15 @@ pub(super) fn compute_f32(
         }
         VectorOp::VFClass => (FpClass::of(FpFormat::Single, vs2_bits).mask(), FpFlags::NONE),
         // Conversions: float -> unsigned int (uses dynamic FRM)
-        VectorOp::VFCvtXuF => {
-            let (r, f) = f32_to_u32_frm(a, frm);
-            (r as u64, f)
-        }
+        VectorOp::VFCvtXuF => fp_to_int(f64::from(a), IntTarget::unsigned(32), frm),
         // Conversions: float -> signed int (uses dynamic FRM)
-        VectorOp::VFCvtXF => {
-            let (r, f) = f32_to_i32_frm(a, frm);
-            (r as u32 as u64, f)
-        }
+        VectorOp::VFCvtXF => fp_to_int(f64::from(a), IntTarget::signed(32), frm),
         // Conversions with explicit RTZ: float -> unsigned int
         VectorOp::VFCvtRtzXuF => {
-            let (r, f) = f32_to_u32_frm(a, RoundingMode::Rtz);
-            (r as u64, f)
+            fp_to_int(f64::from(a), IntTarget::unsigned(32), RoundingMode::Rtz)
         }
         // Conversions with explicit RTZ: float -> signed int
-        VectorOp::VFCvtRtzXF => {
-            let (r, f) = f32_to_i32_frm(a, RoundingMode::Rtz);
-            (r as u32 as u64, f)
-        }
+        VectorOp::VFCvtRtzXF => fp_to_int(f64::from(a), IntTarget::signed(32), RoundingMode::Rtz),
         // Conversions: unsigned int -> float
         VectorOp::VFCvtFXu => {
             let unsigned = vs2_bits as u32;
@@ -246,22 +234,10 @@ pub(super) fn compute_f64(
             (r.to_bits(), FpFlags::NONE)
         }
         VectorOp::VFClass => (FpClass::of(FpFormat::Double, vs2_bits).mask(), FpFlags::NONE),
-        VectorOp::VFCvtXuF => {
-            let (r, f) = f64_to_u64_frm(a, frm);
-            (r, f)
-        }
-        VectorOp::VFCvtXF => {
-            let (r, f) = f64_to_i64_frm(a, frm);
-            (r as u64, f)
-        }
-        VectorOp::VFCvtRtzXuF => {
-            let (r, f) = f64_to_u64_frm(a, RoundingMode::Rtz);
-            (r, f)
-        }
-        VectorOp::VFCvtRtzXF => {
-            let (r, f) = f64_to_i64_frm(a, RoundingMode::Rtz);
-            (r as u64, f)
-        }
+        VectorOp::VFCvtXuF => fp_to_int(a, IntTarget::unsigned(64), frm),
+        VectorOp::VFCvtXF => fp_to_int(a, IntTarget::signed(64), frm),
+        VectorOp::VFCvtRtzXuF => fp_to_int(a, IntTarget::unsigned(64), RoundingMode::Rtz),
+        VectorOp::VFCvtRtzXF => fp_to_int(a, IntTarget::signed(64), RoundingMode::Rtz),
         VectorOp::VFCvtFXu => {
             // Workaround for an LLVM codegen quirk: `0u64 as f64` under host
             // FE_DOWNWARD/FE_UPWARD produces a signed zero with the wrong
@@ -376,22 +352,10 @@ pub(super) fn compute_f16(
         VectorOp::VFSgnjn => ((ha & 0x7FFF) as u64 | (!hb & 0x8000) as u64, FpFlags::NONE),
         VectorOp::VFSgnjx => ((ha ^ (hb & 0x8000)) as u64, FpFlags::NONE),
         VectorOp::VFClass => (FpClass::of(FpFormat::Half, u64::from(ha)).mask(), FpFlags::NONE),
-        VectorOp::VFCvtXuF => {
-            let (r, f) = f64_to_u16_frm(fa, rm);
-            (r as u64, f)
-        }
-        VectorOp::VFCvtXF => {
-            let (r, f) = f64_to_i16_frm(fa, rm);
-            (r as u16 as u64, f)
-        }
-        VectorOp::VFCvtRtzXuF => {
-            let (r, f) = f64_to_u16_frm(fa, RoundingMode::Rtz);
-            (r as u64, f)
-        }
-        VectorOp::VFCvtRtzXF => {
-            let (r, f) = f64_to_i16_frm(fa, RoundingMode::Rtz);
-            (r as u16 as u64, f)
-        }
+        VectorOp::VFCvtXuF => fp_to_int(fa, IntTarget::unsigned(16), rm),
+        VectorOp::VFCvtXF => fp_to_int(fa, IntTarget::signed(16), rm),
+        VectorOp::VFCvtRtzXuF => fp_to_int(fa, IntTarget::unsigned(16), RoundingMode::Rtz),
+        VectorOp::VFCvtRtzXF => fp_to_int(fa, IntTarget::signed(16), RoundingMode::Rtz),
         VectorOp::VFCvtFXu => round(vs2_bits as u16 as f64, FpFlags::NONE),
         VectorOp::VFCvtFX => round(Sew::E16.sign_extend(vs2_bits) as i16 as f64, FpFlags::NONE),
         VectorOp::VFRsqrt7 => {
