@@ -44,13 +44,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             continue;
         }
 
-        let val = if wb.ctrl.mem_read || wb.ctrl.atomic_op.is_some() {
-            wb.load_data
-        } else if wb.ctrl.control_flow == ControlFlow::Jump {
-            wb.pc.wrapping_add(wb.inst_size.as_u64())
-        } else {
-            wb.alu
-        };
+        let val = wb.written_value();
 
         if wb.fp_flags != 0 {
             rob.set_fp_flags(wb.rob_tag, wb.fp_flags);

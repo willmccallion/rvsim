@@ -128,8 +128,7 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
     }
     for e in &snap.mem2_wb {
         if !e.rd.is_zero() {
-            let v = if e.load_data != 0 { e.load_data } else { e.alu };
-            notes.push(format!("{}←{:#x}", reg_name(e.rd), v));
+            notes.push(format!("{}←{:#x}", reg_name(e.rd), e.value));
         }
     }
 
@@ -153,14 +152,16 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
 /// Each stage attribute is a list of slot dicts (length ≤ ``width``).
 /// An empty list means the stage is idle or stalled this cycle.
 ///
-/// All slots include ``pc``, ``raw``, ``asm``. Later stages add:
+/// All slots include ``pc``, and every slot past ``fetch1_fetch2``, whose
+/// instructions are not read yet, ``raw`` and ``asm``. Later stages add:
 ///
 /// - ``decode_rename``: ``rs1``, ``rs2``, ``rd``, ``imm``, ``rv1``, ``rv2``
 /// - ``issue_queue``: ``rs1``, ``rs2``, ``rd``, ``rv1``, ``rv2``,
 ///   ``rob_tag``, ``rs1_ready``, ``rs2_ready``
 /// - ``execute_mem1`` / ``mem1_mem2``: ``rd``, ``alu``, ``store_data``, ``rob_tag``
 /// - ``mem1_mem2``: also ``vaddr``, ``paddr``
-/// - ``mem2_wb``: ``rd``, ``alu``, ``load_data``, ``rob_tag``
+/// - ``mem2_wb``: ``rd``, ``alu``, ``load_data``, ``value`` (what it
+///   writes to ``rd``), ``rob_tag``
 #[pyclass(name = "PipelineSnapshot", subclass, module = "rvsim._core")]
 #[derive(Debug)]
 pub struct PyPipelineSnapshot {
@@ -183,9 +184,10 @@ impl PyPipelineSnapshot {
         self.inner.width
     }
 
-    /// Fetch1 → Fetch2 latch.
+    /// Fetch1 → Fetch2 latch, holding addresses whose instructions are
+    /// not read yet.
     ///
-    /// Each slot: ``{pc, raw, asm, pred_taken, pred_target}``.
+    /// Each slot: ``{pc, pred_taken, pred_target}``.
     #[getter]
     fn fetch1_fetch2(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let items: Vec<_> = self
@@ -193,7 +195,8 @@ impl PyPipelineSnapshot {
             .fetch1_fetch2
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, 0)?;
+                let d = PyDict::new(py);
+                d.set_item("pc", e.pc)?;
                 d.set_item("pred_taken", e.pred_taken)?;
                 d.set_item("pred_target", e.pred_target)?;
                 Ok(d.into_any().unbind())
@@ -357,6 +360,7 @@ impl PyPipelineSnapshot {
                 d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("load_data", e.load_data)?;
+                d.set_item("value", e.value)?;
                 d.set_item("rob_tag", e.rob_tag)?;
                 Ok(d.into_any().unbind())
             })

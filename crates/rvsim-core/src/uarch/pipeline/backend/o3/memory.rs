@@ -2,7 +2,6 @@
 //! memory2, the writeback of their results, and the vector memory
 //! micro-ops that flow through them.
 
-use crate::exec::signals::ControlFlow;
 use crate::isa::rvv::ElemIdx;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::{expand_span, retire_access};
@@ -113,16 +112,7 @@ impl O3Engine {
         let wakeups: Vec<_> = entries
             .iter()
             .filter(|wb| wb.trap.is_none())
-            .map(|wb| {
-                let val = if wb.ctrl.mem_read {
-                    wb.load_data
-                } else if wb.ctrl.control_flow == ControlFlow::Jump {
-                    wb.pc.wrapping_add(wb.inst_size.as_u64())
-                } else {
-                    wb.alu
-                };
-                (wb.rd_phys, val)
-            })
+            .map(|wb| (wb.rd_phys, wb.written_value()))
             .collect();
 
         writeback::writeback_stage(&mut state.stage(), &mut entries, &mut self.rob);
