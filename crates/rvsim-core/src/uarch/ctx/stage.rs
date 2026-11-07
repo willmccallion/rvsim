@@ -19,7 +19,6 @@ use crate::common::{AccessType, PhysAddr, VirtAddr};
 use crate::exec::state::ArchState;
 use crate::isa::csr::CsrAddr;
 use crate::isa::op::MemWidth;
-use crate::isa::privileged::PrivilegeMode;
 use crate::sim::events::EventQueue;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::CacheLevel;
@@ -175,8 +174,7 @@ impl<'a> StageCtx<'a> {
                 if !uncore.bus.is_ram(line_paddr, line_bytes) {
                     return Err(PrefetchDrop::NotRam);
                 }
-                let machine = privilege == PrivilegeMode::Machine;
-                let pmp = hart.pmp.check(line_paddr.val(), line_bytes, true, false, false, machine);
+                let pmp = hart.pmp.check(line_paddr, line_bytes, AccessType::Read, privilege);
                 if pmp != PmpResult::Allow {
                     return Err(PrefetchDrop::Denied);
                 }

@@ -85,16 +85,7 @@ fn finalize_outcome(
     match outcome {
         TranslateOutcome::Ready(mut result) => {
             if result.trap.is_none() {
-                let paddr = result.paddr.val();
-                let is_machine = effective_priv == crate::isa::privileged::PrivilegeMode::Machine;
-                let pmp_result = hart.pmp.check(
-                    paddr,
-                    size,
-                    matches!(access, AccessType::Read),
-                    matches!(access, AccessType::Write),
-                    matches!(access, AccessType::Fetch),
-                    is_machine,
-                );
+                let pmp_result = hart.pmp.check(result.paddr, size, access, effective_priv);
                 if pmp_result != PmpResult::Allow || !uncore.bus.is_valid_address(result.paddr) {
                     result = TranslationResult::fault(
                         Trap::access_fault(access, vaddr.val()),

@@ -364,13 +364,15 @@ fn request_pte(state: WalkState, pmp: Option<&Pmp>) -> WalkStep {
     let pte_addr = (state.ppn_raw << PAGE_SHIFT) + (vpn_i * PTE_SIZE);
 
     if let Some(pmp_unit) = pmp {
-        let pmp_result = pmp_unit.check(pte_addr, 8, true, false, false, false);
+        // The walker reads page tables as an S-mode load, whatever the access.
+        let pmp_result = pmp_unit.check(
+            PhysAddr::new(pte_addr),
+            PTE_SIZE,
+            AccessType::Read,
+            PrivilegeMode::Supervisor,
+        );
         if pmp_result != PmpResult::Allow {
-            let trap = match state.access {
-                AccessType::Fetch => Trap::InstructionAccessFault(state.vaddr.val()),
-                AccessType::Read => Trap::LoadAccessFault(state.vaddr.val()),
-                AccessType::Write => Trap::StoreAccessFault(state.vaddr.val()),
-            };
+            let trap = Trap::access_fault(state.access, state.vaddr.val());
             return WalkStep::Done(TranslationResult::fault(trap, state.cycles));
         }
     }
