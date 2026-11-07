@@ -133,7 +133,7 @@ def run_watch(
         sys.stdout.buffer.flush()
 
     if print_stats and exit_code is not None:
-        cpu.run(limit=0, stats_sections=[])
+        print(cpu.stats.summary())
 
     return exit_code
 
@@ -164,7 +164,7 @@ def _run_live(cpu, limit: int | None, binary: str, captured: IO[bytes]) -> int |
                     break
                 chunk = min(chunk, remaining)
 
-            code = cpu.run(limit=chunk, stats_sections=None)
+            code = cpu.run(limit=chunk)
             cycles_run += chunk
 
             if code is not None:

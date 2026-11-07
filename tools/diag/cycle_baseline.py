@@ -96,7 +96,7 @@ def run_one(args):
         elf_data = f.read()
     t0 = time.time()
     cpu = Simulator(_config_to_dict(cfg), elf_data=elf_data)
-    exit_code = cpu.run(limit=limit, stats_sections=None)
+    exit_code = cpu.run(limit=limit)
     stats = cpu.stats
     return {
         "program": name,

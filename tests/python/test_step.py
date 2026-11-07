@@ -4,6 +4,9 @@ instruction retires, and ``run_until`` until a condition holds.
 Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
+import os
+import subprocess
+import sys
 import unittest
 
 from test_se_mode import CODE_OFFSET, LOAD_ADDRESS, user_elf
@@ -57,3 +60,22 @@ class RunUntil(unittest.TestCase):
 
         self.assertEqual(cpu.privilege, "U")
         self.assertLess(cpu.cycle, 1_000)
+
+
+class Run(unittest.TestCase):
+    def test_a_run_prints_nothing_of_its_own(self):
+        script = (
+            "from rvsim import Config, Simulator\n"
+            "from test_se_mode import user_elf\n"
+            f"Simulator(Config(), elf_data=user_elf([{JAL_SELF}])).run(limit=1_000)\n"
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.stdout, "")

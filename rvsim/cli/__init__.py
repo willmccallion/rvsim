@@ -194,7 +194,7 @@ def _print_help() -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
-def _run_under_gdb(sim, port: int, *, limit, stats_sections) -> int | None:
+def _run_under_gdb(sim, port: int, *, limit) -> int | None:
     """Serves GDB on ``port``; a run GDB detaches from goes on to its exit."""
     print(
         f"waiting for gdb on 127.0.0.1:{port} (in gdb: target remote :{port})",
@@ -202,9 +202,7 @@ def _run_under_gdb(sim, port: int, *, limit, stats_sections) -> int | None:
     )
     outcome, code = sim.gdb(port)
     if outcome == "detached":
-        return sim.run(limit=limit, stats_sections=stats_sections)
-    if stats_sections is not None:
-        print(sim.stats.summary(stats_sections or None))
+        return sim.run(limit=limit)
     return code
 
 
@@ -472,16 +470,15 @@ def main() -> None:
             print_stats=print_stats,
         )
     else:
-        stats_sections = None if (args.quiet or args.no_stats) else []
         sim = build_simulator()
         if args.pipeline_trace:
             sim.open_pipeline_trace(args.pipeline_trace)
         if args.gdb is not None:
-            exit_code = _run_under_gdb(
-                sim, args.gdb, limit=args.limit, stats_sections=stats_sections
-            )
+            exit_code = _run_under_gdb(sim, args.gdb, limit=args.limit)
         else:
-            exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)
+            exit_code = sim.run(limit=args.limit)
+        if not (args.quiet or args.no_stats):
+            print(sim.stats.summary())
 
     if args.json:
         import json

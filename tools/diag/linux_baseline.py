@@ -37,7 +37,7 @@ def main():
         kernel=os.path.join(out_dir, "Image"),
         disk=os.path.join(out_dir, "disk.img"),
     )
-    exit_code = sim.run(limit=args.limit, stats_sections=None)
+    exit_code = sim.run(limit=args.limit)
     stats = sim.stats
     result = {
         "limit": args.limit,

@@ -188,7 +188,7 @@ def run_rvsim_trace(elf_path, cfg):
             contextlib.redirect_stdout(io.StringIO()),
             contextlib.redirect_stderr(io.StringIO()),
         ):
-            cpu.run(limit=CYCLE_LIMIT, stats_sections=None)
+            cpu.run(limit=CYCLE_LIMIT)
 
         # Flush by deleting the cpu (drops the BufWriter)
         del cpu

@@ -93,7 +93,7 @@ def main():
         elf_data = f.read()
 
     cpu = Simulator(config_dict, elf_data=elf_data)
-    exit_code = cpu.run(limit=CYCLE_LIMIT, stats_sections=None)
+    exit_code = cpu.run(limit=CYCLE_LIMIT)
 
     if exit_code is None:
         print(

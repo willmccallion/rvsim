@@ -613,43 +613,26 @@ impl PySimulator {
     /// Args:
     ///     limit: Max cycles to simulate. ``None`` means unlimited.
     ///     progress: Print progress to stderr every N cycles. 0 = silent.
-    ///     stats_sections: Print stats on completion. ``None`` suppresses
-    ///         the report; ``[]`` prints all subjects; a list of subjects
-    ///         (e.g. ``["core0", "hart0"]``) restricts output to those
-    ///         subjects. Use `Stats.subjects` to enumerate.
     ///
     /// Returns:
     ///     Exit code or ``None`` if *limit* was reached without exiting.
+    ///     Print ``stats.summary()`` for the run's report.
     #[allow(
         clippy::doc_markdown,
         reason = "Google-style Args: names are bare for the docs generator"
     )]
-    #[pyo3(signature = (limit=None, progress=0, stats_sections=None))]
+    #[pyo3(signature = (limit=None, progress=0))]
     fn run(
         &mut self,
         py: Python<'_>,
         limit: Option<u64>,
         progress: u64,
-        stats_sections: Option<Vec<String>>,
     ) -> PyResult<Option<u64>> {
-        let exit = if progress > 0 {
-            self.run_with_progress(py, limit, progress)?
+        if progress > 0 {
+            self.run_with_progress(py, limit, progress)
         } else {
-            self.run_inner(py, limit)?
-        };
-
-        if let Some(sections) = stats_sections {
-            let (cycle, retired) = (self.inner.cycle(), self.inner.instructions_retired());
-            let text = if sections.is_empty() {
-                self.inner.stats().summary(cycle, retired)
-            } else {
-                let refs: Vec<&str> = sections.iter().map(String::as_str).collect();
-                self.inner.stats().summary_sections(cycle, retired, &refs)
-            };
-            println!("{text}");
+            self.run_inner(py, limit)
         }
-
-        Ok(exit)
     }
 
     /// Run with periodic stats snapshots.

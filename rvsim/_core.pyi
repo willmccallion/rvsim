@@ -225,7 +225,6 @@ class Simulator:
         self,
         limit: int | None = None,
         progress: int = 0,
-        stats_sections: list[str] | None = None,
     ) -> int | None: ...
     def sample(self, every: int, limit: int | None = None) -> list[Stats]: ...
     def run_until(
