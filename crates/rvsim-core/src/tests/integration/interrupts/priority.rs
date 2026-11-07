@@ -8,6 +8,7 @@ use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::open_pmp;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const M_HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -28,8 +29,7 @@ fn run(backend: BackendKind) -> (PrivilegeMode, u64, u64) {
     {
         let hart = &mut ctx.sim.state.harts[0];
         hart.privilege = PrivilegeMode::Supervisor;
-        hart.pmp.set_addr(0, u64::MAX >> 10);
-        hart.pmp.set_cfg(0, 0b0000_1111);
+        open_pmp(&mut hart.pmp);
         hart.csrs.mtvec = M_HANDLER;
         hart.csrs.stvec = S_HANDLER;
         hart.csrs.mideleg = csr::MIP_SSIP;

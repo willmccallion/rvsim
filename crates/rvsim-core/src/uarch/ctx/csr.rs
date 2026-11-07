@@ -5,6 +5,7 @@ use crate::arch::Hart;
 use crate::arch::csr::legalize_envcfg;
 use crate::arch::csr::legalize_tvec;
 use crate::arch::csr::with_state_dirty;
+use crate::arch::pmp::{PmpCfgCsr, PmpIdx};
 use crate::arch::trigger;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
@@ -65,9 +66,9 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
         csr::TIME => uncore.bus.mtime(),
         csr::INSTRET | csr::MINSTRET => hart.csrs.minstret,
         csr::MCOUNTINHIBIT => hart.csrs.mcountinhibit,
-        csr::PMPCFG0 => hart.pmp.cfg_word(0),
-        csr::PMPCFG2 => hart.pmp.cfg_word(8),
-        _ if let Some(index) = addr.pmpaddr_index() => hart.pmp.get_addr(index),
+        csr::PMPCFG0 => hart.pmp.cfg_word(PmpCfgCsr::Pmpcfg0),
+        csr::PMPCFG2 => hart.pmp.cfg_word(PmpCfgCsr::Pmpcfg2),
+        _ if let Some(index) = PmpIdx::of_pmpaddr(addr) => hart.pmp.get_addr(index),
         // Vector CSRs (read-only: VL, VTYPE, VLENB; read-write: VSTART, VXSAT, VXRM, VCSR)
         csr::VSTART => hart.csrs.vstart,
         csr::VXSAT => hart.csrs.vxsat & csr::VXSAT_BIT,
@@ -216,9 +217,11 @@ impl CoreCtx<'_> {
             csr::MCOUNTINHIBIT => {
                 self.hart.csrs.mcountinhibit = val & csr::MCOUNTINHIBIT_WRITABLE;
             }
-            csr::PMPCFG0 => self.hart.pmp.set_cfg_word(0, val),
-            csr::PMPCFG2 => self.hart.pmp.set_cfg_word(8, val),
-            _ if let Some(index) = addr.pmpaddr_index() => self.hart.pmp.set_addr(index, val),
+            csr::PMPCFG0 => self.hart.pmp.set_cfg_word(PmpCfgCsr::Pmpcfg0, val),
+            csr::PMPCFG2 => self.hart.pmp.set_cfg_word(PmpCfgCsr::Pmpcfg2, val),
+            _ if let Some(index) = PmpIdx::of_pmpaddr(addr) => {
+                self.hart.pmp.set_addr(index, val);
+            }
             csr::STIMECMP => {
                 self.hart.csrs.stimecmp = val;
                 self.hart.csrs.mip &= !csr::MIP_STIP;

@@ -2,8 +2,8 @@
 //!
 //! This module implements RISC-V Physical Memory Protection (spec §3.7),
 //! which restricts physical memory access based on the current privilege mode
-//! and a set of PMP configuration registers (`pmpcfg0`–`pmpcfg15`) and
-//! address registers (`pmpaddr0`–`pmpaddr63`).
+//! and a set of PMP configuration registers (`pmpcfg0` and `pmpcfg2` on
+//! RV64) and address registers (`pmpaddr0`–`pmpaddr15`).
 //!
 //! PMP supports three address-matching modes:
 //! - **TOR** (Top of Range): region is `[pmpaddr[i-1], pmpaddr[i])`.
@@ -11,10 +11,44 @@
 //! - **NAPOT**: Naturally aligned power-of-two region.
 
 use crate::common::{AccessType, PhysAddr};
+use crate::isa::csr::{CsrAddr, PMPADDR0, PMPADDR15};
 use crate::isa::privileged::PrivilegeMode;
 
 /// Maximum number of PMP entries (RISC-V spec allows up to 64).
 pub const PMP_COUNT: usize = 16;
+
+/// The entries each RV64 `pmpcfg` register configures, a byte each.
+const ENTRIES_PER_CFG_CSR: usize = 8;
+
+/// The number of a PMP entry the unit has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PmpIdx(usize);
+
+impl PmpIdx {
+    /// Entry `n`, if the unit has that many.
+    pub const fn new(n: usize) -> Option<Self> {
+        if n < PMP_COUNT { Some(Self(n)) } else { None }
+    }
+
+    /// The entry whose address register `addr` is, if it is a `pmpaddr`.
+    pub const fn of_pmpaddr(addr: CsrAddr) -> Option<Self> {
+        if addr.is_within(PMPADDR0, PMPADDR15) {
+            Self::new((addr.as_u32() - PMPADDR0.as_u32()) as usize)
+        } else {
+            None
+        }
+    }
+}
+
+/// A PMP configuration register: on RV64, `pmpcfg0` holds entries 0–7 and
+/// `pmpcfg2` entries 8–15.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PmpCfgCsr {
+    /// `pmpcfg0`.
+    Pmpcfg0,
+    /// `pmpcfg2`.
+    Pmpcfg2,
+}
 
 /// PMP address-matching mode field (bits 4:3 of pmpcfg).
 const A_SHIFT: u8 = 3;
@@ -76,6 +110,16 @@ pub struct PmpEntry {
 }
 
 impl PmpEntry {
+    /// An entry that matches nothing, as at reset.
+    const OFF: Self = Self { cfg: 0, addr: 0 };
+
+    /// Writes the configuration byte, unless the entry is locked.
+    const fn set_cfg(&mut self, cfg: u8) {
+        if !self.is_locked() {
+            self.cfg = cfg;
+        }
+    }
+
     /// Returns the address-matching mode.
     pub const fn match_mode(&self) -> PmpAddrMatch {
         PmpAddrMatch::from_bits((self.cfg >> A_SHIFT) & A_MASK)
@@ -109,8 +153,7 @@ impl PmpEntry {
 /// physical address is permitted.
 #[derive(Debug)]
 pub struct Pmp {
-    /// PMP entries (up to `PMP_COUNT`).
-    entries: Vec<PmpEntry>,
+    entries: [PmpEntry; PMP_COUNT],
 }
 
 impl Default for Pmp {
@@ -121,13 +164,12 @@ impl Default for Pmp {
 
 impl Pmp {
     /// Creates a new PMP unit with all entries disabled.
-    pub fn new() -> Self {
-        let entries = (0..PMP_COUNT).map(|_| PmpEntry { cfg: 0, addr: 0 }).collect();
-        Self { entries }
+    pub const fn new() -> Self {
+        Self { entries: [PmpEntry::OFF; PMP_COUNT] }
     }
 
     /// Returns a reference to the entries slice for inspection.
-    pub fn entries(&self) -> &[PmpEntry] {
+    pub const fn entries(&self) -> &[PmpEntry] {
         &self.entries
     }
 
@@ -138,56 +180,70 @@ impl Pmp {
         }
     }
 
-    /// Sets the configuration byte for entry `idx`.
-    pub fn set_cfg(&mut self, idx: usize, cfg: u8) {
-        if idx < self.entries.len() {
-            if self.entries[idx].cfg & PMP_L != 0 {
-                return;
-            }
-            self.entries[idx].cfg = cfg;
-        }
+    /// Sets the configuration byte for entry `idx`, unless it is locked.
+    pub const fn set_cfg(&mut self, idx: PmpIdx, cfg: u8) {
+        self.entries[idx.0].set_cfg(cfg);
     }
 
     /// Sets the address register for entry `idx`, unless it is locked.
     ///
     /// `addr` is in the pmpaddr format: physical address >> 2. Only bits
     /// 53:0 are kept.
-    pub fn set_addr(&mut self, idx: usize, addr: u64) {
-        if idx < self.entries.len() && !self.addr_is_locked(idx) {
-            self.entries[idx].addr = addr & PMPADDR_MASK;
+    pub fn set_addr(&mut self, idx: PmpIdx, addr: u64) {
+        if !self.addr_is_locked(idx) {
+            self.entries[idx.0].addr = addr & PMPADDR_MASK;
         }
     }
 
     /// True when `pmpaddr[idx]` ignores writes: its own entry is locked, or
     /// the next is a locked TOR entry, whose base it holds (priv. §3.7.1).
-    fn addr_is_locked(&self, idx: usize) -> bool {
+    fn addr_is_locked(&self, idx: PmpIdx) -> bool {
         let locks_base =
             |next: &PmpEntry| next.is_locked() && next.match_mode() == PmpAddrMatch::Tor;
-        self.entries[idx].is_locked() || self.entries.get(idx + 1).is_some_and(locks_base)
+        self.entries[idx.0].is_locked() || self.entries.get(idx.0 + 1).is_some_and(locks_base)
     }
 
     /// Reads the configuration byte for entry `idx`.
-    pub fn get_cfg(&self, idx: usize) -> u8 {
-        if idx < self.entries.len() { self.entries[idx].cfg } else { 0 }
+    pub const fn get_cfg(&self, idx: PmpIdx) -> u8 {
+        self.entries[idx.0].cfg
     }
 
-    /// The eight configuration bytes from entry `first` up, as `pmpcfg0` or
-    /// `pmpcfg2` packs them.
-    pub fn cfg_word(&self, first: usize) -> u64 {
-        (0..8).fold(0, |word, i| word | (u64::from(self.get_cfg(first + i)) << (8 * i)))
+    /// The configuration register `csr`'s value: its entries' bytes,
+    /// lowest-numbered first.
+    pub fn cfg_word(&self, csr: PmpCfgCsr) -> u64 {
+        let bytes = self.cfg_group(csr).iter().map(|entry| entry.cfg);
+        bytes.rev().fold(0, |word, cfg| (word << 8) | u64::from(cfg))
     }
 
-    /// Writes the eight configuration bytes from entry `first` up from
-    /// `word`, as a write to `pmpcfg0` or `pmpcfg2` does.
-    pub fn set_cfg_word(&mut self, first: usize, word: u64) {
-        for (i, byte) in word.to_le_bytes().into_iter().enumerate() {
-            self.set_cfg(first + i, byte);
+    /// Writes `word` to the configuration register `csr`; locked entries
+    /// keep their bytes.
+    pub fn set_cfg_word(&mut self, csr: PmpCfgCsr, word: u64) {
+        for (entry, cfg) in self.cfg_group_mut(csr).iter_mut().zip(word.to_le_bytes()) {
+            entry.set_cfg(cfg);
+        }
+    }
+
+    /// The entries `csr` configures.
+    const fn cfg_group(&self, csr: PmpCfgCsr) -> &[PmpEntry] {
+        let (low, high) = self.entries.split_at(ENTRIES_PER_CFG_CSR);
+        match csr {
+            PmpCfgCsr::Pmpcfg0 => low,
+            PmpCfgCsr::Pmpcfg2 => high,
+        }
+    }
+
+    /// The entries `csr` configures, to write.
+    const fn cfg_group_mut(&mut self, csr: PmpCfgCsr) -> &mut [PmpEntry] {
+        let (low, high) = self.entries.split_at_mut(ENTRIES_PER_CFG_CSR);
+        match csr {
+            PmpCfgCsr::Pmpcfg0 => low,
+            PmpCfgCsr::Pmpcfg2 => high,
         }
     }
 
     /// Reads the address register for entry `idx`.
-    pub fn get_addr(&self, idx: usize) -> u64 {
-        if idx < self.entries.len() { self.entries[idx].addr } else { 0 }
+    pub const fn get_addr(&self, idx: PmpIdx) -> u64 {
+        self.entries[idx.0].addr
     }
 
     /// Computes the byte-address range `[lo, hi)` for a NAPOT entry.

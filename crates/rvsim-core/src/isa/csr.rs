@@ -49,16 +49,6 @@ impl CsrAddr {
         self.0 >= first.0 && self.0 <= last.0
     }
 
-    /// Which `pmpaddr` register this is, if it is one.
-    #[inline(always)]
-    pub const fn pmpaddr_index(self) -> Option<usize> {
-        if self.is_within(PMPADDR0, PMPADDR15) {
-            Some((self.0 - PMPADDR0.0) as usize)
-        } else {
-            None
-        }
-    }
-
     /// Returns the raw `u16` value.
     #[inline(always)]
     pub const fn as_u16(self) -> u16 {

@@ -10,6 +10,7 @@ use crate::isa::encoding::zicboz::{CBO_ZERO_IMM, CBOZ_BLOCK_SIZE};
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::pmp_entry;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -91,10 +92,10 @@ fn run(
 /// PMP denies supervisor access to four bytes inside the block and allows
 /// everything else.
 fn protect_four_bytes_of_the_block(pmp: &mut crate::arch::pmp::Pmp) {
-    pmp.set_addr(0, (DATA_PA + PROTECTED) >> 2);
-    pmp.set_cfg(0, PMP_NA4_NONE);
-    pmp.set_addr(1, u64::MAX >> 10);
-    pmp.set_cfg(1, PMP_NAPOT_RWX);
+    pmp.set_addr(pmp_entry(0), (DATA_PA + PROTECTED) >> 2);
+    pmp.set_cfg(pmp_entry(0), PMP_NA4_NONE);
+    pmp.set_addr(pmp_entry(1), u64::MAX >> 10);
+    pmp.set_cfg(pmp_entry(1), PMP_NAPOT_RWX);
 }
 
 #[test]
@@ -119,12 +120,12 @@ fn cbo_zero_after_a_walk_cannot_zero_pmp_protected_bytes_of_its_block() {
 /// PMP grants the code page, the page tables and the data page, and
 /// nothing past the data page.
 fn grant_only_the_pages_in_use(pmp: &mut crate::arch::pmp::Pmp) {
-    pmp.set_addr(0, napot(DATA_PA, PAGE));
-    pmp.set_cfg(0, PMP_NAPOT_RWX);
-    pmp.set_addr(1, napot(CODE_PA, PAGE));
-    pmp.set_cfg(1, PMP_NAPOT_RWX);
-    pmp.set_addr(2, napot(ROOT_PPN << 12, 4 * PAGE));
-    pmp.set_cfg(2, PMP_NAPOT_RWX);
+    pmp.set_addr(pmp_entry(0), napot(DATA_PA, PAGE));
+    pmp.set_cfg(pmp_entry(0), PMP_NAPOT_RWX);
+    pmp.set_addr(pmp_entry(1), napot(CODE_PA, PAGE));
+    pmp.set_cfg(pmp_entry(1), PMP_NAPOT_RWX);
+    pmp.set_addr(pmp_entry(2), napot(ROOT_PPN << 12, 4 * PAGE));
+    pmp.set_cfg(pmp_entry(2), PMP_NAPOT_RWX);
 }
 
 #[test]

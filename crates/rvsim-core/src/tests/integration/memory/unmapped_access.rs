@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::open_pmp;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x10_000;
@@ -31,8 +32,7 @@ fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64
         let hart = &mut ctx.sim.state.harts[0];
         hart.csrs.mtvec = TRAP_PARK;
         hart.privilege = privilege;
-        hart.pmp.set_addr(0, u64::MAX >> 10);
-        hart.pmp.set_cfg(0, 0b0000_1111);
+        open_pmp(&mut hart.pmp);
         hart.pc = VirtAddr::new(RAM_BASE);
     }
     ctx.sim.sync_arch_regs();

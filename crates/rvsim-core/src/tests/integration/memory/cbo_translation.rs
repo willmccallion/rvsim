@@ -11,6 +11,7 @@ use crate::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE}
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::open_pmp;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -74,8 +75,7 @@ fn run(backend: BackendKind, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
         hart.csrs.menvcfg = csr::MENVCFG_CBZE | csr::MENVCFG_CBCFE;
         hart.csrs.mtvec = TRAP_PARK;
         hart.privilege = PrivilegeMode::Supervisor;
-        hart.pmp.set_addr(0, u64::MAX >> 10);
-        hart.pmp.set_cfg(0, 0b0000_1111);
+        open_pmp(&mut hart.pmp);
         hart.pc = VirtAddr::new(CODE_VA);
     }
     ctx.sim.sync_arch_regs();
