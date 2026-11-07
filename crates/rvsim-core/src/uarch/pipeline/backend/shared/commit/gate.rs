@@ -293,7 +293,7 @@ fn schedule_trap(
 /// Takes a parked trap. An interrupt is what is pending and enabled now,
 /// which may differ from what was detected, or be nothing at all.
 fn take_pending_trap(state: &mut CoreCtx<'_>, pending: PendingTrap) -> Option<CommitEvent> {
-    let (is_interrupt, _) = pending.trap.cause();
+    let is_interrupt = pending.trap.cause().is_interrupt();
     let trap = if is_interrupt { retire::pending_interrupt(state.hart)? } else { pending.trap };
     if is_interrupt {
         state.hart.wfi_waiting = false;
