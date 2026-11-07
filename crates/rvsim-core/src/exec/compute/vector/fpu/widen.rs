@@ -44,6 +44,8 @@ pub(super) fn exec_fp_widening(
 
     // Determine if this is a ".w" variant (vs2 is already wide)
     let vs2_wide = matches!(op, VectorOp::VFWAddW | VectorOp::VFWSubW);
+    // vfwcvt.f.f reads only vs2: its vs1 field holds the VFUNARY0 selector.
+    let reads_op1 = op != VectorOp::VFWCvtFF;
 
     for i in 0..vlmax {
         if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, wsew)) {
@@ -106,7 +108,8 @@ pub(super) fn exec_fp_widening(
             } else {
                 is_snan_f32(elem_to_f32(vs2_raw))
             };
-            flags = flags | invalid_if(vs2_signaling || is_snan_f32(elem_to_f32(op1_raw)));
+            let op1_signaling = reads_op1 && is_snan_f32(elem_to_f32(op1_raw));
+            flags = flags | invalid_if(vs2_signaling || op1_signaling);
 
             let (r, f) = on_host_f64(
                 ctx.frm,
@@ -178,7 +181,8 @@ pub(super) fn exec_fp_widening(
             } else {
                 is_snan_f16(vs2_raw as u16)
             };
-            flags = flags | invalid_if(vs2_signaling || is_snan_f16(op1_raw as u16));
+            let op1_signaling = reads_op1 && is_snan_f16(op1_raw as u16);
+            flags = flags | invalid_if(vs2_signaling || op1_signaling);
 
             // The f64 result of f32-representable operands rounds to f32 the
             // same as the exact one would, so the flags are read after it.
