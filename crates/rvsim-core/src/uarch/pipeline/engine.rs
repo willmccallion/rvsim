@@ -21,6 +21,7 @@ use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 use crate::uarch::pipeline::snapshot::LatchSnapshot;
 use crate::uarch::pipeline::squash::PendingSquash;
+use crate::uarch::pipeline::squash::SquashScope;
 
 /// What renaming one decoded instruction produced.
 #[derive(Debug)]
@@ -302,6 +303,14 @@ pub struct BackendCommon {
 }
 
 impl BackendCommon {
+    /// Drops every in-flight memory operation `scope` squashes.
+    pub fn squash(&mut self, scope: SquashScope) {
+        match scope {
+            SquashScope::After(keep) => self.squash_after(keep),
+            SquashScope::All => self.squash_all(),
+        }
+    }
+
     /// Drops every in-flight memory operation younger than `keep_tag`
     /// after a partial squash (branch mispredict or memory-ordering
     /// violation). A squashed load's response must never complete: its

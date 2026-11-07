@@ -9,6 +9,7 @@
 //! 5. **Flush:** Squashes speculative entries after a misprediction or trap.
 
 use crate::sim::memory::write_log::WriteSeq;
+use crate::uarch::pipeline::squash::SquashScope;
 use std::collections::HashMap;
 
 use crate::arch::reservation::LrScRecord;
@@ -667,6 +668,19 @@ impl Rob {
         self.head = (self.head + 1) % self.entries.len();
         self.count -= 1;
         Some(committed)
+    }
+
+    /// Removes what `scope` squashes.
+    pub fn squash(&mut self, scope: SquashScope) {
+        match scope {
+            SquashScope::After(keep) => self.flush_after(keep),
+            SquashScope::All => self.flush_all(),
+        }
+    }
+
+    /// The entries `scope` squashes, oldest first.
+    pub fn iter_squashed(&self, scope: SquashScope) -> impl Iterator<Item = &RobEntry> {
+        self.iter_all().filter(move |entry| !scope.keeps(entry.tag))
     }
 
     /// Flushes all entries from the ROB.

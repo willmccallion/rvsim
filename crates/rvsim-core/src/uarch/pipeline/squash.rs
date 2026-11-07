@@ -86,6 +86,45 @@ impl Redirect {
     }
 }
 
+/// What a squash removes: everything younger than a surviving instruction,
+/// or everything in flight.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SquashScope {
+    /// Everything younger than this instruction.
+    After(RobTag),
+    /// Everything.
+    All,
+}
+
+impl SquashScope {
+    /// Everything younger than `keep`, or everything for `None`.
+    #[must_use]
+    pub const fn keeping(keep: Option<RobTag>) -> Self {
+        match keep {
+            Some(tag) => Self::After(tag),
+            None => Self::All,
+        }
+    }
+
+    /// Whether instruction `tag` survives.
+    #[must_use]
+    pub const fn keeps(self, tag: RobTag) -> bool {
+        match self {
+            Self::After(keep) => tag.is_older_or_eq(keep),
+            Self::All => false,
+        }
+    }
+
+    /// The youngest surviving instruction, if any survives.
+    #[must_use]
+    pub const fn keep_tag(self) -> Option<RobTag> {
+        match self {
+            Self::After(keep) => Some(keep),
+            Self::All => None,
+        }
+    }
+}
+
 /// A redirect waiting for its latency to elapse.
 #[derive(Clone, Copy, Debug)]
 pub struct PendingSquash {

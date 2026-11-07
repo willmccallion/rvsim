@@ -20,6 +20,7 @@ use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
 use crate::uarch::pipeline::rob::RobTag;
+use crate::uarch::pipeline::squash::SquashScope;
 
 /// A resolved store that writes some of a load's bytes, over `start..end`.
 #[derive(Clone, Copy, Debug)]
@@ -593,6 +594,15 @@ impl StoreBuffer {
             head.valid = false;
             self.head = (self.head + 1) % self.entries.len();
             self.count -= 1;
+        }
+    }
+
+    /// Removes the uncommitted stores `scope` squashes; committed stores
+    /// remain to be written.
+    pub fn squash(&mut self, scope: SquashScope) {
+        match scope {
+            SquashScope::After(keep) => self.flush_after(keep),
+            SquashScope::All => self.flush_speculative(),
         }
     }
 

@@ -33,7 +33,7 @@ use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
-use crate::uarch::pipeline::trace::Departure;
+use crate::uarch::pipeline::squash::SquashScope;
 use crate::uarch::vector::chaining::VecPendingResult;
 use crate::uarch::vector::lane_model::NumLanes;
 
@@ -347,38 +347,12 @@ impl ExecutionEngine for O3Engine {
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
-        for seq in self.rob.seqs_after(None) {
-            state.trace_left(seq, Departure::Squashed);
-        }
+        self.squash_in_flight(state, SquashScope::All);
         self.serialization = serialize::Serialization::Off;
-        self.fu_pool.release_squashed(state.cycle, |_| true);
         self.common.data_cache_flush = DataCacheFlush::Idle;
-
-        for entry in self.rob.iter_all() {
-            self.free_list.reclaim(entry.phys_dst);
-            for i in 0..entry.vec_dst_count as usize {
-                self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
-            }
-        }
         self.rename_map = self.committed_rename_map.clone();
-
-        self.rob.flush_all();
-        self.store_buffer.flush_speculative();
-        self.load_queue.flush();
-        self.issue_queue.flush();
-        self.mdp.flush();
         self.checkpoints.flush_all();
         // Caller sets squash_stall_remaining after this; not cleared here.
-        self.pending_results.clear();
-        self.pending_addresses.clear();
-        self.vec_pending.clear();
-        self.vec_mem_pending.clear();
-        self.vec_mem_inflight.clear();
-        self.vec_store_buffer.flush_speculative();
-        self.execute_mem1.clear();
-        self.common.squash_all();
-        self.mem1_mem2.clear();
-        self.mem2_wb.clear();
         self.common.flush_predictions(&mut state.core.branch_predictor);
         self.debug_assert_registers_conserved();
     }
