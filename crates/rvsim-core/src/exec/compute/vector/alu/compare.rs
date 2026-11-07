@@ -52,7 +52,7 @@ pub(super) fn exec_comparison(
         vpr.write_mask_bit(vd_idx, ElemIdx::new(i), result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: crate::isa::fp::FpFlags::NONE }
+    VecExecResult::default()
 }
 
 /// Add/subtract with carry loop.
@@ -116,5 +116,5 @@ pub(super) fn exec_carry(
         }
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: crate::isa::fp::FpFlags::NONE }
+    VecExecResult::default()
 }

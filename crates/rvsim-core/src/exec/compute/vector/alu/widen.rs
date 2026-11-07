@@ -178,7 +178,7 @@ pub(super) fn exec_widening(
         vpr.write_element(vd_idx, ElemIdx::new(i), wsew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: crate::isa::fp::FpFlags::NONE }
+    VecExecResult::default()
 }
 
 /// Widening multiply-accumulate loop.
@@ -211,7 +211,7 @@ pub(super) fn exec_widening_macc(
         vpr.write_element(vd_idx, ElemIdx::new(i), wsew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: crate::isa::fp::FpFlags::NONE }
+    VecExecResult::default()
 }
 
 /// Narrowing loop.

@@ -5,7 +5,6 @@ use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
 
@@ -33,7 +32,7 @@ pub(super) fn exec_fp_merge(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
+    VecExecResult::default()
 }
 
 /// FP slide1up/slide1down operations.
@@ -76,5 +75,5 @@ pub(super) fn exec_fp_slide1(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
+    VecExecResult::default()
 }

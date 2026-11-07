@@ -390,7 +390,7 @@ pub(super) fn exec_macc(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: crate::isa::fp::FpFlags::NONE }
+    VecExecResult::default()
 }
 
 /// Merge/move loop.
@@ -421,7 +421,7 @@ pub(super) fn exec_merge(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: crate::isa::fp::FpFlags::NONE }
+    VecExecResult::default()
 }
 
 /// Extension loop (vzext, vsext).
@@ -454,5 +454,5 @@ pub(super) fn exec_extension(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: crate::isa::fp::FpFlags::NONE }
+    VecExecResult::default()
 }
