@@ -4,7 +4,7 @@
 //! register numbers. Maintained speculatively; the `committed_rename_map`
 //! in `O3Engine` tracks the last committed state for flush recovery.
 
-use crate::isa::reg::RegIdx;
+use crate::isa::reg::ArchReg;
 use crate::isa::rvv::VRegIdx;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 
@@ -39,26 +39,22 @@ impl RenameMap {
     /// Get the current physical register for an architectural register.
     /// x0 always returns PhysReg(0).
     #[inline]
-    pub const fn get(&self, reg: RegIdx, is_fp: bool) -> PhysReg {
-        let idx = reg.as_usize();
-        if !is_fp && reg.is_zero() {
-            return PhysReg(0);
+    pub const fn get(&self, reg: ArchReg) -> PhysReg {
+        match reg {
+            ArchReg::Int(idx) if idx.is_zero() => PhysReg(0),
+            ArchReg::Int(idx) => self.gpr[idx.as_usize()],
+            ArchReg::Fp(idx) => self.fpr[idx.as_usize()],
         }
-        if is_fp { self.fpr[idx] } else { self.gpr[idx] }
     }
 
     /// Update the mapping for an architectural register.
     /// No-op for x0 (always PhysReg(0)).
     #[inline]
-    pub const fn set(&mut self, reg: RegIdx, is_fp: bool, p: PhysReg) {
-        if !is_fp && reg.is_zero() {
-            return; // x0 hardwired
-        }
-        let idx = reg.as_usize();
-        if is_fp {
-            self.fpr[idx] = p;
-        } else {
-            self.gpr[idx] = p;
+    pub const fn set(&mut self, reg: ArchReg, p: PhysReg) {
+        match reg {
+            ArchReg::Int(idx) if idx.is_zero() => {}
+            ArchReg::Int(idx) => self.gpr[idx.as_usize()] = p,
+            ArchReg::Fp(idx) => self.fpr[idx.as_usize()] = p,
         }
     }
 
@@ -85,13 +81,14 @@ impl Default for RenameMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::isa::reg::RegIdx;
 
     #[test]
     fn test_identity_mapping() {
         let rm = RenameMap::new();
         for i in 0u8..32 {
-            assert_eq!(rm.get(RegIdx::new(i), false), PhysReg(i as u16));
-            assert_eq!(rm.get(RegIdx::new(i), true), PhysReg((32 + i) as u16));
+            assert_eq!(rm.get(ArchReg::Int(RegIdx::new(i))), PhysReg(i as u16));
+            assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(i))), PhysReg((32 + i) as u16));
         }
     }
 
@@ -99,25 +96,25 @@ mod tests {
     fn test_x0_always_phys_zero() {
         let mut rm = RenameMap::new();
         // x0 set is a no-op
-        rm.set(RegIdx::new(0), false, PhysReg(99));
-        assert_eq!(rm.get(RegIdx::new(0), false), PhysReg(0));
+        rm.set(ArchReg::Int(RegIdx::new(0)), PhysReg(99));
+        assert_eq!(rm.get(ArchReg::Int(RegIdx::new(0))), PhysReg(0));
     }
 
     #[test]
     fn test_set_get_roundtrip() {
         let mut rm = RenameMap::new();
-        rm.set(RegIdx::new(5), false, PhysReg(100));
-        assert_eq!(rm.get(RegIdx::new(5), false), PhysReg(100));
+        rm.set(ArchReg::Int(RegIdx::new(5)), PhysReg(100));
+        assert_eq!(rm.get(ArchReg::Int(RegIdx::new(5))), PhysReg(100));
         // FPR unaffected
-        assert_eq!(rm.get(RegIdx::new(5), true), PhysReg(37));
+        assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(5))), PhysReg(37));
     }
 
     #[test]
     fn test_fp_set_get() {
         let mut rm = RenameMap::new();
-        rm.set(RegIdx::new(3), true, PhysReg(200));
-        assert_eq!(rm.get(RegIdx::new(3), true), PhysReg(200));
-        assert_eq!(rm.get(RegIdx::new(3), false), PhysReg(3)); // GPR unaffected
+        rm.set(ArchReg::Fp(RegIdx::new(3)), PhysReg(200));
+        assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(3))), PhysReg(200));
+        assert_eq!(rm.get(ArchReg::Int(RegIdx::new(3))), PhysReg(3)); // GPR unaffected
     }
 
     #[test]

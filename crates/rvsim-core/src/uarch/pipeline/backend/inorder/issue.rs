@@ -12,7 +12,7 @@
 
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::isa::op::{SystemOp, VectorOp};
-use crate::isa::reg::RegIdx;
+use crate::isa::reg::ArchReg;
 use crate::trace_issue;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FuPool, FuType};
@@ -146,25 +146,12 @@ impl InOrderIssueUnit {
                 break;
             }
 
-            let rv1 = read_operand_by_tag(
-                entry.inst.rs1,
-                entry.inst.ctrl.rs1_fp,
-                entry.rs1_tag,
-                rob,
-                state,
-            );
-            let rv2 = read_operand_by_tag(
-                entry.inst.rs2,
-                entry.inst.ctrl.rs2_fp,
-                entry.rs2_tag,
-                rob,
-                state,
-            );
-            let rv3 = if entry.inst.ctrl.rs3_fp {
-                read_operand_by_tag(entry.inst.rs3, true, entry.rs3_tag, rob, state)
-            } else {
-                Some(0)
-            };
+            let ctrl = &entry.inst.ctrl;
+            let rv1 = read_operand_by_tag(ctrl.src1(entry.inst.rs1), entry.rs1_tag, rob, state);
+            let rv2 = read_operand_by_tag(ctrl.src2(entry.inst.rs2), entry.rs2_tag, rob, state);
+            let rv3 = ctrl
+                .src3(entry.inst.rs3)
+                .map_or(Some(0), |rs3| read_operand_by_tag(rs3, entry.rs3_tag, rob, state));
 
             if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
                 let fu_type = FuType::classify(&entry.inst.ctrl);
@@ -238,18 +225,21 @@ const fn is_vector_arithmetic(op: VectorOp) -> bool {
 ///
 /// Returns `Some(value)` if the operand is ready, `None` if stalled.
 fn read_operand_by_tag(
-    reg: RegIdx,
-    is_fp: bool,
+    reg: ArchReg,
     tag: Option<RobTag>,
     rob: &Rob,
     state: &StageCtx<'_>,
 ) -> Option<u64> {
-    if !is_fp && reg.is_zero() {
+    if reg.is_hardwired_zero() {
         return Some(0);
     }
 
-    let from_register_file =
-        || Some(if is_fp { state.hart().regs.read_f(reg) } else { state.hart().regs.read(reg) });
+    let from_register_file = || {
+        Some(match reg {
+            ArchReg::Int(idx) => state.hart().regs.read(idx),
+            ArchReg::Fp(idx) => state.hart().regs.read_f(idx),
+        })
+    };
     let Some(tag) = tag else { return from_register_file() };
     // A producer no longer in the ROB has committed its value to the register file.
     rob.find_entry(tag).map_or_else(from_register_file, |entry| entry.result)

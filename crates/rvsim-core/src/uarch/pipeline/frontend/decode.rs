@@ -14,7 +14,7 @@ use crate::exec::state::ArchState;
 use crate::isa::instruction::InstructionBits;
 use crate::isa::op::SystemOp;
 use crate::isa::privileged::Trap;
-use crate::isa::reg::{self, RegIdx};
+use crate::isa::reg::{self, ArchReg};
 use crate::isa::rvv::VectorConfig;
 use crate::uarch::bpred::ControlInst;
 use crate::uarch::ctx::StageCtx;
@@ -38,7 +38,7 @@ pub fn decode_stage(
     let mut consumed_count = 0;
     let mut ended_at_vsetvl = false;
     let mut redirect = None;
-    let mut bundle_writes: Vec<(RegIdx, bool)> = Vec::with_capacity(state.config.pipeline.width);
+    let mut bundle_writes: Vec<ArchReg> = Vec::with_capacity(state.config.pipeline.width);
 
     for if_entry in input.iter().take(state.config.pipeline.decode_width()) {
         if let Some(trap) = &if_entry.trap {
@@ -79,22 +79,14 @@ pub fn decode_stage(
         // O3 rename resolves RAW hazards via PRF, so this check applies only in-order.
         let rs3_idx = inst.rs3();
         if !has_register_renaming {
-            let hazard = ((!d.rs1.is_zero() || ctrl.rs1_fp)
-                && bundle_writes.contains(&(d.rs1, ctrl.rs1_fp)))
-                || ((!d.rs2.is_zero() || ctrl.rs2_fp)
-                    && bundle_writes.contains(&(d.rs2, ctrl.rs2_fp)))
-                || (ctrl.rs3_fp && bundle_writes.contains(&(rs3_idx, true)));
-
-            if hazard {
+            let sources = [Some(ctrl.src1(d.rs1)), Some(ctrl.src2(d.rs2)), ctrl.src3(rs3_idx)];
+            if sources.into_iter().flatten().any(|src| bundle_writes.contains(&src)) {
                 break;
             }
         }
 
-        if ctrl.reg_write && !d.rd.is_zero() {
-            bundle_writes.push((d.rd, false));
-        }
-        if ctrl.fp_reg_write {
-            bundle_writes.push((d.rd, true));
+        if let Some(dest) = ctrl.dest(d.rd) {
+            bundle_writes.push(dest);
         }
 
         let has_trap = trap.is_some();

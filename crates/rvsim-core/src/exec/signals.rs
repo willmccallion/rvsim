@@ -6,6 +6,7 @@
 use crate::isa::csr::CsrAddr;
 use crate::isa::fp::Rounding;
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp, VecSrcEncoding, VectorOp};
+use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvv::{Sew, VRegIdx};
 
 /// Source for ALU operand A.
@@ -139,6 +140,33 @@ pub struct ControlSignals {
 }
 
 impl ControlSignals {
+    /// `rs1` in the register file this instruction reads it from.
+    pub const fn src1(&self, rs1: RegIdx) -> ArchReg {
+        if self.rs1_fp { ArchReg::Fp(rs1) } else { ArchReg::Int(rs1) }
+    }
+
+    /// `rs2` in the register file this instruction reads it from.
+    pub const fn src2(&self, rs2: RegIdx) -> ArchReg {
+        if self.rs2_fp { ArchReg::Fp(rs2) } else { ArchReg::Int(rs2) }
+    }
+
+    /// `rs3`, which only the fused multiply-adds read.
+    pub const fn src3(&self, rs3: RegIdx) -> Option<ArchReg> {
+        if self.rs3_fp { Some(ArchReg::Fp(rs3)) } else { None }
+    }
+
+    /// The scalar register this instruction writes as `rd`, if any. A
+    /// write to `x0` is none, since it is discarded.
+    pub const fn dest(&self, rd: RegIdx) -> Option<ArchReg> {
+        if self.fp_reg_write {
+            Some(ArchReg::Fp(rd))
+        } else if self.reg_write && !rd.is_zero() {
+            Some(ArchReg::Int(rd))
+        } else {
+            None
+        }
+    }
+
     /// True for a vector instruction masked by v0 (`vm` clear); the
     /// configuration instructions have no mask.
     pub const fn is_masked_vector_op(&self) -> bool {

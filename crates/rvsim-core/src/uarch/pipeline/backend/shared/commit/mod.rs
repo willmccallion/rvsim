@@ -18,6 +18,7 @@ use crate::arch::regs::vpr::Vpr;
 use crate::common::PhysAddr;
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
+use crate::isa::reg::ArchReg;
 use crate::isa::rvv::VRegIdx;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::BackendCommon;
@@ -122,14 +123,14 @@ impl CommitRegisters<'_> {
         }
     }
 
-    fn retire_scalar(&mut self, entry: &RobEntry, is_fp: bool) {
+    fn retire_scalar(&mut self, entry: &RobEntry, dest: ArchReg) {
         match self {
-            Self::Scoreboard(scoreboard) => scoreboard.clear_if_match(entry.rd, is_fp, entry.tag),
+            Self::Scoreboard(scoreboard) => scoreboard.clear_if_match(dest, entry.tag),
             Self::Renamed { rename_map, free_list, .. } => {
                 if entry.old_phys_dst.0 != entry.phys_dst.0 {
                     free_list.reclaim(entry.old_phys_dst);
                 }
-                rename_map.set(entry.rd, is_fp, entry.phys_dst);
+                rename_map.set(dest, entry.phys_dst);
             }
         }
     }

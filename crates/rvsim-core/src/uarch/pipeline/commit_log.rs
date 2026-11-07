@@ -31,7 +31,7 @@ use crate::exec::compute::vector::agnostic::AgnosticFills;
 use crate::isa::csr::{self, CsrAddr};
 use crate::isa::op::{AtomicOp, MemWidth, VectorOp};
 use crate::isa::privileged::PrivilegeMode;
-use crate::isa::reg::RegIdx;
+use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvv::{ElemIdx, VRegIdx};
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
@@ -276,13 +276,14 @@ impl Retired {
         vpr: &Vpr,
     ) -> Self {
         let value = entry.result.unwrap_or(0);
-        let destination = if entry.ctrl.fp_reg_write {
-            Some(Destination { file: RegisterFile::Float, index: entry.rd.as_usize(), value })
-        } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
-            Some(Destination { file: RegisterFile::Integer, index: entry.rd.as_usize(), value })
-        } else {
-            None
-        };
+        let destination = entry.ctrl.dest(entry.rd).map(|dest| match dest {
+            ArchReg::Int(rd) => {
+                Destination { file: RegisterFile::Integer, index: rd.as_usize(), value }
+            }
+            ArchReg::Fp(rd) => {
+                Destination { file: RegisterFile::Float, index: rd.as_usize(), value }
+            }
+        });
         Self {
             pc: entry.pc,
             inst: entry.inst,

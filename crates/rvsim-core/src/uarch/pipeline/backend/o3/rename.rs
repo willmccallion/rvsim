@@ -62,10 +62,10 @@ impl O3Engine {
         }
 
         // Capture source physical regs BEFORE updating rename map for rd.
-        let rs1_phys = self.rename_map.get(id.inst.rs1, id.inst.ctrl.rs1_fp);
-        let rs2_phys = self.rename_map.get(id.inst.rs2, id.inst.ctrl.rs2_fp);
-        let rs3_phys =
-            if id.inst.ctrl.rs3_fp { self.rename_map.get(id.inst.rs3, true) } else { PhysReg(0) };
+        let ctrl = id.inst.ctrl;
+        let rs1_phys = self.rename_map.get(ctrl.src1(id.inst.rs1));
+        let rs2_phys = self.rename_map.get(ctrl.src2(id.inst.rs2));
+        let rs3_phys = ctrl.src3(id.inst.rs3).map_or(PhysReg(0), |rs3| self.rename_map.get(rs3));
 
         // Capture vector source mappings before vd is renamed.
         let lmul = id.inst.ctrl.vec_lmul_regs;
@@ -136,21 +136,19 @@ impl O3Engine {
         }
 
         // x0 stays unrenamed: hardwired zero, never freed at commit.
-        let needs_dst =
-            (id.inst.ctrl.reg_write && !id.inst.rd.is_zero()) || id.inst.ctrl.fp_reg_write;
-        let (rd_phys, old_phys_dst) = if needs_dst {
+        let dest = ctrl.dest(id.inst.rd);
+        let (rd_phys, old_phys_dst) = if let Some(dest) = dest {
             let Some(new_p) = self.free_list.allocate() else {
                 return Renamed::Stalled(Box::new(id));
             };
-            let old_p = self.rename_map.get(id.inst.rd, id.inst.ctrl.fp_reg_write);
-            (new_p, old_p)
+            (new_p, self.rename_map.get(dest))
         } else {
             (PhysReg(0), PhysReg(0))
         };
 
         let vec_dst_count = if id.inst.ctrl.vec_reg_write && grp.vd > 0 { grp.vd } else { 0 };
         let Some(vec_dst_regs) = self.vec_free_list.reserve(vec_dst_count as usize) else {
-            if needs_dst {
+            if dest.is_some() {
                 self.free_list.reclaim(rd_phys);
             }
             return Renamed::Stalled(Box::new(id));
@@ -166,15 +164,15 @@ impl O3Engine {
             old_phys_dst,
             id.seq,
         ) else {
-            if needs_dst {
+            if dest.is_some() {
                 self.free_list.reclaim(rd_phys);
             }
             return Renamed::Stalled(Box::new(id));
         };
         state.trace_stage(id.seq, Stage::Rename);
 
-        if needs_dst {
-            self.rename_map.set(id.inst.rd, id.inst.ctrl.fp_reg_write, rd_phys);
+        if let Some(dest) = dest {
+            self.rename_map.set(dest, rd_phys);
             self.prf.allocate(rd_phys);
         }
 
@@ -348,8 +346,7 @@ impl BackendSlots<'_> {
     /// a store-buffer, vector-store-buffer or load-queue slot for a memory
     /// op, as gem5's rename checks each instruction's own resources.
     fn has_room_for(&self, id: &IdExEntry, load_slots: LoadSlots) -> bool {
-        let needs_dst =
-            (id.inst.ctrl.reg_write && !id.inst.rd.is_zero()) || id.inst.ctrl.fp_reg_write;
+        let needs_dst = id.inst.ctrl.dest(id.inst.rd).is_some();
         let store_slot = if id.inst.ctrl.uses_store_buffer() {
             self.view.sq > 0 && !self.store_buffer.is_full()
         } else if is_vec_store(id.inst.ctrl.vec_op) {

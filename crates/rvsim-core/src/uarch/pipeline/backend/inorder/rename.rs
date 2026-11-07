@@ -48,16 +48,13 @@ impl InOrderEngine {
         state.trace_stage(id.seq, Stage::Rename);
 
         // Capture source tags BEFORE updating scoreboard for rd.
-        let rs1_tag = self.scoreboard.get_producer(id.inst.rs1, id.inst.ctrl.rs1_fp);
-        let rs2_tag = self.scoreboard.get_producer(id.inst.rs2, id.inst.ctrl.rs2_fp);
-        let rs3_tag = if id.inst.ctrl.rs3_fp {
-            self.scoreboard.get_producer(id.inst.rs3, true)
-        } else {
-            None
-        };
+        let ctrl = id.inst.ctrl;
+        let rs1_tag = self.scoreboard.get_producer(ctrl.src1(id.inst.rs1));
+        let rs2_tag = self.scoreboard.get_producer(ctrl.src2(id.inst.rs2));
+        let rs3_tag = ctrl.src3(id.inst.rs3).and_then(|rs3| self.scoreboard.get_producer(rs3));
 
-        if id.inst.ctrl.reg_write || id.inst.ctrl.fp_reg_write {
-            self.scoreboard.set_producer(id.inst.rd, id.inst.ctrl.fp_reg_write, rob_tag);
+        if let Some(dest) = ctrl.dest(id.inst.rd) {
+            self.scoreboard.set_producer(dest, rob_tag);
         }
 
         let slot_allocated = if id.inst.ctrl.uses_store_buffer() {

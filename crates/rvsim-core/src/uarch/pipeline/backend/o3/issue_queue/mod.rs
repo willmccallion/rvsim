@@ -8,7 +8,7 @@
 //!   selected for execution (up to `width`).
 
 use crate::isa::op::SystemOp;
-use crate::isa::reg::RegIdx;
+use crate::isa::reg::ArchReg;
 use crate::uarch::mdp::MemDepState;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
@@ -270,13 +270,12 @@ impl IssueQueue {
             return false;
         };
 
-        let src1 = resolve_operand(entry.inst.rs1, entry.inst.ctrl.rs1_fp, entry.rs1_phys, prf);
-        let src2 = resolve_operand(entry.inst.rs2, entry.inst.ctrl.rs2_fp, entry.rs2_phys, prf);
-        let src3 = if entry.inst.ctrl.rs3_fp {
-            resolve_operand(entry.inst.rs3, true, entry.rs3_phys, prf)
-        } else {
-            OperandState::ready(PhysReg(0), 0)
-        };
+        let ctrl = &entry.inst.ctrl;
+        let src1 = resolve_operand(ctrl.src1(entry.inst.rs1), entry.rs1_phys, prf);
+        let src2 = resolve_operand(ctrl.src2(entry.inst.rs2), entry.rs2_phys, prf);
+        let src3 = ctrl.src3(entry.inst.rs3).map_or(OperandState::ready(PhysReg(0), 0), |rs3| {
+            resolve_operand(rs3, entry.rs3_phys, prf)
+        });
 
         let mut vec_src1 = VecOperandState {
             phys: entry.vs1_phys,
@@ -617,8 +616,8 @@ impl IssueQueue {
 
 /// An operand's state at dispatch: its value if the register holding it is
 /// ready, else the register to wait for.
-fn resolve_operand(reg: RegIdx, is_fp: bool, phys: PhysReg, prf: &PhysRegFile) -> OperandState {
-    if !is_fp && reg.is_zero() {
+fn resolve_operand(reg: ArchReg, phys: PhysReg, prf: &PhysRegFile) -> OperandState {
+    if reg.is_hardwired_zero() {
         return OperandState::ready(PhysReg(0), 0);
     }
     if prf.is_ready(phys) {

@@ -7,6 +7,7 @@ use crate::exec::signals::ControlFlow;
 use crate::isa::fp::{Rounding, RoundingMode};
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, MemWidth, SystemOp};
 use crate::isa::privileged::Trap;
+use crate::isa::reg::{ArchReg, RegIdx};
 
 /// Operand format: 64-bit (`X`) or word (`W`) integer, or single, double
 /// or half precision.
@@ -495,4 +496,45 @@ fn an_op_that_does_not_round_carries_no_rounding_mode() {
     let fsgnjx_s = r_type(OP_FP, 2, 0x10);
 
     assert_eq!(decode(fsgnjx_s).ctrl.fp_rm, None);
+}
+
+const A0: RegIdx = RegIdx::new(10);
+const FA0: RegIdx = RegIdx::new(10);
+
+fn dest_reg(word: u32) -> Option<ArchReg> {
+    let decoded = decode(word);
+    decoded.ctrl.dest(decoded.fields.rd)
+}
+
+#[test]
+fn an_fp_compare_writes_its_integer_destination() {
+    let feq_s = 0xa0c5_a553;
+
+    assert_eq!(dest_reg(feq_s), Some(ArchReg::Int(A0)));
+}
+
+#[test]
+fn an_fp_add_writes_its_fp_destination() {
+    let fadd_s = 0x00c5_8553;
+
+    assert_eq!(dest_reg(fadd_s), Some(ArchReg::Fp(FA0)));
+}
+
+#[test]
+fn a_write_to_x0_and_a_store_have_no_destination() {
+    let addi_x0 = 0x0055_8013;
+    let sw = 0x00c5_a423;
+
+    assert_eq!(dest_reg(addi_x0), None);
+    assert_eq!(dest_reg(sw), None);
+}
+
+#[test]
+fn only_a_fused_multiply_add_reads_rs3() {
+    let fa3 = RegIdx::new(13);
+    let fmadd_s = decode(0x68c5_f543);
+    let fadd_s = decode(0x00c5_8553);
+
+    assert_eq!(fmadd_s.ctrl.src3(fa3), Some(ArchReg::Fp(fa3)));
+    assert_eq!(fadd_s.ctrl.src3(fa3), None);
 }

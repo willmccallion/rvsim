@@ -120,10 +120,8 @@ impl O3Engine {
     fn rebuild_rename_map(&mut self) {
         self.rename_map = self.committed_rename_map.clone();
         for entry in self.rob.iter_in_order() {
-            if entry.ctrl.reg_write && !entry.rd.is_zero() {
-                self.rename_map.set(entry.rd, false, entry.phys_dst);
-            } else if entry.ctrl.fp_reg_write {
-                self.rename_map.set(entry.rd, true, entry.phys_dst);
+            if let Some(dest) = entry.ctrl.dest(entry.rd) {
+                self.rename_map.set(dest, entry.phys_dst);
             }
             if entry.vec_dst_count > 0 {
                 let vd_base = entry.ctrl.vd.as_u8();
