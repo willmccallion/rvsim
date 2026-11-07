@@ -3,7 +3,7 @@
 use super::*;
 use crate::arch::regs::vpr::Vpr;
 use crate::exec::compute::vector::context::{VecExecResult, VecOperand};
-use crate::isa::op::{VecAluOp, VecClass, VectorOp};
+use crate::isa::op::{IntOp, VecAluOp, VecClass, VectorOp};
 use crate::isa::rvv::{ElemIdx, Vlen};
 
 /// Helper: create a 128-bit VLEN VPR.
@@ -544,4 +544,30 @@ fn test_vnsrl() {
         Vxrm::RoundToNearestUp,
     );
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E8), 0x12);
+}
+
+/// The byte reverses as element-by-element byte loops compute them.
+fn byte_loop(op: IntOp, value: u64, sew: Sew) -> u64 {
+    let bytes = sew.bits() / 8;
+    (0..bytes).fold(0, |out, i| {
+        let byte = (value >> (i * 8)) & 0xFF;
+        match op {
+            IntOp::Brev8 => out | (u64::from((byte as u8).reverse_bits()) << (i * 8)),
+            _ => out | (byte << ((bytes - 1 - i) * 8)),
+        }
+    })
+}
+
+#[test]
+fn vbrev8_and_vrev8_match_a_byte_loop_at_every_sew() {
+    let value = 0x0123_4567_89AB_CDEF;
+    for sew in [Sew::E8, Sew::E16, Sew::E32, Sew::E64] {
+        for op in [IntOp::Brev8, IntOp::Rev8] {
+            let element = value & sew.mask();
+            let (result, _) =
+                integer::compute_standard(op, element, 0, sew, Vxrm::RoundToNearestUp);
+
+            assert_eq!(result, byte_loop(op, element, sew), "{op:?} at {sew:?}");
+        }
+    }
 }
