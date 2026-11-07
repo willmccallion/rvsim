@@ -44,13 +44,6 @@ impl Sew {
         }
     }
 
-    /// All-ones fill value for agnostic policy at this width.
-    /// Alias for [`mask`](Self::mask) — reads better at call sites.
-    #[inline(always)]
-    pub const fn ones(self) -> u64 {
-        self.mask()
-    }
-
     /// Maximum representable signed value at this SEW (e.g. 127 for E8).
     #[inline(always)]
     pub const fn signed_max(self) -> i64 {
