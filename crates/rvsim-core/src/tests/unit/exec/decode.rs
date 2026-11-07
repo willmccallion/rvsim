@@ -8,7 +8,9 @@ use crate::exec::signals::BranchCond;
 use crate::exec::signals::ControlFlow;
 use crate::exec::signals::JumpKind;
 use crate::isa::fp::{FpFormat, Rounding, RoundingMode};
-use crate::isa::op::{AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp};
+use crate::isa::op::{
+    AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp, VecSrcEncoding,
+};
 use crate::isa::privileged::Trap;
 use crate::isa::reg::{ArchReg, RegIdx};
 
@@ -539,4 +541,16 @@ fn only_a_fused_multiply_add_reads_rs3() {
 
     assert_eq!(fmadd_s.ctrl.src3(fa3), Some(ArchReg::Fp(fa3)));
     assert_eq!(fadd_s.ctrl.src3(fa3), None);
+}
+
+#[rustfmt::skip]
+const VECTOR_IMMEDIATES: &[(&str, u32, VecSrcEncoding)] = &[
+    ("vadd.vi v1, v2, -1", 0x022fb0d7, VecSrcEncoding::VI(-1)),
+    ("vsll.vi v1, v2, 31", 0x962fb0d7, VecSrcEncoding::VI(31)),
+    ("vror.vi v1, v2, 5", 0x5222b0d7, VecSrcEncoding::VI(5)),
+];
+
+#[test]
+fn vector_immediates_decode_signed_or_unsigned_by_operation() {
+    check_rows(VECTOR_IMMEDIATES, |decoded, _| decoded.ctrl.vec_src_encoding);
 }

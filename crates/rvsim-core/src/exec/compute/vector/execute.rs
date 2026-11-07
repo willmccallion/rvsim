@@ -12,53 +12,17 @@ use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperan
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::compute::vector::{crypto, fpu, mask, permute, reduction};
 use crate::exec::inst::Inst;
-use crate::isa::encoding::rvv::encoding as v_enc;
 use crate::isa::op::{VecClass, VecSrcEncoding, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, VectorConfig, VectorRounding, Vlmul, parse_vtype_with_elen};
 
-/// Build operand1 from pipeline latch data based on source encoding.
-///
-/// Shift ops (vsll, vsrl, vsra, vnsrl, vnsra, vnclip, vnclip, vssrl, vssra)
-/// use an unsigned 5-bit immediate per RVV 1.0 §11.7, while other OPIVI
-/// instructions use a sign-extended immediate.
+/// The first source operand: `vs1`, the scalar `rs1`/`fs1` value, or the
+/// immediate decode extracted.
 const fn build_operand1(inst: &Inst) -> VecOperand {
     match inst.ctrl.vec_src_encoding {
         VecSrcEncoding::VV => VecOperand::Vector(inst.ctrl.vs1),
         VecSrcEncoding::VX | VecSrcEncoding::VF => VecOperand::Scalar(inst.rv1),
-        VecSrcEncoding::VI => {
-            let uses_uimm = matches!(
-                inst.ctrl.vec_op,
-                VectorOp::VSll
-                    | VectorOp::VSrl
-                    | VectorOp::VSra
-                    | VectorOp::VNSrl
-                    | VectorOp::VNSra
-                    | VectorOp::VNClipU
-                    | VectorOp::VNClip
-                    | VectorOp::VSSrl
-                    | VectorOp::VSSra
-                    // Gather takes a zero-extended 5-bit immediate, not a
-                    // sign-extended one.
-                    | VectorOp::VRgather
-                    // Zvbb shifts/rotates use unsigned immediates.
-                    | VectorOp::VWsll
-                    | VectorOp::VRor
-            );
-            if uses_uimm {
-                // vror.vi splits a 6-bit imm as bit26 (zimm6hi) + bits[19:15] (zimm6lo).
-                let imm = if matches!(inst.ctrl.vec_op, VectorOp::VRor) {
-                    let lo = v_enc::uimm5(inst.bits);
-                    let hi = ((inst.bits >> 26) & 1) as u64;
-                    ((hi << 5) | lo) as i64
-                } else {
-                    v_enc::uimm5(inst.bits) as i64
-                };
-                VecOperand::Immediate(imm)
-            } else {
-                VecOperand::Immediate(v_enc::simm5(inst.bits))
-            }
-        }
+        VecSrcEncoding::VI(imm) => VecOperand::Immediate(imm as i64),
         VecSrcEncoding::None => VecOperand::Scalar(0),
     }
 }
