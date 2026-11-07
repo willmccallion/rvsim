@@ -1,5 +1,86 @@
 //! The vector operations an instruction decodes to.
 
+/// Which kind of vector operation this is, finely enough that both the
+/// unit it runs on and the commit statistic that counts it follow from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VecOpGroup {
+    /// Not a vector instruction.
+    NotVector,
+    /// `vsetvl` and its immediate forms.
+    Config,
+    /// A load.
+    Load,
+    /// A store.
+    Store,
+    /// Integer arithmetic, logic, comparison and reduction.
+    IntAlu,
+    /// Integer multiplication and multiply-add.
+    IntMul,
+    /// Integer division and remainder.
+    IntDiv,
+    /// A vector cryptography instruction, which runs on the integer ALU.
+    Crypto,
+    /// Floating-point arithmetic other than multiplication, division and square root.
+    FpAlu,
+    /// Floating-point multiplication and multiply-add.
+    FpFma,
+    /// Floating-point division and square root.
+    FpDivSqrt,
+    /// A floating-point slide, which runs on the permute unit.
+    FpSlide,
+    /// Mask logic, gathers, slides, compress and whole-register moves.
+    Permute,
+}
+
+impl VectorOp {
+    /// The group this operation belongs to.
+    #[must_use]
+    #[allow(clippy::enum_glob_use)]
+    pub const fn group(self) -> VecOpGroup {
+        use VectorOp::*;
+        match self {
+            None => VecOpGroup::NotVector,
+            Vsetvli | Vsetivli | Vsetvl => VecOpGroup::Config,
+            VLoadUnit | VLoadFF | VLoadMask | VLoadWholeReg | VLoadStride | VLoadIndexOrd
+            | VLoadIndexUnord => VecOpGroup::Load,
+            VStoreUnit | VStoreMask | VStoreWholeReg | VStoreStride | VStoreIndexOrd
+            | VStoreIndexUnord => VecOpGroup::Store,
+            VAdd | VSub | VRsub | VAnd | VOr | VXor | VSll | VSrl | VSra | VMinU | VMin | VMaxU
+            | VMax | VMerge | VMSeq | VMSne | VMSltu | VMSlt | VMSleu | VMSle | VMSgtu | VMSgt
+            | VAdc | VMadc | VSbc | VMsbc | VWAddU | VWAdd | VWSubU | VWSub | VWAddUW | VWAddW
+            | VWSubUW | VWSubW | VNSrl | VNSra | VNClipU | VNClip | VSAddU | VSAdd | VSSubU
+            | VSSub | VAAddU | VAAdd | VASubU | VASub | VSmul | VSSrl | VSSra | VZextVf2
+            | VZextVf4 | VZextVf8 | VSextVf2 | VSextVf4 | VSextVf8 | VAndN | VBrev | VBrev8
+            | VRev8 | VClz | VCtz | VCpopV | VRol | VRor | VWsll | VRedSum | VRedAnd | VRedOr
+            | VRedXor | VRedMinU | VRedMin | VRedMaxU | VRedMax | VWRedSumU | VWRedSum => {
+                VecOpGroup::IntAlu
+            }
+            VMul | VMulh | VMulhu | VMulhsu | VMacc | VNMSac | VMadd | VNMSub | VWMulU | VWMul
+            | VWMulSU | VWMaccU | VWMacc | VWMaccSU | VWMaccUS | VClMul | VClMulH => {
+                VecOpGroup::IntMul
+            }
+            VDivU | VDiv | VRemU | VRem => VecOpGroup::IntDiv,
+            VAesEm | VAesEf | VAesDm | VAesDf | VAesZ | VAesKf1 | VAesKf2 | VSha2Ms | VSha2Ch
+            | VSha2Cl | VSm3Me | VSm3C | VSm4R | VSm4K | VGhsh | VGmul => VecOpGroup::Crypto,
+            VFAdd | VFSub | VFRSub | VFMin | VFMax | VFSgnj | VFSgnjn | VFSgnjx | VMFEq | VMFNe
+            | VMFLt | VMFLe | VMFGt | VMFGe | VFRsqrt7 | VFRec7 | VFClass | VFCvtXuF | VFCvtXF
+            | VFCvtFXu | VFCvtFX | VFCvtRtzXuF | VFCvtRtzXF | VFWAdd | VFWSub | VFWAddW
+            | VFWSubW | VFWCvtXuF | VFWCvtXF | VFWCvtFXu | VFWCvtFX | VFWCvtFF | VFWCvtRtzXuF
+            | VFWCvtRtzXF | VFNCvtXuF | VFNCvtXF | VFNCvtFXu | VFNCvtFX | VFNCvtFF
+            | VFNCvtRodFF | VFNCvtRtzXuF | VFNCvtRtzXF | VFMerge | VFMvSF | VFMvFS | VFRedOSum
+            | VFRedUSum | VFRedMax | VFRedMin | VFWRedOSum | VFWRedUSum => VecOpGroup::FpAlu,
+            VFMul | VFMacc | VFNMacc | VFMSac | VFNMSac | VFMAdd | VFNMAdd | VFMSub | VFNMSub
+            | VFWMul | VFWMacc | VFWNMacc | VFWMSac | VFWNMSac => VecOpGroup::FpFma,
+            VFDiv | VFRDiv | VFSqrt => VecOpGroup::FpDivSqrt,
+            VFSlide1Up | VFSlide1Down => VecOpGroup::FpSlide,
+            VMAndMM | VMNandMM | VMAndnMM | VMOrMM | VMNorMM | VMOrnMM | VMXorMM | VMXnorMM
+            | VCPopM | VFirstM | VMSbfM | VMSifM | VMSofM | VIotaM | VIdV | VMvXS | VMvSX
+            | VSlideUp(_) | VSlideDown(_) | VSlide1Up | VSlide1Down | VRgather | VRgatherEi16
+            | VCompress | VMv1r | VMv2r | VMv4r | VMv8r => VecOpGroup::Permute,
+        }
+    }
+}
+
 /// Vector operation type.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VectorOp {

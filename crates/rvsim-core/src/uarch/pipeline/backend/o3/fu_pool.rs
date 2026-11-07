@@ -8,7 +8,7 @@
 
 use crate::config::FuConfig;
 use crate::exec::signals::{ControlFlow, ControlSignals};
-use crate::isa::op::{AluOp, VectorOp};
+use crate::isa::op::{AluOpGroup, VecOpGroup, VectorOp};
 use crate::uarch::pipeline::rob::RobTag;
 
 /// Identifies which type of functional unit an instruction uses.
@@ -82,98 +82,32 @@ impl FuType {
         if ctrl.control_flow != ControlFlow::Sequential {
             return Self::Branch;
         }
-        match ctrl.alu {
-            AluOp::Mul | AluOp::Mulh | AluOp::Mulhsu | AluOp::Mulhu => Self::IntMul,
-            AluOp::Div | AluOp::Divu | AluOp::Rem | AluOp::Remu => Self::IntDiv,
-            AluOp::FMul => Self::FpMul,
-            AluOp::FDiv | AluOp::FSqrt => Self::FpDivSqrt,
-            AluOp::FMAdd | AluOp::FMSub | AluOp::FNMAdd | AluOp::FNMSub => Self::FpFma,
-            AluOp::FAdd
-            | AluOp::FSub
-            | AluOp::FMin
-            | AluOp::FMax
-            | AluOp::FSgnJ
-            | AluOp::FSgnJN
-            | AluOp::FSgnJX
-            | AluOp::FEq
-            | AluOp::FLt
-            | AluOp::FLe
-            | AluOp::FClass
-            | AluOp::FCvtWS
-            | AluOp::FCvtWUS
-            | AluOp::FCvtLS
-            | AluOp::FCvtLUS
-            | AluOp::FCvtSW
-            | AluOp::FCvtSWU
-            | AluOp::FCvtSL
-            | AluOp::FCvtSLU
-            | AluOp::FCvtSD
-            | AluOp::FCvtDS
-            | AluOp::FCvtSH
-            | AluOp::FCvtHS
-            | AluOp::FCvtDH
-            | AluOp::FCvtHD
-            | AluOp::FMvToX
-            | AluOp::FMvToF => Self::FpAdd,
-            _ => Self::IntAlu,
+        match ctrl.alu.group() {
+            AluOpGroup::IntAlu => Self::IntAlu,
+            AluOpGroup::IntMul => Self::IntMul,
+            AluOpGroup::IntDiv => Self::IntDiv,
+            AluOpGroup::FpArith => Self::FpAdd,
+            AluOpGroup::FpMul => Self::FpMul,
+            AluOpGroup::FpDivSqrt => Self::FpDivSqrt,
+            AluOpGroup::FpFma => Self::FpFma,
         }
     }
 
-    /// Classify a vector operation into a vector FU type.
-    #[allow(clippy::enum_glob_use)]
+    /// Classify a vector operation into a vector FU type. Crypto runs on
+    /// the integer ALU: no separate crypto unit is modelled.
     const fn classify_vec(op: VectorOp) -> Self {
-        use VectorOp::*;
-        match op {
-            VLoadUnit | VStoreUnit | VLoadFF | VLoadMask | VStoreMask | VLoadWholeReg
-            | VStoreWholeReg | VLoadStride | VStoreStride | VLoadIndexOrd | VStoreIndexOrd
-            | VLoadIndexUnord | VStoreIndexUnord => Self::VecMem,
-
-            Vsetvli | Vsetivli | Vsetvl | VAdd | VSub | VRsub | VAnd | VOr | VXor | VSll | VSrl
-            | VSra | VMinU | VMin | VMaxU | VMax | VMerge | VMSeq | VMSne | VMSltu | VMSlt
-            | VMSleu | VMSle | VMSgtu | VMSgt | VAdc | VMadc | VSbc | VMsbc | VWAddU | VWAdd
-            | VWSubU | VWSub | VWAddUW | VWAddW | VWSubUW | VWSubW | VNSrl | VNSra | VNClipU
-            | VNClip | VSAddU | VSAdd | VSSubU | VSSub | VAAddU | VAAdd | VASubU | VASub
-            | VSmul | VSSrl | VSSra | VZextVf2 | VZextVf4 | VZextVf8 | VSextVf2 | VSextVf4
-            | VSextVf8 | VRedSum | VRedAnd | VRedOr | VRedXor | VRedMinU | VRedMin | VRedMaxU
-            | VRedMax | VWRedSumU | VWRedSum
-            | VAndN | VBrev | VBrev8 | VRev8 | VClz | VCtz | VCpopV | VRol | VRor | VWsll
-            | None
-            // Crypto ops route to the vector integer ALU (no separate crypto FU is modelled).
-            | VAesEm | VAesEf | VAesDm | VAesDf | VAesZ
-            | VAesKf1 | VAesKf2
-            | VSha2Ms | VSha2Ch | VSha2Cl
-            | VSm3Me | VSm3C
-            | VSm4R | VSm4K
-            | VGhsh | VGmul => Self::VecIntAlu,
-
-            VMul | VMulh | VMulhu | VMulhsu | VMacc | VNMSac | VMadd | VNMSub | VWMulU | VWMul
-            | VWMulSU | VWMaccU | VWMacc | VWMaccSU | VWMaccUS
-            | VClMul | VClMulH => Self::VecIntMul,
-
-            VDivU | VDiv | VRemU | VRem => Self::VecIntDiv,
-
-            VFAdd | VFSub | VFRSub | VFMin | VFMax | VFSgnj | VFSgnjn | VFSgnjx | VMFEq | VMFNe
-            | VMFLt | VMFLe | VMFGt | VMFGe | VFClass | VFCvtXuF | VFCvtXF | VFCvtFXu | VFCvtFX
-            | VFCvtRtzXuF | VFCvtRtzXF | VFWAdd | VFWSub | VFWAddW | VFWSubW | VFWCvtXuF
-            | VFWCvtXF | VFWCvtFXu | VFWCvtFX | VFWCvtFF | VFWCvtRtzXuF | VFWCvtRtzXF
-            | VFNCvtXuF | VFNCvtXF | VFNCvtFXu | VFNCvtFX | VFNCvtFF | VFNCvtRodFF
-            | VFNCvtRtzXuF | VFNCvtRtzXF | VFMerge | VFMvSF | VFMvFS | VFRsqrt7 | VFRec7
-            | VFRedOSum | VFRedUSum | VFRedMax | VFRedMin | VFWRedOSum | VFWRedUSum => {
-                Self::VecFpAlu
-            }
-
-            VFMul | VFMacc | VFNMacc | VFMSac | VFNMSac | VFMAdd | VFNMAdd | VFMSub | VFNMSub
-            | VFWMul | VFWMacc | VFWNMacc | VFWMSac | VFWNMSac => Self::VecFpFma,
-
-            VFDiv | VFRDiv | VFSqrt => Self::VecFpDivSqrt,
-
-            VFSlide1Up | VFSlide1Down | VMAndMM | VMNandMM | VMAndnMM | VMOrMM | VMNorMM
-            | VMOrnMM | VMXorMM | VMXnorMM | VCPopM | VFirstM | VMSbfM | VMSifM | VMSofM
-            | VIotaM | VIdV | VMvXS | VMvSX | VSlideUp(_) | VSlideDown(_) | VSlide1Up | VSlide1Down
-            | VRgather | VRgatherEi16 | VCompress | VMv1r | VMv2r | VMv4r | VMv8r => {
-                Self::VecPermute
-            }
-
+        match op.group() {
+            VecOpGroup::Load | VecOpGroup::Store => Self::VecMem,
+            VecOpGroup::NotVector
+            | VecOpGroup::Config
+            | VecOpGroup::IntAlu
+            | VecOpGroup::Crypto => Self::VecIntAlu,
+            VecOpGroup::IntMul => Self::VecIntMul,
+            VecOpGroup::IntDiv => Self::VecIntDiv,
+            VecOpGroup::FpAlu => Self::VecFpAlu,
+            VecOpGroup::FpFma => Self::VecFpFma,
+            VecOpGroup::FpDivSqrt => Self::VecFpDivSqrt,
+            VecOpGroup::FpSlide | VecOpGroup::Permute => Self::VecPermute,
         }
     }
 }
@@ -440,6 +374,7 @@ impl FuPool {
 #[allow(unused_results)]
 mod tests {
     use super::*;
+    use crate::isa::op::AluOp;
 
     fn default_pool() -> FuPool {
         FuPool::new(&FuConfig::default())
