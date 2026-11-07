@@ -14,9 +14,6 @@ pub(super) const F32_SIGN_BIT: u32 = 0x8000_0000;
 /// Bit mask for the sign bit in a 64-bit IEEE 754 float (bit 63).
 pub(super) const F64_SIGN_BIT: u64 = 0x8000_0000_0000_0000;
 
-// Integer range boundaries as f64 for float-to-integer conversion range checks.
-// Values at or beyond these limits overflow the target integer type.
-
 /// Single-precision (f32) execution path.
 ///
 /// Inputs are unboxed with NaN-boxing validation. Arithmetic results
