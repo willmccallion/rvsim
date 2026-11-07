@@ -35,6 +35,24 @@ class JsonExport(unittest.TestCase):
         self.assertGreater(stats["instructions_retired"], 0)
         self.assertIn("core0.cache.l1d.hits", stats)
 
+    def test_json_flag_writes_the_stats_of_a_run_stopped_at_its_limit(self):
+        limit = 1_000
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "stats.json")
+
+            result = subprocess.run(
+                [sys.executable, "-m", "rvsim", FIB, "--json", out, "--quiet"]
+                + ["--limit", str(limit)],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+            )
+
+            with open(out) as f:
+                stats = json.load(f)
+        self.assertEqual(result.returncode, 1, "a run without an exit code fails")
+        self.assertEqual(stats["cycles"], limit)
+
 
 @unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
 class ProgramOutput(unittest.TestCase):

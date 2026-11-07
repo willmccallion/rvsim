@@ -483,7 +483,7 @@ def main() -> None:
         else:
             exit_code = sim.run(limit=args.limit, stats_sections=stats_sections)
 
-    if args.json and exit_code is not None:
+    if args.json:
         import json
 
         from ..stats import Stats
