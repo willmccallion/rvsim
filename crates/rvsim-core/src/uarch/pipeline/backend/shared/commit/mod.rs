@@ -137,7 +137,9 @@ impl CommitRegisters<'_> {
     /// Retires the `i`th vector destination of `entry` into `vreg`.
     fn retire_vec(&mut self, vpr: &mut Vpr, entry: &RobEntry, i: usize, vreg: VRegIdx) {
         match self {
-            Self::Scoreboard(scoreboard) => scoreboard.clear_vec_if_match(vreg, entry.tag),
+            // In-order vector ops write the architectural registers as they
+            // execute at the ROB head, so there is nothing to retire.
+            Self::Scoreboard(_) => {}
             Self::Renamed { rename_map, vec_prf, vec_free_list, .. } => {
                 vpr.write_bytes(vreg, vec_prf.read_bytes(entry.vec_phys_dst[i]));
                 if entry.vec_old_phys_dst[i] != entry.vec_phys_dst[i] {
