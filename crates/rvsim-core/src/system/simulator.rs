@@ -109,6 +109,19 @@ const CANCEL_POLL_CYCLES: u64 = 1 << 16;
 /// polls `keep_going`.
 const MAX_QUIET_SKIP: u64 = 1 << 32;
 
+/// The default for [`Simulator::stall_limit`]: far beyond the longest real
+/// stall, a vector memory instruction missing in the caches on every element.
+pub const DEFAULT_STALL_LIMIT: u64 = 1_000_000;
+
+/// How long a hart has gone without retiring an instruction.
+#[derive(Clone, Copy, Debug, Default)]
+struct HartProgress {
+    /// Its retired-instruction count when it last made progress.
+    retired: u64,
+    /// Cycles since then, outside WFI.
+    stalled_cycles: u64,
+}
+
 /// Top-level simulator: the system state and the order it ticks in.
 #[derive(Debug)]
 pub struct Simulator {
@@ -126,6 +139,11 @@ pub struct Simulator {
     audit_caches: bool,
     /// The first invariant an event broke, returned by the tick it fell in.
     broken_invariant: Option<SimError>,
+    /// Cycles a hart may retire nothing outside WFI before a tick fails;
+    /// `None` turns the check off.
+    stall_limit: Option<u64>,
+    /// Each hart's progress, for the stall check.
+    progress: Vec<HartProgress>,
 }
 
 impl Simulator {
@@ -139,12 +157,15 @@ impl Simulator {
             pipeline.restart_fetch_at(ctx.hart.pc);
         }
         let prev_privileges = state.harts.iter().map(|h| h.privilege).collect();
+        let progress = vec![HartProgress::default(); state.harts.len()];
         Self {
             state,
             prev_privileges,
             skip_idle_cores: true,
             audit_caches: false,
             broken_invariant: None,
+            stall_limit: Some(DEFAULT_STALL_LIMIT),
+            progress,
         }
     }
 
@@ -492,6 +513,19 @@ impl Simulator {
     /// Sets whether idle time is skipped; see [`Self::skip_idle_cores`].
     pub const fn set_skip_idle_cores(&mut self, skip: bool) {
         self.skip_idle_cores = skip;
+    }
+
+    /// Cycles a hart may go without retiring an instruction, outside WFI,
+    /// before [`Self::tick`] fails with [`SimError::Stalled`]; `None` when
+    /// the check is off. [`DEFAULT_STALL_LIMIT`] by default.
+    #[must_use]
+    pub const fn stall_limit(&self) -> Option<u64> {
+        self.stall_limit
+    }
+
+    /// Sets the stall limit; see [`Self::stall_limit`].
+    pub const fn set_stall_limit(&mut self, limit: Option<u64>) {
+        self.stall_limit = limit;
     }
 
     /// Whether every cache invariant is checked after each event; off by
@@ -886,8 +920,9 @@ impl Simulator {
     /// # Errors
     ///
     /// Returns [`SimError::KernelPanic`] if the guest OS panic sentinel fires,
-    /// and [`SimError::CacheInvariant`] if the cache audit is on and an event
-    /// broke an invariant.
+    /// [`SimError::CacheInvariant`] if the cache audit is on and an event
+    /// broke an invariant, and [`SimError::Stalled`] if a hart has retired
+    /// nothing for [`Self::stall_limit`] cycles outside WFI.
     pub fn tick(&mut self) -> Result<(), SimError> {
         self.state.uncore.exited_at = None;
         for (slot, hart) in self.prev_privileges.iter_mut().zip(&self.state.harts) {
@@ -943,7 +978,28 @@ impl Simulator {
         let cycle = self.state.cycle;
         self.state.uncore.processes.expire_waits(cycle);
         self.wake_threads();
-        self.broken_invariant.take().map_or(Ok(()), Err)
+        let progress = if run_cycle { self.check_progress() } else { Ok(()) };
+        self.broken_invariant.take().map_or(progress, Err)
+    }
+
+    /// Counts each hart's cycle without retiring, and fails when one
+    /// reaches the stall limit. Retiring or waiting in WFI, which is how a
+    /// parked SE-mode hart waits too, resets the count.
+    fn check_progress(&mut self) -> Result<(), SimError> {
+        let Some(limit) = self.stall_limit else { return Ok(()) };
+        for (index, (progress, hart)) in self.progress.iter_mut().zip(&self.state.harts).enumerate()
+        {
+            if hart.wfi_waiting || hart.instructions_retired != progress.retired {
+                *progress = HartProgress { retired: hart.instructions_retired, stalled_cycles: 0 };
+                continue;
+            }
+            progress.stalled_cycles += 1;
+            if progress.stalled_cycles >= limit {
+                let cycles = progress.stalled_cycles;
+                return Err(SimError::Stalled { hart: index, pc: hart.pc, cycles });
+            }
+        }
+        Ok(())
     }
 
     /// Sets going the parked harts whose threads were started or woken

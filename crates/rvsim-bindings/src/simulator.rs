@@ -353,6 +353,19 @@ impl PySimulator {
         self.inner.set_skip_idle_cores(skip);
     }
 
+    /// Cycles a hart may go without retiring an instruction, outside WFI,
+    /// before a run fails with an error naming the hart and PC: a stuck
+    /// pipeline. 1,000,000 by default; ``None`` turns the check off.
+    #[getter]
+    const fn stall_limit(&self) -> Option<u64> {
+        self.inner.stall_limit()
+    }
+
+    #[setter]
+    const fn set_stall_limit(&mut self, limit: Option<u64>) {
+        self.inner.set_stall_limit(limit);
+    }
+
     /// Whether every cache invariant (each cache's bookkeeping, inclusion,
     /// the copies each level records above it, coherence) is checked after
     /// every event. Off by default; with it on a run is many times slower,
