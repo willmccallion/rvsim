@@ -113,7 +113,7 @@ impl O3Engine {
         RenamedRegisters {
             rs1_phys: map.get(ctrl.src1(inst.rs1)),
             rs2_phys: map.get(ctrl.src2(inst.rs2)),
-            rs3_phys: ctrl.src3(inst.rs3).map_or(PhysReg(0), |rs3| map.get(rs3)),
+            rs3_phys: ctrl.src3(inst.rs3).map_or(PhysReg::ZERO, |rs3| map.get(rs3)),
             vs1_phys: map.vec_group(ctrl.vs1, vs1_count),
             vs2_phys: map.vec_group(ctrl.vs2, vs2_count),
             vs3_phys: map.vec_group(ctrl.vd, vs3_count),
@@ -135,7 +135,7 @@ impl O3Engine {
         let dest = inst.ctrl.dest(inst.rd);
         let (rd_phys, old_phys_dst) = match dest {
             Some(dest) => (self.free_list.allocate()?, self.rename_map.get(dest)),
-            None => (PhysReg(0), PhysReg(0)),
+            None => (PhysReg::ZERO, PhysReg::ZERO),
         };
         let vd_count = if inst.ctrl.vec_reg_write { vd_count } else { 0 };
         let vd_regs = self.vec_free_list.reserve(vd_count as usize);
@@ -296,12 +296,12 @@ fn trace_renamed(state: &StageCtx<'_>, entry: &O3Entry, old_phys_dst: PhysReg) {
         pc         = %crate::common::trace::Hex(entry.inst.pc.val()),
         rob_tag    = %entry.rob_tag,
         rd         = entry.inst.rd.as_usize(),
-        rd_phys    = entry.regs.rd_phys.0,
-        old_phys   = old_phys_dst.0,
+        rd_phys    = entry.regs.rd_phys.index(),
+        old_phys   = old_phys_dst.index(),
         rs1        = entry.inst.rs1.as_usize(),
-        rs1_phys   = entry.regs.rs1_phys.0,
+        rs1_phys   = entry.regs.rs1_phys.index(),
         rs2        = entry.inst.rs2.as_usize(),
-        rs2_phys   = entry.regs.rs2_phys.0,
+        rs2_phys   = entry.regs.rs2_phys.index(),
         is_store   = entry.inst.ctrl.mem_write,
         is_load    = entry.inst.ctrl.mem_read,
         is_fp      = entry.inst.ctrl.fp_reg_write,

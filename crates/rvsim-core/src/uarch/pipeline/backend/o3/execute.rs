@@ -43,12 +43,12 @@ pub fn execute_one(
         pc       = %crate::common::trace::Hex(issued.inst.pc.val()),
         inst     = %crate::common::trace::Hex32(issued.inst.bits),
         rd       = issued.inst.rd.as_usize(),
-        rd_phys  = issued.regs.rd_phys.0,
+        rd_phys  = issued.regs.rd_phys.index(),
         rs1      = issued.inst.rs1.as_usize(),
-        rs1_phys = issued.regs.rs1_phys.0,
+        rs1_phys = issued.regs.rs1_phys.index(),
         rv1      = %crate::common::trace::Hex(issued.inst.rv1),
         rs2      = issued.inst.rs2.as_usize(),
-        rs2_phys = issued.regs.rs2_phys.0,
+        rs2_phys = issued.regs.rs2_phys.index(),
         rv2      = %crate::common::trace::Hex(issued.inst.rv2),
         imm      = issued.inst.imm,
         a_src    = ?issued.inst.ctrl.a_src,
@@ -153,8 +153,8 @@ mod tests {
                 InstSize::Standard,
                 RegIdx::new(1),
                 ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
                 crate::common::InstSeq::default(),
             )
             .unwrap();
@@ -203,8 +203,8 @@ mod tests {
                 InstSize::Standard,
                 RegIdx::new(1),
                 ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
                 crate::common::InstSeq::default(),
             )
             .unwrap();
@@ -255,8 +255,8 @@ mod tests {
                 InstSize::Standard,
                 RegIdx::new(1),
                 ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
                 crate::common::InstSeq::default(),
             )
             .unwrap();
@@ -307,8 +307,8 @@ mod tests {
                 InstSize::Standard,
                 RegIdx::new(1),
                 ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
                 crate::common::InstSeq::default(),
             )
             .unwrap();
@@ -362,8 +362,8 @@ mod tests {
                 InstSize::Standard,
                 RegIdx::new(1),
                 ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
                 crate::common::InstSeq::default(),
             )
             .unwrap();
@@ -421,8 +421,8 @@ mod tests {
                 InstSize::Standard,
                 RegIdx::new(1),
                 ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
                 crate::common::InstSeq::default(),
             )
             .unwrap();

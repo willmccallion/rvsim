@@ -19,8 +19,8 @@ fn alloc(rob: &mut Rob, pc: u64, rd: u8, ctrl: ControlSignals) -> Option<RobTag>
         InstSize::Standard,
         RegIdx::new(rd),
         ctrl,
-        PhysReg(0),
-        PhysReg(0),
+        PhysReg::ZERO,
+        PhysReg::ZERO,
         crate::common::InstSeq::default(),
     )
 }
@@ -38,8 +38,8 @@ fn test_allocate_and_commit() {
             InstSize::Standard,
             RegIdx::new(1),
             make_ctrl(true, false),
-            PhysReg(0),
-            PhysReg(0),
+            PhysReg::ZERO,
+            PhysReg::ZERO,
             crate::common::InstSeq::default(),
         )
         .unwrap();
@@ -164,8 +164,8 @@ fn alloc_with_inst(rob: &mut Rob, inst: u32, ctrl: ControlSignals) -> Option<Rob
         InstSize::Standard,
         RegIdx::new(0),
         ctrl,
-        PhysReg(0),
-        PhysReg(0),
+        PhysReg::ZERO,
+        PhysReg::ZERO,
         crate::common::InstSeq::default(),
     )
 }

@@ -70,7 +70,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
             result   = %crate::common::trace::Hex(val),
             from     = if wb.ctrl.mem_read { "load" } else if wb.ctrl.control_flow == ControlFlow::Jump { "jump_link" } else { "alu" },
             rd       = wb.rd.as_usize(),
-            rd_phys  = wb.rd_phys.0,
+            rd_phys  = wb.rd_phys.index(),
             fp_flags = wb.fp_flags.bits(),
             "WB: ROB entry marked complete"
         );

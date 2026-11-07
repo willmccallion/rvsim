@@ -2,13 +2,31 @@
 //!
 //! The PRF decouples architectural register names from physical storage.
 //! Each physical register tracks both a value and a ready bit.
-//! PhysReg(0) is hardwired zero: always ready, value always 0.
+//! [`PhysReg::ZERO`] is hardwired zero: always ready, value always 0.
 
 use super::free_list::PhysRegister;
 
 /// A physical register identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
-pub struct PhysReg(pub u16);
+pub struct PhysReg(u16);
+
+impl PhysReg {
+    /// x0's register, hardwired to zero and always ready. An instruction
+    /// with no destination writes it, which discards the result.
+    pub const ZERO: Self = Self(0);
+
+    /// The physical register numbered `index`.
+    #[must_use]
+    pub(crate) const fn new(index: u16) -> Self {
+        Self(index)
+    }
+
+    /// Its number, as the register file indexes it.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
 
 impl PhysRegister for PhysReg {
     #[inline]
@@ -31,11 +49,11 @@ pub struct PhysRegFile {
 
 impl PhysRegFile {
     /// Create a new PRF with `total` registers.
-    /// PhysReg(0) is initialized ready = true, value = 0.
+    /// [`PhysReg::ZERO`] starts ready, holding 0.
     pub fn new(total: usize) -> Self {
         let mut ready = vec![false; total];
         if total > 0 {
-            ready[0] = true; // PhysReg(0) always ready
+            ready[0] = true; // PhysReg::ZERO always ready
         }
         Self { values: vec![0u64; total], ready }
     }
@@ -45,7 +63,7 @@ impl PhysRegFile {
     pub fn write(&mut self, p: PhysReg, val: u64) {
         let idx = p.0 as usize;
         if idx == 0 {
-            return; // PhysReg(0) hardwired zero
+            return; // PhysReg::ZERO hardwired zero
         }
         if idx < self.values.len() {
             self.values[idx] = val;
@@ -85,7 +103,7 @@ impl PhysRegFile {
     pub fn allocate(&mut self, p: PhysReg) {
         let idx = p.0 as usize;
         if idx == 0 {
-            return; // PhysReg(0) always ready
+            return; // PhysReg::ZERO always ready
         }
         if idx < self.ready.len() {
             self.ready[idx] = false;
@@ -105,14 +123,14 @@ mod tests {
     #[test]
     fn test_phys_reg_zero_always_ready() {
         let prf = PhysRegFile::new(64);
-        assert!(prf.is_ready(PhysReg(0)));
-        assert_eq!(prf.read(PhysReg(0)), 0);
+        assert!(prf.is_ready(PhysReg::ZERO));
+        assert_eq!(prf.read(PhysReg::ZERO), 0);
     }
 
     #[test]
     fn test_write_read_lifecycle() {
         let mut prf = PhysRegFile::new(64);
-        let p = PhysReg(5);
+        let p = PhysReg::new(5);
         // Initially not ready
         assert!(!prf.is_ready(p));
         // Write marks ready
@@ -124,7 +142,7 @@ mod tests {
     #[test]
     fn test_allocate_marks_not_ready() {
         let mut prf = PhysRegFile::new(64);
-        let p = PhysReg(10);
+        let p = PhysReg::new(10);
         prf.write(p, 99);
         assert!(prf.is_ready(p));
         prf.allocate(p);
@@ -134,14 +152,14 @@ mod tests {
     #[test]
     fn test_allocate_zero_noop() {
         let mut prf = PhysRegFile::new(64);
-        prf.allocate(PhysReg(0));
-        assert!(prf.is_ready(PhysReg(0)));
+        prf.allocate(PhysReg::ZERO);
+        assert!(prf.is_ready(PhysReg::ZERO));
     }
 
     #[test]
     fn test_write_zero_noop() {
         let mut prf = PhysRegFile::new(64);
-        prf.write(PhysReg(0), 999);
-        assert_eq!(prf.read(PhysReg(0)), 0);
+        prf.write(PhysReg::ZERO, 999);
+        assert_eq!(prf.read(PhysReg::ZERO), 0);
     }
 }

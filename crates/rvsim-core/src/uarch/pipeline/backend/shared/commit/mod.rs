@@ -127,7 +127,7 @@ impl CommitRegisters<'_> {
         match self {
             Self::Scoreboard(scoreboard) => scoreboard.clear_if_match(dest, entry.tag),
             Self::Renamed { rename_map, free_list, .. } => {
-                if entry.old_phys_dst.0 != entry.phys_dst.0 {
+                if entry.old_phys_dst != entry.phys_dst {
                     free_list.reclaim(entry.old_phys_dst);
                 }
                 rename_map.set(dest, entry.phys_dst);
@@ -156,7 +156,7 @@ impl CommitRegisters<'_> {
         let Self::Renamed { free_list, vec_free_list, .. } = self else {
             return;
         };
-        if entry.phys_dst.0 != 0 {
+        if entry.phys_dst != PhysReg::ZERO {
             free_list.reclaim(entry.phys_dst);
         }
         for i in 0..entry.vec_dst_count as usize {
@@ -284,8 +284,8 @@ mod tests {
                 InstSize::Standard,
                 RegIdx::new(1),
                 ctrl,
-                crate::uarch::pipeline::rename::prf::PhysReg(1),
-                crate::uarch::pipeline::rename::prf::PhysReg(0),
+                crate::uarch::pipeline::rename::prf::PhysReg::new(1),
+                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
                 crate::common::InstSeq::default(),
             )
             .unwrap();

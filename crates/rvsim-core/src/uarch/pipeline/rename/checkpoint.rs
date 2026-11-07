@@ -141,7 +141,7 @@ mod tests {
 
     fn make_rename_map(marker: u16) -> RenameMap {
         let mut rm = RenameMap::new();
-        rm.set(ArchReg::Int(RegIdx::new(1)), PhysReg(marker));
+        rm.set(ArchReg::Int(RegIdx::new(1)), PhysReg::new(marker));
         rm
     }
 
@@ -158,7 +158,7 @@ mod tests {
 
         let ckpt = table.find_by_tag(tag).unwrap();
         assert_eq!(ckpt.branch_tag, tag);
-        assert_eq!(ckpt.rename_map.get(ArchReg::Int(RegIdx::new(1))), PhysReg(100));
+        assert_eq!(ckpt.rename_map.get(ArchReg::Int(RegIdx::new(1))), PhysReg::new(100));
 
         table.free(id);
         assert_eq!(table.available(), 4);

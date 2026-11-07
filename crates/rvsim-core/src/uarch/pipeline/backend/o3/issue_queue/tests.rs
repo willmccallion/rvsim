@@ -129,7 +129,7 @@ fn a_blocked_memory_pipeline_holds_loads_but_not_alu_ops() {
 }
 
 fn ready_operand(value: u64) -> OperandState {
-    OperandState::ready(PhysReg(0), value)
+    OperandState::ready(PhysReg::ZERO, value)
 }
 
 fn not_ready_operand_phys(phys: PhysReg) -> OperandState {
@@ -173,7 +173,7 @@ fn test_dispatch_and_select_ready() {
 #[test]
 fn test_wakeup_phys_chain() {
     let mut iq = IssueQueue::new(16);
-    let p5 = PhysReg(5);
+    let p5 = PhysReg::new(5);
 
     // Entry depends on phys reg 5
     let entry = make_entry(10);
@@ -347,8 +347,8 @@ fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
             InstSize::Standard,
             RegIdx::new(0),
             ctrl,
-            PhysReg(0),
-            PhysReg(0),
+            PhysReg::ZERO,
+            PhysReg::ZERO,
             crate::common::InstSeq::default(),
         )
         .unwrap()
@@ -441,8 +441,8 @@ fn tags_across_the_wrap() -> Vec<RobTag> {
                 InstSize::Standard,
                 RegIdx::new(0),
                 ControlSignals::default(),
-                PhysReg(0),
-                PhysReg(0),
+                PhysReg::ZERO,
+                PhysReg::ZERO,
                 crate::common::InstSeq::default(),
             )
             .unwrap()
@@ -477,7 +477,7 @@ fn the_issue_hold_reports_the_oldest_entry_across_the_tag_wrap() {
     let tags = tags_across_the_wrap();
     let mut iq = queue_across_the_wrap(&tags);
     let oldest = iq.slots.iter_mut().flatten().find(|iq| iq.entry.rob_tag == tags[0]).unwrap();
-    oldest.src1 = not_ready_operand_phys(PhysReg(5));
+    oldest.src1 = not_ready_operand_phys(PhysReg::new(5));
     let units = FuPool::new(&crate::config::FuConfig::default());
     let budget = IssueBudget {
         width: 1,

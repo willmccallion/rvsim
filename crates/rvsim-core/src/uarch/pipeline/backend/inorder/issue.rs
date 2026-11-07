@@ -43,7 +43,7 @@ pub struct ProducerTags {
 impl IssueRegisters for ProducerTags {
     /// x0's: the in-order backend renames nothing, so writeback ignores it.
     fn rd_phys(&self) -> PhysReg {
-        PhysReg(0)
+        PhysReg::ZERO
     }
 
     fn readiness(&self) -> SourceReadiness {
