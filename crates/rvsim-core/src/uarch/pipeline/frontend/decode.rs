@@ -100,18 +100,6 @@ pub fn decode_stage(
             bundle_writes.push((d.rd, true));
         }
 
-        let rv1 = if ctrl.rs1_fp {
-            state.hart().regs.read_f(d.rs1)
-        } else {
-            state.hart().regs.read(d.rs1)
-        };
-        let rv2 = if ctrl.rs2_fp {
-            state.hart().regs.read_f(d.rs2)
-        } else {
-            state.hart().regs.read(d.rs2)
-        };
-        let rv3 = if ctrl.rs3_fp { state.hart().regs.read_f(rs3_idx) } else { 0 };
-
         let has_trap = trap.is_some();
 
         let mut decoded = IdExEntry {
@@ -124,9 +112,10 @@ pub fn decode_stage(
                 rs3: rs3_idx,
                 rd: d.rd,
                 imm: d.imm,
-                rv1,
-                rv2,
-                rv3,
+                // Operands are read at issue.
+                rv1: 0,
+                rv2: 0,
+                rv3: 0,
                 ctrl,
             },
             trap,

@@ -155,7 +155,7 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
 /// All slots include ``pc``, and every slot past ``fetch1_fetch2``, whose
 /// instructions are not read yet, ``raw`` and ``asm``. Later stages add:
 ///
-/// - ``decode_rename``: ``rs1``, ``rs2``, ``rd``, ``imm``, ``rv1``, ``rv2``
+/// - ``decode_rename``: ``rs1``, ``rs2``, ``rd``, ``imm``
 /// - ``issue_queue``: ``rs1``, ``rs2``, ``rd``, ``rv1``, ``rv2``,
 ///   ``rob_tag``, ``rs1_ready``, ``rs2_ready``
 /// - ``execute_mem1`` / ``mem1_mem2``: ``rd``, ``alu``, ``store_data``, ``rob_tag``
@@ -226,7 +226,8 @@ impl PyPipelineSnapshot {
 
     /// Decode → Rename latch.
     ///
-    /// Each slot: ``{pc, raw, asm, rs1, rs2, rd, imm, rv1, rv2}``.
+    /// Each slot: ``{pc, raw, asm, rs1, rs2, rd, imm}``; operands are read
+    /// at issue, not decode.
     #[getter]
     fn decode_rename(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let items: Vec<_> = self
@@ -239,8 +240,6 @@ impl PyPipelineSnapshot {
                 d.set_item("rs2", e.rs2.as_u8())?;
                 d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("imm", e.imm)?;
-                d.set_item("rv1", e.rv1)?;
-                d.set_item("rv2", e.rv2)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
