@@ -10,7 +10,6 @@
 use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, mask_active};
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::fp::FpFlags;
 use crate::isa::op::{MaskLogicalOp, MaskOp, MaskSetOp};
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
 
@@ -37,16 +36,10 @@ pub fn vec_mask_execute(
     }
 }
 
-/// Construct a [`VecExecResult`] with no side-effects and no scalar output.
-#[inline]
-const fn no_result() -> VecExecResult {
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
-}
-
 /// Construct a [`VecExecResult`] carrying a scalar value.
 #[inline]
-const fn scalar_result(val: u64) -> VecExecResult {
-    VecExecResult { vxsat: false, scalar_result: Some(val), fp_flags: FpFlags::NONE }
+fn scalar_result(val: u64) -> VecExecResult {
+    VecExecResult { scalar_result: Some(val), ..VecExecResult::default() }
 }
 
 /// Compute the logical result for a single mask bit pair.
@@ -90,7 +83,7 @@ fn exec_mask_logical(
         vpr.write_mask_bit(vd, ElemIdx::new(i), result);
     }
 
-    no_result()
+    VecExecResult::default()
 }
 
 /// Execute `vcpop.m` — count set bits in the source mask register.
@@ -174,7 +167,7 @@ fn exec_mask_set(
         vpr.write_mask_bit(vd, ElemIdx::new(i), result);
     }
 
-    no_result()
+    VecExecResult::default()
 }
 
 /// Execute `viota.m` — prefix sum of mask bits.
@@ -216,7 +209,7 @@ fn exec_viota(
         vpr.write_element(vd, ElemIdx::new(i), ctx.sew, prefix);
     }
 
-    no_result()
+    VecExecResult::default()
 }
 
 /// Execute `vid.v` — write element indices.
@@ -234,7 +227,7 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
         vpr.write_element(vd, ElemIdx::new(i), ctx.sew, i as u64);
     }
 
-    no_result()
+    VecExecResult::default()
 }
 
 #[cfg(test)]

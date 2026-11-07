@@ -28,7 +28,6 @@ mod widen;
 use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use arith::exec_fp_standard;
@@ -154,7 +153,7 @@ fn vec_fp_dispatch(
             Sew::E16 => raw | 0xFFFF_FFFF_FFFF_0000, // NaN-box f16 in f64 register
             _ => raw,                                // E64: no boxing needed
         };
-        return VecExecResult { vxsat: false, scalar_result: Some(val), fp_flags: FpFlags::NONE };
+        return VecExecResult { scalar_result: Some(val), ..VecExecResult::default() };
     }
 
     // Scalar move: vfmv.s.f — write scalar into vd[0]
@@ -174,7 +173,7 @@ fn vec_fp_dispatch(
                 vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
             }
         }
-        return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
+        return VecExecResult::default();
     }
 
     // Merge
@@ -300,6 +299,7 @@ const fn is_fp_fma(op: VectorOp) -> bool {
 mod tests {
     use super::*;
     use crate::arch::regs::vpr::Vpr;
+    use crate::isa::fp::FpFlags;
     use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
 

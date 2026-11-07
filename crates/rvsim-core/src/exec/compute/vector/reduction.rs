@@ -139,7 +139,7 @@ fn exec_int_reduction(
         }
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
+    VecExecResult::default()
 }
 
 /// Perform one step of an integer reduction.
@@ -194,7 +194,7 @@ fn exec_widen_int_reduction(
 ) -> VecExecResult {
     let src_sew = ctx.sew;
     let Some(dst_sew) = widen_sew(src_sew) else {
-        return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
+        return VecExecResult::default();
     };
     let dst_mask = dst_sew.mask();
 
@@ -223,7 +223,7 @@ fn exec_widen_int_reduction(
         }
     }
 
-    VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE }
+    VecExecResult::default()
 }
 
 /// Execute a floating-point reduction at SEW width (32 or 64).
@@ -244,7 +244,7 @@ fn exec_fp_reduction(
 ) -> VecExecResult {
     let sew = ctx.sew;
     let Some(fp_sew) = FpSew::of(sew, ctx.zvfh) else {
-        return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
+        return VecExecResult::default();
     };
 
     let saved_rm = set_host_round_mode(ctx.frm);
@@ -460,7 +460,7 @@ fn exec_fp_widen_reduction(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(widen) = FpSew::of(ctx.sew, ctx.zvfh).and_then(FpSew::widening) else {
-        return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
+        return VecExecResult::default();
     };
     let dst_sew = widen.dst();
     let saved_rm = set_host_round_mode(ctx.frm);

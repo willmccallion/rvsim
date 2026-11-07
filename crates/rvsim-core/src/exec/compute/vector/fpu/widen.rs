@@ -29,7 +29,7 @@ pub(super) fn exec_fp_widening(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(wsew) = widen_sew(ctx.sew) else {
-        return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
+        return VecExecResult::default();
     };
 
     // Handle widening FMA BEFORE the main loop — the FMA reads vd as the
@@ -243,7 +243,7 @@ pub(super) fn exec_fp_widening_fma(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(wsew) = widen_sew(ctx.sew) else {
-        return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
+        return VecExecResult::default();
     };
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let mut flags = FpFlags::NONE;
@@ -321,7 +321,7 @@ pub(super) fn exec_fp_narrowing(
 ) -> VecExecResult {
     // For narrowing, the destination SEW is ctx.sew, source is 2*ctx.sew
     let Some(src_sew) = widen_sew(ctx.sew) else {
-        return VecExecResult { vxsat: false, scalar_result: None, fp_flags: FpFlags::NONE };
+        return VecExecResult::default();
     };
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let mut flags = FpFlags::NONE;
