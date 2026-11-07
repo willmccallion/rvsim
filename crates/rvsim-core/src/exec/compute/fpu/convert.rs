@@ -22,7 +22,6 @@ pub(super) const I64_MIN_F64: f64 = i64::MIN as f64;
 /// `u64::MAX` + 1 as f64 (2^64). Values >= this overflow u64.
 pub(super) const U64_MAX_P1_F64: f64 = 18446744073709551616.0; // 2^64 exactly
 
-// ---- RISC-V float-to-integer conversion helpers ----
 // Rust's `f as i32` saturates correctly for ±Inf and out-of-range values,
 // but produces 0 for NaN.  RISC-V requires positive-max for NaN.
 

@@ -136,7 +136,6 @@ pub fn vec_fp_execute(
     result
 }
 
-#[allow(clippy::too_many_lines)]
 fn vec_fp_dispatch(
     op: VectorOp,
     vpr: &mut impl VectorRegFile,

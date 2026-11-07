@@ -210,7 +210,6 @@ pub(super) fn compute_f32(
 /// Compute one standard FP element at SEW=64.
 ///
 /// Returns `(result_bits, flags)`.
-#[allow(clippy::too_many_lines)]
 pub(super) fn compute_f64(
     op: VectorOp,
     vs2_bits: u64,
@@ -346,7 +345,6 @@ pub(super) fn compute_f64(
 /// each element slot — they are NOT NaN-boxed (that is only for scalar registers).
 /// Arithmetic is performed by upcasting to f64 (lossless for f16 inputs) and
 /// software-rounding back to f16 via `f64_to_f16`.
-#[allow(clippy::too_many_lines)]
 pub(super) fn compute_f16(
     op: VectorOp,
     vs2_bits: u64,

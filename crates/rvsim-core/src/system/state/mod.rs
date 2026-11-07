@@ -166,7 +166,7 @@ impl SystemState {
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
         let hart_count = topology.hart_count();
 
-        // --- Bus + devices ---------------------------------------------
+        // The bus and its devices.
         let mut bus = Bus::new(config.system.bus_width, config.system.bus_latency, hart_count);
 
         let ram_base = config.system.ram_base;
@@ -254,7 +254,7 @@ impl SystemState {
             line_bytes => line_bytes as u64,
         };
 
-        // --- Hart architectural state ----------------------------------
+        // The harts' architectural state.
         let csrs = Csrs {
             mstatus: MSTATUS_DEFAULT_RV64,
             misa: config.misa(),
