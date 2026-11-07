@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use crate::config::{Config, MemDepPredictorKind};
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 
-use super::predictor::{MdpStats, MemDepPredictor, MemPrediction};
+use super::predictor::{MdpStats, MemPrediction};
 use super::store_set::StoreSetPredictor;
 
 /// Cached memory dependency state for an IQ entry.
@@ -116,7 +116,7 @@ impl MemDepUnit {
                     }
                     return MemDepState::None;
                 }
-                let prediction = predictor.predict(pc, rob_tag, is_store);
+                let prediction = predictor.predict(pc);
                 if is_store {
                     predictor.register_store(pc, rob_tag);
                 }
