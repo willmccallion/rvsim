@@ -169,9 +169,7 @@ class Config:
         self.fence_squash = fence_squash
         self.store_forward_latency = store_forward_latency
         self.branch_predictor = copy.deepcopy(branch_predictor)
-        self.backend = (
-            copy.deepcopy(backend) if backend is not None else Backend.InOrder()
-        )
+        self.backend = copy.deepcopy(backend)
         self.mem_dep_predictor = copy.deepcopy(mem_dep_predictor)
         self.btb_size = btb_size
         self.btb_ways = btb_ways
@@ -189,11 +187,7 @@ class Config:
 
         # Memory
         self.ram_size = _parse_size(ram_size)
-        self.memory_controller = copy.deepcopy(
-            memory_controller
-            if memory_controller is not None
-            else _DEFAULT_MEMORY_CONTROLLER
-        )
+        self.memory_controller = copy.deepcopy(memory_controller)
         self.tlb_size = tlb_size
         self.tlb_ways = tlb_ways
         self.l2_tlb_size = l2_tlb_size
@@ -311,9 +305,6 @@ def load_config(path: str) -> Config:
     """
     import importlib.util
     import os
-
-    if not os.path.exists(path) and os.path.exists(os.path.join(os.getcwd(), path)):
-        path = os.path.join(os.getcwd(), path)
 
     spec = importlib.util.spec_from_file_location("custom_config", path)
     if not (spec and spec.loader):
