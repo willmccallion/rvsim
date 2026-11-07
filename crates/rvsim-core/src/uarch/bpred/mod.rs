@@ -28,7 +28,7 @@ use self::predictors::{
     sc_l_tage::ScLTagePredictor, static_bp::StaticPredictor, tage::TagePredictor,
     tournament::TournamentPredictor,
 };
-use crate::common::InstSeq;
+use crate::common::{InstSeq, VirtAddr};
 use crate::config::{BranchPredictorKind, Config};
 
 /// The configured prediction unit, dispatched statically so the fetch
@@ -107,7 +107,7 @@ impl BranchPredictor {
 
     /// See [`BranchPredUnit::predict`].
     #[inline(always)]
-    pub fn predict(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> Option<u64> {
+    pub fn predict(&mut self, seq: InstSeq, pc: VirtAddr, inst: ControlInst) -> Option<VirtAddr> {
         dispatch!(self, unit => unit.predict(seq, pc, inst))
     }
 
@@ -118,7 +118,7 @@ impl BranchPredictor {
 
     /// What the BTB holds for the control instruction at `pc`.
     #[must_use]
-    pub fn btb_lookup(&self, pc: u64) -> Option<btb::BtbHit> {
+    pub fn btb_lookup(&self, pc: VirtAddr) -> Option<btb::BtbHit> {
         dispatch!(self, unit => unit.btb_lookup(pc))
     }
 
@@ -129,17 +129,17 @@ impl BranchPredictor {
     }
 
     /// See [`unit::BranchPredUnit::discover`].
-    pub fn discover(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> Option<u64> {
+    pub fn discover(&mut self, seq: InstSeq, pc: VirtAddr, inst: ControlInst) -> Option<VirtAddr> {
         dispatch!(self, unit => unit.discover(seq, pc, inst))
     }
 
     /// See [`unit::BranchPredUnit::correct_target`].
-    pub fn correct_target(&mut self, seq: InstSeq, target: u64) {
+    pub fn correct_target(&mut self, seq: InstSeq, target: VirtAddr) {
         dispatch!(self, unit => unit.correct_target(seq, target));
     }
 
     /// See [`unit::BranchPredUnit::forget`].
-    pub fn forget(&mut self, seq: InstSeq, pc: u64) {
+    pub fn forget(&mut self, seq: InstSeq, pc: VirtAddr) {
         dispatch!(self, unit => unit.forget(seq, pc));
     }
 
@@ -149,7 +149,7 @@ impl BranchPredictor {
     }
 
     /// See [`BranchPredUnit::mispredict`].
-    pub fn mispredict(&mut self, seq: InstSeq, taken: bool, target: u64) {
+    pub fn mispredict(&mut self, seq: InstSeq, taken: bool, target: VirtAddr) {
         dispatch!(self, unit => unit.mispredict(seq, taken, target));
     }
 

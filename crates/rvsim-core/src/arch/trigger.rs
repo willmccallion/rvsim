@@ -5,6 +5,7 @@
 //! fires before the access, so those fields read as zero.
 
 use crate::arch::Hart;
+use crate::common::VirtAddr;
 use crate::isa::privileged::PrivilegeMode;
 
 /// The triggers the hart implements.
@@ -42,8 +43,8 @@ pub const fn tdata1_written(val: u64) -> u64 {
 impl Hart {
     /// Returns true if an execute trigger fires for the given PC and current privilege.
     #[must_use]
-    pub fn check_execute_trigger(&self, pc: u64) -> bool {
-        self.trigger_fires(MCONTROL_EXECUTE, pc)
+    pub fn check_execute_trigger(&self, pc: VirtAddr) -> bool {
+        self.trigger_fires(MCONTROL_EXECUTE, pc.val())
     }
 
     /// Returns true if a load trigger fires for the given address and current privilege.

@@ -5,6 +5,7 @@
 
 use crate::arch::Hart;
 use crate::arch::translation::SfenceVmaInfo;
+use crate::common::VirtAddr;
 use crate::exec::cbo;
 use crate::exec::compute::alu;
 use crate::exec::compute::fpu;
@@ -36,7 +37,7 @@ const MSTATUS_TSR_BIT: u32 = 22;
 pub const fn operands(inst: &Inst) -> (u64, u64) {
     let op_a = match inst.ctrl.a_src {
         OpASrc::Reg1 => inst.rv1,
-        OpASrc::Pc => inst.pc,
+        OpASrc::Pc => inst.pc.val(),
         OpASrc::Zero => 0,
     };
     let op_b = match inst.ctrl.b_src {
@@ -232,7 +233,7 @@ pub struct CsrWrite {
 #[derive(Clone, Copy, Debug)]
 pub struct CsrRequest {
     /// The instruction's PC, for the trace.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// The CSR.
     pub addr: CsrAddr,
     /// The form of access.
@@ -306,7 +307,7 @@ pub fn perform_csr_access(state: &impl ArchState, request: &CsrRequest) -> CsrAc
     };
     trace_csr!(state.tracing();
         op        = "write-deferred",
-        pc        = %crate::common::trace::Hex(pc),
+        pc        = %crate::common::trace::Hex(pc.val()),
         csr_addr  = %crate::common::trace::Hex32(addr.as_u32()),
         csr_op    = ?op,
         old_val   = %crate::common::trace::Hex(old),
@@ -362,11 +363,11 @@ pub fn evaluate(state: &impl ArchState, inst: &Inst, op_a: u64, op_b: u64) -> (u
 /// # Errors
 ///
 /// The instruction-address-misaligned trap for a misaligned `target`.
-pub const fn check_target_alignment(hart: &Hart, target: u64) -> Result<(), Trap> {
-    if target & crate::arch::csr::ialign_low_bits(hart.csrs.misa) == 0 {
+pub const fn check_target_alignment(hart: &Hart, target: VirtAddr) -> Result<(), Trap> {
+    if target.val() & crate::arch::csr::ialign_low_bits(hart.csrs.misa) == 0 {
         return Ok(());
     }
-    Err(Trap::InstructionAddressMisaligned(target))
+    Err(Trap::InstructionAddressMisaligned(target.val()))
 }
 
 /// Whether the conditional branch `inst` is taken with operands `op_a` and
@@ -392,9 +393,9 @@ pub const fn is_jalr(inst: &Inst) -> bool {
 
 /// Where the JAL or JALR `id` jumps.
 #[must_use]
-pub const fn jump_target(inst: &Inst) -> u64 {
+pub const fn jump_target(inst: &Inst) -> VirtAddr {
     if is_jalr(inst) {
-        inst.rv1.wrapping_add(inst.imm as u64) & JALR_ALIGNMENT_MASK
+        VirtAddr::new(inst.rv1.wrapping_add(inst.imm as u64) & JALR_ALIGNMENT_MASK)
     } else {
         inst.pc.wrapping_add(inst.imm as u64)
     }

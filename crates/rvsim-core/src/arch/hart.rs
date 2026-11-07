@@ -11,7 +11,7 @@
 use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
-use crate::common::HartId;
+use crate::common::{HartId, VirtAddr};
 use crate::isa::privileged::PrivilegeMode;
 
 /// Per-thread RISC-V architectural state.
@@ -23,7 +23,7 @@ pub struct Hart {
     pub regs: RegisterFile,
     /// The architectural program counter: the next instruction to retire.
     /// Fetch runs ahead of it on the pipeline's own fetch PC.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Control and Status Registers.
     pub csrs: Csrs,
     /// Current Privilege Mode (M, S, U).
@@ -50,7 +50,7 @@ pub struct HartInit {
     /// Initial register file (with stack pointer set if running bare-metal).
     pub regs: RegisterFile,
     /// Initial program counter.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Initial CSR state.
     pub csrs: Csrs,
     /// Initial privilege mode.

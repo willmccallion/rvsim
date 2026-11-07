@@ -9,7 +9,7 @@ pub mod debug;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::common::{HartId, InstSeq, PhysAddr, SimError};
+use crate::common::{HartId, InstSeq, PhysAddr, SimError, VirtAddr};
 use crate::config::Config;
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
@@ -265,9 +265,9 @@ impl Uncore {
 
     /// Tells the open pipeline trace, if any, that `seq` on `hart` was
     /// fetched from `pc`.
-    pub fn trace_fetched(&mut self, hart: HartId, seq: InstSeq, pc: u64) {
+    pub fn trace_fetched(&mut self, hart: HartId, seq: InstSeq, pc: VirtAddr) {
         if let Some(trace) = &mut self.pipeline_trace {
-            trace.fetched(self.cycle, hart, seq, pc);
+            trace.fetched(self.cycle, hart, seq, pc.val());
         }
     }
 

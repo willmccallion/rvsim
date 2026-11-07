@@ -105,7 +105,7 @@ impl InOrderEngine {
         };
 
         trace_rename!(state.config.general.trace_instructions;
-            pc         = %crate::common::trace::Hex(entry.inst.pc),
+            pc         = %crate::common::trace::Hex(entry.inst.pc.val()),
             rob_tag    = %entry.rob_tag,
             rd         = entry.inst.rd.as_usize(),
             rs1        = entry.inst.rs1.as_usize(),

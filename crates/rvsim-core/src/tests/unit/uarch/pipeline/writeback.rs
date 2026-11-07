@@ -1,5 +1,6 @@
 //! The value an instruction leaving Memory2 writes to its destination.
 
+use crate::common::VirtAddr;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::instruction::InstSize;
 use crate::isa::op::AtomicOp;
@@ -10,7 +11,7 @@ const ADDRESS: u64 = 0x8000_1000;
 
 fn entry(ctrl: ControlSignals, alu: u64, load_data: u64) -> Mem2WbEntry {
     Mem2WbEntry {
-        pc: PC,
+        pc: VirtAddr::new(PC),
         inst_size: InstSize::Standard,
         ctrl,
         alu,

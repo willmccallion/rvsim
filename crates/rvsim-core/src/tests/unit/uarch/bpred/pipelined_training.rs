@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 
-use crate::common::InstSeq;
+use crate::common::{InstSeq, VirtAddr};
 use crate::config::{PerceptronConfig, TageConfig, TournamentConfig};
 use crate::uarch::bpred::predictors::gshare::GSharePredictor;
 use crate::uarch::bpred::predictors::perceptron::PerceptronPredictor;
@@ -53,15 +53,24 @@ fn late_mispredictions<P: DirectionPredictor>(direction: P, window: fn(usize) ->
     for i in 0..ITERATIONS {
         let depth = window(i);
         let taken = i % 2 == 0;
-        let branch = ControlInst::Branch { target: TARGET };
-        let predicted = fetch(&mut unit, depth, PC, branch, taken, TARGET);
+        let branch = ControlInst::Branch { target: VirtAddr::new(TARGET) };
+        let predicted =
+            fetch(&mut unit, depth, VirtAddr::new(PC), branch, taken, VirtAddr::new(TARGET));
         if i >= ITERATIONS / 2 && predicted != taken {
             mispredictions += 1;
         }
-        let jump = ControlInst::Jump { target: JUMP_TARGET, link: None };
-        let _ = fetch(&mut unit, depth, JUMP_PC, jump, true, JUMP_TARGET);
-        let back_edge = ControlInst::Branch { target: LOOP_TARGET };
-        let _ = fetch(&mut unit, depth, LOOP_PC, back_edge, true, LOOP_TARGET);
+        let jump = ControlInst::Jump { target: VirtAddr::new(JUMP_TARGET), link: None };
+        let _ =
+            fetch(&mut unit, depth, VirtAddr::new(JUMP_PC), jump, true, VirtAddr::new(JUMP_TARGET));
+        let back_edge = ControlInst::Branch { target: VirtAddr::new(LOOP_TARGET) };
+        let _ = fetch(
+            &mut unit,
+            depth,
+            VirtAddr::new(LOOP_PC),
+            back_edge,
+            true,
+            VirtAddr::new(LOOP_TARGET),
+        );
     }
     mispredictions
 }

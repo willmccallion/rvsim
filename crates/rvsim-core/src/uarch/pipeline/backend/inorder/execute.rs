@@ -81,7 +81,7 @@ fn execute_one(
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = %id.rob_tag,
-        pc       = %crate::common::trace::Hex(id.inst.pc),
+        pc       = %crate::common::trace::Hex(id.inst.pc.val()),
         inst     = %crate::common::trace::Hex32(id.inst.bits),
         rd       = id.inst.rd.as_usize(),
         rs1      = id.inst.rs1.as_usize(),
@@ -94,7 +94,7 @@ fn execute_one(
     );
 
     if state.check_execute_trigger(id.inst.pc) {
-        return faulted(state, id, Trap::Breakpoint(id.inst.pc));
+        return faulted(state, id, Trap::Breakpoint(id.inst.pc.val()));
     }
     state.trace_stage(id.seq, Stage::Execute);
 

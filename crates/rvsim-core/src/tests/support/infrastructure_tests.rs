@@ -2,7 +2,7 @@ use super::builder::instruction::InstructionBuilder;
 use super::builder::pipeline_state::{IdExBuilder, IfIdBuilder};
 use super::harness::TestContext;
 use super::mocks::memory::MockMemory;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::exec::signals::ControlSignals;
 use crate::isa::encoding::rv64i::opcodes::*;
@@ -236,15 +236,15 @@ fn builder_raw_field_api() {
 #[test]
 fn ifid_builder_defaults_and_setters() {
     let entry = IfIdBuilder::new().pc(0x1000).inst(0xDEADBEEF).predicted(0x2000).build();
-    assert_eq!(entry.pc, 0x1000);
+    assert_eq!(entry.pc, VirtAddr::new(0x1000));
     assert_eq!(entry.inst, 0xDEADBEEF);
-    assert_eq!(entry.predicted_target, Some(0x2000));
+    assert_eq!(entry.predicted_target, Some(VirtAddr::new(0x2000)));
 }
 
 #[test]
 fn ifid_builder_defaults_are_zero() {
     let entry = IfIdBuilder::new().build();
-    assert_eq!(entry.pc, 0);
+    assert_eq!(entry.pc, VirtAddr::new(0));
     assert_eq!(entry.inst, 0);
     assert_eq!(entry.predicted_target, None);
 }
@@ -261,7 +261,7 @@ fn idex_builder_full_chain() {
         .imm(42)
         .control(ctrl)
         .build();
-    assert_eq!(entry.inst.pc, 0x2000);
+    assert_eq!(entry.inst.pc, VirtAddr::new(0x2000));
     assert_eq!(entry.inst.bits, 0x12345678);
     assert_eq!(entry.inst.rs1, RegIdx::new(1));
     assert_eq!(entry.inst.rv1, 100);
@@ -275,7 +275,7 @@ fn idex_builder_full_chain() {
 #[test]
 fn harness_boot_default_pc() {
     let ctx = TestContext::new();
-    assert_eq!(ctx.cpu().harts[0].pc, 0x8000_0000, "CPU should start at RAM base");
+    assert_eq!(ctx.cpu().harts[0].pc, VirtAddr::new(0x8000_0000), "CPU should start at RAM base");
 }
 
 #[test]
@@ -293,7 +293,7 @@ fn harness_load_program_writes_instructions_and_sets_pc() {
 
     let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &program);
 
-    assert_eq!(ctx.cpu().harts[0].pc, 0x1000, "PC should be set to program base");
+    assert_eq!(ctx.cpu().harts[0].pc, VirtAddr::new(0x1000), "PC should be set to program base");
     assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1000), 4) as u32, nop);
     assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1004), 4) as u32, addi);
 }

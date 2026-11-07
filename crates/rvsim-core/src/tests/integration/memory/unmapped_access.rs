@@ -1,7 +1,7 @@
 //! A load or store to a physical address no memory or device claims
 //! raises an access fault in every privilege mode.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::privileged::PrivilegeMode;
@@ -33,7 +33,7 @@ fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64
         hart.privilege = privilege;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = RAM_BASE;
+        hart.pc = VirtAddr::new(RAM_BASE);
     }
     ctx.sim.sync_arch_regs();
 

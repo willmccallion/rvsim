@@ -3,7 +3,7 @@
 //! This module contains unit tests for trap and exception handling,
 //! including trap dispatch and context saving.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
@@ -119,9 +119,9 @@ fn test_trap_double_fault_detection() {
     state.hart.csrs.mtvec = handler_pc;
 
     // A trap whose EPC equals the handler address is legitimate (not a double fault).
-    state.trap(&Trap::IllegalInstruction(0), handler_pc);
+    state.trap(&Trap::IllegalInstruction(0), VirtAddr::new(handler_pc));
     assert_eq!(state.check_exit(), None);
-    assert_eq!(state.hart.pc, handler_pc); // dispatched to M-mode handler
+    assert_eq!(state.hart.pc, VirtAddr::new(handler_pc)); // dispatched to M-mode handler
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn test_trap_interrupts_set_interrupt_bit() {
         let mut state = sys.core_ctx(0);
         state.hart.privilege = PrivilegeMode::Machine;
         state.hart.csrs.mtvec = 0x8000_0000;
-        state.hart.pc = 0x8000_1000; // Different from trap handler
+        state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
         state.trap(&interrupt, state.hart.pc);
 
@@ -157,7 +157,7 @@ fn test_trap_machine_timer_interrupt() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     state.trap(&Trap::MachineTimerInterrupt, state.hart.pc);
 
@@ -173,7 +173,7 @@ fn test_trap_supervisor_timer_interrupt() {
     state.hart.csrs.mtvec = 0x8000_0000;
     state.hart.csrs.stvec = 0x8000_1000;
     state.hart.csrs.mideleg = 1 << 5; // Delegate supervisor timer interrupts
-    state.hart.pc = 0x8000_2000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_2000); // Different from trap handler
 
     state.trap(&Trap::SupervisorTimerInterrupt, state.hart.pc);
 
@@ -187,7 +187,7 @@ fn test_trap_machine_software_interrupt() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     state.trap(&Trap::MachineSoftwareInterrupt, state.hart.pc);
 
@@ -203,7 +203,7 @@ fn test_trap_supervisor_software_interrupt() {
     state.hart.csrs.mtvec = 0x8000_0000;
     state.hart.csrs.stvec = 0x8000_1000;
     state.hart.csrs.mideleg = 1 << 1; // Delegate supervisor software interrupts
-    state.hart.pc = 0x8000_2000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_2000); // Different from trap handler
 
     state.trap(&Trap::SupervisorSoftwareInterrupt, state.hart.pc);
 
@@ -216,7 +216,7 @@ fn test_trap_machine_external_interrupt() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     state.trap(&Trap::MachineExternalInterrupt, state.hart.pc);
 
@@ -232,7 +232,7 @@ fn test_trap_supervisor_external_interrupt() {
     state.hart.csrs.mtvec = 0x8000_0000;
     state.hart.csrs.stvec = 0x8000_1000;
     state.hart.csrs.mideleg = 1 << 9; // Delegate supervisor external interrupts
-    state.hart.pc = 0x8000_2000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_2000); // Different from trap handler
 
     state.trap(&Trap::SupervisorExternalInterrupt, state.hart.pc);
 
@@ -278,7 +278,7 @@ fn test_trap_delegation_to_supervisor_with_medeleg() {
 
     // Should have delegated to S-mode
     assert_eq!(state.hart.csrs.scause & !CAUSE_INTERRUPT_BIT, 12);
-    assert_eq!(state.hart.csrs.sepc, old_pc);
+    assert_eq!(state.hart.csrs.sepc, old_pc.val());
 }
 
 #[test]
@@ -305,7 +305,7 @@ fn test_trap_no_delegation_when_medeleg_not_set() {
     state.hart.csrs.mtvec = 0x8000_0000;
     state.hart.csrs.stvec = 0; // STVEC not set
     state.hart.csrs.medeleg = 0; // No delegation
-    state.hart.pc = 0x8000_2000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_2000); // Different from trap handler
 
     state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
 
@@ -342,7 +342,7 @@ fn test_trap_user_mode_no_delegation_without_medeleg() {
     state.trap(&Trap::LoadAddressMisaligned(0x1001), state.hart.pc);
 
     assert_eq!(state.hart.privilege, PrivilegeMode::Machine);
-    assert_eq!(state.hart.pc, 0x8000_0000);
+    assert_eq!(state.hart.pc, VirtAddr::new(0x8000_0000));
 }
 
 #[test]
@@ -357,7 +357,7 @@ fn test_trap_vectored_mode_direct_for_exceptions() {
     state.trap(&Trap::IllegalInstruction(0), old_pc);
 
     // Exceptions should use base address (no offset)
-    assert_eq!(state.hart.pc, base);
+    assert_eq!(state.hart.pc, VirtAddr::new(base));
 }
 
 #[test]
@@ -371,7 +371,7 @@ fn test_trap_vectored_mode_offset_for_interrupts() {
     state.trap(&Trap::MachineTimerInterrupt, state.hart.pc);
 
     // Machine timer interrupt (code 7) should offset by 4*7 = 28
-    assert_eq!(state.hart.pc, base + 28);
+    assert_eq!(state.hart.pc, VirtAddr::new(base + 28));
 }
 
 #[test]
@@ -385,7 +385,7 @@ fn test_trap_direct_mode_no_offset() {
     state.trap(&Trap::MachineTimerInterrupt, state.hart.pc);
 
     // Direct mode should use base address (no offset)
-    assert_eq!(state.hart.pc, base);
+    assert_eq!(state.hart.pc, VirtAddr::new(base));
 }
 
 #[test]
@@ -397,12 +397,12 @@ fn test_trap_supervisor_vectored_mode() {
     let base = 0x8000_1000;
     state.hart.csrs.stvec = base | 1; // Vectored mode
     state.hart.csrs.mideleg = 1 << 5; // Delegate supervisor timer interrupts
-    state.hart.pc = 0x8000_2000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_2000); // Different from trap handler
 
     state.trap(&Trap::SupervisorTimerInterrupt, state.hart.pc);
 
     // Supervisor timer interrupt (code 5) should offset by 4*5 = 20
-    assert_eq!(state.hart.pc, base + 20);
+    assert_eq!(state.hart.pc, VirtAddr::new(base + 20));
 }
 
 #[test]
@@ -411,7 +411,7 @@ fn test_trap_tval_for_address_exceptions() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     let fault_addr = 0x1234_5678;
     state.trap(&Trap::LoadAddressMisaligned(fault_addr), state.hart.pc);
@@ -425,7 +425,7 @@ fn test_trap_tval_for_page_faults() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     let fault_addr = 0xdead_beef;
     state.trap(&Trap::StorePageFault(fault_addr), state.hart.pc);
@@ -439,7 +439,7 @@ fn test_trap_tval_for_illegal_instruction() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     let bad_instr = 0xdeadbeef;
     state.trap(&Trap::IllegalInstruction(bad_instr), state.hart.pc);
@@ -453,7 +453,7 @@ fn test_trap_tval_zero_for_ecall() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     state.trap(&Trap::EnvironmentCallFromMMode, state.hart.pc);
 
@@ -468,7 +468,7 @@ fn test_trap_stval_on_delegation() {
     state.hart.privilege = PrivilegeMode::User;
     state.hart.csrs.stvec = 0x8000_1000;
     state.hart.csrs.medeleg = 1 << 13; // Delegate load page faults
-    state.hart.pc = 0x8000_2000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_2000); // Different from trap handler
 
     let fault_addr = 0xcafe_babe;
     state.trap(&Trap::LoadPageFault(fault_addr), state.hart.pc);
@@ -482,7 +482,7 @@ fn test_trap_saves_previous_privilege_in_mpp() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Supervisor;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
 
@@ -496,7 +496,7 @@ fn test_trap_disables_mie_and_saves_to_mpie() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
     // Enable MIE (bit 3)
     state.hart.csrs.mstatus = 1 << 3;
 
@@ -515,7 +515,7 @@ fn test_trap_saves_previous_privilege_in_spp_on_delegation() {
     state.hart.privilege = PrivilegeMode::User;
     state.hart.csrs.stvec = 0x8000_1000;
     state.hart.csrs.medeleg = 1 << 2; // Delegate illegal instruction
-    state.hart.pc = 0x8000_2000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_2000); // Different from trap handler
 
     state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
 
@@ -530,7 +530,7 @@ fn test_trap_disables_sie_on_delegation() {
     state.hart.privilege = PrivilegeMode::User;
     state.hart.csrs.stvec = 0x8000_1000;
     state.hart.csrs.medeleg = 1 << 2; // Delegate illegal instruction
-    state.hart.pc = 0x8000_2000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_2000); // Different from trap handler
 
     state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
 
@@ -546,7 +546,7 @@ fn test_trap_requested_trap_custom_code() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     let custom_code = 42;
     state.trap(&Trap::RequestedTrap(custom_code), state.hart.pc);
@@ -560,7 +560,7 @@ fn test_trap_double_fault_trap_variant() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     state.trap(&Trap::DoubleFault(0x1234), state.hart.pc);
 
@@ -573,7 +573,7 @@ fn test_trap_breakpoint() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     state.trap(&Trap::Breakpoint(0), state.hart.pc);
 
@@ -594,7 +594,7 @@ fn test_trap_all_access_faults() {
         let mut state = sys.core_ctx(0);
         state.hart.privilege = PrivilegeMode::Machine;
         state.hart.csrs.mtvec = 0x8000_0000;
-        state.hart.pc = 0x8000_1000; // Different from trap handler
+        state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
         state.trap(&fault, state.hart.pc);
 
@@ -615,7 +615,7 @@ fn test_trap_all_misaligned() {
         let mut state = sys.core_ctx(0);
         state.hart.privilege = PrivilegeMode::Machine;
         state.hart.csrs.mtvec = 0x8000_0000;
-        state.hart.pc = 0x8000_1000; // Different from trap handler
+        state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
         state.trap(&trap, state.hart.pc);
 
@@ -629,7 +629,7 @@ fn test_trap_preserves_registers() {
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
     state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = 0x8000_1000; // Different from trap handler
+    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
 
     // Set up some register state
     state.hart.regs.write(RegIdx::new(1), 0x1234);
@@ -650,7 +650,7 @@ fn test_trap_updates_mepc_correctly() {
     state.hart.csrs.mtvec = 0x8000_0000;
     let trap_pc = 0x8000_1234;
 
-    state.trap(&Trap::IllegalInstruction(0), trap_pc);
+    state.trap(&Trap::IllegalInstruction(0), VirtAddr::new(trap_pc));
 
     assert_eq!(state.hart.csrs.mepc, trap_pc);
 }
@@ -664,7 +664,7 @@ fn test_trap_updates_sepc_on_delegation() {
     state.hart.csrs.medeleg = 1 << 2; // Delegate illegal instruction
     let trap_pc = 0x8000_5678;
 
-    state.trap(&Trap::IllegalInstruction(0), trap_pc);
+    state.trap(&Trap::IllegalInstruction(0), VirtAddr::new(trap_pc));
 
     assert_eq!(state.hart.csrs.sepc, trap_pc);
 }

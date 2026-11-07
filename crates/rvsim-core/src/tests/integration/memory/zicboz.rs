@@ -1,6 +1,6 @@
 //! End-to-end tests for the Zicboz / Zicbom CBO instructions.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{
@@ -65,7 +65,7 @@ fn run_cbo(ctx: &mut TestContext, inst: u32, addr_in_x10: u64) {
         ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + i * 4), u64::from(NOP), 4);
     }
     ctx.set_reg(X10 as usize, addr_in_x10);
-    ctx.sim.set_pc(0, RAM_BASE);
+    ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     ctx.cpu_mut().harts[0].csrs.mtvec = RAM_BASE + park_offset;
     ctx.run(1000);
 }
@@ -219,7 +219,7 @@ fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
     }
     ctx.set_reg(X10 as usize, data_addr);
     ctx.set_reg(X11 as usize, u64::MAX);
-    ctx.sim.set_pc(0, RAM_BASE);
+    ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     ctx.cpu_mut().harts[0].csrs.mtvec = RAM_BASE + 12;
     ctx.sim.sync_arch_regs();
 

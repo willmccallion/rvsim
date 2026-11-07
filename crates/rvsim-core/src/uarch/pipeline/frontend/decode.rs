@@ -6,6 +6,7 @@
 //! here the in-order backend also stops a bundle at an intra-bundle
 //! register dependency.
 
+use crate::common::VirtAddr;
 use crate::exec::decode::requirement::requirement;
 use crate::exec::decode::{DecodedInst, decode_inst};
 use crate::exec::inst::Inst;
@@ -141,7 +142,7 @@ pub struct DecodeOutcome {
     pub ended_at_vsetvl: bool,
     /// Fetch went the wrong way after the last decoded instruction and must
     /// restart here; what was fetched after it is discarded.
-    pub redirect: Option<u64>,
+    pub redirect: Option<VirtAddr>,
 }
 
 /// Checks the prediction fetch made for `entry` from the BTB alone against
@@ -153,7 +154,7 @@ pub struct DecodeOutcome {
 /// differs; predictions fetch made past an instruction decode predicts are
 /// redone as decode reaches them, so the histories stay in program order
 /// without refetching a path fetch already took.
-fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Option<u64> {
+fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Option<VirtAddr> {
     let size = entry.inst.size.as_u64();
     let fallthrough = entry.inst.pc.wrapping_add(size);
     let fetched_next = entry.predicted_target.unwrap_or(fallthrough);

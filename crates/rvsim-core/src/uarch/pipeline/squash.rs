@@ -8,7 +8,7 @@
 //! passed, the way gem5's squash travels from execute through commit to
 //! fetch. Until then commit retires nothing younger than the instruction.
 
-use crate::common::InstSeq;
+use crate::common::{InstSeq, VirtAddr};
 use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::pipeline::rob::RobTag;
 
@@ -45,7 +45,7 @@ pub struct BranchRepair {
     /// Its real direction (always taken for a jump).
     pub taken: bool,
     /// Where it goes when taken.
-    pub target: u64,
+    pub target: VirtAddr,
 }
 
 impl BranchRepair {
@@ -64,7 +64,7 @@ impl BranchRepair {
 #[derive(Clone, Copy, Debug)]
 pub struct Redirect {
     /// Where fetch resumes.
-    pub target: u64,
+    pub target: VirtAddr,
     /// Why.
     pub cause: SquashCause,
     /// Predictor repair for a mispredicted branch.
@@ -74,14 +74,14 @@ pub struct Redirect {
 impl Redirect {
     /// Resume fetch at `target` once the younger instructions are gone.
     #[must_use]
-    pub const fn to(target: u64, cause: SquashCause) -> Self {
+    pub const fn to(target: VirtAddr, cause: SquashCause) -> Self {
         Self { target, cause, repair: None }
     }
 
     /// A mispredicted branch: resume at its real target and repair the
     /// predictor.
     #[must_use]
-    pub const fn mispredict(target: u64, repair: BranchRepair) -> Self {
+    pub const fn mispredict(target: VirtAddr, repair: BranchRepair) -> Self {
         Self { target, cause: SquashCause::Branch, repair: Some(repair) }
     }
 }
@@ -147,7 +147,7 @@ mod tests {
     fn pending(keep_tag: Option<u32>) -> PendingSquash {
         PendingSquash {
             keep_tag: keep_tag.map(RobTag::new),
-            redirect: Redirect::to(0, SquashCause::System),
+            redirect: Redirect::to(VirtAddr::new(0), SquashCause::System),
             apply_at: 0,
         }
     }
@@ -168,7 +168,7 @@ mod tests {
     fn keeping(keep_tag: u32, cause: SquashCause) -> PendingSquash {
         PendingSquash {
             keep_tag: Some(RobTag::new(keep_tag)),
-            redirect: Redirect::to(0, cause),
+            redirect: Redirect::to(VirtAddr::new(0), cause),
             apply_at: 0,
         }
     }

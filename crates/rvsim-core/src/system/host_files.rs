@@ -92,7 +92,7 @@ pub fn read_file(state: &mut CoreCtx<'_>) -> i64 {
     match state.write_now(buffer, &bytes) {
         Ok(()) => bytes.len() as i64,
         Err(trap) => {
-            tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc),
+            tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc.val()),
                 buffer = %crate::common::trace::Hex(buffer), ?trap, "readfile: the buffer is not mapped");
             -errno::EFAULT
         }
@@ -111,14 +111,14 @@ pub fn write_file(state: &mut CoreCtx<'_>) -> i64 {
         .read_cstr_now(name, NAME_MAX)
         .and_then(|name| state.read_now(buffer, len_as_usize(len)).map(|bytes| (name, bytes)))
         .map_err(|trap| {
-            tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc),
+            tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc.val()),
                 buffer = %crate::common::trace::Hex(buffer), ?trap, "writefile: the buffer or name is not mapped");
             -errno::EFAULT
         })
         .and_then(|(name, bytes)| {
             let name = String::from_utf8_lossy(&name);
             state.host_files.write_output(&name, offset, &bytes).inspect_err(|code| {
-                tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc),
+                tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc.val()),
                     name = %name, errno = -code, "writefile: the host file could not be written");
             })
         });

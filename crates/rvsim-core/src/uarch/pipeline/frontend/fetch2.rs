@@ -41,7 +41,7 @@ pub fn fetch2_stage(
             trace_trap!(state.trace_trap_enabled(trap);
                 event = "propagate",
                 stage = "F2",
-                pc    = %crate::common::trace::Hex(f1.pc),
+                pc    = %crate::common::trace::Hex(f1.pc.val()),
                 trap  = ?trap,
                 "F2: trap propagated from F1"
             );
@@ -77,7 +77,7 @@ pub fn fetch2_stage(
             trace_trap!(state.trace_trap_enabled(&t);
                 event = "decode-trap",
                 stage = "F2",
-                pc    = %crate::common::trace::Hex(f1.pc),
+                pc    = %crate::common::trace::Hex(f1.pc.val()),
                 trap  = ?t,
                 "F2: instruction decode trap"
             );
@@ -93,7 +93,7 @@ pub fn fetch2_stage(
         }
 
         trace_fetch!(state.config.general.trace_instructions;
-            pc         = %crate::common::trace::Hex(f1.pc),
+            pc         = %crate::common::trace::Hex(f1.pc.val()),
             inst       = inst,
             inst_size  = step.as_u64(),
             compressed = is_compressed,

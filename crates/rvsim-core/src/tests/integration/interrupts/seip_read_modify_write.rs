@@ -2,7 +2,7 @@
 //! high must not turn the line into the software SEIP bit: only that bit
 //! takes part in a CSRRS/CSRRC, so SEIP drops with the line.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::isa::csr::{MIP, MIP_SEIP, MIP_STIP};
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -45,7 +45,11 @@ fn clearing_another_mip_bit_while_seip_is_high_does_not_latch_seip() {
 
     ctx.run(800);
     assert_ne!(ctx.sim.state.harts[0].csrs.mip & MIP_SEIP, 0, "the line is high");
-    assert_eq!(ctx.sim.state.harts[0].pc, PROGRAM_BASE + 20, "the CSRRC ran and the spin began");
+    assert_eq!(
+        ctx.sim.state.harts[0].pc,
+        VirtAddr::new(PROGRAM_BASE + 20),
+        "the CSRRC ran and the spin began"
+    );
 
     ctx.sim.probe_mem_store(PhysAddr::new(UART_IER), 0, 1);
     ctx.run(20);

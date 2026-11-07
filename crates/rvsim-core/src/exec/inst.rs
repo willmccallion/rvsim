@@ -1,5 +1,6 @@
 //! A decoded instruction with the values of its source registers.
 
+use crate::common::VirtAddr;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
 use crate::isa::reg::RegIdx;
@@ -9,7 +10,7 @@ use crate::isa::reg::RegIdx;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Inst {
     /// Its address.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Its encoding, expanded to 32 bits when it is compressed.
     pub bits: u32,
     /// Its encoded size.
@@ -37,7 +38,7 @@ pub struct Inst {
 impl Inst {
     /// The instruction after this one in program order.
     #[must_use]
-    pub const fn next_pc(&self) -> u64 {
+    pub const fn next_pc(&self) -> VirtAddr {
         self.pc.wrapping_add(self.size.as_u64())
     }
 }

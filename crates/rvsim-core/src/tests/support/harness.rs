@@ -1,5 +1,5 @@
 use crate::Simulator;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{Config, MemoryControllerKind, ValidConfig};
 use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
 use crate::isa::reg::RegIdx;
@@ -85,7 +85,7 @@ impl TestContext {
             let offset = addr + (i as u64) * 4;
             self.sim.probe_mem_store(PhysAddr::new(offset), u64::from(*inst), 4);
         }
-        self.sim.set_pc(0, addr);
+        self.sim.set_pc(0, VirtAddr::new(addr));
         self
     }
 

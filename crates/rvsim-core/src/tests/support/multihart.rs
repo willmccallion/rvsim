@@ -2,7 +2,7 @@
 //! mode, for tests of cross-hart memory behaviour.
 
 use crate::Simulator;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::harness::build_simulator;
@@ -31,7 +31,7 @@ impl MultiHart {
             sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), 4);
         }
         for hart in &mut sim.state.harts {
-            hart.pc = PROGRAM_BASE;
+            hart.pc = VirtAddr::new(PROGRAM_BASE);
         }
         sim.sync_arch_regs();
         Self { sim }
@@ -63,7 +63,7 @@ impl MultiHart {
             sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), 4);
         }
         for hart in &mut sim.state.harts {
-            hart.pc = PROGRAM_BASE;
+            hart.pc = VirtAddr::new(PROGRAM_BASE);
         }
         sim.sync_arch_regs();
         Self { sim }

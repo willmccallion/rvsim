@@ -2,6 +2,7 @@
 //! produced for an instruction and what that instruction means, so the
 //! table does not rely on rvsim's own encoders.
 
+use crate::common::VirtAddr;
 use crate::exec::decode::{DecodedInst, decode_inst};
 use crate::exec::signals::ControlFlow;
 use crate::isa::fp::{FpFormat, Rounding, RoundingMode};
@@ -67,7 +68,7 @@ use System::{Csr, Plain};
 const PC: u64 = 0x8000_0000;
 
 fn decode(word: u32) -> DecodedInst {
-    decode_inst(word, PC, 0)
+    decode_inst(word, VirtAddr::new(PC), 0)
 }
 
 fn format_of(decoded: &DecodedInst) -> Format {

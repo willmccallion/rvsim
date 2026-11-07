@@ -16,7 +16,7 @@ mod target;
 use std::collections::BTreeMap;
 use std::net::TcpStream;
 
-use crate::common::{CoreId, SimError};
+use crate::common::{CoreId, SimError, VirtAddr};
 use crate::isa::csr::CsrAddr;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::{Simulator, StopAt, StopReason, Watch, WatchKind};
@@ -107,7 +107,7 @@ struct Session<'a> {
     transport: Transport,
     /// The hart register and memory packets address: GDB's selected thread.
     selected: usize,
-    breakpoints: BTreeMap<u64, Breakpoint>,
+    breakpoints: BTreeMap<VirtAddr, Breakpoint>,
     watches: Vec<Watch>,
 }
 
@@ -133,7 +133,7 @@ impl Session<'_> {
             b'X' => self.write_memory_binary(rest),
             b'c' | b's' => {
                 if let Some(addr) = parse_hex_u64(rest).filter(|_| !rest.is_empty()) {
-                    self.sim.set_pc(self.selected, addr);
+                    self.sim.set_pc(self.selected, VirtAddr::new(addr));
                 }
                 let mut actions = vec![Action::Continue; self.sim.hart_count()];
                 if head == b's' {
@@ -170,8 +170,11 @@ impl Session<'_> {
     /// breakpoint kind when the hart sits on one.
     fn stop_reply(&self, hart: usize, signal: u8, extra: &str) -> Vec<u8> {
         let pc = self.sim.hart(hart).pc;
-        let mut reply =
-            format!("T{signal:02x}thread:{:x};{PC_REGNUM:x}:{};{extra}", hart + 1, hex_le(pc, 8));
+        let mut reply = format!(
+            "T{signal:02x}thread:{:x};{PC_REGNUM:x}:{};{extra}",
+            hart + 1,
+            hex_le(pc.val(), 8)
+        );
         match self.breakpoints.get(&pc) {
             Some(Breakpoint::Software) if signal == SIGTRAP => reply.push_str("swbreak:;"),
             Some(Breakpoint::Hardware) if signal == SIGTRAP => reply.push_str("hwbreak:;"),
@@ -186,7 +189,7 @@ impl Session<'_> {
         for n in 0..32u8 {
             reply.push_str(&hex_le(hart.regs.read(RegIdx::new(n)), 8));
         }
-        reply.push_str(&hex_le(hart.pc, 8));
+        reply.push_str(&hex_le(hart.pc.val(), 8));
         reply.into_bytes()
     }
 
@@ -201,7 +204,7 @@ impl Session<'_> {
         for n in 1..32usize {
             self.sim.hart_mut(hart).regs.write(RegIdx::new(n as u8), word_at(&bytes, n));
         }
-        self.sim.set_pc(hart, word_at(&bytes, 32));
+        self.sim.set_pc(hart, VirtAddr::new(word_at(&bytes, 32)));
         self.sim.sync_arch_regs();
         b"OK".to_vec()
     }
@@ -221,7 +224,7 @@ impl Session<'_> {
             return Some((self.sim.hart(hart).regs.read(RegIdx::new(regnum as u8)), 8));
         }
         if regnum == PC_REGNUM {
-            return Some((self.sim.hart(hart).pc, 8));
+            return Some((self.sim.hart(hart).pc.val(), 8));
         }
         if (FIRST_FP_REGNUM..FIRST_CSR_REGNUM).contains(&regnum) {
             let f = RegIdx::new((regnum - FIRST_FP_REGNUM) as u8);
@@ -251,7 +254,7 @@ impl Session<'_> {
             }
             true
         } else if regnum == PC_REGNUM {
-            self.sim.set_pc(hart, value);
+            self.sim.set_pc(hart, VirtAddr::new(value));
             true
         } else if (FIRST_FP_REGNUM..FIRST_CSR_REGNUM).contains(&regnum) {
             self.sim
@@ -342,10 +345,11 @@ impl Session<'_> {
     }
 
     fn set_breakpoint(&mut self, insert: bool, addr: u64, kind: Breakpoint) {
+        let pc = VirtAddr::new(addr);
         if insert {
-            let _ = self.breakpoints.insert(addr, kind);
+            let _ = self.breakpoints.insert(pc, kind);
         } else {
-            let _ = self.breakpoints.remove(&addr);
+            let _ = self.breakpoints.remove(&pc);
         }
     }
 
@@ -528,7 +532,7 @@ impl Session<'_> {
 /// hart steps or waits to leave, the run goes a cycle at a time.
 fn run(
     sim: &mut Simulator,
-    breakpoints: &BTreeMap<u64, Breakpoint>,
+    breakpoints: &BTreeMap<VirtAddr, Breakpoint>,
     watches: &[Watch],
     actions: &[Action],
     going: &mut impl FnMut() -> bool,
@@ -548,7 +552,7 @@ fn run(
 
 /// Where a hart was when a resume began.
 struct Start {
-    pc: u64,
+    pc: VirtAddr,
     instructions_retired: u64,
     on_breakpoint: bool,
 }
@@ -568,7 +572,7 @@ impl Start {
 
 fn run_from(
     sim: &mut Simulator,
-    breakpoints: &BTreeMap<u64, Breakpoint>,
+    breakpoints: &BTreeMap<VirtAddr, Breakpoint>,
     watches: &[Watch],
     actions: &[Action],
     starts: &[Start],

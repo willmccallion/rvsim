@@ -121,7 +121,7 @@ impl GroupBuilder {
 /// What fetch predicts for one instruction: where it goes next, whether
 /// fetch stops after it, and the kind of control flow for the trace.
 struct ControlFlowPrediction {
-    target: Option<u64>,
+    target: Option<VirtAddr>,
     stop: bool,
     kind: Option<&'static str>,
 }
@@ -134,7 +134,7 @@ struct ControlFlowPrediction {
 fn predict_control_flow(
     state: &mut StageCtx<'_>,
     seq: InstSeq,
-    pc: u64,
+    pc: VirtAddr,
     size: InstSize,
 ) -> ControlFlowPrediction {
     let predictor = &mut state.core_mut().branch_predictor;
@@ -158,7 +158,7 @@ fn predict_control_flow(
 /// Holds fetch at `pc` for `cycles`: the translation hit the L2 ITLB, which
 /// has now refilled the L1, and the instruction is fetched again after the
 /// L2's latency.
-fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: u64, cycles: u64) {
+fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: VirtAddr, cycles: u64) {
     let common = engine.common_mut();
     common.fetch_hold_until = state.cycle + cycles;
     common.fetch_resume_pc = Some(pc);
@@ -168,7 +168,7 @@ fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: u64,
 const FETCH_TRANSLATION_BYTES: u64 = 2;
 
 /// A latch entry for an instruction that faulted before it could be fetched.
-const fn fault_entry(seq: InstSeq, pc: u64, trap: Trap) -> Fetch1Fetch2Entry {
+const fn fault_entry(seq: InstSeq, pc: VirtAddr, trap: Trap) -> Fetch1Fetch2Entry {
     Fetch1Fetch2Entry {
         pc,
         paddr: PhysAddr::new(0),
@@ -264,7 +264,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
     let req_id = common.alloc_req_id();
     let l1_i_id = common.l1_i_id;
     let pipeline_id = common.pipeline_id;
-    let vaddr = group.entries.first().map(|e| VirtAddr::new(e.pc));
+    let vaddr = group.entries.first().map(|e| e.pc);
     let _ = common.outstanding_fetches.insert(req_id, group);
 
     let cycle = state.cycle;
@@ -320,29 +320,29 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     engine: &mut E,
     fetch_buffer: &mut FetchBuffer,
     latch: &mut Latch<Fetch1Fetch2Entry>,
-    fetch_pc: &mut u64,
+    fetch_pc: &mut VirtAddr,
 ) {
     let mut current_pc = engine.common_mut().fetch_resume_pc.take().unwrap_or(*fetch_pc);
     let align_mask = crate::arch::csr::ialign_low_bits(state.hart().csrs.misa);
 
     let line_bytes = state.core().l1_i_cache.line_bytes() as u64;
-    let mut line_end = (current_pc | (line_bytes - 1)) + 1;
+    let mut line_end = (current_pc.val() | (line_bytes - 1)) + 1;
     let mut group = GroupBuilder::default();
 
     for _ in 0..state.config.pipeline.fetch_width() {
-        if current_pc + 2 > line_end {
+        if current_pc.val() + 2 > line_end {
             break;
         }
 
-        let fetch_trap = if (current_pc & align_mask) != 0 {
-            Some(Trap::InstructionAddressMisaligned(current_pc))
+        let fetch_trap = if (current_pc.val() & align_mask) != 0 {
+            Some(Trap::InstructionAddressMisaligned(current_pc.val()))
         } else {
             None
         };
 
         // 1. Translate the PC.
         let translated = if fetch_trap.is_none() {
-            state.translate(VirtAddr::new(current_pc), AccessType::Fetch, FETCH_TRANSLATION_BYTES)
+            state.translate(current_pc, AccessType::Fetch, FETCH_TRANSLATION_BYTES)
         } else {
             TranslateOutcome::Ready(crate::arch::translation::TranslationResult::success(
                 PhysAddr::new(0),
@@ -377,7 +377,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
 
         if let Some(trap_cause) = fetch_trap.or(trap) {
             trace_fetch!(state.config.general.trace_instructions;
-                pc          = %crate::common::trace::Hex(current_pc),
+                pc          = %crate::common::trace::Hex(current_pc.val()),
                 trap        = ?trap_cause,
                 "F1: fetch trap"
             );
@@ -396,7 +396,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         // A 32-bit instruction whose upper half lies in the next line
         // completes only when that line arrives: it heads a group that
         // fetches the next line, once this line is in the fetch buffer.
-        let straddles_line = !is_compressed && current_pc.wrapping_add(4) > line_end;
+        let straddles_line = !is_compressed && current_pc.wrapping_add(4).val() > line_end;
         if straddles_line {
             if !group.entries.is_empty() {
                 break;
@@ -418,13 +418,9 @@ pub fn fetch1_stage<E: ExecutionEngine>(
             u32::from(half_word)
         } else {
             let upper_va = current_pc.wrapping_add(2);
-            let crosses_page = (current_pc >> 12) != (upper_va >> 12);
+            let crosses_page = current_pc.page_number() != upper_va.page_number();
             let upper_phys = if crosses_page {
-                match state.translate(
-                    VirtAddr::new(upper_va),
-                    AccessType::Fetch,
-                    FETCH_TRANSLATION_BYTES,
-                ) {
+                match state.translate(upper_va, AccessType::Fetch, FETCH_TRANSLATION_BYTES) {
                     TranslateOutcome::Ready(r) if r.cycles > 0 && r.trap.is_none() => {
                         hold_fetch(state, engine, current_pc, r.cycles);
                         break;
@@ -432,7 +428,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                     TranslateOutcome::Ready(r) => {
                         if let Some(trap) = r.trap {
                             trace_fetch!(state.config.general.trace_instructions;
-                                pc           = %crate::common::trace::Hex(current_pc),
+                                pc           = %crate::common::trace::Hex(current_pc.val()),
                                 paddr        = %crate::common::trace::Hex(phys_addr),
                                 trap         = ?trap,
                                 crosses_page = true,
@@ -484,22 +480,22 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         if let Some(kind) = prediction.kind {
             trace_branch!(state.config.general.trace_instructions;
                 event       = "predict",
-                pc          = %crate::common::trace::Hex(current_pc),
+                pc          = %crate::common::trace::Hex(current_pc.val()),
                 paddr       = %crate::common::trace::Hex(phys_addr),
                 inst        = %crate::common::trace::Hex32(fetched_bits),
                 bp_type     = kind,
                 pred_taken  = predicted_target.is_some(),
-                next_pc     = %crate::common::trace::Hex(next_pc_calc),
+                next_pc     = %crate::common::trace::Hex(next_pc_calc.val()),
                 "F1: control-flow prediction"
             );
         }
 
         trace_fetch!(state.config.general.trace_instructions;
-            pc          = %crate::common::trace::Hex(current_pc),
+            pc          = %crate::common::trace::Hex(current_pc.val()),
             paddr       = %crate::common::trace::Hex(phys_addr),
             compressed  = is_compressed,
             pred_taken  = predicted_target.is_some(),
-            next_pc     = %crate::common::trace::Hex(next_pc_calc),
+            next_pc     = %crate::common::trace::Hex(next_pc_calc.val()),
             "F1: fetch entry issued"
         );
 

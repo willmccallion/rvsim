@@ -2,7 +2,7 @@
 //! walking the page table on a TLB miss like a load or store, and reports
 //! a fault as the store fault the CMO specification gives it.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
@@ -76,7 +76,7 @@ fn run(backend: BackendKind, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
         hart.privilege = PrivilegeMode::Supervisor;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = CODE_VA;
+        hart.pc = VirtAddr::new(CODE_VA);
     }
     ctx.sim.sync_arch_regs();
 

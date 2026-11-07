@@ -1,6 +1,7 @@
 //! Issue queue tests.
 
 use super::*;
+use crate::common::VirtAddr;
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
@@ -13,7 +14,7 @@ fn make_entry(rob_tag: u32) -> RenameIssueEntry {
     RenameIssueEntry {
         // NOP
         inst: Inst {
-            pc: 0x1000 + (rob_tag as u64) * 4,
+            pc: VirtAddr::new(0x1000 + (rob_tag as u64) * 4),
             bits: 0x13,
             size: InstSize::Standard,
             rs1: RegIdx::new(0),
@@ -354,7 +355,7 @@ fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
         ControlSignals { vec_op: crate::isa::op::VectorOp::VLoadUnit, ..Default::default() };
     let alloc = |rob: &mut Rob, ctrl| {
         rob.allocate(
-            0,
+            VirtAddr::new(0),
             0,
             InstSize::Standard,
             RegIdx::new(0),
@@ -448,7 +449,7 @@ fn tags_across_the_wrap() -> Vec<RobTag> {
     (0..4)
         .map(|_| {
             rob.allocate(
-                0,
+                VirtAddr::new(0),
                 0,
                 InstSize::Standard,
                 RegIdx::new(0),

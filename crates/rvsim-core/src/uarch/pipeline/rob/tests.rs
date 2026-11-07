@@ -14,7 +14,7 @@ fn make_ctrl(reg_write: bool, fp_reg_write: bool) -> ControlSignals {
 
 fn alloc(rob: &mut Rob, pc: u64, rd: u8, ctrl: ControlSignals) -> Option<RobTag> {
     rob.allocate(
-        pc,
+        VirtAddr::new(pc),
         0,
         InstSize::Standard,
         RegIdx::new(rd),
@@ -33,7 +33,7 @@ fn test_allocate_and_commit() {
 
     let tag = rob
         .allocate(
-            0x1000,
+            VirtAddr::new(0x1000),
             0x13,
             InstSize::Standard,
             RegIdx::new(1),
@@ -51,7 +51,7 @@ fn test_allocate_and_commit() {
 
     rob.complete(tag, 42);
     let entry = rob.commit_head().unwrap();
-    assert_eq!(entry.pc, 0x1000);
+    assert_eq!(entry.pc, VirtAddr::new(0x1000));
     assert_eq!(entry.result, Some(42));
     assert_eq!(entry.state, RobState::Completed);
     assert!(rob.is_empty());
@@ -122,7 +122,7 @@ fn test_flush_after() {
 
     rob.complete(t1, 100);
     let entry = rob.commit_head().unwrap();
-    assert_eq!(entry.pc, 0x1000);
+    assert_eq!(entry.pc, VirtAddr::new(0x1000));
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn encode_fence(pred: u8, succ: u8) -> u32 {
 
 fn alloc_with_inst(rob: &mut Rob, inst: u32, ctrl: ControlSignals) -> Option<RobTag> {
     rob.allocate(
-        0x1000,
+        VirtAddr::new(0x1000),
         inst,
         InstSize::Standard,
         RegIdx::new(0),
@@ -307,11 +307,15 @@ fn test_fence_tso_blocking() {
 fn test_control_outcome() {
     let mut rob = Rob::new(4);
     let t1 = alloc_with_inst(&mut rob, 0, ControlSignals::default()).unwrap();
-    rob.set_control_outcome(t1, BpOutcome { taken: true, mispredicted: false }, Some(0x2000));
+    rob.set_control_outcome(
+        t1,
+        BpOutcome { taken: true, mispredicted: false },
+        Some(VirtAddr::new(0x2000)),
+    );
 
     let entry = rob.find_entry(t1).unwrap();
     assert!(entry.control_resolved);
     assert!(entry.bp_outcome.taken);
-    assert_eq!(entry.bp_target, Some(0x2000));
+    assert_eq!(entry.bp_target, Some(VirtAddr::new(0x2000)));
     assert!(!entry.bp_outcome.mispredicted);
 }

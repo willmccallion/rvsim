@@ -74,7 +74,7 @@ pub fn memory2_stage(
             trace_trap!(state.trace_trap_enabled(trap);
                 event   = "propagate",
                 stage   = "M2",
-                pc      = %crate::common::trace::Hex(mem.pc),
+                pc      = %crate::common::trace::Hex(mem.pc.val()),
                 rob_tag = %mem.rob_tag,
                 trap    = ?trap,
                 "M2: trap propagated through memory2"
@@ -119,7 +119,7 @@ pub fn memory2_stage(
                 {
                     trace_fwd!(state.config.general.trace_instructions;
                         event           = "violation",
-                        store_pc        = %crate::common::trace::Hex(mem.pc),
+                        store_pc        = %crate::common::trace::Hex(mem.pc.val()),
                         store_tag       = %mem.rob_tag,
                         paddr           = %crate::common::trace::Hex(paddr.val()),
                         width           = ?width,
@@ -134,7 +134,7 @@ pub fn memory2_stage(
             trace_mem!(state.config.general.trace_instructions;
                 stage   = "M2",
                 rob_tag = %mem.rob_tag,
-                pc      = %crate::common::trace::Hex(mem.pc),
+                pc      = %crate::common::trace::Hex(mem.pc.val()),
                 op      = "passthrough",
                 "M2: non-memory instruction pass-through"
             );
@@ -162,7 +162,7 @@ pub fn finalize_load(
         trace_fwd!(state.config.general.trace_instructions;
             event         = "forward",
             stage         = stage,
-            load_pc       = %crate::common::trace::Hex(mem.pc),
+            load_pc       = %crate::common::trace::Hex(mem.pc.val()),
             load_tag      = %mem.rob_tag,
             paddr         = %crate::common::trace::Hex(mem.paddr.val()),
             width         = ?mem.ctrl.width,
@@ -174,7 +174,7 @@ pub fn finalize_load(
         trace_mem!(state.config.general.trace_instructions;
             stage         = stage,
             rob_tag   = %mem.rob_tag,
-            pc        = %crate::common::trace::Hex(mem.pc),
+            pc        = %crate::common::trace::Hex(mem.pc.val()),
             op        = "load",
             paddr     = %crate::common::trace::Hex(mem.paddr.val()),
             width     = ?mem.ctrl.width,

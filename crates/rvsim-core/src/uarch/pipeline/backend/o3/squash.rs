@@ -1,6 +1,7 @@
 //! Squashes: flushing after a trap or re-execution at commit, taking a
 //! pending squash, and squashing a load that read memory too early.
 
+use crate::common::VirtAddr;
 use crate::isa::rvv::VRegIdx;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
@@ -37,7 +38,11 @@ impl O3Engine {
 
     /// Retires what the ROB head allows. A trap or a re-execution at commit
     /// flushes the whole window and redirects fetch; returns whether it did.
-    pub(super) fn retire(&mut self, state: &mut CoreCtx<'_>, redirect: &mut Option<u64>) -> bool {
+    pub(super) fn retire(
+        &mut self,
+        state: &mut CoreCtx<'_>,
+        redirect: &mut Option<VirtAddr>,
+    ) -> bool {
         let commit_event = commit::commit_stage(
             state,
             CommitResources {
@@ -140,7 +145,7 @@ impl O3Engine {
         &mut self,
         state: &mut CoreCtx<'_>,
         squash: PendingSquash,
-        redirect: &mut Option<u64>,
+        redirect: &mut Option<VirtAddr>,
     ) {
         self.serialization.squash(|tag| squash.squashes(tag));
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());

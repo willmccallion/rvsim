@@ -3,7 +3,7 @@
 //! A loop such an instruction ends pays I-cache accesses for both lines on
 //! every iteration, where the same loop inside one line pays none.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::harness::TestContext;
@@ -49,7 +49,7 @@ fn warm_iteration_cycles(backend: BackendKind, program: &[u16]) -> u64 {
     for (i, half) in program.iter().enumerate() {
         tc.sim.probe_mem_store(PhysAddr::new(RAM_BASE + 2 * i as u64), u64::from(*half), 2);
     }
-    tc.sim.state.harts[0].pc = RAM_BASE;
+    tc.sim.state.harts[0].pc = VirtAddr::new(RAM_BASE);
     tc.sim.sync_arch_regs();
 
     let mut cycles = 0;

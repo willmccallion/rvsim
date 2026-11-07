@@ -28,7 +28,7 @@ pub struct OrderViolation {
     /// The load, which re-executes.
     pub load: RobTag,
     /// The PC of the store the load should have waited for.
-    pub store_pc: u64,
+    pub store_pc: VirtAddr,
 }
 
 impl OrderViolation {
@@ -716,7 +716,10 @@ mod tests {
     }
 
     fn violation(load: u32) -> OrderViolation {
-        OrderViolation { load: RobTag::new(load), store_pc: 0x1000 + u64::from(load) }
+        OrderViolation {
+            load: RobTag::new(load),
+            store_pc: VirtAddr::new(0x1000 + u64::from(load)),
+        }
     }
 
     #[test]
@@ -736,7 +739,8 @@ mod tests {
 
     #[test]
     fn older_violation_keeps_the_first_on_a_tie() {
-        let (first, second) = (violation(5), OrderViolation { store_pc: 0x2000, ..violation(5) });
+        let (first, second) =
+            (violation(5), OrderViolation { store_pc: VirtAddr::new(0x2000), ..violation(5) });
         assert_eq!(OrderViolation::older(Some(first), Some(second)), Some(first));
     }
 

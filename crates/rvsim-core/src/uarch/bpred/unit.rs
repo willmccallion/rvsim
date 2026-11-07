@@ -9,7 +9,7 @@
 
 use std::collections::VecDeque;
 
-use crate::common::InstSeq;
+use crate::common::{InstSeq, VirtAddr};
 use crate::uarch::bpred::btb::{BranchKind, Btb, BtbHit};
 use crate::uarch::bpred::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 use crate::uarch::bpred::ras::{Ras, RasHistory};
@@ -21,21 +21,21 @@ pub enum ControlInst {
     /// A conditional branch and its encoded target.
     Branch {
         /// Where it goes when taken.
-        target: u64,
+        target: VirtAddr,
     },
     /// A direct jump (`jal`) and its encoded target.
     Jump {
         /// Where it goes.
-        target: u64,
+        target: VirtAddr,
         /// The return address a call pushes.
-        link: Option<u64>,
+        link: Option<VirtAddr>,
     },
     /// An indirect jump (`jalr`).
     IndirectJump {
         /// A return, which pops the return address stack.
         returns: bool,
         /// The return address a call pushes.
-        link: Option<u64>,
+        link: Option<VirtAddr>,
     },
 }
 
@@ -54,7 +54,7 @@ impl ControlInst {
     /// The control instruction `inst` at `pc` is, if it is one: what
     /// decode knows once it has the encoding. `size` is its length in bytes.
     #[must_use]
-    pub fn from_encoding(pc: u64, size: u64, inst: u32) -> Option<Self> {
+    pub fn from_encoding(pc: VirtAddr, size: u64, inst: u32) -> Option<Self> {
         use crate::isa::encoding::rv64i::opcodes;
         use crate::isa::instruction::{InstructionBits, decode_b_type_imm, decode_j_type_imm};
         use crate::isa::reg;
@@ -92,11 +92,12 @@ impl ControlInst {
 
     /// The control instruction a BTB `hit` describes at a PC whose
     /// sequential successor is `next_pc` (what a call links).
-    pub fn from_btb(hit: BtbHit, next_pc: u64) -> Self {
+    pub fn from_btb(hit: BtbHit, next_pc: VirtAddr) -> Self {
         let link = |call: bool| call.then_some(next_pc);
+        let target = VirtAddr::new(hit.target);
         match hit.kind {
-            BranchKind::Conditional => Self::Branch { target: hit.target },
-            BranchKind::Jump { call } => Self::Jump { target: hit.target, link: link(call) },
+            BranchKind::Conditional => Self::Branch { target },
+            BranchKind::Jump { call } => Self::Jump { target, link: link(call) },
             BranchKind::Indirect { returns, call } => {
                 Self::IndirectJump { returns, link: link(call) }
             }
@@ -108,12 +109,12 @@ impl ControlInst {
 #[derive(Debug)]
 struct PredictorHistory<H> {
     seq: InstSeq,
-    pc: u64,
+    pc: VirtAddr,
     inst: ControlInst,
     /// The direction, as predicted and then as a misprediction corrects it.
     taken: bool,
     /// The target when taken, as predicted and then as corrected.
-    target: Option<u64>,
+    target: Option<VirtAddr>,
     ras: RasHistory,
     direction: H,
 }
@@ -147,35 +148,36 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
 
     /// Predicts control instruction `seq` at `pc`: its target when it is
     /// predicted taken, `None` when fetch should fall through.
-    pub fn predict(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> Option<u64> {
+    pub fn predict(&mut self, seq: InstSeq, pc: VirtAddr, inst: ControlInst) -> Option<VirtAddr> {
         let mut ras = RasHistory::default();
         let (target, direction) = match inst {
             ControlInst::Branch { target } => {
-                let (taken, direction) = self.direction.lookup(pc, target);
+                let (taken, direction) = self.direction.lookup(pc.val(), target.val());
                 (taken.then_some(target), direction)
             }
             ControlInst::Jump { target, link } => {
                 if let Some(link) = link {
-                    self.ras.push(link, &mut ras);
+                    self.ras.push(link.val(), &mut ras);
                 }
-                (Some(target), self.direction.unconditional(pc, Jump::Direct))
+                (Some(target), self.direction.unconditional(pc.val(), Jump::Direct))
             }
             ControlInst::IndirectJump { returns, link } => {
                 let target = if returns {
                     self.ras.pop(&mut ras)
                 } else {
                     self.direction
-                        .indirect_target(pc)
-                        .or_else(|| self.btb.lookup(pc).map(|hit| hit.target))
+                        .indirect_target(pc.val())
+                        .or_else(|| self.btb.lookup(pc.val()).map(|hit| hit.target))
                 };
+                let target = target.map(VirtAddr::new);
                 if let Some(link) = link {
-                    self.ras.push(link, &mut ras);
+                    self.ras.push(link.val(), &mut ras);
                 }
-                (target, self.direction.unconditional(pc, Jump::Indirect))
+                (target, self.direction.unconditional(pc.val(), Jump::Indirect))
             }
         };
         let taken = target.is_some();
-        self.direction.update_histories(pc, taken, &direction);
+        self.direction.update_histories(pc.val(), taken, &direction);
         self.in_flight.push_back(PredictorHistory { seq, pc, inst, taken, target, ras, direction });
         target
     }
@@ -196,8 +198,8 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
 
     /// What the BTB holds for the control instruction at `pc`, the only
     /// thing fetch knows about it before decode.
-    pub fn btb_lookup(&self, pc: u64) -> Option<BtbHit> {
-        self.btb.lookup(pc)
+    pub fn btb_lookup(&self, pc: VirtAddr) -> Option<BtbHit> {
+        self.btb.lookup(pc.val())
     }
 
     /// True when fetch predicted instruction `seq`.
@@ -210,27 +212,27 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
     /// without it in the histories, and redone as decode reaches them),
     /// predicts it, and records a taken one in the BTB. Returns its
     /// predicted target.
-    pub fn discover(&mut self, seq: InstSeq, pc: u64, inst: ControlInst) -> Option<u64> {
+    pub fn discover(&mut self, seq: InstSeq, pc: VirtAddr, inst: ControlInst) -> Option<VirtAddr> {
         if self.squash_younger_than(Some(seq)) {
             self.direction.squash_done();
         }
         let target = self.predict(seq, pc, inst);
         if let Some(target) = target {
-            self.btb.update(pc, target, inst.kind());
+            self.btb.update(pc.val(), target.val(), inst.kind());
         }
         target
     }
 
     /// Decode found that fetch followed the stale BTB target of taken
     /// control instruction `seq`; `target` is its real target.
-    pub fn correct_target(&mut self, seq: InstSeq, target: u64) {
+    pub fn correct_target(&mut self, seq: InstSeq, target: VirtAddr) {
         self.mispredict(seq, true, target);
     }
 
     /// Decode found that instruction `seq` at `pc`, which fetch predicted
     /// from the BTB, is not a control instruction: undoes that prediction
     /// and everything younger, and drops the BTB entry.
-    pub fn forget(&mut self, seq: InstSeq, pc: u64) {
+    pub fn forget(&mut self, seq: InstSeq, pc: VirtAddr) {
         let mut squashed = false;
         while let Some(record) = self.in_flight.pop_back_if(|record| record.seq >= seq) {
             self.ras.squash(record.ras);
@@ -240,14 +242,14 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         if squashed {
             self.direction.squash_done();
         }
-        self.btb.invalidate(pc);
+        self.btb.invalidate(pc.val());
     }
 
     /// Control instruction `seq` resolved against its prediction: squashes
     /// everything younger, rewrites its own history update with its real
     /// direction, keeps its real target for commit, and teaches the BTB a
     /// taken target, as gem5 does only here.
-    pub fn mispredict(&mut self, seq: InstSeq, taken: bool, target: u64) {
+    pub fn mispredict(&mut self, seq: InstSeq, taken: bool, target: VirtAddr) {
         let squashed = self.squash_younger_than(Some(seq));
         let Some(record) = self.in_flight.back_mut().filter(|record| record.seq == seq) else {
             if squashed {
@@ -257,12 +259,12 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         };
         record.taken = taken;
         record.target = taken.then_some(target);
-        self.direction.correct(record.pc, taken, &record.direction);
+        self.direction.correct(record.pc.val(), taken, &record.direction);
         let (pc, inst) = (record.pc, record.inst);
         if taken {
             // Every kind is kept: the BTB is how fetch knows a control
             // instruction is there at all.
-            self.btb.update(pc, target, inst.kind());
+            self.btb.update(pc.val(), target.val(), inst.kind());
         }
     }
 
@@ -276,9 +278,10 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
 
     fn retire(&mut self, record: &PredictorHistory<P::History>) {
         let class = record.inst.class();
-        let indirect_target = record.target.filter(|_| record.inst.predicts_indirect_target());
+        let indirect_target =
+            record.target.filter(|_| record.inst.predicts_indirect_target()).map(|t| t.val());
         let retired = Retired { class, taken: record.taken, indirect_target };
-        self.direction.commit(record.pc, retired, &record.direction);
+        self.direction.commit(record.pc.val(), retired, &record.direction);
     }
 
     /// Undoes the predictions younger than `keep` (all of them for `None`);

@@ -13,6 +13,7 @@ pub mod execute;
 pub mod issue;
 mod rename;
 
+use crate::common::VirtAddr;
 use crate::config::Config;
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::ElementWrite;
@@ -69,7 +70,7 @@ fn forward_loads(rob: &mut Rob, delivered: &[Mem2WbEntry]) {
 
 const fn forwarded_value(entry: &ExMem1Entry) -> u64 {
     if matches!(entry.ctrl.control_flow, ControlFlow::Jump) {
-        entry.pc.wrapping_add(entry.inst_size.as_u64())
+        entry.pc.wrapping_add(entry.inst_size.as_u64()).val()
     } else {
         entry.alu
     }
@@ -143,7 +144,7 @@ impl InOrderEngine {
         &mut self,
         state: &mut CoreCtx<'_>,
         squash: PendingSquash,
-        redirect: &mut Option<u64>,
+        redirect: &mut Option<VirtAddr>,
     ) {
         // Everything in the issue queue is younger than any executed instruction.
         self.issuer.flush();
@@ -356,7 +357,7 @@ impl ExecutionEngine for InOrderEngine {
         &mut self,
         state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
-        redirect: &mut Option<u64>,
+        redirect: &mut Option<VirtAddr>,
     ) {
         let now = state.cycle;
         self.redirected_at_commit = false;

@@ -1,6 +1,7 @@
 //! Trap Handling Utilities.
 
 use crate::arch::Hart;
+use crate::common::VirtAddr;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::privileged::Trap;
@@ -24,7 +25,8 @@ pub const fn irq_to_trap(bit: u64) -> Trap {
 impl Hart {
     /// Executes the `MRET` instruction (Return from Machine Mode).
     pub(crate) const fn do_mret(&mut self) {
-        self.pc = self.csrs.mepc & !crate::arch::csr::ialign_low_bits(self.csrs.misa);
+        self.pc =
+            VirtAddr::new(self.csrs.mepc & !crate::arch::csr::ialign_low_bits(self.csrs.misa));
         let mstatus = self.csrs.mstatus;
         let mpp = (mstatus >> csr::MSTATUS_MPP_SHIFT) & csr::MSTATUS_MPP_MASK;
         let mpie = (mstatus & csr::MSTATUS_MPIE) != 0;
@@ -48,7 +50,8 @@ impl Hart {
 
     /// Executes the `SRET` instruction (Return from Supervisor Mode).
     pub(crate) const fn do_sret(&mut self) {
-        self.pc = self.csrs.sepc & !crate::arch::csr::ialign_low_bits(self.csrs.misa);
+        self.pc =
+            VirtAddr::new(self.csrs.sepc & !crate::arch::csr::ialign_low_bits(self.csrs.misa));
         let mstatus = self.csrs.mstatus;
         let spp = (mstatus & csr::MSTATUS_SPP) != 0;
         let spie = (mstatus & csr::MSTATUS_SPIE) != 0;

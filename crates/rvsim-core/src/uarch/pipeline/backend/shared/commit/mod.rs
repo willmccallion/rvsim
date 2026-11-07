@@ -15,7 +15,7 @@ mod writes;
 pub use writes::{committed_writes_pending, send_one_write};
 
 use crate::arch::regs::vpr::Vpr;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
 use crate::isa::reg::ArchReg;
@@ -40,15 +40,15 @@ use retire::{RetireTargets, retire_entry};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CommitEvent {
     /// Take `Trap` with the given EPC.
-    Trap(Trap, u64),
+    Trap(Trap, VirtAddr),
     /// The instruction at `pc` must run again: squash it and everything
     /// younger and refetch from `pc`.
-    ReExecute(u64, ReExecuteCause),
+    ReExecute(VirtAddr, ReExecuteCause),
     /// The instruction just retired changed state that every younger
     /// instruction was fetched or translated without (privilege, satp, the
     /// instruction memory, a reservation): squash everything younger and
     /// refetch from `pc`, whether or not the fetch PC already points there.
-    SquashAfter(u64),
+    SquashAfter(VirtAddr),
 }
 
 /// Why the instruction at the head of the ROB runs again.
@@ -259,6 +259,7 @@ fn is_pure_ram(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> bool {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
+    use crate::common::VirtAddr;
     use crate::config::Config;
     use crate::isa::instruction::InstSize;
     use crate::isa::reg::RegIdx;
@@ -278,7 +279,7 @@ mod tests {
 
         let tag = rob
             .allocate(
-                0x1000,
+                VirtAddr::new(0x1000),
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),

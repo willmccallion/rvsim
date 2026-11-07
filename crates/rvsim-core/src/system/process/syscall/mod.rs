@@ -146,7 +146,7 @@ const CPU_PRESENT: &str = "/sys/devices/system/cpu/present";
 /// the syscall in `a7` with the arguments in `a0` to `a5`, leaves the
 /// result in `a0`, and says whether the thread goes on. A thread whose
 /// process another hart ended this cycle ends here instead.
-pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: u64) -> Outcome {
+pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
     let number = state.hart.regs.read(reg::REG_A7);
     let args: [u64; 6] = std::array::from_fn(|i| state.hart.regs.read(RegIdx::new(10 + i as u8)));
     let hart = state.hart.hart_id;
@@ -160,12 +160,12 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: u64) -> Outcome {
         memory: &mut state.uncore.memory,
         caller,
         hart: state.hart,
-        pc: VirtAddr::new(pc),
+        pc,
         cycle: state.uncore.cycle,
     };
     let result =
         call.dispatch(number, args).unwrap_or_else(|| process_call(state, caller, number, args));
-    tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc), tid = caller.tid.as_u64(),
+    tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc.val()), tid = caller.tid.as_u64(),
         number, name = name_of(number),
         a0 = %crate::common::trace::Hex(args[0]), a1 = %crate::common::trace::Hex(args[1]),
         a2 = %crate::common::trace::Hex(args[2]), a3 = %crate::common::trace::Hex(args[3]),

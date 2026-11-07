@@ -1,6 +1,6 @@
 //! Binary Loader and System Initialization (ELF + kernel/OpenSBI/DTB).
 
-use crate::common::{PhysAddr, SimError};
+use crate::common::{PhysAddr, SimError, VirtAddr};
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::encoding::privileged as sys_ops;
@@ -113,7 +113,7 @@ pub(crate) fn setup_kernel_load(
         // Every hart starts in OpenSBI with its own id in a0; the firmware's
         // boot lottery picks the cold-boot hart and parks the rest.
         for hart in &mut state.harts {
-            hart.pc = opensbi_addr;
+            hart.pc = VirtAddr::new(opensbi_addr);
             hart.privilege = PrivilegeMode::Machine;
             hart.regs.write(reg::REG_A0, u64::from(hart.hart_id.val()));
             hart.regs.write(reg::REG_A1, dtb_addr);
@@ -152,7 +152,7 @@ pub(crate) fn setup_kernel_load(
         state.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
         for core in 0..state.cores.len() {
             let mut ctx = state.core_ctx(core);
-            ctx.hart.pc = ram_base;
+            ctx.hart.pc = VirtAddr::new(ram_base);
             ctx.hart.privilege = PrivilegeMode::Machine;
             ctx.csr_write(csr::MEPC, kernel_addr);
             let hart_id = u64::from(ctx.hart.hart_id.val());
@@ -268,7 +268,7 @@ mod tests {
         let ram_base = config.system.ram_base;
         let load_addr = ram_base + config.system.kernel_offset;
 
-        assert_eq!(state.harts[0].pc, ram_base);
+        assert_eq!(state.harts[0].pc, VirtAddr::new(ram_base));
         assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
         assert_eq!(state.core_ctx(0).csr_read(csr::MEPC), load_addr);
         assert_eq!(state.harts[0].regs.read(reg::REG_A0), 0);

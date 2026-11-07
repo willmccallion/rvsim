@@ -4,7 +4,7 @@
 
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::PteUpdate;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::exec::retire;
 use crate::isa::fence::Fence;
 use crate::isa::instruction::InstSize;
@@ -62,7 +62,7 @@ pub(super) fn trap_or_interrupt(
         if drained {
             trace_trap!(state.trace_trap_enabled(&interrupt_trap);
                 event      = "interrupt",
-                epc        = %crate::common::trace::Hex(epc),
+                epc        = %crate::common::trace::Hex(epc.val()),
                 cause      = ?interrupt_trap,
                 mip        = %crate::common::trace::Hex(state.hart.csrs.mip),
                 mie        = %crate::common::trace::Hex(state.hart.csrs.mie),
@@ -138,7 +138,7 @@ pub(super) fn gate_head(
         state.uncore.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
         trace_trap!(state.config.general.trace_instructions;
             event   = "coherence-reexecute",
-            pc      = %crate::common::trace::Hex(head.pc),
+            pc      = %crate::common::trace::Hex(head.pc.val()),
             rob_tag = %head.tag,
             "CM: LR read a line another hart has since written — re-executing"
         );
@@ -151,7 +151,7 @@ pub(super) fn gate_head(
     {
         trace_trap!(state.config.general.trace_instructions;
             event   = "pte-changed-reexecute",
-            pc      = %crate::common::trace::Hex(head.pc),
+            pc      = %crate::common::trace::Hex(head.pc.val()),
             rob_tag = %head.tag,
             "CM: store's PTE changed since its walk — re-executing"
         );
@@ -218,7 +218,7 @@ fn take_fault(
     }
     trace_trap!(state.trace_trap_enabled(the_trap);
         event     = "sync-exception",
-        pc        = %crate::common::trace::Hex(entry.pc),
+        pc        = %crate::common::trace::Hex(entry.pc.val()),
         rob_tag   = %entry.tag,
         cause     = ?the_trap,
         priv_mode = ?state.hart.privilege,
@@ -280,7 +280,7 @@ fn schedule_trap(
     state: &CoreCtx<'_>,
     common: &mut BackendCommon,
     trap: Trap,
-    epc: u64,
+    epc: VirtAddr,
 ) -> Option<CommitEvent> {
     let latency = state.config.pipeline.trap_latency;
     if latency == 0 {

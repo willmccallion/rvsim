@@ -4,7 +4,7 @@
 //! that is not four-byte aligned raises an instruction-address-misaligned
 //! exception on the branch or jump itself; a branch not taken does not.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -38,7 +38,7 @@ fn run(backend: BackendKind, program: &[u32]) -> Outcome {
     }
     ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), 4);
     ctx.sim.state.harts[0].csrs.mtvec = TRAP_PARK;
-    ctx.sim.state.harts[0].pc = RAM_BASE;
+    ctx.sim.state.harts[0].pc = VirtAddr::new(RAM_BASE);
     ctx.sim.sync_arch_regs();
 
     ctx.run(500);

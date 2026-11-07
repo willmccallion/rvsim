@@ -2,6 +2,7 @@
 //! cycle after: fetch issues the target's first entry the cycle after the
 //! instruction that redirected it retires.
 
+use crate::common::VirtAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::{InstructionBuilder, MRET};
@@ -45,7 +46,7 @@ fn retire_and_refetch_cycles(backend: BackendKind) -> (u64, u64) {
         }
         let Some(retired) = retired else { continue };
         let snapshot = ctx.sim.state.cores[0].pipeline.snapshot(1);
-        if snapshot.fetch1_fetch2.iter().any(|entry| entry.pc == TARGET) {
+        if snapshot.fetch1_fetch2.iter().any(|entry| entry.pc == VirtAddr::new(TARGET)) {
             return (retired, cycle);
         }
     }
