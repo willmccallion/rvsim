@@ -130,7 +130,7 @@ pub(super) fn gate_head(
         return CommitFlow::Stop(None);
     }
 
-    if head.state == RobState::Faulted {
+    if head.state.is_faulted() {
         return CommitFlow::Stop(take_fault(state, common, rob, registers));
     }
 
@@ -196,7 +196,7 @@ fn take_fault(
     registers: &mut CommitRegisters<'_>,
 ) -> Option<CommitEvent> {
     let entry = rob.commit_head()?;
-    let the_trap = entry.trap.as_ref()?;
+    let the_trap = entry.trap()?;
     #[cfg(feature = "commit-log")]
     if let Some(ref mut log) = state.uncore.commit_log {
         // A fetch fault has no instruction to log, as in spike's log.

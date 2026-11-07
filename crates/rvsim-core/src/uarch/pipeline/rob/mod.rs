@@ -124,15 +124,23 @@ impl HeadAtCycleStart {
 }
 
 /// Lifecycle state of an ROB entry.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum RobState {
     /// Entry allocated but instruction not yet finished executing.
     #[default]
     Issued,
     /// Execution complete, result available, waiting to commit.
     Completed,
-    /// Instruction faulted; trap will be taken when it reaches ROB head.
-    Faulted,
+    /// Instruction faulted; the trap is taken when it reaches ROB head.
+    Faulted(Trap),
+}
+
+impl RobState {
+    /// Whether the instruction faulted.
+    #[must_use]
+    pub const fn is_faulted(&self) -> bool {
+        matches!(self, Self::Faulted(_))
+    }
 }
 
 /// Deferred CSR write, applied only at commit time.
@@ -176,8 +184,6 @@ pub struct RobEntry {
     pub ctrl: ControlSignals,
     /// Current lifecycle state.
     pub state: RobState,
-    /// Trap associated with this instruction, if faulted.
-    pub trap: Option<Trap>,
     /// A CSR access the in-order backend performs when the entry reaches
     /// the head of the ROB; the entry has no result until then.
     pub csr_request: Option<CsrRequest>,
@@ -241,6 +247,15 @@ pub struct RobEntry {
 }
 
 impl RobEntry {
+    /// The trap the instruction raised, if it faulted.
+    #[must_use]
+    pub const fn trap(&self) -> Option<&Trap> {
+        match &self.state {
+            RobState::Faulted(trap) => Some(trap),
+            RobState::Issued | RobState::Completed => None,
+        }
+    }
+
     /// The address of the instruction after this one.
     pub const fn next_pc(&self) -> VirtAddr {
         self.pc.wrapping_add(self.inst_size.as_u64())
@@ -350,7 +365,6 @@ impl Rob {
             result: None,
             ctrl,
             state: RobState::Issued,
-            trap: None,
             csr_request: None,
             csr_update: None,
             vec_csr_update: None,
@@ -389,7 +403,7 @@ impl Rob {
     /// execute must not be overwritten by a later writeback completion.
     pub fn complete(&mut self, tag: RobTag, result: u64) {
         if let Some(entry) = self.find_entry_mut(tag)
-            && entry.state != RobState::Faulted
+            && !entry.state.is_faulted()
         {
             entry.state = RobState::Completed;
             if !entry.result_at_commit() {
@@ -422,10 +436,9 @@ impl Rob {
     /// it, since the instruction never really reached that stage.
     pub fn fault(&mut self, tag: RobTag, trap: Trap) {
         if let Some(entry) = self.find_entry_mut(tag)
-            && entry.state != RobState::Faulted
+            && !entry.state.is_faulted()
         {
-            entry.state = RobState::Faulted;
-            entry.trap = Some(trap);
+            entry.state = RobState::Faulted(trap);
         }
     }
 
@@ -433,10 +446,9 @@ impl Rob {
     /// sets `vstart`.
     pub fn fault_element(&mut self, tag: RobTag, trap: Trap, element: u64) {
         if let Some(entry) = self.find_entry_mut(tag)
-            && entry.state != RobState::Faulted
+            && !entry.state.is_faulted()
         {
-            entry.state = RobState::Faulted;
-            entry.trap = Some(trap);
+            entry.state = RobState::Faulted(trap);
             entry.fault_vstart = Some(element);
         }
     }

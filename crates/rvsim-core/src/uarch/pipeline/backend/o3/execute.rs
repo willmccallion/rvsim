@@ -238,7 +238,7 @@ mod tests {
         assert!(redirect.is_none());
         assert!(result.trap.is_some());
         let entry = rob.find_entry(tag).unwrap();
-        assert_ne!(entry.state, crate::uarch::pipeline::rob::RobState::Faulted);
+        assert!(!entry.state.is_faulted());
     }
 
     #[test]

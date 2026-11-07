@@ -61,7 +61,7 @@ use crate::uarch::pipeline::outstanding::{
     DelayedAccess, ForwardedLoad, LoadParts, OutstandingLoad, OutstandingWalk, PageTranslations,
     WalkContinuation,
 };
-use crate::uarch::pipeline::rob::{RobState, RobTag};
+use crate::uarch::pipeline::rob::{RobEntry, RobTag};
 use crate::uarch::pipeline::trace::Stage;
 use crate::{trace_fwd, trace_mem};
 
@@ -218,11 +218,10 @@ fn process_entry<E: ExecutionEngine>(
 /// trap on from here and performs no access.
 fn pass_on_fault<E: ExecutionEngine>(engine: &mut E, mut ex: ExMem1Entry) -> Option<ExMem1Entry> {
     if ex.trap.is_none() {
-        let rob_trap = engine.rob().find_entry(ex.rob_tag).filter(|e| e.state == RobState::Faulted);
-        let Some(trap) = rob_trap.map(|faulted| faulted.trap.clone()) else {
+        let Some(trap) = engine.rob().find_entry(ex.rob_tag).and_then(RobEntry::trap) else {
             return Some(ex);
         };
-        ex.trap = trap;
+        ex.trap = Some(trap.clone());
     }
     push_passthrough_with_trap(engine, ex);
     None
