@@ -44,9 +44,10 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
             continue;
         };
 
-        if let Some(walk) = pipeline.engine.common_mut().outstanding_walks.remove(&req_id) {
+        if let Some(walk) = pipeline.engine.common_mut().memory.outstanding_walks.remove(&req_id) {
             complete_walk(pipeline, state, walk, &data);
-        } else if let Some(fetch) = pipeline.engine.common_mut().outstanding_fetches.remove(&req_id)
+        } else if let Some(fetch) =
+            pipeline.engine.common_mut().fetch.outstanding_fetches.remove(&req_id)
         {
             buffer_fetch(pipeline, fetch);
         } else if let Some((mut load, read)) =
@@ -56,7 +57,8 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
                 load.set_span_data(bytes);
             }
             complete_load(pipeline, state, load, read);
-        } else if let Some(store) = pipeline.engine.common_mut().outstanding_stores.remove(&req_id)
+        } else if let Some(store) =
+            pipeline.engine.common_mut().memory.outstanding_stores.remove(&req_id)
         {
             acknowledge_write(pipeline, state, store.owner, req_id);
         }
@@ -76,7 +78,7 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
 /// M1→M2 latch.
 fn release_forwarded_loads<E: ExecutionEngine>(engine: &mut E, now: u64) {
     let mut ready = Vec::new();
-    engine.common_mut().forwarded_loads.retain(|load| {
+    engine.common_mut().memory.forwarded_loads.retain(|load| {
         if load.ready_cycle <= now {
             ready.push(load.entry.clone());
             false
@@ -102,8 +104,8 @@ fn acknowledge_write<E: ExecutionEngine>(
         StoreOwner::WriteCombining => state.core_mut().wcb.acked(req),
         StoreOwner::DataCacheFlush => {
             let common = pipeline.engine.common_mut();
-            if common.data_cache_flush == DataCacheFlush::Requested(req) {
-                common.data_cache_flush = DataCacheFlush::Done;
+            if common.commit.data_cache_flush == DataCacheFlush::Requested(req) {
+                common.commit.data_cache_flush = DataCacheFlush::Done;
             }
         }
         StoreOwner::Untracked => {}
@@ -118,11 +120,11 @@ fn take_completed_load(
     data: &MemRespData,
 ) -> Option<(OutstandingLoad, PartRead)> {
     let (primary, high) =
-        common.load_parts.remove(&req_id).map_or((req_id, false), |primary| (primary, true));
-    let load = common.outstanding_loads.get_mut(&primary)?;
+        common.memory.load_parts.remove(&req_id).map_or((req_id, false), |primary| (primary, true));
+    let load = common.memory.outstanding_loads.get_mut(&primary)?;
     load.parts.record(high, PartRead::of(data));
     let read = load.parts.assembled()?;
-    common.outstanding_loads.remove(&primary).map(|load| (load, read))
+    common.memory.outstanding_loads.remove(&primary).map(|load| (load, read))
 }
 
 /// Inserts a returned fetch group into the reorder buffer at its
@@ -132,10 +134,10 @@ fn buffer_fetch<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, group: Outstandi
     let common = pipeline.engine.common_mut();
     // Stale-after-flush responses have fetch_seqs below the post-flush
     // emit cursor; drop them rather than reintroducing wrong-path entries.
-    if group.fetch_seq < common.next_emit_fetch_seq {
+    if group.fetch_seq < common.fetch.next_emit_fetch_seq {
         return;
     }
-    let _ = common.fetch_reorder.insert(group.fetch_seq, group);
+    let _ = common.fetch.fetch_reorder.insert(group.fetch_seq, group);
 }
 
 /// Pushes a load with what it read when the memory system served it (or
@@ -190,7 +192,7 @@ fn complete_walk<E: ExecutionEngine>(
         TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
             let common = pipeline.engine.common_mut();
             let req_id = common.alloc_req_id();
-            let _ = common.outstanding_walks.insert(
+            let _ = common.memory.outstanding_walks.insert(
                 req_id,
                 OutstandingWalk {
                     state: walk_state,
@@ -213,13 +215,13 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
 ) {
     match continuation {
         WalkContinuation::Fetch { fetch_seq, mut entry } => {
-            pipeline.engine.common_mut().fetch_restart = FetchRestart::FromPc;
+            pipeline.engine.common_mut().fetch.fetch_restart = FetchRestart::FromPc;
             if result.trap.is_none() {
                 // The TLB now holds the page. Fetch the instruction again
                 // from fetch1 so its size, its upper half-word and its
                 // prediction are formed the normal way; the sequence
                 // number reserved for it drains empty.
-                pipeline.engine.common_mut().fetch_restart = FetchRestart::At(entry.pc);
+                pipeline.engine.common_mut().fetch.fetch_restart = FetchRestart::At(entry.pc);
                 dispatch_fetch_group(
                     state,
                     &mut pipeline.engine,
@@ -252,7 +254,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                 } else {
                     translations.second = translation;
                 }
-                pipeline.engine.common_mut().mem1_delayed.push(DelayedAccess {
+                pipeline.engine.common_mut().memory.mem1_delayed.push(DelayedAccess {
                     ready_cycle: state.cycle,
                     entry,
                     translations: *translations,
@@ -295,8 +297,10 @@ pub fn send_pte_write(
     pte: u64,
 ) {
     let req_id = common.alloc_req_id();
-    let _ =
-        common.outstanding_stores.insert(req_id, OutstandingStore { owner: StoreOwner::Untracked });
+    let _ = common
+        .memory
+        .outstanding_stores
+        .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked });
     let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
     let cycle = state.cycle;
     state.events().schedule(

@@ -161,8 +161,8 @@ fn predict_control_flow(
 /// L2's latency.
 fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: VirtAddr, cycles: u64) {
     let common = engine.common_mut();
-    common.fetch_hold_until = state.cycle + cycles;
-    common.fetch_restart = FetchRestart::At(pc);
+    common.fetch.fetch_hold_until = state.cycle + cycles;
+    common.fetch.fetch_restart = FetchRestart::At(pc);
 }
 
 /// Fetch translates a half-word at a time, the smallest instruction.
@@ -195,7 +195,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
     let req_id = common.alloc_req_id();
     let l1_d_id = common.l1_d_id;
     let pipeline_id = common.pipeline_id;
-    let _ = common.outstanding_walks.insert(
+    let _ = common.memory.outstanding_walks.insert(
         req_id,
         OutstandingWalk {
             state: walk_state,
@@ -203,7 +203,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
             continuation: WalkContinuation::Fetch { fetch_seq, entry },
         },
     );
-    common.fetch_restart = FetchRestart::AwaitingWalk;
+    common.fetch.fetch_restart = FetchRestart::AwaitingWalk;
 
     let cycle = state.cycle;
     state.events().schedule(
@@ -241,7 +241,7 @@ pub fn dispatch_fetch_group<E: ExecutionEngine>(
         _ => {
             let now = state.cycle;
             let common = engine.common_mut();
-            let _ = common.fetch_reorder.insert(group.fetch_seq, group);
+            let _ = common.fetch.fetch_reorder.insert(group.fetch_seq, group);
             drain_fetch_reorder(now, common, fetch_buffer, latch, invalidations);
         }
     }
@@ -266,7 +266,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
     let l1_i_id = common.l1_i_id;
     let pipeline_id = common.pipeline_id;
     let vaddr = group.entries.first().map(|e| e.pc);
-    let _ = common.outstanding_fetches.insert(req_id, group);
+    let _ = common.fetch.outstanding_fetches.insert(req_id, group);
 
     let cycle = state.cycle;
     state.events().schedule(
@@ -297,11 +297,11 @@ pub fn drain_fetch_reorder(
     invalidations: u64,
 ) {
     loop {
-        let next_seq = common.next_emit_fetch_seq;
-        let Some(group) = common.fetch_reorder.remove(&next_seq) else {
+        let next_seq = common.fetch.next_emit_fetch_seq;
+        let Some(group) = common.fetch.fetch_reorder.remove(&next_seq) else {
             break;
         };
-        common.next_emit_fetch_seq = next_seq.next();
+        common.fetch.next_emit_fetch_seq = next_seq.next();
         if let Some(line) = group.line {
             fetch_buffer.fill(line, invalidations);
         }
@@ -314,8 +314,9 @@ pub fn drain_fetch_reorder(
 /// predicted next PC.
 ///
 /// The caller runs this only while no fetch is in flight
-/// ([`BackendCommon::fetch_in_flight`]), so a parked fetch walk or an
-/// unanswered line request never gets a duplicate request for the same PC.
+/// ([`FetchInFlight::is_waiting`](crate::uarch::pipeline::engine::FetchInFlight::is_waiting)),
+/// so a parked fetch walk or an unanswered line request never gets a
+/// duplicate request for the same PC.
 pub fn fetch1_stage<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
@@ -324,9 +325,9 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     fetch_pc: &mut VirtAddr,
 ) {
     let common = engine.common_mut();
-    let pc = match common.fetch_restart {
+    let pc = match common.fetch.fetch_restart {
         FetchRestart::At(pc) => {
-            common.fetch_restart = FetchRestart::FromPc;
+            common.fetch.fetch_restart = FetchRestart::FromPc;
             pc
         }
         FetchRestart::FromPc | FetchRestart::AwaitingWalk => *fetch_pc,

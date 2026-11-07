@@ -19,10 +19,12 @@ const PROGRAM_LEN: usize = 512;
 fn inflight_fetches(pipeline: &PipelineDispatch) -> usize {
     match pipeline {
         PipelineDispatch::InOrder(p) => {
-            p.engine.common().outstanding_fetches.len() + p.engine.common().fetch_reorder.len()
+            p.engine.common().fetch.outstanding_fetches.len()
+                + p.engine.common().fetch.fetch_reorder.len()
         }
         PipelineDispatch::OutOfOrder(p) => {
-            p.engine.common().outstanding_fetches.len() + p.engine.common().fetch_reorder.len()
+            p.engine.common().fetch.outstanding_fetches.len()
+                + p.engine.common().fetch.fetch_reorder.len()
         }
     }
 }

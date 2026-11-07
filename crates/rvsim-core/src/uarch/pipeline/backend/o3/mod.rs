@@ -313,7 +313,7 @@ impl ExecutionEngine for O3Engine {
             self.apply_squash(state, squash, redirect);
             rename_output.clear();
         }
-        self.common.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
+        self.common.commit.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
         if self.retire(state, redirect) {
             return;
         }
@@ -353,7 +353,7 @@ impl ExecutionEngine for O3Engine {
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
         self.squash_in_flight(state, SquashScope::All);
         self.serialization = serialize::Serialization::Off;
-        self.common.data_cache_flush = DataCacheFlush::Idle;
+        self.common.commit.data_cache_flush = DataCacheFlush::Idle;
         self.rename_map = self.committed_rename_map.clone();
         self.checkpoints.flush_all();
         // Caller sets squash_stall_remaining after this; not cleared here.

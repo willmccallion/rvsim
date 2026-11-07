@@ -96,7 +96,7 @@ impl O3Engine {
         now: u64,
         order_violation: Option<OrderViolation>,
     ) {
-        let squash = match (order_violation, self.common.coherence_violation.take()) {
+        let squash = match (order_violation, self.common.commit.coherence_violation.take()) {
             (Some(order), Some(coherence_tag)) if coherence_tag.is_older_than(order.load) => {
                 Some((coherence_tag, None))
             }

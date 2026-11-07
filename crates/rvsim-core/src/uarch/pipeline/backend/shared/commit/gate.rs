@@ -32,13 +32,13 @@ pub(super) fn trap_or_interrupt(
     common: &mut BackendCommon,
     rob: &Rob,
 ) -> CommitFlow {
-    if let TrapProgress::Pending(pending) = &common.trap {
+    if let TrapProgress::Pending(pending) = &common.commit.trap {
         state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
         if state.cycle < pending.taken_at {
             return CommitFlow::Stop(None);
         }
         let pending = pending.clone();
-        common.trap = TrapProgress::None;
+        common.commit.trap = TrapProgress::None;
         return CommitFlow::Stop(take_pending_trap(state, pending));
     }
 
@@ -57,7 +57,7 @@ pub(super) fn trap_or_interrupt(
         // Fetch stops and everything already fetched retires first
         // (gem5 waits for its instruction list to empty); a WFI's
         // successors are wrong-path and are not waited for.
-        common.trap = TrapProgress::DrainingForInterrupt;
+        common.commit.trap = TrapProgress::DrainingForInterrupt;
         let drained = state.hart.wfi_waiting || (rob.is_empty() && common.frontend_empty);
         if drained {
             trace_trap!(state.trace_trap_enabled(&interrupt_trap);
@@ -76,7 +76,7 @@ pub(super) fn trap_or_interrupt(
         return CommitFlow::Continue;
     }
 
-    common.trap = TrapProgress::None;
+    common.commit.trap = TrapProgress::None;
     if !state.hart.wfi_waiting {
         return CommitFlow::Continue;
     }
@@ -286,7 +286,8 @@ fn schedule_trap(
     if latency == 0 {
         return Some(CommitEvent::Trap(trap, epc));
     }
-    common.trap = TrapProgress::Pending(PendingTrap { trap, epc, taken_at: state.cycle + latency });
+    common.commit.trap =
+        TrapProgress::Pending(PendingTrap { trap, epc, taken_at: state.cycle + latency });
     None
 }
 
@@ -307,6 +308,7 @@ fn take_pending_trap(state: &mut CoreCtx<'_>, pending: PendingTrap) -> Option<Co
 fn device_access_in_flight(common: &BackendCommon, rob: &Rob) -> bool {
     rob.peek_head().is_some_and(|head| {
         common
+            .memory
             .outstanding_loads
             .values()
             .any(|l| l.side_effecting && l.entry.op.rob_tag == head.tag)
@@ -316,15 +318,15 @@ fn device_access_in_flight(common: &BackendCommon, rob: &Rob) -> bool {
 /// Moves the L1D flush a FENCE.I at the head needs along: asks for it the
 /// first time, and once it is done consumes it. Returns whether it is done.
 fn advance_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut BackendCommon) -> bool {
-    match common.data_cache_flush {
+    match common.commit.data_cache_flush {
         DataCacheFlush::Done => {
-            common.data_cache_flush = DataCacheFlush::Idle;
+            common.commit.data_cache_flush = DataCacheFlush::Idle;
             true
         }
         DataCacheFlush::Requested(_) => false,
         DataCacheFlush::Idle => {
             let req_id = send_data_cache_flush(state, common);
-            common.data_cache_flush = DataCacheFlush::Requested(req_id);
+            common.commit.data_cache_flush = DataCacheFlush::Requested(req_id);
             false
         }
     }

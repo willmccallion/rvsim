@@ -239,22 +239,34 @@ pub enum DataCacheFlush {
     Done,
 }
 
-/// State shared by every backend engine: in-flight memory bookkeeping and
-/// the routing IDs needed to emit `MemReq` packets and match `MemResp`
-/// packets to parked operations.
-///
-/// Each engine implementation (in-order, out-of-order) embeds a
-/// `BackendCommon` and exposes it through
-/// [`ExecutionEngine::common`] / [`ExecutionEngine::common_mut`]. The
-/// outer [`Pipeline`] uses these accessors to deliver inbound packets to
-/// the engine's mailbox and to drain completions, while memory1 inside
-/// `engine.tick` mutates the same fields directly to park new requests.
+/// Instruction fetches in flight: line requests, groups waiting to drain
+/// in order, and where fetch restarts after a walk or an L2 ITLB hit.
 #[derive(Debug, Default)]
-pub struct BackendCommon {
-    /// Inbound packets the simulator dispatch placed here this cycle.
-    pub mailbox: Vec<(ComponentId, Packet)>,
+pub struct FetchInFlight {
     /// Inflight instruction fetches keyed by request id.
     pub outstanding_fetches: HashMap<ReqId, crate::uarch::pipeline::outstanding::OutstandingFetch>,
+    /// Fetch waits until this cycle for an L2 ITLB hit's latency.
+    pub fetch_hold_until: u64,
+    /// Completed but not-yet-emittable fetch groups, keyed by `fetch_seq`.
+    /// A group can complete ahead of an older one (a fetch-buffer hit, or
+    /// a fetch walk that finishes while the previous line is still
+    /// missing); this reorder buffer holds it until every older group has
+    /// completed, then drains contiguously into the fetch1→fetch2 latch.
+    pub fetch_reorder: BTreeMap<FetchSeq, crate::uarch::pipeline::outstanding::OutstandingFetch>,
+    /// Next `fetch_seq` to assign at fetch issue time.
+    pub next_fetch_seq: FetchSeq,
+    /// Next `fetch_seq` we expect to emit to the fetch1→fetch2 latch.
+    /// Advanced when a contiguous run drains from `fetch_reorder`; bumped to
+    /// `next_fetch_seq` on flush so post-flush fetches stay in order.
+    pub next_emit_fetch_seq: FetchSeq,
+    /// Where the next fetch1 pass starts.
+    pub fetch_restart: FetchRestart,
+}
+
+/// Data accesses in flight: requests the caches have not answered, and
+/// memory ops waiting in memory1 or on store-buffer forwarding.
+#[derive(Debug, Default)]
+pub struct MemoryInFlight {
     /// Inflight demand loads (and atomic LR/AMO) keyed by request id.
     pub outstanding_loads: HashMap<ReqId, crate::uarch::pipeline::outstanding::OutstandingLoad>,
     /// Inflight store write-allocate requests keyed by request id.
@@ -280,11 +292,39 @@ pub struct BackendCommon {
     /// Secondary request of a line-straddling load, mapped to the request
     /// its [`OutstandingLoad`](crate::uarch::pipeline::outstanding::OutstandingLoad) is filed under.
     pub load_parts: std::collections::HashMap<ReqId, ReqId>,
-    /// Fetch waits until this cycle for an L2 ITLB hit's latency.
-    pub fetch_hold_until: u64,
-    /// Decode has passed a `vsetvl` that has not executed yet. Younger
-    /// instructions are decoded under its result, so decode waits for it.
-    pub vector_config_unresolved: bool,
+}
+
+impl FetchInFlight {
+    /// True while an instruction fetch is still waiting on the memory
+    /// system: a fetch `MemReq` without its response, a completed fetch
+    /// held in the reorder buffer behind an older one, or a fetch parked on
+    /// a page-table walk.
+    #[must_use]
+    pub fn is_waiting(&self) -> bool {
+        !self.outstanding_fetches.is_empty()
+            || !self.fetch_reorder.is_empty()
+            || self.fetch_restart == FetchRestart::AwaitingWalk
+    }
+}
+
+impl MemoryInFlight {
+    /// True while a data request awaits the caches or a forwarded load
+    /// awaits writeback.
+    #[must_use]
+    pub fn is_waiting(&self) -> bool {
+        !self.outstanding_loads.is_empty()
+            || !self.outstanding_stores.is_empty()
+            || !self.outstanding_walks.is_empty()
+            || !self.forwarded_loads.is_empty()
+            || !self.forwarded_results.is_empty()
+    }
+}
+
+/// What commit is in the middle of: a trap on its way, a squash execute
+/// asked for, an L1D flush, and the retirements the predictor has not
+/// heard of yet.
+#[derive(Debug, Default)]
+pub struct CommitControl {
     /// A trap on its way to being taken.
     pub trap: TrapProgress,
     /// Where the L1D flush the FENCE.I at the ROB head waits for stands.
@@ -294,32 +334,54 @@ pub struct BackendCommon {
     /// The squash execute asked for that has not been taken yet. Commit
     /// retires nothing it will remove.
     pub pending_squash: Option<PendingSquash>,
-    /// The number fetch gives the next instruction it forms.
-    pub next_inst_seq: InstSeq,
     /// The youngest instruction commit retired in each recent cycle, on its
     /// way to the branch predictor.
     pub commit_notices: VecDeque<CommitNotice>,
-    /// No instruction is between fetch and rename this cycle, so the ROB
-    /// holds everything in flight.
-    pub frontend_empty: bool,
-    /// Completed but not-yet-emittable fetch groups, keyed by `fetch_seq`.
-    /// A group can complete ahead of an older one (a fetch-buffer hit, or
-    /// a fetch walk that finishes while the previous line is still
-    /// missing); this reorder buffer holds it until every older group has
-    /// completed, then drains contiguously into the fetch1→fetch2 latch.
-    pub fetch_reorder: BTreeMap<FetchSeq, crate::uarch::pipeline::outstanding::OutstandingFetch>,
-    /// Next `fetch_seq` to assign at fetch issue time.
-    pub next_fetch_seq: FetchSeq,
-    /// Next `fetch_seq` we expect to emit to the fetch1→fetch2 latch.
-    /// Advanced when a contiguous run drains from `fetch_reorder`; bumped to
-    /// `next_fetch_seq` on flush so post-flush fetches stay in order.
-    pub next_emit_fetch_seq: FetchSeq,
-    /// Where the next fetch1 pass starts.
-    pub fetch_restart: FetchRestart,
     /// Oldest load the mailbox drain found inconsistent with an older
     /// load's fresh value (see `LoadQueue::check_coherence_violation`);
     /// the out-of-order engine squashes from it after memory2.
     pub coherence_violation: Option<RobTag>,
+}
+
+impl CommitControl {
+    /// True while commit has a trap to take, a squash to apply or
+    /// retirements to tell the predictor of.
+    #[must_use]
+    pub fn is_busy(&self) -> bool {
+        !matches!(self.trap, TrapProgress::None)
+            || self.pending_squash.is_some()
+            || !self.commit_notices.is_empty()
+    }
+}
+
+/// State shared by every backend engine: in-flight memory bookkeeping and
+/// the routing IDs needed to emit `MemReq` packets and match `MemResp`
+/// packets to parked operations.
+///
+/// Each engine implementation (in-order, out-of-order) embeds a
+/// `BackendCommon` and exposes it through
+/// [`ExecutionEngine::common`] / [`ExecutionEngine::common_mut`]. The
+/// outer [`Pipeline`] uses these accessors to deliver inbound packets to
+/// the engine's mailbox and to drain completions, while memory1 inside
+/// `engine.tick` mutates the same fields directly to park new requests.
+#[derive(Debug, Default)]
+pub struct BackendCommon {
+    /// Instruction fetches in flight.
+    pub fetch: FetchInFlight,
+    /// Data accesses in flight between the memory stages and the caches.
+    pub memory: MemoryInFlight,
+    /// What commit is in the middle of: a trap, a squash, a cache flush.
+    pub commit: CommitControl,
+    /// Inbound packets the simulator dispatch placed here this cycle.
+    pub mailbox: Vec<(ComponentId, Packet)>,
+    /// Decode has passed a `vsetvl` that has not executed yet. Younger
+    /// instructions are decoded under its result, so decode waits for it.
+    pub vector_config_unresolved: bool,
+    /// The number fetch gives the next instruction it forms.
+    pub next_inst_seq: InstSeq,
+    /// No instruction is between fetch and rename this cycle, so the ROB
+    /// holds everything in flight.
+    pub frontend_empty: bool,
     /// Monotonic request-id counter; allocate via [`BackendCommon::alloc_req_id`].
     pub next_req_id: u64,
     /// `PipelineId` of this engine; stamped on every outgoing packet as the
@@ -347,25 +409,30 @@ impl BackendCommon {
     /// instruction. Fetch walks belong to the frontend and are dropped by
     /// the redirect that follows the squash.
     pub fn squash_after(&mut self, keep_tag: RobTag) {
-        if self.pending_squash.is_some_and(|s| s.keep_tag.is_none_or(|k| k.is_newer_than(keep_tag)))
+        if self
+            .commit
+            .pending_squash
+            .is_some_and(|s| s.keep_tag.is_none_or(|k| k.is_newer_than(keep_tag)))
         {
-            self.pending_squash = None;
+            self.commit.pending_squash = None;
         }
-        self.outstanding_loads.retain(|_, load| load.entry.op.rob_tag.is_older_or_eq(keep_tag));
-        self.outstanding_walks.retain(|_, walk| match &walk.continuation {
+        self.memory
+            .outstanding_loads
+            .retain(|_, load| load.entry.op.rob_tag.is_older_or_eq(keep_tag));
+        self.memory.outstanding_walks.retain(|_, walk| match &walk.continuation {
             crate::uarch::pipeline::outstanding::WalkContinuation::LoadStore { entry, .. } => {
                 entry.op.rob_tag.is_older_or_eq(keep_tag)
             }
             crate::uarch::pipeline::outstanding::WalkContinuation::Fetch { .. } => true,
         });
-        self.mem1_replay.retain(|entry| entry.op.rob_tag.is_older_or_eq(keep_tag));
-        self.mem1_delayed.retain(|access| access.entry.op.rob_tag.is_older_or_eq(keep_tag));
-        self.forwarded_loads.retain(|load| load.entry.op.rob_tag.is_older_or_eq(keep_tag));
-        self.forwarded_results.retain(|load| load.op.rob_tag.is_older_or_eq(keep_tag));
-        let loads = &self.outstanding_loads;
-        self.load_parts.retain(|_, primary| loads.contains_key(primary));
-        if self.coherence_violation.is_some_and(|tag| tag.is_newer_than(keep_tag)) {
-            self.coherence_violation = None;
+        self.memory.mem1_replay.retain(|entry| entry.op.rob_tag.is_older_or_eq(keep_tag));
+        self.memory.mem1_delayed.retain(|access| access.entry.op.rob_tag.is_older_or_eq(keep_tag));
+        self.memory.forwarded_loads.retain(|load| load.entry.op.rob_tag.is_older_or_eq(keep_tag));
+        self.memory.forwarded_results.retain(|load| load.op.rob_tag.is_older_or_eq(keep_tag));
+        let loads = &self.memory.outstanding_loads;
+        self.memory.load_parts.retain(|_, primary| loads.contains_key(primary));
+        if self.commit.coherence_violation.is_some_and(|tag| tag.is_newer_than(keep_tag)) {
+            self.commit.coherence_violation = None;
         }
     }
 
@@ -373,20 +440,20 @@ impl BackendCommon {
     /// squash; fetch walks belong to the frontend and are dropped by the
     /// redirect that follows.
     pub fn squash_all(&mut self) {
-        self.pending_squash = None;
-        self.outstanding_loads.clear();
-        self.outstanding_walks.retain(|_, walk| {
+        self.commit.pending_squash = None;
+        self.memory.outstanding_loads.clear();
+        self.memory.outstanding_walks.retain(|_, walk| {
             matches!(
                 walk.continuation,
                 crate::uarch::pipeline::outstanding::WalkContinuation::Fetch { .. }
             )
         });
-        self.mem1_replay.clear();
-        self.mem1_delayed.clear();
-        self.forwarded_loads.clear();
-        self.forwarded_results.clear();
-        self.load_parts.clear();
-        self.coherence_violation = None;
+        self.memory.mem1_replay.clear();
+        self.memory.mem1_delayed.clear();
+        self.memory.forwarded_loads.clear();
+        self.memory.forwarded_results.clear();
+        self.memory.load_parts.clear();
+        self.commit.coherence_violation = None;
     }
 
     /// Numbers the next instruction fetch forms.
@@ -398,7 +465,7 @@ impl BackendCommon {
 
     /// Records `seq` as the youngest instruction commit retired at `now`.
     pub fn note_committed(&mut self, seq: InstSeq, now: u64) {
-        self.commit_notices.push_back(CommitNotice { seq, sent_at: now });
+        self.commit.commit_notices.push_back(CommitNotice { seq, sent_at: now });
     }
 
     /// Trains the predictor on the commits whose notice has arrived by
@@ -406,11 +473,12 @@ impl BackendCommon {
     /// correct a prediction commit has passed, and gem5's fetch takes a
     /// squash before a commit notice.
     pub fn deliver_commit_notices(&mut self, predictor: &mut BranchPredictor, now: u64) {
-        if self.pending_squash.is_some() {
+        if self.commit.pending_squash.is_some() {
             return;
         }
         let mut done = None;
         while let Some(notice) = self
+            .commit
             .commit_notices
             .pop_front_if(|notice| notice.sent_at + COMMIT_TO_PREDICTOR_DELAY <= now)
         {
@@ -449,37 +517,37 @@ impl BackendCommon {
     }
 
     fn deliver_all_commit_notices(&mut self, predictor: &mut BranchPredictor) {
-        if let Some(notice) = self.commit_notices.back() {
+        if let Some(notice) = self.commit.commit_notices.back() {
             predictor.commit(notice.seq);
         }
-        self.commit_notices.clear();
+        self.commit.commit_notices.clear();
     }
 
     /// Files a squash, keeping whichever of it and the pending one takes
     /// precedence (see [`PendingSquash::takes_precedence_over`]).
     pub fn request_squash(&mut self, squash: PendingSquash) {
         let replaces =
-            self.pending_squash.is_none_or(|pending| squash.takes_precedence_over(&pending));
+            self.commit.pending_squash.is_none_or(|pending| squash.takes_precedence_over(&pending));
         if replaces {
-            self.pending_squash = Some(squash);
+            self.commit.pending_squash = Some(squash);
         }
     }
 
     /// Takes the pending squash once its latency has elapsed.
     pub fn take_due_squash(&mut self, now: u64) -> Option<PendingSquash> {
-        self.pending_squash.take_if(|squash| squash.is_due(now))
+        self.commit.pending_squash.take_if(|squash| squash.is_due(now))
     }
 
     /// True when the pending squash, if any, will remove `tag`.
     #[must_use]
     pub fn will_squash(&self, tag: RobTag) -> bool {
-        self.pending_squash.is_some_and(|squash| squash.squashes(tag))
+        self.commit.pending_squash.is_some_and(|squash| squash.squashes(tag))
     }
 
     /// Records a load the drain stage must squash from, keeping the oldest
     /// when several are found in one cycle.
     pub const fn note_coherence_violation(&mut self, tag: RobTag) {
-        self.coherence_violation = match self.coherence_violation {
+        self.commit.coherence_violation = match self.commit.coherence_violation {
             Some(existing) if existing.is_older_than(tag) => Some(existing),
             _ => Some(tag),
         };
@@ -491,38 +559,31 @@ impl BackendCommon {
     /// The instructions fetch has numbered but not yet handed to the
     /// fetch1→fetch2 latch: those in groups waiting on their line.
     pub fn in_flight_fetch_seqs(&self) -> impl Iterator<Item = InstSeq> + '_ {
-        self.fetch_reorder.values().flat_map(|group| group.entries.iter()).map(|entry| entry.seq)
+        self.fetch
+            .fetch_reorder
+            .values()
+            .flat_map(|group| group.entries.iter())
+            .map(|entry| entry.seq)
     }
 
     pub fn drop_fetches(&mut self) {
-        self.outstanding_fetches.clear();
-        self.outstanding_walks.retain(|_, walk| {
+        self.fetch.outstanding_fetches.clear();
+        self.memory.outstanding_walks.retain(|_, walk| {
             !matches!(
                 walk.continuation,
                 crate::uarch::pipeline::outstanding::WalkContinuation::Fetch { .. }
             )
         });
-        self.fetch_reorder.clear();
-        self.fetch_restart = FetchRestart::FromPc;
-        self.fetch_hold_until = 0;
-        self.next_emit_fetch_seq = self.next_fetch_seq;
-    }
-
-    /// True while an instruction fetch is still waiting on the memory
-    /// system: a fetch `MemReq` without its response, a completed fetch
-    /// held in the reorder buffer behind an older one, or a fetch parked on
-    /// a page-table walk.
-    #[must_use]
-    pub fn fetch_in_flight(&self) -> bool {
-        !self.outstanding_fetches.is_empty()
-            || !self.fetch_reorder.is_empty()
-            || self.fetch_restart == FetchRestart::AwaitingWalk
+        self.fetch.fetch_reorder.clear();
+        self.fetch.fetch_restart = FetchRestart::FromPc;
+        self.fetch.fetch_hold_until = 0;
+        self.fetch.next_emit_fetch_seq = self.fetch.next_fetch_seq;
     }
 
     /// True while fetch is waiting out an L2 ITLB hit's latency.
     #[must_use]
     pub const fn fetch_held(&self, now: u64) -> bool {
-        self.fetch_hold_until > now
+        self.fetch.fetch_hold_until > now
     }
 
     /// Allocates a fresh [`ReqId`] for an outgoing packet. The pipeline
@@ -539,8 +600,8 @@ impl BackendCommon {
     /// fetch reorder buffer.
     #[inline]
     pub const fn alloc_fetch_seq(&mut self) -> FetchSeq {
-        let seq = self.next_fetch_seq;
-        self.next_fetch_seq = seq.next();
+        let seq = self.fetch.next_fetch_seq;
+        self.fetch.next_fetch_seq = seq.next();
         seq
     }
 }
@@ -614,18 +675,10 @@ impl<E: ExecutionEngine> Pipeline<E> {
             && self.engine.store_buffer().is_empty()
             && self.engine.vec_store_buffer().is_empty()
             && !units.wcb.has_pending()
-            && matches!(common.trap, TrapProgress::None)
-            && common.pending_squash.is_none()
+            && !common.commit.is_busy()
             && common.mailbox.is_empty()
-            && common.outstanding_fetches.is_empty()
-            && common.outstanding_loads.is_empty()
-            && common.outstanding_stores.is_empty()
-            && common.outstanding_walks.is_empty()
-            && common.forwarded_loads.is_empty()
-            && common.forwarded_results.is_empty()
-            && common.commit_notices.is_empty()
-            && common.fetch_reorder.is_empty()
-            && common.fetch_restart != FetchRestart::AwaitingWalk
+            && !common.fetch.is_waiting()
+            && !common.memory.is_waiting()
             && self.rename_output.is_empty()
             && self.redirect.is_none()
             && !self.engine.is_recovering_from_squash()
@@ -643,7 +696,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
 
         let frontend_empty = self.frontend.is_empty()
             && self.rename_output.is_empty()
-            && !self.engine.common().fetch_in_flight();
+            && !self.engine.common().fetch.is_waiting();
         self.engine.common_mut().frontend_empty = frontend_empty;
         // The engine dispatches the bundle, or leaves it when a trap or squash
         // makes it wrong-path; the redirect below discards the frontend then.
@@ -720,8 +773,8 @@ impl<E: ExecutionEngine> Pipeline<E> {
         // Fetch walks too, which the engine's flush leaves to the frontend.
         // Committed stores' writes are still in the memory system; their
         // acknowledgements free store-buffer slots.
-        common.outstanding_walks.clear();
-        common.trap = TrapProgress::None;
+        common.memory.outstanding_walks.clear();
+        common.commit.trap = TrapProgress::None;
         self.engine.flush(state);
     }
 }
@@ -800,7 +853,7 @@ impl PipelineDispatch {
     /// Whether a device read has been sent and not yet answered.
     pub fn device_read_in_flight(&self) -> bool {
         let common = on_pipeline!(self, p => p.engine.common());
-        common.outstanding_loads.values().any(|load| load.side_effecting)
+        common.memory.outstanding_loads.values().any(|load| load.side_effecting)
     }
 
     #[cfg(test)]
@@ -857,10 +910,10 @@ mod tests {
         common.note_committed(InstSeq::new(4), 10);
 
         common.deliver_commit_notices(&mut predictor, 10);
-        let pending_at_commit = common.commit_notices.len();
+        let pending_at_commit = common.commit.commit_notices.len();
         common.deliver_commit_notices(&mut predictor, 11);
 
-        assert_eq!((pending_at_commit, common.commit_notices.len()), (1, 0));
+        assert_eq!((pending_at_commit, common.commit.commit_notices.len()), (1, 0));
     }
 
     #[test]
@@ -874,7 +927,7 @@ mod tests {
 
         common.deliver_commit_notices(&mut predictor, 20);
 
-        assert_eq!(common.commit_notices.len(), 1);
+        assert_eq!(common.commit.commit_notices.len(), 1);
     }
 
     #[test]

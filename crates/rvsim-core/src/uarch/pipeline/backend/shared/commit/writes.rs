@@ -111,6 +111,7 @@ pub(super) fn send_block_op(
     };
     let req_id = common.alloc_req_id();
     let _ = common
+        .memory
         .outstanding_stores
         .insert(req_id, OutstandingStore { owner: StoreOwner::StoreBuffer });
     let cycle = state.cycle;
@@ -128,7 +129,7 @@ pub(super) fn send_block_op(
 pub(super) fn send_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut BackendCommon) -> ReqId {
     let req_id = common.alloc_req_id();
     let owner = StoreOwner::DataCacheFlush;
-    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner });
+    let _ = common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner });
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,
@@ -239,7 +240,7 @@ pub(super) fn emit_line_write(
     owner: StoreOwner,
 ) -> ReqId {
     let req_id = common.alloc_req_id();
-    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner });
+    let _ = common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner });
     let origin = WriteOrigin::Hart(state.hart.hart_id);
     let cycle = state.cycle;
     state.event_queue.schedule(
@@ -372,7 +373,8 @@ pub(super) fn emit_store_write_packet_to(
 ) -> ReqId {
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
-    let _ = common.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner });
+    let _ =
+        common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner });
     let cycle = state.cycle;
     state.event_queue.schedule(
         cycle,

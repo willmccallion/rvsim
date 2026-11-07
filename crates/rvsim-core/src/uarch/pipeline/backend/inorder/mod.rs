@@ -372,7 +372,7 @@ impl InOrderEngine {
         // a store-buffer drain live in `common.mem1_replay`.
         self.execute_mem1.extend(input);
         // A load forwarded at zero latency skips memory2 and writes back next cycle.
-        let mut forwarded = std::mem::take(&mut self.common.forwarded_results);
+        let mut forwarded = std::mem::take(&mut self.common.memory.forwarded_results);
         forward_loads(&mut self.rob, &forwarded);
         self.mem2_wb.append(&mut forwarded);
         for span in resolved.expanded_spans {
@@ -396,10 +396,10 @@ impl InOrderEngine {
     fn issue(&mut self, state: &mut CoreCtx<'_>, now: u64) -> (Vec<ExMem1Entry>, Vec<IssuedUnit>) {
         let ctx = IssueContext {
             rob: &self.rob,
-            head: self.common.head_at_cycle_start,
+            head: self.common.commit.head_at_cycle_start,
             store_buffer: &self.store_buffer,
             vec_store_buffer: &self.vec_store_buffer,
-            pending_squash: self.common.pending_squash,
+            pending_squash: self.common.commit.pending_squash,
             now,
         };
         let Selection { issued, units, held } =
@@ -445,7 +445,7 @@ impl ExecutionEngine for InOrderEngine {
             self.apply_squash(state, squash, redirect);
             rename_output.clear();
         }
-        self.common.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
+        self.common.commit.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
         if self.retire(state, redirect) {
             return;
         }
@@ -483,7 +483,7 @@ impl ExecutionEngine for InOrderEngine {
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
         self.squash_in_flight(state, SquashScope::All);
-        self.common.data_cache_flush = DataCacheFlush::Idle;
+        self.common.commit.data_cache_flush = DataCacheFlush::Idle;
         self.common.flush_predictions(&mut state.core.branch_predictor);
     }
 
