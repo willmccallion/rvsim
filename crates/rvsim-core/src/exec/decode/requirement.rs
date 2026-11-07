@@ -30,7 +30,7 @@ pub fn requirement(ctrl: &ControlSignals, inst: u32) -> Requirement {
     if let Some(bits) = bit_manipulation_requirement(ctrl.alu, inst) {
         return bits;
     }
-    if uses_fp_registers(ctrl) {
+    if ctrl.touches_fp_registers() {
         return fp_requirement(ctrl);
     }
     if matches!(
@@ -85,11 +85,6 @@ fn bit_manipulation_requirement(alu: AluOp, inst: u32) -> Option<Requirement> {
         _ => return None,
     };
     Some(Requirement::any_of(extensions))
-}
-
-/// Whether the instruction reads or writes a floating-point register.
-const fn uses_fp_registers(ctrl: &ControlSignals) -> bool {
-    ctrl.fp_reg_write || ctrl.rs1_fp || ctrl.rs2_fp || ctrl.rs3_fp
 }
 
 /// The requirement of a floating-point operation: Zfh for half

@@ -81,11 +81,7 @@ const fn rounds_by_reserved_frm(hart: &Hart, inst: &Inst) -> bool {
 /// commit.
 const fn unit_disabled(hart: &Hart, inst: &Inst) -> bool {
     let is_vector = !matches!(inst.ctrl.vec_op, VectorOp::None);
-    let is_fp = inst.ctrl.fp_reg_write
-        || inst.ctrl.rs1_fp
-        || inst.ctrl.rs2_fp
-        || inst.ctrl.rs3_fp
-        || is_vector_fp(inst.ctrl.vec_op);
+    let is_fp = inst.ctrl.touches_fp_registers() || is_vector_fp(inst.ctrl.vec_op);
     (is_vector && vs_off(hart)) || (is_fp && fs_off(hart))
 }
 

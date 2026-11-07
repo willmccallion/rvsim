@@ -178,6 +178,11 @@ impl ControlSignals {
         FenceSet::memory(self.reads_memory(), self.writes_memory())
     }
 
+    /// True for anything that reads or writes a floating-point register.
+    pub const fn touches_fp_registers(&self) -> bool {
+        self.fp_reg_write || self.rs1_fp || self.rs2_fp || self.rs3_fp
+    }
+
     /// True for anything that reads memory: a scalar load, LR, an AMO, or a
     /// vector load, which decodes without `mem_read`.
     pub const fn reads_memory(&self) -> bool {
