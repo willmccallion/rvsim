@@ -12,7 +12,6 @@ use crate::exec::compute::vector::mem::{
 use crate::exec::signals::{ControlSignals, OpASrc, OpBSrc};
 use crate::isa::encoding::rvv::opcodes as v_opcodes;
 use crate::isa::instruction::{Decoded, decode as instruction_decode};
-use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::op::{AluOp, SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
@@ -71,7 +70,9 @@ pub fn decode_inst(inst: u32, pc: VirtAddr, vtype_bits: u64) -> DecodedInst {
     };
     // A pseudo-operation that returns a value leaves it in a0, which is
     // its destination so that dependents wait for it.
-    if ctrl.system_op == SystemOp::Pseudo && PseudoOp::of(inst).returns_value() {
+    if let SystemOp::Pseudo(op) = ctrl.system_op
+        && op.returns_value()
+    {
         fields.rd = reg::REG_A0;
         ctrl.reg_write = true;
     }

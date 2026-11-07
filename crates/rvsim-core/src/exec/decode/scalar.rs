@@ -18,6 +18,7 @@ use crate::isa::encoding::zicboz;
 use crate::isa::fence::Fence;
 use crate::isa::fp::{FpFormat, Rounding};
 use crate::isa::instruction::{Decoded, InstructionBits};
+use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::op::{AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp};
 use crate::isa::privileged::Trap;
 
@@ -154,7 +155,7 @@ pub(super) fn decode(
         d_opcodes::OP_FNMADD => decode_fused(c, inst, d, AluOp::FNMAdd)?,
         d_opcodes::OP_FNMSUB => decode_fused(c, inst, d, AluOp::FNMSub)?,
         sys_ops::OP_SYSTEM => decode_system(c, inst, pc, d)?,
-        sys_ops::OP_PSEUDO => c.system_op = SystemOp::Pseudo,
+        sys_ops::OP_PSEUDO => c.system_op = SystemOp::Pseudo(PseudoOp::of(inst)),
         i_opcodes::OP_MISC_MEM => c.system_op = misc_mem_op(d).ok_or_else(illegal)?,
         _ => return Err(illegal()),
     }

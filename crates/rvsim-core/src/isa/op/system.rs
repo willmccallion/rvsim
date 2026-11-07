@@ -1,6 +1,7 @@
 //! System operations: fences, environment calls, trap returns, CSR access.
 
 use crate::isa::fence::Fence;
+use crate::isa::op::pseudo::PseudoOp;
 
 /// System operation classification.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -44,7 +45,7 @@ pub enum SystemOp {
 
     /// gem5's m5op pseudo-instruction (opcode `0x7b`): the simulator
     /// performs the operation its funct7 names when it retires.
-    Pseudo,
+    Pseudo(PseudoOp),
 
     /// `CSRRW`/`CSRRS`/`CSRRC` and their immediate forms; `csr_op` says which.
     Csr,
@@ -58,7 +59,7 @@ impl SystemOp {
             self,
             Self::Csr
                 | Self::Ecall
-                | Self::Pseudo
+                | Self::Pseudo(_)
                 | Self::Mret
                 | Self::Sret
                 | Self::Wfi
