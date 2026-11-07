@@ -52,14 +52,20 @@ const FP_FMT_DOUBLE: u32 = 1;
 /// Floating-point format encoding for half-precision (16-bit, Zfh).
 const FP_FMT_HALF: u32 = 2;
 
+/// The bits of an SFENCE.VMA that are not rs1 or rs2: funct7, funct3, rd
+/// and the opcode, which identify it.
+const SFENCE_VMA_MASK: u32 = 0xFE00_7FFF;
+
 /// Decodes a scalar instruction (RV64IMAFDC, Zb*, Zk*, Zicsr, Zicbo*,
-/// Zfh) into `c`.
+/// Zfh) into `c`, which starts with `alu: Add`, `a_src: Reg1` and
+/// `b_src: Imm`.
 pub(super) fn decode(
     c: &mut ControlSignals,
     inst: u32,
     pc: VirtAddr,
     d: &Decoded,
 ) -> Result<(), Trap> {
+    let illegal = || Trap::IllegalInstruction(inst);
     match d.opcode {
         i_opcodes::OP_LUI => {
             c.reg_write = true;
@@ -73,364 +79,361 @@ pub(super) fn decode(
             c.reg_write = true;
             c.control_flow = ControlFlow::Jump;
         }
-        i_opcodes::OP_JALR => {
-            if d.funct3 != JALR_FUNCT3 {
-                return Err(Trap::IllegalInstruction(inst));
-            }
+        i_opcodes::OP_JALR if d.funct3 == JALR_FUNCT3 => {
             c.reg_write = true;
             c.control_flow = ControlFlow::Jump;
-            c.alu = AluOp::Add;
         }
-        i_opcodes::OP_BRANCH => {
-            if !matches!(
-                d.funct3,
-                i_funct3::BEQ
-                    | i_funct3::BNE
-                    | i_funct3::BLT
-                    | i_funct3::BGE
-                    | i_funct3::BLTU
-                    | i_funct3::BGEU
-            ) {
-                return Err(Trap::IllegalInstruction(inst));
-            }
+        i_opcodes::OP_BRANCH if is_branch(d.funct3) => {
             c.control_flow = ControlFlow::Branch;
             c.b_src = OpBSrc::Reg2;
         }
         i_opcodes::OP_LOAD => {
+            (c.width, c.signed_load) = load_width(d.funct3).ok_or_else(illegal)?;
             c.reg_write = true;
             c.mem_read = true;
-            c.alu = AluOp::Add;
-            let (w, s) = match d.funct3 {
-                i_funct3::LB => (MemWidth::Byte, true),
-                i_funct3::LH => (MemWidth::Half, true),
-                i_funct3::LW => (MemWidth::Word, true),
-                i_funct3::LD => (MemWidth::Double, true),
-                i_funct3::LBU => (MemWidth::Byte, false),
-                i_funct3::LHU => (MemWidth::Half, false),
-                i_funct3::LWU => (MemWidth::Word, false),
-                _ => return Err(Trap::IllegalInstruction(inst)),
-            };
-            c.width = w;
-            c.signed_load = s;
         }
         i_opcodes::OP_STORE => {
+            c.width = store_width(d.funct3).ok_or_else(illegal)?;
             c.mem_write = true;
-            c.b_src = OpBSrc::Imm;
-            c.alu = AluOp::Add;
-            c.width = match d.funct3 {
-                i_funct3::SB => MemWidth::Byte,
-                i_funct3::SH => MemWidth::Half,
-                i_funct3::SW => MemWidth::Word,
-                i_funct3::SD => MemWidth::Double,
-                _ => return Err(Trap::IllegalInstruction(inst)),
-            };
         }
         i_opcodes::OP_IMM => {
             c.reg_write = true;
-            c.alu = op_imm(inst, d).ok_or(Trap::IllegalInstruction(inst))?;
+            c.alu = op_imm(inst, d).ok_or_else(illegal)?;
         }
         i_opcodes::OP_IMM_32 => {
             c.reg_write = true;
-            c.alu = op_imm_32(inst, d).ok_or(Trap::IllegalInstruction(inst))?;
+            c.alu = op_imm_32(inst, d).ok_or_else(illegal)?;
             c.format = OperandFormat::Int(word_op_width(c.alu));
         }
         i_opcodes::OP_REG => {
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            c.alu = op(d).ok_or(Trap::IllegalInstruction(inst))?;
+            c.alu = op(d).ok_or_else(illegal)?;
         }
         i_opcodes::OP_REG_32 => {
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            c.alu = op_32(d).ok_or(Trap::IllegalInstruction(inst))?;
+            c.alu = op_32(d).ok_or_else(illegal)?;
             c.format = OperandFormat::Int(word_op_width(c.alu));
         }
-        a_opcodes::OP_AMO => {
-            c.width = match d.funct3 {
-                a_funct3::WIDTH_32 => MemWidth::Word,
-                a_funct3::WIDTH_64 => MemWidth::Double,
-                _ => return Err(Trap::IllegalInstruction(inst)),
-            };
-
-            let f5 = d.funct7 >> 2;
-            c.atomic_op = Some(match f5 {
-                a_funct5::LR => AtomicOp::Lr,
-                a_funct5::SC => AtomicOp::Sc,
-                a_funct5::AMOSWAP => AtomicOp::Swap,
-                a_funct5::AMOADD => AtomicOp::Add,
-                a_funct5::AMOXOR => AtomicOp::Xor,
-                a_funct5::AMOAND => AtomicOp::And,
-                a_funct5::AMOOR => AtomicOp::Or,
-                a_funct5::AMOMIN => AtomicOp::Min,
-                a_funct5::AMOMAX => AtomicOp::Max,
-                a_funct5::AMOMINU => AtomicOp::MinU,
-                a_funct5::AMOMAXU => AtomicOp::MaxU,
-                _ => return Err(Trap::IllegalInstruction(inst)),
-            });
-
-            if c.atomic_op == Some(AtomicOp::Lr) && !d.rs2.is_zero() {
-                return Err(Trap::IllegalInstruction(inst));
-            }
-            c.alu = AluOp::Add;
-            c.a_src = OpASrc::Reg1;
-            c.b_src = OpBSrc::Zero;
-            c.acquire = inst & AMO_AQ != 0;
-            c.release = inst & AMO_RL != 0;
-            c.mem_read = true;
-            c.mem_write = c.atomic_op != Some(AtomicOp::Lr);
-            c.reg_write = true;
-            // AMO and LR always sign-extend the loaded old value. SC writes
-            // a 0/1 success code and overrides load_data in memory2.
-            c.signed_load = true;
+        a_opcodes::OP_AMO => decode_amo(c, inst, d).ok_or_else(illegal)?,
+        f_opcodes::OP_LOAD_FP if is_vector_width(d.funct3) => {
+            vector::decode_vec_load(inst, d.funct3, c)?;
         }
-        f_opcodes::OP_LOAD_FP => match d.funct3 {
-            FP_WIDTH_HALF => {
-                c.fp_reg_write = true;
-                c.mem_read = true;
-                c.alu = AluOp::Add;
-                c.width = MemWidth::Half;
-                c.format = OperandFormat::Fp(FpFormat::Half);
-            }
-            FP_WIDTH_WORD => {
-                c.fp_reg_write = true;
-                c.mem_read = true;
-                c.alu = AluOp::Add;
-                c.width = MemWidth::Word;
-                c.format = OperandFormat::Fp(FpFormat::Single);
-            }
-            FP_WIDTH_DOUBLE => {
-                c.fp_reg_write = true;
-                c.mem_read = true;
-                c.alu = AluOp::Add;
-                c.width = MemWidth::Double;
-                c.format = OperandFormat::Fp(FpFormat::Double);
-            }
-            VEC_WIDTH_8 | VEC_WIDTH_16 | VEC_WIDTH_32 | VEC_WIDTH_64 => {
-                vector::decode_vec_load(inst, d.funct3, c)?;
-            }
-            _ => return Err(Trap::IllegalInstruction(inst)),
-        },
-        f_opcodes::OP_STORE_FP => match d.funct3 {
-            FP_WIDTH_HALF => {
-                c.mem_write = true;
-                c.rs1_fp = false;
-                c.rs2_fp = true;
-                c.b_src = OpBSrc::Imm;
-                c.alu = AluOp::Add;
-                c.width = MemWidth::Half;
-                c.format = OperandFormat::Fp(FpFormat::Half);
-            }
-            FP_WIDTH_WORD => {
-                c.mem_write = true;
-                c.rs1_fp = false;
-                c.rs2_fp = true;
-                c.b_src = OpBSrc::Imm;
-                c.alu = AluOp::Add;
-                c.width = MemWidth::Word;
-                c.format = OperandFormat::Fp(FpFormat::Single);
-            }
-            FP_WIDTH_DOUBLE => {
-                c.mem_write = true;
-                c.rs1_fp = false;
-                c.rs2_fp = true;
-                c.b_src = OpBSrc::Imm;
-                c.alu = AluOp::Add;
-                c.width = MemWidth::Double;
-                c.format = OperandFormat::Fp(FpFormat::Double);
-            }
-            VEC_WIDTH_8 | VEC_WIDTH_16 | VEC_WIDTH_32 | VEC_WIDTH_64 => {
-                vector::decode_vec_store(inst, d.funct3, c)?;
-            }
-            _ => return Err(Trap::IllegalInstruction(inst)),
-        },
+        f_opcodes::OP_LOAD_FP => {
+            let (width, format) = fp_mem_width(d.funct3).ok_or_else(illegal)?;
+            c.fp_reg_write = true;
+            c.mem_read = true;
+            c.width = width;
+            c.format = OperandFormat::Fp(format);
+        }
+        f_opcodes::OP_STORE_FP if is_vector_width(d.funct3) => {
+            vector::decode_vec_store(inst, d.funct3, c)?;
+        }
+        f_opcodes::OP_STORE_FP => {
+            let (width, format) = fp_mem_width(d.funct3).ok_or_else(illegal)?;
+            c.mem_write = true;
+            c.rs2_fp = true;
+            c.width = width;
+            c.format = OperandFormat::Fp(format);
+        }
         f_opcodes::OP_FP => {
-            c.format =
-                OperandFormat::Fp(fp_format(d.funct7).ok_or(Trap::IllegalInstruction(inst))?);
-
+            c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or_else(illegal)?);
             c.rs1_fp = true;
             c.rs2_fp = true;
             c.fp_reg_write = true;
             c.b_src = OpBSrc::Reg2;
-
-            c.alu = match d.funct7 {
-                f_funct7::FADD | d_funct7::FADD_D | h_funct7::FADD_H => AluOp::FAdd,
-                f_funct7::FSUB | d_funct7::FSUB_D | h_funct7::FSUB_H => AluOp::FSub,
-                f_funct7::FMUL | d_funct7::FMUL_D | h_funct7::FMUL_H => AluOp::FMul,
-                f_funct7::FDIV | d_funct7::FDIV_D | h_funct7::FDIV_H => AluOp::FDiv,
-                f_funct7::FSQRT | d_funct7::FSQRT_D | h_funct7::FSQRT_H if d.rs2.is_zero() => {
-                    AluOp::FSqrt
-                }
-                f_funct7::FSGNJ | d_funct7::FSGNJ_D | h_funct7::FSGNJ_H => match d.funct3 {
-                    f_funct3::FSGNJ => AluOp::FSgnJ,
-                    f_funct3::FSGNJN => AluOp::FSgnJN,
-                    f_funct3::FSGNJX => AluOp::FSgnJX,
-                    _ => return Err(Trap::IllegalInstruction(inst)),
-                },
-                f_funct7::FMIN_MAX | d_funct7::FMIN_MAX_D | h_funct7::FMIN_MAX_H => {
-                    match d.funct3 {
-                        f_funct3::FMIN => AluOp::FMin,
-                        f_funct3::FMAX => AluOp::FMax,
-                        _ => return Err(Trap::IllegalInstruction(inst)),
-                    }
-                }
-                f_funct7::FCMP | d_funct7::FCMP_D | h_funct7::FCMP_H => {
-                    c.fp_reg_write = false;
-                    c.reg_write = true;
-                    match d.funct3 {
-                        f_funct3::FEQ => AluOp::FEq,
-                        f_funct3::FLT => AluOp::FLt,
-                        f_funct3::FLE => AluOp::FLe,
-                        _ => return Err(Trap::IllegalInstruction(inst)),
-                    }
-                }
-                f_funct7::FCLASS_MV_X_F | d_funct7::FCLASS_MV_X_D | h_funct7::FCLASS_MV_X_H
-                    if d.rs2.is_zero() =>
-                {
-                    c.fp_reg_write = false;
-                    c.reg_write = true;
-                    c.rs1_fp = true;
-                    match d.funct3 {
-                        f_funct3::FMV_X_W => AluOp::FMvToX,
-                        f_funct3::FCLASS => AluOp::FClass,
-                        _ => return Err(Trap::IllegalInstruction(inst)),
-                    }
-                }
-                f_funct7::FMV_F_X | d_funct7::FMV_D_X | h_funct7::FMV_H_X
-                    if d.rs2.is_zero() && d.funct3 == f_funct3::FMV_X_W =>
-                {
-                    c.rs1_fp = false;
-                    c.fp_reg_write = true;
-                    c.a_src = OpASrc::Reg1;
-                    AluOp::FMvToF
-                }
-                f_funct7::FCVT_W_F | d_funct7::FCVT_W_D | h_funct7::FCVT_W_H => {
-                    c.fp_reg_write = false;
-                    c.reg_write = true;
-                    c.rs1_fp = true;
-                    match d.rs2.as_u8() {
-                        0 => AluOp::FCvtWS,
-                        1 => AluOp::FCvtWUS,
-                        2 => AluOp::FCvtLS,
-                        3 => AluOp::FCvtLUS,
-                        _ => return Err(Trap::IllegalInstruction(inst)),
-                    }
-                }
-                f_funct7::FCVT_F_W | d_funct7::FCVT_D_W | h_funct7::FCVT_H_W => {
-                    c.rs1_fp = false;
-                    c.fp_reg_write = true;
-                    c.a_src = OpASrc::Reg1;
-                    match d.rs2.as_u8() {
-                        0 => AluOp::FCvtSW,
-                        1 => AluOp::FCvtSWU,
-                        2 => AluOp::FCvtSL,
-                        3 => AluOp::FCvtSLU,
-                        _ => return Err(Trap::IllegalInstruction(inst)),
-                    }
-                }
-                // FP↔FP conversion: target fmt in funct7[1:0], source fmt in rs2[1:0].
-                f_funct7::FCVT_DS => {
-                    // Target = double (fmt=01). Source selected by rs2.
-                    c.format = OperandFormat::Fp(FpFormat::Double);
-                    match d.rs2.as_u8() {
-                        0 => AluOp::FCvtDS, // fcvt.d.s (source single)
-                        2 => AluOp::FCvtDH, // fcvt.d.h (source half)
-                        _ => return Err(Trap::IllegalInstruction(inst)),
-                    }
-                }
-                d_funct7::FCVT_S_D => {
-                    // Target = single (fmt=00). Source selected by rs2.
-                    c.format = OperandFormat::Fp(FpFormat::Single);
-                    match d.rs2.as_u8() {
-                        1 => AluOp::FCvtSD, // fcvt.s.d (source double)
-                        2 => AluOp::FCvtSH, // fcvt.s.h (source half)
-                        _ => return Err(Trap::IllegalInstruction(inst)),
-                    }
-                }
-                h_funct7::FCVT_H_FP => {
-                    // Target = half (fmt=10). Source selected by rs2.
-                    c.format = OperandFormat::Fp(FpFormat::Half);
-                    match d.rs2.as_u8() {
-                        0 => AluOp::FCvtHS, // fcvt.h.s (source single)
-                        1 => AluOp::FCvtHD, // fcvt.h.d (source double)
-                        _ => return Err(Trap::IllegalInstruction(inst)),
-                    }
-                }
-                _ => return Err(Trap::IllegalInstruction(inst)),
-            };
+            c.alu = op_fp(c, d).ok_or_else(illegal)?;
             if rounds(c.alu) {
                 c.fp_rm = Some(rounding(inst, d)?);
             }
         }
-        d_opcodes::OP_FMADD | d_opcodes::OP_FMSUB | d_opcodes::OP_FNMADD | d_opcodes::OP_FNMSUB => {
-            c.rs1_fp = true;
-            c.rs2_fp = true;
-            c.rs3_fp = true;
-            c.fp_reg_write = true;
-            c.b_src = OpBSrc::Reg2;
-            c.format =
-                OperandFormat::Fp(fp_format(d.funct7).ok_or(Trap::IllegalInstruction(inst))?);
-            c.fp_rm = Some(rounding(inst, d)?);
-
-            c.alu = match d.opcode {
-                d_opcodes::OP_FMADD => AluOp::FMAdd,
-                d_opcodes::OP_FMSUB => AluOp::FMSub,
-                d_opcodes::OP_FNMADD => AluOp::FNMAdd,
-                d_opcodes::OP_FNMSUB => AluOp::FNMSub,
-                _ => AluOp::Add,
-            };
-        }
-        sys_ops::OP_SYSTEM => {
-            // SFENCE.VMA is R-type: funct7=0x09, rs2, rs1, funct3=0, rd=0.
-            // Mask out rs1 (bits 19:15) and rs2 (bits 24:20) for matching.
-            if (inst & 0xFE007FFF) == sys_ops::SFENCE_VMA {
-                c.system_op = SystemOp::SfenceVma;
-            } else if d.funct3 == 0 {
-                c.system_op = match d.raw {
-                    sys_ops::EBREAK => return Err(Trap::Breakpoint(pc.val())),
-                    sys_ops::MRET => SystemOp::Mret,
-                    sys_ops::SRET => SystemOp::Sret,
-                    sys_ops::WFI => SystemOp::Wfi,
-                    sys_ops::ECALL => SystemOp::Ecall,
-                    _ => return Err(Trap::IllegalInstruction(inst)),
-                };
-            } else {
-                c.csr_op = match d.funct3 {
-                    sys_ops::CSRRW => CsrOp::Rw,
-                    sys_ops::CSRRS => CsrOp::Rs,
-                    sys_ops::CSRRC => CsrOp::Rc,
-                    sys_ops::CSRRWI => CsrOp::Rwi,
-                    sys_ops::CSRRSI => CsrOp::Rsi,
-                    sys_ops::CSRRCI => CsrOp::Rci,
-                    _ => return Err(Trap::IllegalInstruction(inst)),
-                };
-                c.system_op = SystemOp::Csr;
-                c.csr_addr = inst.csr();
-                c.a_src = OpASrc::Reg1;
-                c.b_src = OpBSrc::Zero;
-                c.reg_write = !d.rd.is_zero();
-            }
-        }
+        d_opcodes::OP_FMADD => decode_fused(c, inst, d, AluOp::FMAdd)?,
+        d_opcodes::OP_FMSUB => decode_fused(c, inst, d, AluOp::FMSub)?,
+        d_opcodes::OP_FNMADD => decode_fused(c, inst, d, AluOp::FNMAdd)?,
+        d_opcodes::OP_FNMSUB => decode_fused(c, inst, d, AluOp::FNMSub)?,
+        sys_ops::OP_SYSTEM => decode_system(c, inst, pc, d)?,
         sys_ops::OP_PSEUDO => c.system_op = SystemOp::Pseudo,
-        i_opcodes::OP_MISC_MEM => match d.funct3 {
-            i_funct3::FENCE => c.system_op = SystemOp::Fence,
-            i_funct3::FENCE_I => c.system_op = SystemOp::FenceI,
-            i_funct3::CBO => {
-                if !d.rd.is_zero() {
-                    return Err(Trap::IllegalInstruction(inst));
-                }
-                match d.imm {
-                    zicboz::CBO_ZERO_IMM => c.system_op = SystemOp::CboZero,
-                    zicboz::CBO_INVAL_IMM => c.system_op = SystemOp::CboInval,
-                    zicboz::CBO_CLEAN_IMM => c.system_op = SystemOp::CboClean,
-                    zicboz::CBO_FLUSH_IMM => c.system_op = SystemOp::CboFlush,
-                    _ => return Err(Trap::IllegalInstruction(inst)),
-                }
-            }
-            _ => return Err(Trap::IllegalInstruction(inst)),
-        },
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        i_opcodes::OP_MISC_MEM => c.system_op = misc_mem_op(d).ok_or_else(illegal)?,
+        _ => return Err(illegal()),
     }
     Ok(())
+}
+
+/// Whether a BRANCH `funct3` names one of the six branches.
+const fn is_branch(funct3: u32) -> bool {
+    matches!(
+        funct3,
+        i_funct3::BEQ
+            | i_funct3::BNE
+            | i_funct3::BLT
+            | i_funct3::BGE
+            | i_funct3::BLTU
+            | i_funct3::BGEU
+    )
+}
+
+/// A LOAD's width and whether it sign-extends.
+const fn load_width(funct3: u32) -> Option<(MemWidth, bool)> {
+    Some(match funct3 {
+        i_funct3::LB => (MemWidth::Byte, true),
+        i_funct3::LH => (MemWidth::Half, true),
+        i_funct3::LW => (MemWidth::Word, true),
+        i_funct3::LD => (MemWidth::Double, true),
+        i_funct3::LBU => (MemWidth::Byte, false),
+        i_funct3::LHU => (MemWidth::Half, false),
+        i_funct3::LWU => (MemWidth::Word, false),
+        _ => return None,
+    })
+}
+
+/// A STORE's width.
+const fn store_width(funct3: u32) -> Option<MemWidth> {
+    Some(match funct3 {
+        i_funct3::SB => MemWidth::Byte,
+        i_funct3::SH => MemWidth::Half,
+        i_funct3::SW => MemWidth::Word,
+        i_funct3::SD => MemWidth::Double,
+        _ => return None,
+    })
+}
+
+/// Whether a LOAD-FP or STORE-FP `funct3` is a vector access's width.
+const fn is_vector_width(funct3: u32) -> bool {
+    matches!(funct3, VEC_WIDTH_8 | VEC_WIDTH_16 | VEC_WIDTH_32 | VEC_WIDTH_64)
+}
+
+/// A scalar FP load's or store's width and format.
+const fn fp_mem_width(funct3: u32) -> Option<(MemWidth, FpFormat)> {
+    Some(match funct3 {
+        FP_WIDTH_HALF => (MemWidth::Half, FpFormat::Half),
+        FP_WIDTH_WORD => (MemWidth::Word, FpFormat::Single),
+        FP_WIDTH_DOUBLE => (MemWidth::Double, FpFormat::Double),
+        _ => return None,
+    })
+}
+
+/// Decodes an LR, SC or AMO into `c`; `None` for a reserved encoding.
+fn decode_amo(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Option<()> {
+    c.width = match d.funct3 {
+        a_funct3::WIDTH_32 => MemWidth::Word,
+        a_funct3::WIDTH_64 => MemWidth::Double,
+        _ => return None,
+    };
+    let op = atomic_op(d.funct7 >> 2)?;
+    if op == AtomicOp::Lr && !d.rs2.is_zero() {
+        return None;
+    }
+    c.atomic_op = Some(op);
+    c.b_src = OpBSrc::Zero;
+    c.acquire = inst & AMO_AQ != 0;
+    c.release = inst & AMO_RL != 0;
+    c.mem_read = true;
+    c.mem_write = op != AtomicOp::Lr;
+    c.reg_write = true;
+    // AMO and LR always sign-extend the loaded old value. SC writes
+    // a 0/1 success code and overrides load_data in memory2.
+    c.signed_load = true;
+    Some(())
+}
+
+/// The atomic operation an AMO's `funct5` names.
+const fn atomic_op(funct5: u32) -> Option<AtomicOp> {
+    Some(match funct5 {
+        a_funct5::LR => AtomicOp::Lr,
+        a_funct5::SC => AtomicOp::Sc,
+        a_funct5::AMOSWAP => AtomicOp::Swap,
+        a_funct5::AMOADD => AtomicOp::Add,
+        a_funct5::AMOXOR => AtomicOp::Xor,
+        a_funct5::AMOAND => AtomicOp::And,
+        a_funct5::AMOOR => AtomicOp::Or,
+        a_funct5::AMOMIN => AtomicOp::Min,
+        a_funct5::AMOMAX => AtomicOp::Max,
+        a_funct5::AMOMINU => AtomicOp::MinU,
+        a_funct5::AMOMAXU => AtomicOp::MaxU,
+        _ => return None,
+    })
+}
+
+/// The integer an `fcvt`'s `rs2` field names.
+#[derive(Clone, Copy)]
+enum FcvtInt {
+    W,
+    Wu,
+    L,
+    Lu,
+}
+
+impl FcvtInt {
+    const fn of(rs2: u8) -> Option<Self> {
+        Some(match rs2 {
+            0 => Self::W,
+            1 => Self::Wu,
+            2 => Self::L,
+            3 => Self::Lu,
+            _ => return None,
+        })
+    }
+}
+
+/// The OP-FP operation `d` encodes, with where its operands come from and
+/// its result goes set in `c`; `None` for a reserved encoding.
+fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<AluOp> {
+    let rs2 = d.rs2.as_u8();
+    Some(match d.funct7 {
+        f_funct7::FADD | d_funct7::FADD_D | h_funct7::FADD_H => AluOp::FAdd,
+        f_funct7::FSUB | d_funct7::FSUB_D | h_funct7::FSUB_H => AluOp::FSub,
+        f_funct7::FMUL | d_funct7::FMUL_D | h_funct7::FMUL_H => AluOp::FMul,
+        f_funct7::FDIV | d_funct7::FDIV_D | h_funct7::FDIV_H => AluOp::FDiv,
+        f_funct7::FSQRT | d_funct7::FSQRT_D | h_funct7::FSQRT_H if rs2 == 0 => AluOp::FSqrt,
+        f_funct7::FSGNJ | d_funct7::FSGNJ_D | h_funct7::FSGNJ_H => match d.funct3 {
+            f_funct3::FSGNJ => AluOp::FSgnJ,
+            f_funct3::FSGNJN => AluOp::FSgnJN,
+            f_funct3::FSGNJX => AluOp::FSgnJX,
+            _ => return None,
+        },
+        f_funct7::FMIN_MAX | d_funct7::FMIN_MAX_D | h_funct7::FMIN_MAX_H => match d.funct3 {
+            f_funct3::FMIN => AluOp::FMin,
+            f_funct3::FMAX => AluOp::FMax,
+            _ => return None,
+        },
+        f_funct7::FCMP | d_funct7::FCMP_D | h_funct7::FCMP_H => {
+            writes_int_register(c);
+            match d.funct3 {
+                f_funct3::FEQ => AluOp::FEq,
+                f_funct3::FLT => AluOp::FLt,
+                f_funct3::FLE => AluOp::FLe,
+                _ => return None,
+            }
+        }
+        f_funct7::FCLASS_MV_X_F | d_funct7::FCLASS_MV_X_D | h_funct7::FCLASS_MV_X_H if rs2 == 0 => {
+            writes_int_register(c);
+            match d.funct3 {
+                f_funct3::FMV_X_W => AluOp::FMvToX,
+                f_funct3::FCLASS => AluOp::FClass,
+                _ => return None,
+            }
+        }
+        f_funct7::FMV_F_X | d_funct7::FMV_D_X | h_funct7::FMV_H_X
+            if rs2 == 0 && d.funct3 == f_funct3::FMV_X_W =>
+        {
+            c.rs1_fp = false;
+            AluOp::FMvToF
+        }
+        f_funct7::FCVT_W_F | d_funct7::FCVT_W_D | h_funct7::FCVT_W_H => {
+            writes_int_register(c);
+            match FcvtInt::of(rs2)? {
+                FcvtInt::W => AluOp::FCvtWS,
+                FcvtInt::Wu => AluOp::FCvtWUS,
+                FcvtInt::L => AluOp::FCvtLS,
+                FcvtInt::Lu => AluOp::FCvtLUS,
+            }
+        }
+        f_funct7::FCVT_F_W | d_funct7::FCVT_D_W | h_funct7::FCVT_H_W => {
+            c.rs1_fp = false;
+            match FcvtInt::of(rs2)? {
+                FcvtInt::W => AluOp::FCvtSW,
+                FcvtInt::Wu => AluOp::FCvtSWU,
+                FcvtInt::L => AluOp::FCvtSL,
+                FcvtInt::Lu => AluOp::FCvtSLU,
+            }
+        }
+        // FP↔FP conversion: the target fmt is funct7's, the source fmt rs2's.
+        f_funct7::FCVT_DS => {
+            c.format = OperandFormat::Fp(FpFormat::Double);
+            match u32::from(rs2) {
+                FP_FMT_SINGLE => AluOp::FCvtDS,
+                FP_FMT_HALF => AluOp::FCvtDH,
+                _ => return None,
+            }
+        }
+        d_funct7::FCVT_S_D => {
+            c.format = OperandFormat::Fp(FpFormat::Single);
+            match u32::from(rs2) {
+                FP_FMT_DOUBLE => AluOp::FCvtSD,
+                FP_FMT_HALF => AluOp::FCvtSH,
+                _ => return None,
+            }
+        }
+        h_funct7::FCVT_H_FP => {
+            c.format = OperandFormat::Fp(FpFormat::Half);
+            match u32::from(rs2) {
+                FP_FMT_SINGLE => AluOp::FCvtHS,
+                FP_FMT_DOUBLE => AluOp::FCvtHD,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// Sends an FP instruction's result to the integer register file.
+const fn writes_int_register(c: &mut ControlSignals) {
+    c.fp_reg_write = false;
+    c.reg_write = true;
+}
+
+/// Decodes a fused multiply-add, `op`, into `c`.
+fn decode_fused(c: &mut ControlSignals, inst: u32, d: &Decoded, op: AluOp) -> Result<(), Trap> {
+    c.rs1_fp = true;
+    c.rs2_fp = true;
+    c.rs3_fp = true;
+    c.fp_reg_write = true;
+    c.b_src = OpBSrc::Reg2;
+    c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(Trap::IllegalInstruction(inst))?);
+    c.fp_rm = Some(rounding(inst, d)?);
+    c.alu = op;
+    Ok(())
+}
+
+/// Decodes a SYSTEM instruction into `c`: SFENCE.VMA, a privileged
+/// instruction, or a CSR access.
+fn decode_system(c: &mut ControlSignals, inst: u32, pc: VirtAddr, d: &Decoded) -> Result<(), Trap> {
+    if inst & SFENCE_VMA_MASK == sys_ops::SFENCE_VMA {
+        c.system_op = SystemOp::SfenceVma;
+        return Ok(());
+    }
+    if d.funct3 == 0 {
+        c.system_op = match d.raw {
+            sys_ops::EBREAK => return Err(Trap::Breakpoint(pc.val())),
+            sys_ops::MRET => SystemOp::Mret,
+            sys_ops::SRET => SystemOp::Sret,
+            sys_ops::WFI => SystemOp::Wfi,
+            sys_ops::ECALL => SystemOp::Ecall,
+            _ => return Err(Trap::IllegalInstruction(inst)),
+        };
+        return Ok(());
+    }
+    c.csr_op = match d.funct3 {
+        sys_ops::CSRRW => CsrOp::Rw,
+        sys_ops::CSRRS => CsrOp::Rs,
+        sys_ops::CSRRC => CsrOp::Rc,
+        sys_ops::CSRRWI => CsrOp::Rwi,
+        sys_ops::CSRRSI => CsrOp::Rsi,
+        sys_ops::CSRRCI => CsrOp::Rci,
+        _ => return Err(Trap::IllegalInstruction(inst)),
+    };
+    c.system_op = SystemOp::Csr;
+    c.csr_addr = inst.csr();
+    c.b_src = OpBSrc::Zero;
+    c.reg_write = !d.rd.is_zero();
+    Ok(())
+}
+
+/// The MISC-MEM operation `d` encodes: a fence or a cache-block operation.
+const fn misc_mem_op(d: &Decoded) -> Option<SystemOp> {
+    Some(match d.funct3 {
+        i_funct3::FENCE => SystemOp::Fence,
+        i_funct3::FENCE_I => SystemOp::FenceI,
+        i_funct3::CBO if d.rd.is_zero() => match d.imm {
+            zicboz::CBO_ZERO_IMM => SystemOp::CboZero,
+            zicboz::CBO_INVAL_IMM => SystemOp::CboInval,
+            zicboz::CBO_CLEAN_IMM => SystemOp::CboClean,
+            zicboz::CBO_FLUSH_IMM => SystemOp::CboFlush,
+            _ => return None,
+        },
+        _ => return None,
+    })
 }
 
 /// The 12-bit I-type immediate, which selects the Zbb/Zbkb unary ops.
