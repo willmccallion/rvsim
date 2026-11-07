@@ -258,10 +258,8 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
             let mut i = 0;
             while i < 16 {
                 let idx = ((b >> (i * 4)) & 0xF) as u32;
-                if idx < 16 {
-                    let nibble = (a >> (idx * 4)) & 0xF;
-                    result |= nibble << (i * 4);
-                }
+                let nibble = (a >> (idx * 4)) & 0xF;
+                result |= nibble << (i * 4);
                 i += 1;
             }
             result

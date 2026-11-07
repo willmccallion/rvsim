@@ -30,7 +30,7 @@ const LOW_BYTE: u64 = 0xFF;
 const HIGH_BYTE: u64 = 0xFF00_0000_0000_0000;
 
 fn alu(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
-    alu::execute(op, a, b, 0, is32)
+    alu::execute(op, a, b, is32)
 }
 
 #[test]

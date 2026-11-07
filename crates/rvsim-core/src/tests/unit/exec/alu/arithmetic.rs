@@ -30,7 +30,7 @@ const HIGH_BIT_32: u64 = 0x8000_0000;
 
 /// Execute an ALU operation. Thin wrapper to keep test lines short.
 fn alu(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
-    alu::execute(op, a, b, 0, is32)
+    alu::execute(op, a, b, is32)
 }
 
 /// Sign-extend a 32-bit value to 64 bits (what every *W instruction must do).
