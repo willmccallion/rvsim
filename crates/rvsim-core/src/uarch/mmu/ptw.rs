@@ -335,7 +335,7 @@ fn classify(mut state: WalkState, pte: PageTableEntry, csrs: &Csrs) -> PteStep {
         }
     }
 
-    if check_permissions(pte, state.access, state.privilege, csrs).is_err() {
+    if !permits(pte, state.access, state.privilege, csrs) {
         return PteStep::Fault(state);
     }
 
@@ -378,44 +378,23 @@ fn request_pte(state: WalkState, pmp: Option<&Pmp>) -> WalkStep {
     WalkStep::NeedPte { pte_addr: PhysAddr::new(pte_addr), state }
 }
 
-/// Validates access permissions for a leaf PTE.
-///
-/// Checks R/W/X bits, User bit, and status register flags (MXR, SUM).
-/// Returns `Ok(())` if access is allowed, `Err(())` otherwise.
-fn check_permissions(
-    pte: PageTableEntry,
-    access: AccessType,
-    privilege: PrivilegeMode,
-    csrs: &Csrs,
-) -> Result<(), ()> {
-    if access == AccessType::Write && !pte.can_write() {
-        return Err(());
-    }
-    if access == AccessType::Fetch && !pte.can_exec() {
-        return Err(());
-    }
-
+/// Whether leaf `pte` grants `access` at `privilege`: its R/W/X and U
+/// bits, as `mstatus`'s MXR and SUM qualify them.
+fn permits(pte: PageTableEntry, access: AccessType, privilege: PrivilegeMode, csrs: &Csrs) -> bool {
     let mxr = csrs.mstatus & MSTATUS_MXR != 0;
-
-    if access == AccessType::Read && !(pte.can_read() || (pte.can_exec() && mxr)) {
-        return Err(());
-    }
-
-    if privilege == PrivilegeMode::User && !pte.is_user() {
-        return Err(());
-    }
-
-    if privilege == PrivilegeMode::Supervisor && pte.is_user() {
-        let sum = csrs.mstatus & MSTATUS_SUM != 0;
-        if !sum {
-            return Err(());
+    let kind_allowed = match access {
+        AccessType::Fetch => pte.can_exec(),
+        AccessType::Read => pte.can_read() || (pte.can_exec() && mxr),
+        AccessType::Write => pte.can_write(),
+    };
+    let privilege_allowed = match privilege {
+        PrivilegeMode::User => pte.is_user(),
+        PrivilegeMode::Supervisor if pte.is_user() => {
+            csrs.mstatus & MSTATUS_SUM != 0 && access != AccessType::Fetch
         }
-        if access == AccessType::Fetch {
-            return Err(());
-        }
-    }
-
-    Ok(())
+        _ => true,
+    };
+    kind_allowed && privilege_allowed
 }
 
 /// The hardware A/D updates the access that walked to leaf `pte` needs:

@@ -405,6 +405,25 @@ fn supervisor_access_user_page_needs_sum() {
 }
 
 #[test]
+fn an_execute_only_page_is_readable_only_with_mxr() {
+    let (mut mmu, mut csrs, mut tc) = setup_mmu();
+    let uncore = &mut tc.cpu_mut().uncore;
+    let vaddr = VirtAddr::new(0x8000_0000);
+    let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
+    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(ROOT_PPN + 0x40000, X | A | D));
+
+    csrs.write(csr::SSTATUS, csr::MSTATUS_SUM);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
+
+    csrs.write(csr::SSTATUS, csr::MSTATUS_SUM | csr::MSTATUS_MXR);
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
+    assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
+}
+
+#[test]
 fn supervisor_cannot_fetch_user_page() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
     let uncore = &mut tc.cpu_mut().uncore;
