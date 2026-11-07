@@ -253,15 +253,17 @@ impl O3Engine {
     /// registers its committed rename map names: at reset, and whenever a
     /// debugger changes a register while nothing is in flight.
     pub fn sync_arch_regs(&mut self, state: &crate::uarch::ctx::CoreCtx<'_>) {
-        use crate::isa::reg::RegIdx;
+        use crate::isa::reg::{ArchReg, RegIdx};
         use crate::isa::rvv::VRegIdx;
         for i in 1u8..32 {
             let reg = RegIdx::new(i);
-            self.prf.write(self.committed_rename_map.get(reg, false), state.hart.regs.read(reg));
+            let phys = self.committed_rename_map.get(ArchReg::Int(reg));
+            self.prf.write(phys, state.hart.regs.read(reg));
         }
         for i in 0u8..32 {
             let reg = RegIdx::new(i);
-            self.prf.write(self.committed_rename_map.get(reg, true), state.hart.regs.read_f(reg));
+            let phys = self.committed_rename_map.get(ArchReg::Fp(reg));
+            self.prf.write(phys, state.hart.regs.read_f(reg));
         }
         for i in 0u8..32 {
             let vreg = VRegIdx::new(i);

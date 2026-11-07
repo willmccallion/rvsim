@@ -10,7 +10,7 @@ use crate::exec::signals::ControlFlow;
 use crate::isa::csr;
 use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::op::{MemWidth, SystemOp, VectorOp};
-use crate::isa::reg::RegIdx;
+use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvv::VRegIdx;
 use crate::soc::uncore::SimOp;
 use crate::soc::uncore::debug::PC_TRACE_MAX;
@@ -227,35 +227,39 @@ fn write_destinations(
         entry.tag,
         entry.pc,
     );
-    if entry.ctrl.fp_reg_write {
-        retire::write_fp(state.hart, entry.rd, val);
-        registers.retire_scalar(entry, true);
-        trace_commit!(state.config.general.trace_instructions;
-            pc       = %crate::common::trace::Hex(entry.pc),
-            rob_tag  = %entry.tag,
-            reg      = entry.rd.as_usize(),
-            rd_phys  = entry.phys_dst.0,
-            old_phys = entry.old_phys_dst.0,
-            value    = %crate::common::trace::Hex(val),
-            is_fp    = true,
-            "CM: FP register write"
-        );
-    } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
-        retire::write_int(state.hart, entry.rd, val);
-        if entry.result_at_commit() {
-            registers.write_result(entry, val);
+    match entry.ctrl.dest(entry.rd) {
+        Some(dest @ ArchReg::Fp(rd)) => {
+            retire::write_fp(state.hart, rd, val);
+            registers.retire_scalar(entry, dest);
+            trace_commit!(state.config.general.trace_instructions;
+                pc       = %crate::common::trace::Hex(entry.pc),
+                rob_tag  = %entry.tag,
+                reg      = entry.rd.as_usize(),
+                rd_phys  = entry.phys_dst.0,
+                old_phys = entry.old_phys_dst.0,
+                value    = %crate::common::trace::Hex(val),
+                is_fp    = true,
+                "CM: FP register write"
+            );
         }
-        registers.retire_scalar(entry, false);
-        trace_commit!(state.config.general.trace_instructions;
-            pc       = %crate::common::trace::Hex(entry.pc),
-            rob_tag  = %entry.tag,
-            reg      = entry.rd.as_usize(),
-            rd_phys  = entry.phys_dst.0,
-            old_phys = entry.old_phys_dst.0,
-            value    = %crate::common::trace::Hex(val),
-            is_fp    = false,
-            "CM: integer register write"
-        );
+        Some(dest @ ArchReg::Int(rd)) => {
+            retire::write_int(state.hart, rd, val);
+            if entry.result_at_commit() {
+                registers.write_result(entry, val);
+            }
+            registers.retire_scalar(entry, dest);
+            trace_commit!(state.config.general.trace_instructions;
+                pc       = %crate::common::trace::Hex(entry.pc),
+                rob_tag  = %entry.tag,
+                reg      = entry.rd.as_usize(),
+                rd_phys  = entry.phys_dst.0,
+                old_phys = entry.old_phys_dst.0,
+                value    = %crate::common::trace::Hex(val),
+                is_fp    = false,
+                "CM: integer register write"
+            );
+        }
+        None => {}
     }
 
     if let Some(writes) = &entry.vec_writes {

@@ -90,6 +90,23 @@ impl std::fmt::Display for RegIdx {
     }
 }
 
+/// An architectural integer or floating-point register.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ArchReg {
+    /// An integer register.
+    Int(RegIdx),
+    /// A floating-point register.
+    Fp(RegIdx),
+}
+
+impl ArchReg {
+    /// Whether this is `x0`, which reads as zero and discards writes.
+    #[inline(always)]
+    pub const fn is_hardwired_zero(self) -> bool {
+        matches!(self, Self::Int(reg) if reg.is_zero())
+    }
+}
+
 /// Register x0 (zero register, always zero).
 pub const REG_ZERO: RegIdx = RegIdx::new(0);
 /// Register x1 (return address, ra).

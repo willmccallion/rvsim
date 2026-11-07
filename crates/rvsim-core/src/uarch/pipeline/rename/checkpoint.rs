@@ -126,12 +126,12 @@ impl CheckpointTable {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::isa::reg::RegIdx;
+    use crate::isa::reg::{ArchReg, RegIdx};
     use crate::uarch::pipeline::rename::prf::PhysReg;
 
     fn make_rename_map(marker: u16) -> RenameMap {
         let mut rm = RenameMap::new();
-        rm.set(RegIdx::new(1), false, PhysReg(marker));
+        rm.set(ArchReg::Int(RegIdx::new(1)), PhysReg(marker));
         rm
     }
 
@@ -148,7 +148,7 @@ mod tests {
 
         let ckpt = table.find_by_tag(tag).unwrap();
         assert_eq!(ckpt.branch_tag, tag);
-        assert_eq!(ckpt.rename_map.get(RegIdx::new(1), false), PhysReg(100));
+        assert_eq!(ckpt.rename_map.get(ArchReg::Int(RegIdx::new(1))), PhysReg(100));
 
         table.free(id);
         assert_eq!(table.available(), 4);
