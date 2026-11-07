@@ -21,45 +21,45 @@ impl InOrderEngine {
     /// buffer slots. A store waits here, before anything is allocated, when
     /// its buffer is full; `can_accept` covers the ROB and issue-queue slots
     /// every instruction needs.
-    pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, id: IdExEntry) -> Renamed {
-        let store_slot = if id.inst.ctrl.uses_store_buffer() {
+    pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, decoded: IdExEntry) -> Renamed {
+        let store_slot = if decoded.inst.ctrl.uses_store_buffer() {
             !self.store_buffer.is_full()
-        } else if is_vec_store(id.inst.ctrl.vec_op) {
+        } else if is_vec_store(decoded.inst.ctrl.vec_op) {
             self.vec_store_buffer.free_slots() > 0
         } else {
             true
         };
         if !store_slot {
-            return Renamed::Stalled(Box::new(id));
+            return Renamed::Stalled(Box::new(decoded));
         }
         let vector = self.vector_config(&state.hart().csrs);
         let Some(rob_tag) = self.rob.allocate(
-            id.inst.pc,
-            id.inst.bits,
-            id.inst.size,
-            id.inst.rd,
-            id.inst.ctrl,
+            decoded.inst.pc,
+            decoded.inst.bits,
+            decoded.inst.size,
+            decoded.inst.rd,
+            decoded.inst.ctrl,
             PhysReg(0),
             PhysReg(0),
-            id.seq,
+            decoded.seq,
         ) else {
-            return Renamed::Stalled(Box::new(id));
+            return Renamed::Stalled(Box::new(decoded));
         };
-        state.trace_stage(id.seq, Stage::Rename);
+        state.trace_stage(decoded.seq, Stage::Rename);
 
         // Capture source tags BEFORE updating scoreboard for rd.
-        let ctrl = id.inst.ctrl;
-        let rs1_tag = self.scoreboard.get_producer(ctrl.src1(id.inst.rs1));
-        let rs2_tag = self.scoreboard.get_producer(ctrl.src2(id.inst.rs2));
-        let rs3_tag = ctrl.src3(id.inst.rs3).and_then(|rs3| self.scoreboard.get_producer(rs3));
+        let ctrl = decoded.inst.ctrl;
+        let rs1_tag = self.scoreboard.get_producer(ctrl.src1(decoded.inst.rs1));
+        let rs2_tag = self.scoreboard.get_producer(ctrl.src2(decoded.inst.rs2));
+        let rs3_tag = ctrl.src3(decoded.inst.rs3).and_then(|rs3| self.scoreboard.get_producer(rs3));
 
-        if let Some(dest) = ctrl.dest(id.inst.rd) {
+        if let Some(dest) = ctrl.dest(decoded.inst.rd) {
             self.scoreboard.set_producer(dest, rob_tag);
         }
 
-        let slot_allocated = if id.inst.ctrl.uses_store_buffer() {
-            self.store_buffer.allocate(rob_tag, id.inst.ctrl.width)
-        } else if is_vec_store(id.inst.ctrl.vec_op) {
+        let slot_allocated = if decoded.inst.ctrl.uses_store_buffer() {
+            self.store_buffer.allocate(rob_tag, decoded.inst.ctrl.width)
+        } else if is_vec_store(decoded.inst.ctrl.vec_op) {
             self.vec_store_buffer.allocate(rob_tag)
         } else {
             true
@@ -67,7 +67,7 @@ impl InOrderEngine {
         debug_assert!(slot_allocated, "the store slot was checked before allocating");
 
         let entry = RenameIssueEntry {
-            inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..id.inst },
+            inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..decoded.inst },
             rob_tag,
             rs1_phys: PhysReg(0),
             rs2_phys: PhysReg(0),
@@ -76,9 +76,9 @@ impl InOrderEngine {
             rs1_tag,
             rs2_tag,
             rs3_tag,
-            trap: id.trap,
-            predicted_target: id.predicted_target,
-            seq: id.seq,
+            trap: decoded.trap,
+            predicted_target: decoded.predicted_target,
+            seq: decoded.seq,
             vs1_phys: [VecPhysReg::ZERO; 8],
             vs2_phys: [VecPhysReg::ZERO; 8],
             vs3_phys: [VecPhysReg::ZERO; 8],

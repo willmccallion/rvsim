@@ -380,9 +380,9 @@ impl ExecutionEngine for O3Engine {
     fn rename(
         &mut self,
         state: &mut crate::uarch::ctx::StageCtx<'_>,
-        id: crate::uarch::pipeline::latches::IdExEntry,
+        decoded: crate::uarch::pipeline::latches::IdExEntry,
     ) -> crate::uarch::pipeline::engine::Renamed {
-        self.rename_one(state, id)
+        self.rename_one(state, decoded)
     }
 
     fn send_committed_write(&mut self, state: &mut CoreCtx<'_>) -> bool {

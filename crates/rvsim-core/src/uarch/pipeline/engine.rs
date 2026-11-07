@@ -70,7 +70,11 @@ pub trait ExecutionEngine {
     /// returns the entry the issue stage works on, or hands the
     /// instruction back when a resource `can_accept` does not cover is
     /// short; the frontend retries it next cycle.
-    fn rename(&mut self, state: &mut crate::uarch::ctx::StageCtx<'_>, id: IdExEntry) -> Renamed;
+    fn rename(
+        &mut self,
+        state: &mut crate::uarch::ctx::StageCtx<'_>,
+        decoded: IdExEntry,
+    ) -> Renamed;
 
     /// Flush all speculative state, in-flight loads and data walks included.
     /// Committed stores in the store buffer remain.

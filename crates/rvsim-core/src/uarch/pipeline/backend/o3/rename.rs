@@ -34,40 +34,40 @@ impl O3Engine {
     /// anything is allocated; `can_accept` covers only the ROB and issue
     /// queue slots every instruction needs, as gem5's rename checks each
     /// instruction's own resources.
-    pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, id: IdExEntry) -> Renamed {
+    pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, decoded: IdExEntry) -> Renamed {
         if !self.serialization.admits(state.cycle) {
             state.counter(state.core().stat_paths.pipeline.stalls_serialize).inc();
-            return Renamed::Stalled(Box::new(id));
+            return Renamed::Stalled(Box::new(decoded));
         }
         let csrs = &state.hart().csrs;
         let vector =
             VectorContext { config: self.vector_config(csrs), rounding: csrs.vector_rounding() };
-        let load_slots = self.load_slots_for(&id, &vector.config, state);
-        let checkpoint = if self.needs_checkpoint(&id.inst.ctrl) {
+        let load_slots = self.load_slots_for(&decoded, &vector.config, state);
+        let checkpoint = if self.needs_checkpoint(&decoded.inst.ctrl) {
             let Some(slot) = self.checkpoints.free_slot() else {
                 state.counter(state.core().stat_paths.pipeline.stalls_checkpoint).inc();
-                return Renamed::Stalled(Box::new(id));
+                return Renamed::Stalled(Box::new(decoded));
             };
             Some(slot)
         } else {
             None
         };
-        if !self.backend_slots().has_room_for(&id, load_slots) {
-            return Renamed::Stalled(Box::new(id));
+        if !self.backend_slots().has_room_for(&decoded, load_slots) {
+            return Renamed::Stalled(Box::new(decoded));
         }
-        let groups = vector_operand_groups(&id.inst.ctrl, &vector.config);
-        let sources = self.capture_sources(&id.inst, groups);
-        let Some(dests) = self.allocate_destinations(&id, groups.vd) else {
-            return Renamed::Stalled(Box::new(id));
+        let groups = vector_operand_groups(&decoded.inst.ctrl, &vector.config);
+        let sources = self.capture_sources(&decoded.inst, groups);
+        let Some(dests) = self.allocate_destinations(&decoded, groups.vd) else {
+            return Renamed::Stalled(Box::new(decoded));
         };
-        state.trace_stage(id.seq, Stage::Rename);
-        self.allocate_memory_slots(dests.rob_tag, &id.inst.ctrl, load_slots);
+        state.trace_stage(decoded.seq, Stage::Rename);
+        self.allocate_memory_slots(dests.rob_tag, &decoded.inst.ctrl, load_slots);
         // After the destinations: the checkpoint holds the branch's own rd.
         if let Some(slot) = checkpoint {
             let checkpoint_id = slot.fill(&mut self.checkpoints, dests.rob_tag, &self.rename_map);
             self.rob.set_checkpoint_id(dests.rob_tag, checkpoint_id);
         }
-        let entry = renamed_entry(id, &sources, &dests, vector);
+        let entry = renamed_entry(decoded, &sources, &dests, vector);
         trace_renamed(state, &entry, dests.old_phys_dst);
         if entry.inst.ctrl.system_op.serializes_after() {
             self.serialization = super::serialize::Serialization::after(entry.rob_tag);
@@ -120,8 +120,8 @@ impl O3Engine {
     /// renames its destinations to them, its vector group `vd_count`
     /// registers long; `None` when a vector register or the ROB entry is
     /// short, with nothing left allocated.
-    fn allocate_destinations(&mut self, id: &IdExEntry, vd_count: u8) -> Option<Destinations> {
-        let inst = &id.inst;
+    fn allocate_destinations(&mut self, decoded: &IdExEntry, vd_count: u8) -> Option<Destinations> {
+        let inst = &decoded.inst;
         // x0 stays unrenamed: hardwired zero, never freed at commit.
         let dest = inst.ctrl.dest(inst.rd);
         let (rd_phys, old_phys_dst) = match dest {
@@ -140,7 +140,7 @@ impl O3Engine {
                 inst.ctrl,
                 rd_phys,
                 old_phys_dst,
-                id.seq,
+                decoded.seq,
             )
         });
         let (Some(vd_regs), Some(rob_tag)) = (vd_regs, rob_tag) else {
@@ -234,13 +234,13 @@ struct Destinations {
 
 /// The issue-queue entry for `id`, renamed to `sources` and `dests`.
 const fn renamed_entry(
-    id: IdExEntry,
+    decoded: IdExEntry,
     sources: &Sources,
     dests: &Destinations,
     vector: VectorContext,
 ) -> RenameIssueEntry {
     RenameIssueEntry {
-        inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..id.inst },
+        inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..decoded.inst },
         rob_tag: dests.rob_tag,
         rs1_phys: sources.rs1,
         rs2_phys: sources.rs2,
@@ -249,9 +249,9 @@ const fn renamed_entry(
         rs1_tag: None,
         rs2_tag: None,
         rs3_tag: None,
-        trap: id.trap,
-        predicted_target: id.predicted_target,
-        seq: id.seq,
+        trap: decoded.trap,
+        predicted_target: decoded.predicted_target,
+        seq: decoded.seq,
         vs1_phys: sources.vs1,
         vs2_phys: sources.vs2,
         vs3_phys: sources.vs3,
@@ -309,16 +309,16 @@ impl O3Engine {
     /// load reserves one per micro-op it expects, at most the whole queue.
     fn load_slots_for(
         &self,
-        id: &IdExEntry,
+        decoded: &IdExEntry,
         vector: &VectorConfig,
         state: &StageCtx<'_>,
     ) -> LoadSlots {
-        if !is_vec_load(id.inst.ctrl.vec_op) {
-            return if id.inst.ctrl.mem_read { LoadSlots::Scalar } else { LoadSlots::None };
+        if !is_vec_load(decoded.inst.ctrl.vec_op) {
+            return if decoded.inst.ctrl.mem_read { LoadSlots::Scalar } else { LoadSlots::None };
         }
         let pipeline = &state.config.pipeline;
         let expected = expected_load_micro_ops(
-            &id.inst.ctrl,
+            &decoded.inst.ctrl,
             vector,
             pipeline.vlen,
             pipeline.vector_mem_width_bytes(),
@@ -342,11 +342,11 @@ impl BackendSlots<'_> {
     /// True when `id` can take a physical register for a destination, and
     /// a store-buffer, vector-store-buffer or load-queue slot for a memory
     /// op, as gem5's rename checks each instruction's own resources.
-    fn has_room_for(&self, id: &IdExEntry, load_slots: LoadSlots) -> bool {
-        let needs_dst = id.inst.ctrl.dest(id.inst.rd).is_some();
-        let store_slot = if id.inst.ctrl.uses_store_buffer() {
+    fn has_room_for(&self, decoded: &IdExEntry, load_slots: LoadSlots) -> bool {
+        let needs_dst = decoded.inst.ctrl.dest(decoded.inst.rd).is_some();
+        let store_slot = if decoded.inst.ctrl.uses_store_buffer() {
             self.view.sq > 0 && !self.store_buffer.is_full()
-        } else if is_vec_store(id.inst.ctrl.vec_op) {
+        } else if is_vec_store(decoded.inst.ctrl.vec_op) {
             self.vec_store_buffer.free_slots() > 0
         } else {
             true

@@ -19,19 +19,19 @@ pub fn rename_stage<E: ExecutionEngine>(
     let mut budget = engine.can_accept();
     let mut stalled = None;
 
-    for id in entries.by_ref() {
+    for decoded in entries.by_ref() {
         if budget == 0 {
             state.counter(state.core().stat_paths.pipeline.stalls_dispatch).inc();
-            stalled = Some(id);
+            stalled = Some(decoded);
             break;
         }
-        match engine.rename(state, id) {
+        match engine.rename(state, decoded) {
             Renamed::Accepted(entry) => {
                 rename_output.push(*entry);
                 budget -= 1;
             }
-            Renamed::Stalled(id) => {
-                stalled = Some(*id);
+            Renamed::Stalled(decoded) => {
+                stalled = Some(*decoded);
                 break;
             }
         }

@@ -21,29 +21,29 @@ use crate::{trace_branch, trace_trap};
 /// The result of an instruction that raised `trap`. The trap
 /// travels with it: writeback records it on the ROB entry and commit takes
 /// it, flushing everything younger, as a real core does.
-pub fn fault(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
+pub fn fault(state: &StageCtx<'_>, issued: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
     trace_trap!(state.trace_trap_enabled(&trap);
         event   = "fault",
-        pc      = %crate::common::trace::Hex(id.inst.pc.val()),
-        rob_tag = %id.rob_tag,
+        pc      = %crate::common::trace::Hex(issued.inst.pc.val()),
+        rob_tag = %issued.rob_tag,
         trap    = ?trap,
         "EX: instruction faulted"
     );
-    ExMem1Entry { trap: Some(trap), ..ExMem1Entry::from_issue(id, 0, 0) }
+    ExMem1Entry { trap: Some(trap), ..ExMem1Entry::from_issue(issued, 0, 0) }
 }
 
 /// [`fault`] with no redirect: commit takes the trap.
 pub fn faulted(
     state: &StageCtx<'_>,
-    id: &RenameIssueEntry,
+    issued: &RenameIssueEntry,
     trap: Trap,
 ) -> (ExMem1Entry, Option<Redirect>) {
-    (fault(state, id, trap), None)
+    (fault(state, issued, trap), None)
 }
 
 /// The instruction after `id` squashes and refetches.
-pub const fn refetch_after(id: &RenameIssueEntry) -> Redirect {
-    Redirect::to(id.inst.next_pc(), SquashCause::System)
+pub const fn refetch_after(issued: &RenameIssueEntry) -> Redirect {
+    Redirect::to(issued.inst.next_pc(), SquashCause::System)
 }
 
 /// A system instruction's execution, or the two kinds the backends treat
@@ -61,23 +61,23 @@ pub enum SystemExecution {
 /// Executes a system instruction as far as both backends agree; `None`
 /// for everything else, FENCE included (it orders memory in issue and at
 /// commit, not here).
-pub fn execute_system(state: &StageCtx<'_>, id: &RenameIssueEntry) -> Option<SystemExecution> {
-    Some(match system_effect(state, &id.inst) {
+pub fn execute_system(state: &StageCtx<'_>, issued: &RenameIssueEntry) -> Option<SystemExecution> {
+    Some(match system_effect(state, &issued.inst) {
         SystemEffect::NotSystem => return None,
-        SystemEffect::Trap(trap) => SystemExecution::Done(fault(state, id, trap), None),
+        SystemEffect::Trap(trap) => SystemExecution::Done(fault(state, issued, trap), None),
         SystemEffect::AtRetire => SystemExecution::AtRetire,
         // Commit drains the store buffer, flushes the TLBs and squashes.
         SystemEffect::SfenceVma(sfence_vma) => SystemExecution::Done(
             ExMem1Entry {
                 sfence_vma: Some(sfence_vma),
-                ..ExMem1Entry::from_issue(id, 0, id.inst.rv2)
+                ..ExMem1Entry::from_issue(issued, 0, issued.inst.rv2)
             },
             None,
         ),
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
         SystemEffect::Cbo => {
-            SystemExecution::Done(ExMem1Entry::from_issue(id, id.inst.rv1, 0), None)
+            SystemExecution::Done(ExMem1Entry::from_issue(issued, issued.inst.rv1, 0), None)
         }
         SystemEffect::Csr(request) => SystemExecution::Csr(request),
     })
@@ -96,8 +96,8 @@ pub fn record_vector_flags(rob: &mut Rob, tag: RobTag, result: &VecExecResult) {
 
 /// The result of an instruction that arrived carrying a trap from an
 /// earlier stage.
-pub fn propagate_trap(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
-    fault(state, id, trap)
+pub fn propagate_trap(state: &StageCtx<'_>, issued: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
+    fault(state, issued, trap)
 }
 
 /// Resolves a branch or jump to the redirect a misprediction needs.
@@ -111,13 +111,13 @@ pub fn propagate_trap(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -
 pub fn resolve_control_flow(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
-    id: &RenameIssueEntry,
+    issued: &RenameIssueEntry,
     op_a: u64,
     op_b: u64,
 ) -> Result<Option<Redirect>, Trap> {
-    match id.inst.ctrl.control_flow {
-        ControlFlow::Branch => resolve_branch(state, rob, id, op_a, op_b),
-        ControlFlow::Jump => resolve_jump(state, rob, id),
+    match issued.inst.ctrl.control_flow {
+        ControlFlow::Branch => resolve_branch(state, rob, issued, op_a, op_b),
+        ControlFlow::Jump => resolve_jump(state, rob, issued),
         ControlFlow::Sequential => Ok(None),
     }
 }
@@ -128,14 +128,14 @@ pub fn resolve_control_flow(
 fn resolve_branch(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
-    id: &RenameIssueEntry,
+    issued: &RenameIssueEntry,
     op_a: u64,
     op_b: u64,
 ) -> Result<Option<Redirect>, Trap> {
-    let taken = branch_taken(id.inst.bits, op_a, op_b);
-    let actual_target = id.inst.pc.wrapping_add(id.inst.imm as u64);
-    let fallthrough = id.inst.next_pc();
-    let predicted_next_pc = id.predicted_target.unwrap_or(fallthrough);
+    let taken = branch_taken(issued.inst.bits, op_a, op_b);
+    let actual_target = issued.inst.pc.wrapping_add(issued.inst.imm as u64);
+    let fallthrough = issued.inst.next_pc();
+    let predicted_next_pc = issued.predicted_target.unwrap_or(fallthrough);
     let actual_next_pc = if taken { actual_target } else { fallthrough };
     if taken {
         check_target_alignment(state.hart(), actual_target)?;
@@ -143,22 +143,22 @@ fn resolve_branch(
     let mispredicted = predicted_next_pc != actual_next_pc;
 
     rob.set_control_outcome(
-        id.rob_tag,
+        issued.rob_tag,
         BpOutcome { taken, mispredicted },
         taken.then_some(actual_target),
     );
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
-        pc             = %crate::common::trace::Hex(id.inst.pc.val()),
-        rob_tag        = %id.rob_tag,
-        pred_taken     = id.predicted_target.is_some(),
+        pc             = %crate::common::trace::Hex(issued.inst.pc.val()),
+        rob_tag        = %issued.rob_tag,
+        pred_taken     = issued.predicted_target.is_some(),
         pred_target    = %crate::common::trace::Hex(predicted_next_pc.val()),
         actual_taken   = taken,
         actual_target  = %crate::common::trace::Hex(actual_next_pc.val()),
         mispredicted,
         "EX: branch resolved"
     );
-    let repair = BranchRepair { seq: id.seq, taken, target: actual_target };
+    let repair = BranchRepair { seq: issued.seq, taken, target: actual_target };
     Ok(count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_next_pc, repair)))
 }
 
@@ -168,35 +168,35 @@ fn resolve_branch(
 fn resolve_jump(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
-    id: &RenameIssueEntry,
+    issued: &RenameIssueEntry,
 ) -> Result<Option<Redirect>, Trap> {
-    let inst = &id.inst;
+    let inst = &issued.inst;
     let is_jalr = is_jalr(inst);
     let actual_target = jump_target(inst);
     check_target_alignment(state.hart(), actual_target)?;
-    let predicted_target = id.predicted_target.unwrap_or_else(|| id.inst.next_pc());
+    let predicted_target = issued.predicted_target.unwrap_or_else(|| issued.inst.next_pc());
     let mispredicted = actual_target != predicted_target;
 
     rob.set_control_outcome(
-        id.rob_tag,
+        issued.rob_tag,
         BpOutcome { taken: true, mispredicted },
         Some(actual_target),
     );
-    let rd_link = id.inst.rd == reg::REG_RA || id.inst.rd == reg::REG_T0;
-    let rs1_link = is_jalr && (id.inst.rs1 == reg::REG_RA || id.inst.rs1 == reg::REG_T0);
+    let rd_link = issued.inst.rd == reg::REG_RA || issued.inst.rd == reg::REG_T0;
+    let rs1_link = is_jalr && (issued.inst.rs1 == reg::REG_RA || issued.inst.rs1 == reg::REG_T0);
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
-        pc             = %crate::common::trace::Hex(id.inst.pc.val()),
-        rob_tag        = %id.rob_tag,
+        pc             = %crate::common::trace::Hex(issued.inst.pc.val()),
+        rob_tag        = %issued.rob_tag,
         bp_type        = if rs1_link && !rd_link { "JALR/RAS" } else if rd_link { "JAL/call" } else { "JAL/JALR" },
-        pred_taken     = id.predicted_target.is_some(),
+        pred_taken     = issued.predicted_target.is_some(),
         pred_target    = %crate::common::trace::Hex(predicted_target.val()),
         actual_taken   = true,
         actual_target  = %crate::common::trace::Hex(actual_target.val()),
         mispredicted,
         "EX: jump resolved"
     );
-    let repair = BranchRepair { seq: id.seq, taken: true, target: actual_target };
+    let repair = BranchRepair { seq: issued.seq, taken: true, target: actual_target };
     Ok(count_prediction(state, mispredicted).then(|| Redirect::mispredict(actual_target, repair)))
 }
 

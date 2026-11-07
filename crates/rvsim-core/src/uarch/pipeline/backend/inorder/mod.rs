@@ -540,9 +540,9 @@ impl ExecutionEngine for InOrderEngine {
     fn rename(
         &mut self,
         state: &mut crate::uarch::ctx::StageCtx<'_>,
-        id: crate::uarch::pipeline::latches::IdExEntry,
+        decoded: crate::uarch::pipeline::latches::IdExEntry,
     ) -> crate::uarch::pipeline::engine::Renamed {
-        self.rename_one(state, id)
+        self.rename_one(state, decoded)
     }
 
     fn rob(&self) -> &Rob {
