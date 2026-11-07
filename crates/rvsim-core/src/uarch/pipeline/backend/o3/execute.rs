@@ -4,6 +4,7 @@
 //! [`shared::execute`](crate::uarch::pipeline::backend::shared::execute). Vector
 //! ops other than vsetvl* execute in the engine, where the vector PRF is.
 
+use super::O3Entry;
 use crate::exec::execute::{evaluate, illegal_in_current_state, operands, perform_csr_access};
 use crate::isa::op::{SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
@@ -12,7 +13,7 @@ use crate::uarch::pipeline::backend::shared::execute::{
     SystemExecution, execute_system, faulted, propagate_trap, refetch_after, resolve_control_flow,
 };
 use crate::uarch::pipeline::backend::shared::vector_config::set_vector_config;
-use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
+use crate::uarch::pipeline::latches::ExMem1Entry;
 use crate::uarch::pipeline::rob::Rob;
 use crate::uarch::pipeline::squash::Redirect;
 use crate::uarch::pipeline::trace::Stage;
@@ -25,7 +26,7 @@ use crate::{trace_execute, trace_trap};
 /// [`Redirect`] the engine takes after the redirect latency.
 pub fn execute_one(
     state: &mut StageCtx<'_>,
-    issued: &RenameIssueEntry,
+    issued: &O3Entry,
     rob: &mut Rob,
 ) -> (ExMem1Entry, Option<Redirect>) {
     if let Some(trap) = issued.trap.clone() {
@@ -42,12 +43,12 @@ pub fn execute_one(
         pc       = %crate::common::trace::Hex(issued.inst.pc.val()),
         inst     = %crate::common::trace::Hex32(issued.inst.bits),
         rd       = issued.inst.rd.as_usize(),
-        rd_phys  = issued.rd_phys.0,
+        rd_phys  = issued.regs.rd_phys.0,
         rs1      = issued.inst.rs1.as_usize(),
-        rs1_phys = issued.rs1_phys.0,
+        rs1_phys = issued.regs.rs1_phys.0,
         rv1      = %crate::common::trace::Hex(issued.inst.rv1),
         rs2      = issued.inst.rs2.as_usize(),
-        rs2_phys = issued.rs2_phys.0,
+        rs2_phys = issued.regs.rs2_phys.0,
         rv2      = %crate::common::trace::Hex(issued.inst.rv2),
         imm      = issued.inst.imm,
         a_src    = ?issued.inst.ctrl.a_src,
@@ -96,7 +97,7 @@ pub fn execute_one(
 /// instruction wrote, and the write needs no squash.
 fn execute_system_o3(
     state: &StageCtx<'_>,
-    issued: &RenameIssueEntry,
+    issued: &O3Entry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
     Some(match execute_system(state, issued)? {
@@ -135,7 +136,8 @@ mod tests {
     use crate::exec::signals::{ControlFlow, ControlSignals, OpBSrc};
     use crate::isa::instruction::InstSize;
     use crate::isa::reg::RegIdx;
-    use crate::isa::rvv::MAX_GROUP_REGS;
+    use crate::uarch::pipeline::backend::o3::RenamedRegisters;
+    use crate::uarch::pipeline::latches::RenameIssueEntry;
 
     #[test]
     fn test_execute_one_normal() {
@@ -173,26 +175,12 @@ mod tests {
                 ctrl: ControlSignals::default(),
             },
             rob_tag: tag,
-            rs1_tag: None,
-            rs2_tag: None,
-            rs3_tag: None,
-            rs1_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs2_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
             predicted_target: None,
             seq: crate::common::InstSeq::default(),
-            vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_src1_count: 0,
-            vec_src2_count: 0,
-            vec_src3_count: 0,
-            mask: None,
             vector_config: crate::isa::rvv::VectorConfig::default(),
             vector_rounding: crate::isa::rvv::VectorRounding::default(),
+            regs: RenamedRegisters::default(),
         };
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -237,26 +225,12 @@ mod tests {
                 ctrl: ControlSignals::default(),
             },
             rob_tag: tag,
-            rs1_tag: None,
-            rs2_tag: None,
-            rs3_tag: None,
-            rs1_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs2_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: Some(Trap::IllegalInstruction(0)),
             predicted_target: None,
             seq: crate::common::InstSeq::default(),
-            vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_src1_count: 0,
-            vec_src2_count: 0,
-            vec_src3_count: 0,
-            mask: None,
             vector_config: crate::isa::rvv::VectorConfig::default(),
             vector_rounding: crate::isa::rvv::VectorRounding::default(),
+            regs: RenamedRegisters::default(),
         };
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -305,26 +279,12 @@ mod tests {
                 ctrl,
             },
             rob_tag: tag,
-            rs1_tag: None,
-            rs2_tag: None,
-            rs3_tag: None,
-            rs1_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs2_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
             predicted_target: None,
             seq: crate::common::InstSeq::default(),
-            vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_src1_count: 0,
-            vec_src2_count: 0,
-            vec_src3_count: 0,
-            mask: None,
             vector_config: crate::isa::rvv::VectorConfig::default(),
             vector_rounding: crate::isa::rvv::VectorRounding::default(),
+            regs: RenamedRegisters::default(),
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -374,26 +334,12 @@ mod tests {
                 ctrl,
             },
             rob_tag: tag,
-            rs1_tag: None,
-            rs2_tag: None,
-            rs3_tag: None,
-            rs1_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs2_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
             predicted_target: None,
             seq: crate::common::InstSeq::default(),
-            vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_src1_count: 0,
-            vec_src2_count: 0,
-            vec_src3_count: 0,
-            mask: None,
             vector_config: crate::isa::rvv::VectorConfig::default(),
             vector_rounding: crate::isa::rvv::VectorRounding::default(),
+            regs: RenamedRegisters::default(),
         };
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -445,27 +391,13 @@ mod tests {
                 ctrl,
             },
             rob_tag: tag,
-            rs1_tag: None,
-            rs2_tag: None,
-            rs3_tag: None,
-            rs1_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs2_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
             predicted_target: None,
             // Predicted NOT taken
             seq: crate::common::InstSeq::default(),
-            vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_src1_count: 0,
-            vec_src2_count: 0,
-            vec_src3_count: 0,
-            mask: None,
             vector_config: crate::isa::rvv::VectorConfig::default(),
             vector_rounding: crate::isa::rvv::VectorRounding::default(),
+            regs: RenamedRegisters::default(),
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
@@ -513,27 +445,13 @@ mod tests {
                 ctrl,
             },
             rob_tag: tag,
-            rs1_tag: None,
-            rs2_tag: None,
-            rs3_tag: None,
-            rs1_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs2_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
-            rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
             predicted_target: Some(VirtAddr::new(0)),
             // Predicted incorrectly
             seq: crate::common::InstSeq::default(),
-            vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_src1_count: 0,
-            vec_src2_count: 0,
-            vec_src3_count: 0,
-            mask: None,
             vector_config: crate::isa::rvv::VectorConfig::default(),
             vector_rounding: crate::isa::rvv::VectorRounding::default(),
+            regs: RenamedRegisters::default(),
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);

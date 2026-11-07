@@ -77,7 +77,7 @@ impl<E: ExecutionEngine> Frontend<E> {
         &mut self,
         state: &mut StageCtx<'_>,
         engine: &mut E,
-        rename_output: &mut Latch<RenameIssueEntry>,
+        rename_output: &mut Latch<RenameIssueEntry<E::Regs>>,
     ) {
         let now = state.cycle;
 
@@ -139,7 +139,7 @@ impl<E: ExecutionEngine> Frontend<E> {
         &mut self,
         state: &mut StageCtx<'_>,
         engine: &mut E,
-        rename_output: &mut Latch<RenameIssueEntry>,
+        rename_output: &mut Latch<RenameIssueEntry<E::Regs>>,
     ) {
         let now = state.cycle;
         if rename_output.has_room()

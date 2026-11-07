@@ -12,6 +12,8 @@ mod issue;
 pub mod issue_queue;
 mod memory;
 mod rename;
+
+pub use self::rename::{O3Entry, RenamedRegisters};
 mod serialize;
 mod squash;
 
@@ -24,7 +26,9 @@ use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit;
 use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, VecMemMicroOp};
 use crate::uarch::pipeline::engine::{BundleHazard, DataCacheFlush, ExecutionEngine};
-use crate::uarch::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
+use crate::uarch::pipeline::latches::{
+    ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry, SourceReadiness,
+};
 use crate::uarch::pipeline::lsq::load_queue::{LoadQueue, OrderViolation};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
@@ -293,10 +297,12 @@ impl O3Engine {
 }
 
 impl ExecutionEngine for O3Engine {
+    type Regs = RenamedRegisters;
+
     fn tick(
         &mut self,
         state: &mut CoreCtx<'_>,
-        rename_output: &mut Vec<RenameIssueEntry>,
+        rename_output: &mut Vec<O3Entry>,
         redirect: &mut Option<VirtAddr>,
     ) {
         let now = state.cycle;
@@ -379,7 +385,7 @@ impl ExecutionEngine for O3Engine {
         &mut self,
         state: &mut crate::uarch::ctx::StageCtx<'_>,
         decoded: crate::uarch::pipeline::latches::IdExEntry,
-    ) -> crate::uarch::pipeline::engine::Renamed {
+    ) -> crate::uarch::pipeline::engine::Renamed<RenamedRegisters> {
         self.rename_one(state, decoded)
     }
 
@@ -401,7 +407,7 @@ impl ExecutionEngine for O3Engine {
         &mut self.mem1_mem2
     }
 
-    fn issue_snapshot(&self) -> Vec<RenameIssueEntry> {
+    fn issue_snapshot(&self) -> Vec<RenameIssueEntry<SourceReadiness>> {
         self.issue_queue.queue_snapshot()
     }
 

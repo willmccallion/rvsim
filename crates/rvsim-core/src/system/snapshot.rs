@@ -230,7 +230,11 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
     }
 }
 
-const fn renamed_slot(e: &crate::uarch::pipeline::latches::RenameIssueEntry) -> RenamedSlot {
+const fn renamed_slot(
+    e: &crate::uarch::pipeline::latches::RenameIssueEntry<
+        crate::uarch::pipeline::latches::SourceReadiness,
+    >,
+) -> RenamedSlot {
     RenamedSlot {
         pc: e.inst.pc,
         raw: e.inst.bits,
@@ -240,7 +244,7 @@ const fn renamed_slot(e: &crate::uarch::pipeline::latches::RenameIssueEntry) -> 
         rv1: e.inst.rv1,
         rv2: e.inst.rv2,
         rob_tag: e.rob_tag.raw(),
-        rs1_ready: e.rs1_tag.is_none(),
-        rs2_ready: e.rs2_tag.is_none(),
+        rs1_ready: e.regs.rs1,
+        rs2_ready: e.regs.rs2,
     }
 }

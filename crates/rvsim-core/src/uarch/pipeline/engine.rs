@@ -15,7 +15,9 @@ use crate::uarch::bpred::BranchPredictor;
 use crate::uarch::pipeline::backend::inorder::InOrderEngine;
 use crate::uarch::pipeline::backend::o3::O3Engine;
 use crate::uarch::pipeline::frontend::Frontend;
-use crate::uarch::pipeline::latches::{IdExEntry, Latch, RenameIssueEntry};
+use crate::uarch::pipeline::latches::{
+    IdExEntry, IssueRegisters, Latch, RenameIssueEntry, SourceReadiness,
+};
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
@@ -25,9 +27,9 @@ use crate::uarch::pipeline::squash::SquashScope;
 
 /// What renaming one decoded instruction produced.
 #[derive(Debug)]
-pub enum Renamed {
+pub enum Renamed<R> {
     /// The instruction has its backend slots; this is what issue sees.
-    Accepted(Box<RenameIssueEntry>),
+    Accepted(Box<RenameIssueEntry<R>>),
     /// A resource was short; the instruction waits in the frontend.
     Stalled(Box<IdExEntry>),
 }
@@ -50,6 +52,9 @@ pub enum BundleHazard {
 /// (mailbox + outstanding_* + `next_req_id` + cache routing IDs), giving
 /// memory1 direct access without splitting `tick` into phases.
 pub trait ExecutionEngine {
+    /// The registers this backend tracks an issuing instruction's operands by.
+    type Regs: IssueRegisters;
+
     /// Run one cycle of all backend stages (reverse order internally).
     ///
     /// The engine sets `redirect` to the PC fetch restarts from when an
@@ -58,7 +63,7 @@ pub trait ExecutionEngine {
     fn tick(
         &mut self,
         state: &mut crate::uarch::ctx::CoreCtx<'_>,
-        rename_output: &mut Vec<RenameIssueEntry>,
+        rename_output: &mut Vec<RenameIssueEntry<Self::Regs>>,
         redirect: &mut Option<VirtAddr>,
     );
 
@@ -74,7 +79,7 @@ pub trait ExecutionEngine {
         &mut self,
         state: &mut crate::uarch::ctx::StageCtx<'_>,
         decoded: IdExEntry,
-    ) -> Renamed;
+    ) -> Renamed<Self::Regs>;
 
     /// Flush all speculative state, in-flight loads and data walks included.
     /// Committed stores in the store buffer remain.
@@ -140,7 +145,7 @@ pub trait ExecutionEngine {
     fn mem1_mem2_mut(&mut self) -> &mut Vec<crate::uarch::pipeline::latches::Mem1Mem2Entry>;
 
     /// The issue queue's entries, oldest first.
-    fn issue_snapshot(&self) -> Vec<RenameIssueEntry>;
+    fn issue_snapshot(&self) -> Vec<RenameIssueEntry<SourceReadiness>>;
 
     /// The Execute→Memory1 latch.
     fn execute_mem1(&self) -> &[crate::uarch::pipeline::latches::ExMem1Entry];
@@ -544,7 +549,7 @@ pub struct Pipeline<E: ExecutionEngine> {
     /// Backend execution engine (in-order or out-of-order).
     pub engine: E,
     /// Rename → dispatch latch, consumed by the engine each cycle.
-    pub rename_output: Latch<RenameIssueEntry>,
+    pub rename_output: Latch<RenameIssueEntry<E::Regs>>,
     /// The PC the backend (squash / commit) redirected fetch to this cycle
     /// (branch misprediction, trap, FENCE.I, MRET/SRET); the frontend is
     /// discarded and restarted there after the engine's tick.
@@ -572,7 +577,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             fetch1_fetch2: self.frontend.fetch1_fetch2.entries().cloned().collect(),
             fetch2_decode: self.frontend.fetch2_decode.entries().cloned().collect(),
             decode_rename: self.frontend.decode_rename.entries().cloned().collect(),
-            rename_issue: self.rename_output.entries().cloned().collect(),
+            rename_issue: self.rename_output.entries().map(RenameIssueEntry::snapshot).collect(),
             issue_queue: self.engine.issue_snapshot(),
             execute_mem1: self.engine.execute_mem1().to_vec(),
             mem1_mem2: self.engine.mem1_mem2().to_vec(),

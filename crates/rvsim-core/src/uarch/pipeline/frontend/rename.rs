@@ -13,7 +13,7 @@ pub fn rename_stage<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     input: &mut Vec<IdExEntry>,
     engine: &mut E,
-    rename_output: &mut Vec<RenameIssueEntry>,
+    rename_output: &mut Vec<RenameIssueEntry<E::Regs>>,
 ) {
     let mut entries = std::mem::take(input).into_iter();
     let mut budget = engine.can_accept();

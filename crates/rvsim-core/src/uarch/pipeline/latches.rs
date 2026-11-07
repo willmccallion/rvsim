@@ -20,11 +20,9 @@ use crate::isa::instruction::InstSize;
 use crate::isa::op::AtomicOp;
 use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
-use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, Sew, VectorConfig, VectorRounding};
 use crate::sim::memory::write_log::WriteSeq;
 use crate::uarch::pipeline::rename::prf::PhysReg;
-use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::RobTag;
 
 /// A pipeline register between two stages.
@@ -288,28 +286,14 @@ pub struct Fetch1Fetch2Entry {
 
 /// Entry from Rename -> Issue (also used as Issue -> Execute input).
 ///
-/// This is the fully-decoded, register-read, ROB-tagged instruction
-/// entering the backend pipeline.
+/// This is the fully-decoded, ROB-tagged instruction entering the backend
+/// pipeline, with the registers `R` its backend tracks its operands by.
 #[derive(Clone, Default, Debug)]
-pub struct RenameIssueEntry {
+pub struct RenameIssueEntry<R> {
     /// ROB tag assigned during rename.
     pub rob_tag: RobTag,
     /// The decoded instruction and its operand values.
     pub inst: Inst,
-    /// Scoreboard tag for rs1 at rename time (None = read from register file).
-    pub rs1_tag: Option<RobTag>,
-    /// Scoreboard tag for rs2 at rename time.
-    pub rs2_tag: Option<RobTag>,
-    /// Scoreboard tag for rs3 at rename time.
-    pub rs3_tag: Option<RobTag>,
-    /// Physical register for rs1 (O3 PRF path; PhysReg(0) for in-order).
-    pub rs1_phys: PhysReg,
-    /// Physical register for rs2 (O3 PRF path).
-    pub rs2_phys: PhysReg,
-    /// Physical register for rs3 (O3 PRF path).
-    pub rs3_phys: PhysReg,
-    /// Physical destination register allocated at rename (O3 PRF path).
-    pub rd_phys: PhysReg,
     /// Trap from earlier stages.
     pub trap: Option<Trap>,
     /// Where the branch predictor sent fetch next, when it predicted
@@ -317,27 +301,49 @@ pub struct RenameIssueEntry {
     pub predicted_target: Option<VirtAddr>,
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
-    /// Physical vector registers for vs1 LMUL group (O3 backend).
-    pub vs1_phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// Physical vector registers for vs2 LMUL group (O3 backend).
-    pub vs2_phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// Physical vector registers for vs3/vd-as-source LMUL group (O3 backend).
-    pub vs3_phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// Physical vector registers for vd destination LMUL group (O3 backend).
-    pub vd_phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// Number of registers in vs1 LMUL group.
-    pub vec_src1_count: u8,
-    /// Number of registers in vs2 LMUL group.
-    pub vec_src2_count: u8,
-    /// Number of registers in vs3 LMUL group.
-    pub vec_src3_count: u8,
-    /// The physical register holding v0 when a masked vector op was renamed.
-    pub mask: Option<VecPhysReg>,
     /// The vector configuration at rename, so a `vsetvl` still in flight
     /// cannot change what the instruction executes with.
     pub vector_config: VectorConfig,
     /// The vector rounding modes at rename.
     pub vector_rounding: VectorRounding,
+    /// Where its operands come from and its result goes.
+    pub regs: R,
+}
+
+impl<R: IssueRegisters> RenameIssueEntry<R> {
+    /// This entry as a snapshot shows it.
+    pub fn snapshot(&self) -> RenameIssueEntry<SourceReadiness> {
+        RenameIssueEntry {
+            rob_tag: self.rob_tag,
+            inst: self.inst,
+            trap: self.trap.clone(),
+            predicted_target: self.predicted_target,
+            seq: self.seq,
+            vector_config: self.vector_config,
+            vector_rounding: self.vector_rounding,
+            regs: self.regs.readiness(),
+        }
+    }
+}
+
+/// The registers a backend tracks an issuing instruction's operands by.
+pub trait IssueRegisters: Clone + std::fmt::Debug {
+    /// The physical register its result goes to: x0's, which discards it,
+    /// for an instruction with no destination or a backend that renames
+    /// nothing.
+    fn rd_phys(&self) -> PhysReg;
+
+    /// Whether rs1 and rs2 were known at rename, as a snapshot shows them.
+    fn readiness(&self) -> SourceReadiness;
+}
+
+/// Whether an instruction's rs1 and rs2 were known when it was renamed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SourceReadiness {
+    /// rs1's value was known.
+    pub rs1: bool,
+    /// rs2's value was known.
+    pub rs2: bool,
 }
 
 /// Entry from Execute -> Memory1 latch.
@@ -453,14 +459,18 @@ impl ExMem1Entry {
 
     /// The result of executing `id`: `alu` and `store_data` for memory1,
     /// with no trap, FP flags or deferred side effects.
-    pub const fn from_issue(issued: &RenameIssueEntry, alu: u64, store_data: u64) -> Self {
+    pub fn from_issue<R: IssueRegisters>(
+        issued: &RenameIssueEntry<R>,
+        alu: u64,
+        store_data: u64,
+    ) -> Self {
         Self {
             rob_tag: issued.rob_tag,
             pc: issued.inst.pc,
             bits: issued.inst.bits,
             inst_size: issued.inst.size,
             rd: issued.inst.rd,
-            rd_phys: issued.rd_phys,
+            rd_phys: issued.regs.rd_phys(),
             alu,
             store_data,
             ctrl: issued.inst.ctrl,

@@ -1,5 +1,6 @@
 //! Dispatch into the issue queue, and select and issue out of it.
 
+use super::O3Entry;
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses, is_vec_store};
@@ -12,7 +13,7 @@ use crate::uarch::mdp::MemDepAccess;
 use crate::uarch::pipeline::backend::shared::execute::record_vector_flags;
 use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
 use crate::uarch::pipeline::backend::shared::vec_mem::VecMemInflight;
-use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
+use crate::uarch::pipeline::latches::ExMem1Entry;
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPrfView};
 use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::trace::Stage;
@@ -38,7 +39,7 @@ struct VecDest {
 
 /// A vector instruction that has issued, on its way into the vector unit.
 struct IssuedVector<'a> {
-    entry: &'a RenameIssueEntry,
+    entry: &'a O3Entry,
     result: ExMem1Entry,
     fu_type: FuType,
     dest: Option<VecDest>,
@@ -163,11 +164,11 @@ impl O3Engine {
 
         // Map through the rename-time registers so later renames don't alias.
         let mut mapping = self.vec_rename_view();
-        overlay(&mut mapping, ctrl.vs2, &entry.vs2_phys, entry.vec_src2_count);
-        overlay(&mut mapping, ctrl.vs1, &entry.vs1_phys, entry.vec_src1_count);
+        overlay(&mut mapping, ctrl.vs2, &entry.regs.vs2_phys, entry.regs.vec_src2_count);
+        overlay(&mut mapping, ctrl.vs1, &entry.regs.vs1_phys, entry.regs.vec_src1_count);
         // Before the destination: a masked compare writing v0 writes the
         // new register, reading each mask bit before it overwrites it.
-        if let Some(mask) = entry.mask {
+        if let Some(mask) = entry.regs.mask {
             mapping[0] = mask;
         }
         if let Some(dest) = dest {
@@ -175,8 +176,8 @@ impl O3Engine {
             for i in 0..dest.count as usize {
                 if base + i < 32 {
                     // Pre-copy old vd so tail/mask-undisturbed reads see correct baseline.
-                    if i < entry.vec_src3_count as usize {
-                        self.vec_prf.copy_reg(dest.phys[i], entry.vs3_phys[i]);
+                    if i < entry.regs.vec_src3_count as usize {
+                        self.vec_prf.copy_reg(dest.phys[i], entry.regs.vs3_phys[i]);
                     }
                     mapping[base + i] = dest.phys[i];
                 }
@@ -245,9 +246,9 @@ impl O3Engine {
         }
 
         let mut mapping = self.vec_rename_view();
-        overlay(&mut mapping, ctrl.vs2, &entry.vs2_phys, entry.vec_src2_count);
-        overlay(&mut mapping, ctrl.vd, &entry.vs3_phys, entry.vec_src3_count);
-        if let Some(mask) = entry.mask {
+        overlay(&mut mapping, ctrl.vs2, &entry.regs.vs2_phys, entry.regs.vec_src2_count);
+        overlay(&mut mapping, ctrl.vd, &entry.regs.vs3_phys, entry.regs.vec_src3_count);
+        if let Some(mask) = entry.regs.mask {
             mapping[0] = mask;
         }
         let micro_ops = element_accesses(
@@ -261,9 +262,9 @@ impl O3Engine {
 
         // Pre-copy old vd so tail / mask-undisturbed elements observe prior values.
         if !is_store && let Some(dest) = dest {
-            let copy_count = (dest.count as usize).min(entry.vec_src3_count as usize);
+            let copy_count = (dest.count as usize).min(entry.regs.vec_src3_count as usize);
             for (i, &dst) in dest.phys.iter().enumerate().take(copy_count) {
-                self.vec_prf.copy_reg(dst, entry.vs3_phys[i]);
+                self.vec_prf.copy_reg(dst, entry.regs.vs3_phys[i]);
             }
         }
 
@@ -291,11 +292,7 @@ impl O3Engine {
 
     /// Dispatches renamed instructions into the issue queue, each with the
     /// memory dependence the MDP predicts for it.
-    pub(super) fn dispatch(
-        &mut self,
-        state: &mut CoreCtx<'_>,
-        rename_output: &mut Vec<RenameIssueEntry>,
-    ) {
+    pub(super) fn dispatch(&mut self, state: &mut CoreCtx<'_>, rename_output: &mut Vec<O3Entry>) {
         for entry in std::mem::take(rename_output) {
             state.trace_stage(entry.seq, Stage::Dispatch);
             let access = MemDepAccess::of(&entry.inst.ctrl);
@@ -322,11 +319,11 @@ impl O3Engine {
 
 /// The destination register group of a vector instruction that writes
 /// vector registers, as rename sized it.
-fn vector_dest(entry: &RenameIssueEntry) -> Option<VecDest> {
+fn vector_dest(entry: &O3Entry) -> Option<VecDest> {
     let ctrl = &entry.inst.ctrl;
     let groups = vector_operand_groups(ctrl, &entry.vector_config);
     (ctrl.vec_reg_write && groups.vd > 0).then_some(VecDest {
-        phys: entry.vd_phys,
+        phys: entry.regs.vd_phys,
         count: groups.vd,
         reg: ctrl.vd,
     })

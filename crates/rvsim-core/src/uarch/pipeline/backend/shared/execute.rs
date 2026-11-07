@@ -13,7 +13,7 @@ use crate::exec::signals::ControlFlow;
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
 use crate::uarch::ctx::StageCtx;
-use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
+use crate::uarch::pipeline::latches::{ExMem1Entry, IssueRegisters, RenameIssueEntry};
 use crate::uarch::pipeline::rob::{BpOutcome, Rob, RobTag};
 use crate::uarch::pipeline::squash::{BranchRepair, Redirect, SquashCause};
 use crate::{trace_branch, trace_trap};
@@ -21,7 +21,11 @@ use crate::{trace_branch, trace_trap};
 /// The result of an instruction that raised `trap`. The trap
 /// travels with it: writeback records it on the ROB entry and commit takes
 /// it, flushing everything younger, as a real core does.
-pub fn fault(state: &StageCtx<'_>, issued: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
+pub fn fault<R: IssueRegisters>(
+    state: &StageCtx<'_>,
+    issued: &RenameIssueEntry<R>,
+    trap: Trap,
+) -> ExMem1Entry {
     trace_trap!(state.trace_trap_enabled(&trap);
         event   = "fault",
         pc      = %crate::common::trace::Hex(issued.inst.pc.val()),
@@ -33,16 +37,16 @@ pub fn fault(state: &StageCtx<'_>, issued: &RenameIssueEntry, trap: Trap) -> ExM
 }
 
 /// [`fault`] with no redirect: commit takes the trap.
-pub fn faulted(
+pub fn faulted<R: IssueRegisters>(
     state: &StageCtx<'_>,
-    issued: &RenameIssueEntry,
+    issued: &RenameIssueEntry<R>,
     trap: Trap,
 ) -> (ExMem1Entry, Option<Redirect>) {
     (fault(state, issued, trap), None)
 }
 
 /// The instruction after `id` squashes and refetches.
-pub const fn refetch_after(issued: &RenameIssueEntry) -> Redirect {
+pub const fn refetch_after<R: IssueRegisters>(issued: &RenameIssueEntry<R>) -> Redirect {
     Redirect::to(issued.inst.next_pc(), SquashCause::System)
 }
 
@@ -61,7 +65,10 @@ pub enum SystemExecution {
 /// Executes a system instruction as far as both backends agree; `None`
 /// for everything else, FENCE included (it orders memory in issue and at
 /// commit, not here).
-pub fn execute_system(state: &StageCtx<'_>, issued: &RenameIssueEntry) -> Option<SystemExecution> {
+pub fn execute_system<R: IssueRegisters>(
+    state: &StageCtx<'_>,
+    issued: &RenameIssueEntry<R>,
+) -> Option<SystemExecution> {
     Some(match system_effect(state, &issued.inst) {
         SystemEffect::NotSystem => return None,
         SystemEffect::Trap(trap) => SystemExecution::Done(fault(state, issued, trap), None),
@@ -96,7 +103,11 @@ pub fn record_vector_flags(rob: &mut Rob, tag: RobTag, result: &VecExecResult) {
 
 /// The result of an instruction that arrived carrying a trap from an
 /// earlier stage.
-pub fn propagate_trap(state: &StageCtx<'_>, issued: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
+pub fn propagate_trap<R: IssueRegisters>(
+    state: &StageCtx<'_>,
+    issued: &RenameIssueEntry<R>,
+    trap: Trap,
+) -> ExMem1Entry {
     fault(state, issued, trap)
 }
 
@@ -108,10 +119,10 @@ pub fn propagate_trap(state: &StageCtx<'_>, issued: &RenameIssueEntry, trap: Tra
 ///
 /// The instruction-address-misaligned trap a taken branch or jump raises
 /// when its target is not IALIGN-aligned.
-pub fn resolve_control_flow(
+pub fn resolve_control_flow<R: IssueRegisters>(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
-    issued: &RenameIssueEntry,
+    issued: &RenameIssueEntry<R>,
     op_a: u64,
     op_b: u64,
 ) -> Result<Option<Redirect>, Trap> {
@@ -125,10 +136,10 @@ pub fn resolve_control_flow(
 /// Resolves a conditional branch against its prediction, files the outcome
 /// for the predictor to learn from at commit, and returns the redirect a
 /// misprediction needs.
-fn resolve_branch(
+fn resolve_branch<R: IssueRegisters>(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
-    issued: &RenameIssueEntry,
+    issued: &RenameIssueEntry<R>,
     op_a: u64,
     op_b: u64,
 ) -> Result<Option<Redirect>, Trap> {
@@ -165,10 +176,10 @@ fn resolve_branch(
 /// Resolves a JAL or JALR against its predicted target and returns the
 /// redirect a misprediction needs. Jumps do not train the direction tables,
 /// but commit counts their predictions with the branches'.
-fn resolve_jump(
+fn resolve_jump<R: IssueRegisters>(
     state: &mut StageCtx<'_>,
     rob: &mut Rob,
-    issued: &RenameIssueEntry,
+    issued: &RenameIssueEntry<R>,
 ) -> Result<Option<Redirect>, Trap> {
     let inst = &issued.inst;
     let is_jalr = is_jalr(inst);

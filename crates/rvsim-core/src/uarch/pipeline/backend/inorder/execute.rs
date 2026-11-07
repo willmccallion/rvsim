@@ -3,6 +3,7 @@
 //! This stage performs arithmetic, branch resolution, and system instruction
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
+use super::issue::InOrderEntry;
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::shadow::ShadowVpr;
@@ -18,7 +19,7 @@ use crate::uarch::pipeline::backend::shared::execute::{
     resolve_control_flow,
 };
 use crate::uarch::pipeline::backend::shared::vector_config::set_vector_config;
-use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
+use crate::uarch::pipeline::latches::ExMem1Entry;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 use crate::uarch::pipeline::squash::Redirect;
 use crate::uarch::pipeline::trace::Stage;
@@ -43,7 +44,7 @@ pub struct ExecutedBatch {
 /// engine takes each after the redirect latency.
 pub fn execute_inorder(
     state: &mut StageCtx<'_>,
-    entries: &[RenameIssueEntry],
+    entries: &[InOrderEntry],
     rob: &mut Rob,
 ) -> ExecutedBatch {
     let mut batch =
@@ -58,7 +59,7 @@ pub fn execute_inorder(
 
 fn execute_one(
     state: &mut StageCtx<'_>,
-    issued: &RenameIssueEntry,
+    issued: &InOrderEntry,
     rob: &mut Rob,
 ) -> (ExMem1Entry, Option<Redirect>) {
     if let Some(trap) = issued.trap.clone() {
@@ -127,7 +128,7 @@ fn execute_one(
 /// instruction wrote.
 fn execute_system_inorder(
     state: &StageCtx<'_>,
-    issued: &RenameIssueEntry,
+    issued: &InOrderEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
     Some(match execute_system(state, issued)? {
@@ -142,11 +143,7 @@ fn execute_system_inorder(
 
 /// Executes a vector instruction against a shadow of the architectural
 /// registers and files what it wrote on its ROB entry for commit.
-fn execute_vector(
-    state: &StageCtx<'_>,
-    issued: &RenameIssueEntry,
-    rob: &mut Rob,
-) -> Result<u64, Trap> {
+fn execute_vector(state: &StageCtx<'_>, issued: &InOrderEntry, rob: &mut Rob) -> Result<u64, Trap> {
     let csrs = &state.hart().csrs;
     let vector = &state.config.isa.vector;
     let mut shadow = ShadowVpr::new(state.hart().regs.vpr());

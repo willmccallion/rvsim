@@ -2,15 +2,15 @@
 
 use crate::exec::vector::vector_config;
 use crate::uarch::ctx::StageCtx;
-use crate::uarch::pipeline::latches::RenameIssueEntry;
+use crate::uarch::pipeline::latches::{IssueRegisters, RenameIssueEntry};
 use crate::uarch::pipeline::rob::Rob;
 
 /// Executes a `vsetvl`: records the configuration it establishes on its ROB
 /// entry, where younger instructions read it from now and commit writes it
 /// to the CSRs. Returns the new `vl`.
-pub fn set_vector_config(
+pub fn set_vector_config<R: IssueRegisters>(
     state: &StageCtx<'_>,
-    issued: &RenameIssueEntry,
+    issued: &RenameIssueEntry<R>,
     rs1_value: u64,
     rs2_value: u64,
     rob: &mut Rob,
