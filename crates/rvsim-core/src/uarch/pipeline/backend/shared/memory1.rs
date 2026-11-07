@@ -48,7 +48,6 @@ use crate::uarch::ctx::stage::PteUpdateOutcome;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::pipeline::backend::shared::memory2;
 use crate::uarch::pipeline::engine::{ExecutionEngine, TrapProgress};
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Mem1Mem2Entry, MicroOpIdx, VecMemAccess, VecMemTarget,
 };
@@ -186,7 +185,6 @@ fn process_entry<E: ExecutionEngine>(
     {
         let mut ex = ex;
         ex.trap.clone_from(&faulted.trap);
-        ex.exception_stage = faulted.exception_stage;
         push_passthrough_with_trap(engine, ex);
         return EntryOutcome::Done;
     }
@@ -215,19 +213,19 @@ fn process_entry<E: ExecutionEngine>(
         } else {
             misaligned::load_misaligned_trap(ex.alu)
         };
-        push_trap(engine, ex, trap, ExceptionStage::Memory);
+        push_trap(engine, ex, trap);
         return EntryOutcome::Done;
     }
 
     // 3. Sdtrig load/store triggers: the breakpoint's tval is the address.
     if ex.ctrl.mem_read && !is_atomic && state.check_load_trigger(ex.alu) {
         let trap = Trap::Breakpoint(ex.alu);
-        push_trap(engine, ex, trap, ExceptionStage::Memory);
+        push_trap(engine, ex, trap);
         return EntryOutcome::Done;
     }
     if ex.ctrl.mem_write && !is_atomic && state.check_store_trigger(ex.alu) {
         let trap = Trap::Breakpoint(ex.alu);
-        push_trap(engine, ex, trap, ExceptionStage::Memory);
+        push_trap(engine, ex, trap);
         return EntryOutcome::Done;
     }
 
@@ -240,7 +238,7 @@ fn process_entry<E: ExecutionEngine>(
             FirstPage::Waiting(waiting) => return waiting,
         };
     if let Some(trap) = first.trap {
-        push_trap(engine, ex, trap, ExceptionStage::Memory);
+        push_trap(engine, ex, trap);
         return EntryOutcome::Done;
     }
     let paddr = first.paddr;
@@ -258,7 +256,7 @@ fn process_entry<E: ExecutionEngine>(
         match outcome {
             TranslateOutcome::Ready(r) => {
                 if let Some(trap) = r.trap {
-                    push_trap(engine, ex, trap, ExceptionStage::Memory);
+                    push_trap(engine, ex, trap);
                     return EntryOutcome::Done;
                 }
                 if r.cycles > 0 {
@@ -277,7 +275,7 @@ fn process_entry<E: ExecutionEngine>(
                     } else {
                         misaligned::load_misaligned_trap(ex.alu)
                     };
-                    push_trap(engine, ex, trap, ExceptionStage::Memory);
+                    push_trap(engine, ex, trap);
                     return EntryOutcome::Done;
                 }
                 second_dirty_update = r.dirty_update;
@@ -525,7 +523,7 @@ fn translate_cbo<E: ExecutionEngine>(
     let effect = match cbo::gate(&hart.csrs, hart.privilege, ex.ctrl.system_op, ex.inst) {
         Ok(effect) => effect,
         Err(trap) => {
-            push_trap(engine, ex, trap, ExceptionStage::Memory);
+            push_trap(engine, ex, trap);
             return EntryOutcome::Done;
         }
     };
@@ -534,7 +532,7 @@ fn translate_cbo<E: ExecutionEngine>(
     let tval = cbo::fault_address(ex.ctrl.system_op, rs1);
     if state.check_store_trigger(block) {
         let trap = Trap::Breakpoint(tval);
-        push_trap(engine, ex, trap, ExceptionStage::Memory);
+        push_trap(engine, ex, trap);
         return EntryOutcome::Done;
     }
 
@@ -545,7 +543,7 @@ fn translate_cbo<E: ExecutionEngine>(
     let (paddr, dirty_update) = match outcome {
         TranslateOutcome::Ready(r) => {
             if let Some(trap) = r.trap {
-                push_trap(engine, ex, cbo::as_store_fault(trap, tval), ExceptionStage::Memory);
+                push_trap(engine, ex, cbo::as_store_fault(trap, tval));
                 return EntryOutcome::Done;
             }
             if r.cycles > 0 {
@@ -568,7 +566,7 @@ fn translate_cbo<E: ExecutionEngine>(
     // Device regions do not support cache-block operations, `cbo.zero`
     // included, which the CMO specification leaves to each I/O region.
     if !state.bus.is_ram(paddr, CBOZ_BLOCK_SIZE) {
-        push_trap(engine, ex, Trap::StoreAccessFault(tval), ExceptionStage::Memory);
+        push_trap(engine, ex, Trap::StoreAccessFault(tval));
         return EntryOutcome::Done;
     }
 
@@ -674,16 +672,10 @@ fn push_passthrough_with_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entr
 }
 
 /// Emits a fresh trap entry into the M1→M2 latch.
-fn push_trap<E: ExecutionEngine>(
-    engine: &mut E,
-    ex: ExMem1Entry,
-    trap: Trap,
-    stage: ExceptionStage,
-) {
+fn push_trap<E: ExecutionEngine>(engine: &mut E, ex: ExMem1Entry, trap: Trap) {
     let vaddr = VirtAddr::new(ex.alu);
     engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         trap: Some(trap),
-        exception_stage: Some(stage),
         ..Mem1Mem2Entry::from_execute(ex, vaddr, PhysAddr::new(0))
     });
 }

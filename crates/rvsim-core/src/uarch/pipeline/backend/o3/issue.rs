@@ -13,7 +13,6 @@ use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
 use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, micro_ops_for, moves_in_spans, plan_accesses, route_to_phys,
 };
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecPrfView};
 use crate::uarch::pipeline::squash::PendingSquash;
@@ -195,7 +194,7 @@ impl O3Engine {
         let vec_result = match executed {
             Ok(r) => r,
             Err(trap) => {
-                self.rob.fault(result.rob_tag, trap, ExceptionStage::Execute);
+                self.rob.fault(result.rob_tag, trap);
                 return;
             }
         };
@@ -242,7 +241,7 @@ impl O3Engine {
         // Reject illegal EMUL (>8) before element_accesses would panic.
         let vtype = parse_vtype(entry.vec_vtype);
         if let Err(trap) = check_vec_mem_emul(result.inst, vec_op, ctrl, vtype) {
-            self.rob.fault(result.rob_tag, trap, ExceptionStage::Execute);
+            self.rob.fault(result.rob_tag, trap);
             return;
         }
 

@@ -93,7 +93,6 @@ impl InOrderEngine {
             rs2_tag,
             rs3_tag,
             trap: id.trap,
-            exception_stage: id.exception_stage,
             predicted_target: id.predicted_target,
             seq: id.seq,
             vs1_phys: [VecPhysReg::ZERO; 8],

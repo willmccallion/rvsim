@@ -18,7 +18,6 @@ use crate::isa::reg::{self, RegIdx};
 use crate::isa::rvv::VectorConfig;
 use crate::uarch::bpred::ControlInst;
 use crate::uarch::ctx::StageCtx;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{IdExEntry, IfIdEntry};
 use crate::uarch::pipeline::trace::Stage;
 
@@ -53,7 +52,6 @@ pub fn decode_stage(
                     ..Default::default()
                 },
                 trap: Some(trap.clone()),
-                exception_stage: if_entry.exception_stage,
                 seq: if_entry.seq,
                 ..Default::default()
             });
@@ -71,7 +69,6 @@ pub fn decode_stage(
             ctrl = ControlSignals::default();
             trap = Some(Trap::IllegalInstruction(inst));
         }
-        let ex_stage = trap.as_ref().map(|_| ExceptionStage::Decode);
         // In SE mode a user program's ecall returns its syscall's result in
         // a0, which is its destination so that dependents wait for it.
         if ctrl.system_op == SystemOp::Ecall && state.serves_syscalls() {
@@ -119,7 +116,6 @@ pub fn decode_stage(
                 ctrl,
             },
             trap,
-            exception_stage: ex_stage,
             predicted_target: if_entry.predicted_target,
             seq: if_entry.seq,
         };

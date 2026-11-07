@@ -31,7 +31,6 @@ use crate::uarch::pipeline::backend::shared::vec_mem::{
 };
 use crate::uarch::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, ExecutionEngine};
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
@@ -214,14 +213,14 @@ impl InOrderEngine {
         };
         if illegal_in_current_state(state.hart, &entry.inst) {
             let trap = Trap::IllegalInstruction(entry.inst.bits);
-            self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
+            self.rob.fault(entry.rob_tag, trap);
             return;
         }
         let vec_op = entry.inst.ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
         let vtype = parse_vtype(state.hart.csrs.vtype);
         if let Err(trap) = check_vec_mem_emul(entry.inst.bits, vec_op, &entry.inst.ctrl, vtype) {
-            self.rob.fault(entry.rob_tag, trap, ExceptionStage::Execute);
+            self.rob.fault(entry.rob_tag, trap);
             return;
         }
         let vd_count = if is_store {

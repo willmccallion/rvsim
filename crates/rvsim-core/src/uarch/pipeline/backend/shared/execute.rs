@@ -9,40 +9,29 @@ use crate::exec::signals::ControlFlow;
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
 use crate::uarch::ctx::StageCtx;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rob::{BpOutcome, Rob};
 use crate::uarch::pipeline::squash::{BranchRepair, Redirect};
 use crate::{trace_branch, trace_trap};
 
-/// The result of an instruction that raised `trap` in `stage`. The trap
+/// The result of an instruction that raised `trap`. The trap
 /// travels with it: writeback records it on the ROB entry and commit takes
 /// it, flushing everything younger, as a real core does.
-pub fn fault(
-    state: &StageCtx<'_>,
-    id: &RenameIssueEntry,
-    trap: Trap,
-    stage: ExceptionStage,
-) -> ExMem1Entry {
+pub fn fault(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
     trace_trap!(state.trace_trap_enabled(&trap);
         event   = "fault",
-        stage   = ?stage,
         pc      = %crate::common::trace::Hex(id.inst.pc),
         rob_tag = %id.rob_tag,
         trap    = ?trap,
         "EX: instruction faulted"
     );
-    ExMem1Entry {
-        trap: Some(trap),
-        exception_stage: Some(stage),
-        ..ExMem1Entry::from_issue(id, 0, 0)
-    }
+    ExMem1Entry { trap: Some(trap), ..ExMem1Entry::from_issue(id, 0, 0) }
 }
 
 /// The result of an instruction that arrived carrying a trap from an
 /// earlier stage.
 pub fn propagate_trap(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
-    fault(state, id, trap, id.exception_stage.unwrap_or(ExceptionStage::Execute))
+    fault(state, id, trap)
 }
 
 /// Resolves a branch or jump to the redirect a misprediction needs.

@@ -19,7 +19,6 @@ use crate::uarch::pipeline::backend::shared::execute::{
     fault, propagate_trap, resolve_control_flow,
 };
 use crate::uarch::pipeline::backend::shared::vector_config::set_vector_config;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 use crate::uarch::pipeline::squash::{Redirect, SquashCause};
@@ -68,7 +67,7 @@ fn faulted(
     id: &RenameIssueEntry,
     trap: Trap,
 ) -> (ExMem1Entry, Option<Redirect>) {
-    (fault(state, id, trap, ExceptionStage::Execute), None)
+    (fault(state, id, trap), None)
 }
 
 fn execute_one(

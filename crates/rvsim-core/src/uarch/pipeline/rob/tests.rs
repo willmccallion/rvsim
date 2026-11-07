@@ -90,7 +90,7 @@ fn test_in_order_commit() {
 fn test_fault_commit() {
     let mut rob = Rob::new(4);
     let t1 = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
-    rob.fault(t1, Trap::IllegalInstruction(0), ExceptionStage::Decode);
+    rob.fault(t1, Trap::IllegalInstruction(0));
 
     let entry = rob.commit_head().unwrap();
     assert_eq!(entry.state, RobState::Faulted);

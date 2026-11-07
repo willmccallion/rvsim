@@ -11,8 +11,6 @@ pub mod commit_log;
 
 pub mod engine;
 
-pub mod exception;
-
 pub mod frontend;
 
 pub mod latches;

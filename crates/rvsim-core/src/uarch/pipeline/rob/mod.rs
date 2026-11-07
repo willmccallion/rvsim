@@ -24,7 +24,6 @@ use crate::isa::instruction::InstSize;
 use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VectorConfig;
-use crate::uarch::pipeline::exception::ExceptionStage;
 use crate::uarch::pipeline::rename::checkpoint::CheckpointId;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
@@ -176,8 +175,6 @@ pub struct RobEntry {
     pub state: RobState,
     /// Trap associated with this instruction, if faulted.
     pub trap: Option<Trap>,
-    /// Pipeline stage where the exception was first detected.
-    pub exception_stage: Option<ExceptionStage>,
     /// A CSR access the in-order backend performs when the entry reaches
     /// the head of the ROB; the entry has no result until then.
     pub csr_request: Option<CsrRequest>,
@@ -358,7 +355,6 @@ impl Rob {
             ctrl,
             state: RobState::Issued,
             trap: None,
-            exception_stage: None,
             csr_request: None,
             csr_update: None,
             vec_csr_update: None,
@@ -433,25 +429,23 @@ impl Rob {
     /// Marks an entry as Faulted with a trap. The first fault an
     /// instruction raises is the one it takes: a later stage cannot replace
     /// it, since the instruction never really reached that stage.
-    pub fn fault(&mut self, tag: RobTag, trap: Trap, stage: ExceptionStage) {
+    pub fn fault(&mut self, tag: RobTag, trap: Trap) {
         if let Some(entry) = self.find_entry_mut(tag)
             && entry.state != RobState::Faulted
         {
             entry.state = RobState::Faulted;
             entry.trap = Some(trap);
-            entry.exception_stage = Some(stage);
         }
     }
 
     /// Faults a vector memory instruction at `element`, where its trap
     /// sets `vstart`.
-    pub fn fault_element(&mut self, tag: RobTag, trap: Trap, stage: ExceptionStage, element: u64) {
+    pub fn fault_element(&mut self, tag: RobTag, trap: Trap, element: u64) {
         if let Some(entry) = self.find_entry_mut(tag)
             && entry.state != RobState::Faulted
         {
             entry.state = RobState::Faulted;
             entry.trap = Some(trap);
-            entry.exception_stage = Some(stage);
             entry.fault_vstart = Some(element);
         }
     }
