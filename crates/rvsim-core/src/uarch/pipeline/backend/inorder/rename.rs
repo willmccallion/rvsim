@@ -43,8 +43,8 @@ impl InOrderEngine {
             decoded.inst.size,
             decoded.inst.rd,
             decoded.inst.ctrl,
-            PhysReg(0),
-            PhysReg(0),
+            PhysReg::ZERO,
+            PhysReg::ZERO,
             decoded.seq,
         ) else {
             return Renamed::Stalled(Box::new(decoded));

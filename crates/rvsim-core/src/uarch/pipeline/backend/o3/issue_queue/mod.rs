@@ -277,7 +277,7 @@ impl IssueQueue {
         let ctrl = &entry.inst.ctrl;
         let src1 = resolve_operand(ctrl.src1(entry.inst.rs1), entry.regs.rs1_phys, prf);
         let src2 = resolve_operand(ctrl.src2(entry.inst.rs2), entry.regs.rs2_phys, prf);
-        let src3 = ctrl.src3(entry.inst.rs3).map_or(OperandState::ready(PhysReg(0), 0), |rs3| {
+        let src3 = ctrl.src3(entry.inst.rs3).map_or(OperandState::ready(PhysReg::ZERO, 0), |rs3| {
             resolve_operand(rs3, entry.regs.rs3_phys, prf)
         });
 
@@ -620,7 +620,7 @@ impl IssueQueue {
 /// ready, else the register to wait for.
 fn resolve_operand(reg: ArchReg, phys: PhysReg, prf: &PhysRegFile) -> OperandState {
     if reg.is_hardwired_zero() {
-        return OperandState::ready(PhysReg(0), 0);
+        return OperandState::ready(PhysReg::ZERO, 0);
     }
     if prf.is_ready(phys) {
         OperandState::ready(phys, prf.read(phys))

@@ -487,6 +487,6 @@ mod tests {
         state.hart.regs.write(RegIdx::new(1), 42);
         engine.sync_arch_regs(&state);
 
-        assert_eq!(engine.prf.read(crate::uarch::pipeline::rename::prf::PhysReg(1)), 42);
+        assert_eq!(engine.prf.read(crate::uarch::pipeline::rename::prf::PhysReg::new(1)), 42);
     }
 }

@@ -105,7 +105,7 @@ mod tests {
     fn test_reclaim_zero_noop() {
         let mut fl = FreeList::<PhysReg>::new(8, 4);
         let initial = fl.available();
-        fl.reclaim(PhysReg(0)); // x0 should not be reclaimed
+        fl.reclaim(PhysReg::ZERO); // x0 should not be reclaimed
         assert_eq!(fl.available(), initial);
     }
 
