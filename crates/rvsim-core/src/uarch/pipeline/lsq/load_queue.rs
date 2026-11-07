@@ -101,8 +101,6 @@ pub struct LoadQueueEntry {
     pub bytes: usize,
     /// Current lifecycle state.
     pub state: LoadState,
-    /// Whether this slot is occupied.
-    pub valid: bool,
     /// What the slot is held for.
     pub holder: SlotHolder,
     /// The vector load micro-op holding it has written back, with its value
@@ -116,54 +114,53 @@ pub struct LoadQueueEntry {
 /// Load queue — bounded set of in-flight loads.
 #[derive(Debug)]
 pub struct LoadQueue {
-    entries: Vec<LoadQueueEntry>,
-    /// Cached count of valid entries.
-    valid_count: usize,
+    /// The slots, `None` while free; a load takes the first free one.
+    slots: Vec<Option<LoadQueueEntry>>,
+    /// Slots in use.
+    occupied: usize,
 }
 
 impl LoadQueue {
     /// Creates a new load queue with the given capacity.
     pub fn new(capacity: usize) -> Self {
-        let mut entries = Vec::with_capacity(capacity);
-        entries.resize_with(capacity, LoadQueueEntry::default);
-        Self { entries, valid_count: 0 }
+        Self { slots: vec![None; capacity], occupied: 0 }
     }
 
     /// Returns the number of slots.
     #[inline]
     pub const fn capacity(&self) -> usize {
-        self.entries.len()
+        self.slots.len()
     }
 
     #[cfg(test)]
-    /// Returns the number of valid entries.
+    /// Returns the number of occupied slots.
     #[inline]
     pub const fn len(&self) -> usize {
-        self.valid_count
+        self.occupied
     }
 
     #[cfg(test)]
     /// Returns true if the load queue is empty.
     #[inline]
     pub const fn is_empty(&self) -> bool {
-        self.valid_count == 0
+        self.occupied == 0
     }
 
     #[cfg(test)]
     /// Returns true if the load queue is full.
     #[inline]
     pub const fn is_full(&self) -> bool {
-        self.valid_count == self.entries.len()
+        self.occupied == self.slots.len()
     }
 
     /// Returns the number of free slots.
     #[inline]
     pub const fn free_slots(&self) -> usize {
-        self.entries.len() - self.valid_count
+        self.slots.len() - self.occupied
     }
 
     /// Allocates a slot for a scalar load of `bytes` bytes. Returns false
-    /// if every slot is currently valid.
+    /// if every slot is taken.
     pub fn allocate(&mut self, rob_tag: RobTag, bytes: usize) -> bool {
         self.occupy_free_slot(rob_tag, bytes, SlotHolder::Scalar)
     }
@@ -208,9 +205,8 @@ impl LoadQueue {
     /// Returns the slots of the vector load `rob_tag`'s micro-ops that have
     /// written back to its reservation, once no older store can resolve.
     pub fn unclaim_written_back(&mut self, rob_tag: RobTag) {
-        for slot in &mut self.entries {
-            if slot.valid
-                && slot.rob_tag == rob_tag
+        for slot in self.slots.iter_mut().flatten() {
+            if slot.rob_tag == rob_tag
                 && matches!(slot.holder, SlotHolder::VectorMicroOp(_))
                 && slot.written_back
             {
@@ -220,11 +216,11 @@ impl LoadQueue {
     }
 
     fn occupy_free_slot(&mut self, rob_tag: RobTag, bytes: usize, holder: SlotHolder) -> bool {
-        let Some(slot) = self.entries.iter_mut().find(|e| !e.valid) else {
+        let Some(slot) = self.slots.iter_mut().find(|slot| slot.is_none()) else {
             return false;
         };
-        *slot = Self::pending(rob_tag, bytes, holder);
-        self.valid_count += 1;
+        *slot = Some(Self::pending(rob_tag, bytes, holder));
+        self.occupied += 1;
         true
     }
 
@@ -236,7 +232,6 @@ impl LoadQueue {
             data: 0,
             bytes,
             state: LoadState::Pending,
-            valid: true,
             holder,
             written_back: false,
             observed: None,
@@ -308,9 +303,8 @@ impl LoadQueue {
         let store_end = store_start + store_bytes;
 
         let mut oldest_violator: Option<RobTag> = None;
-        for entry in &self.entries {
-            if !entry.valid
-                || !entry.rob_tag.is_newer_than(store_rob_tag)
+        for entry in self.slots.iter().flatten() {
+            if !entry.rob_tag.is_newer_than(store_rob_tag)
                 || matches!(entry.state, LoadState::Pending)
             {
                 continue;
@@ -348,11 +342,8 @@ impl LoadQueue {
         let line_bytes = log.line_bytes();
         let line = paddr.val() / line_bytes;
         let mut oldest: Option<RobTag> = None;
-        for entry in &self.entries {
-            if !entry.valid
-                || !entry.rob_tag.is_newer_than(older_tag)
-                || entry.state != LoadState::Executed
-            {
+        for entry in self.slots.iter().flatten() {
+            if !entry.rob_tag.is_newer_than(older_tag) || entry.state != LoadState::Executed {
                 continue;
             }
             let (Some(entry_paddr), Some(observed)) = (entry.paddr, entry.observed) else {
@@ -373,12 +364,7 @@ impl LoadQueue {
 
     /// Deallocates all load queue entries with the given ROB tag.
     pub fn deallocate(&mut self, rob_tag: RobTag) {
-        for entry in &mut self.entries {
-            if entry.valid && entry.rob_tag == rob_tag {
-                entry.valid = false;
-                self.valid_count -= 1;
-            }
-        }
+        self.free_where(|entry| entry.rob_tag == rob_tag);
     }
 
     /// Removes the loads `scope` squashes.
@@ -391,24 +377,27 @@ impl LoadQueue {
 
     /// Flushes all entries (trap / full pipeline flush).
     pub fn flush(&mut self) {
-        for entry in &mut self.entries {
-            entry.valid = false;
-        }
-        self.valid_count = 0;
+        self.slots.fill(None);
+        self.occupied = 0;
     }
 
     /// Flushes entries newer than `keep_tag` (misprediction recovery).
     pub fn flush_after(&mut self, keep_tag: RobTag) {
-        for entry in &mut self.entries {
-            if entry.valid && entry.rob_tag.is_newer_than(keep_tag) {
-                entry.valid = false;
-                self.valid_count -= 1;
+        self.free_where(|entry| entry.rob_tag.is_newer_than(keep_tag));
+    }
+
+    /// Frees every slot whose load `frees` picks.
+    fn free_where(&mut self, frees: impl Fn(&LoadQueueEntry) -> bool) {
+        for slot in &mut self.slots {
+            if slot.as_ref().is_some_and(&frees) {
+                *slot = None;
+                self.occupied -= 1;
             }
         }
     }
 
     fn find_mut(&mut self, rob_tag: RobTag, holder: SlotHolder) -> Option<&mut LoadQueueEntry> {
-        self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag && e.holder == holder)
+        self.slots.iter_mut().flatten().find(|e| e.rob_tag == rob_tag && e.holder == holder)
     }
 }
 
