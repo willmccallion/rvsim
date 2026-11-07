@@ -31,14 +31,13 @@ use crate::isa::op::AluOp;
 /// * `op`   - The ALU operation to perform
 /// * `a`    - First operand (64-bit value)
 /// * `b`    - Second operand (64-bit value, also used as shift amount)
-/// * `_c`   - Third operand (currently unused, reserved for future use)
 /// * `is32` - If true, perform 32-bit operation (RV32 mode)
 ///
 /// # Returns
 ///
 /// The 64-bit result of the ALU operation. For 32-bit operations,
 /// the result is sign-extended to 64 bits.
-pub const fn execute(op: AluOp, a: u64, b: u64, _c: u64, is32: bool) -> u64 {
+pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
     match op {
         AluOp::Add
         | AluOp::Sub

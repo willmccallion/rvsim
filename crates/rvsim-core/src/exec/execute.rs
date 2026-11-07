@@ -249,10 +249,10 @@ impl CsrRequest {
     pub const fn of(inst: &Inst) -> Self {
         let op = inst.ctrl.csr_op;
         let src = match op {
-            CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => (inst.rs1.as_u8() & 0x1f) as u64,
+            CsrOp::Rwi | CsrOp::Rsi | CsrOp::Rci => inst.rs1.as_u8() as u64,
             _ => inst.rv1,
         };
-        let writes = csr_op_writes(op, inst.rs1.as_u8() & 0x1f);
+        let writes = csr_op_writes(op, inst.rs1.as_u8());
         Self { pc: inst.pc, addr: inst.ctrl.csr_addr, op, src, writes }
     }
 }
@@ -516,7 +516,7 @@ pub fn compute_alu(
                 fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_f16, is_rv32, rm);
             (result, fp_flags.bits())
         }
-        _ => (alu::execute(alu_op, op_a, op_b, op_c, is_rv32), 0),
+        _ => (alu::execute(alu_op, op_a, op_b, is_rv32), 0),
     }
 }
 

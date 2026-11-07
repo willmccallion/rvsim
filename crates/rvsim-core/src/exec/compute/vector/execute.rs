@@ -13,7 +13,7 @@ use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::compute::vector::{crypto, fpu, mask, permute, reduction};
 use crate::exec::inst::Inst;
 use crate::isa::encoding::rvv::encoding as v_enc;
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::RoundingMode;
 use crate::isa::op::{VecClass, VecSrcEncoding, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, Vlmul, Vxrm, parse_vtype_with_elen};
@@ -233,14 +233,8 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     let (vd, vs2, vs1) = (inst.ctrl.vd, inst.ctrl.vs2, inst.ctrl.vs1);
 
     let result = match vec_op.class() {
-        VecClass::Fp => {
-            let result = fpu::vec_fp_execute(vec_op, vpr, vd, vs2, operand1, &ctx);
-            VecExecResult { vxsat: false, ..result }
-        }
-        VecClass::Reduce(op) => {
-            let result = reduction::vec_reduce(op, vpr, vd, vs2, vs1, &ctx);
-            VecExecResult { vxsat: false, ..result }
-        }
+        VecClass::Fp => fpu::vec_fp_execute(vec_op, vpr, vd, vs2, operand1, &ctx),
+        VecClass::Reduce(op) => reduction::vec_reduce(op, vpr, vd, vs2, vs1, &ctx),
         VecClass::Mask(op) => {
             let result = mask::vec_mask_execute(op, vpr, vd, vs2, vs1, &ctx);
             VecExecResult { scalar_result: result.scalar_result, ..VecExecResult::default() }
@@ -264,24 +258,21 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
             );
             VecExecResult::default()
         }
-        VecClass::Alu(op) => {
-            let result = vec_execute(
-                op,
-                vpr,
-                vd,
-                vs2,
-                operand1,
-                ctx.sew,
-                ctx.vl,
-                ctx.vstart,
-                ctx.vma,
-                ctx.vta,
-                ctx.vlmul,
-                inst.ctrl.vm,
-                ctx.vxrm,
-            );
-            VecExecResult { fp_flags: FpFlags::NONE, ..result }
-        }
+        VecClass::Alu(op) => vec_execute(
+            op,
+            vpr,
+            vd,
+            vs2,
+            operand1,
+            ctx.sew,
+            ctx.vl,
+            ctx.vstart,
+            ctx.vma,
+            ctx.vta,
+            ctx.vlmul,
+            inst.ctrl.vm,
+            ctx.vxrm,
+        ),
         VecClass::None | VecClass::Config | VecClass::Load | VecClass::Store => {
             debug_assert!(false, "execute_vec_op_on called with a config or memory op");
             VecExecResult::default()

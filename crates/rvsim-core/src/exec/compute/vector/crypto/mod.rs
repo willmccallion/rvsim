@@ -104,8 +104,11 @@ pub fn execute_crypto(
     inst: u32,
     broadcast_vs2: bool,
 ) {
-    let egs = if matches!(op, CryptoOp::Sm3Me | CryptoOp::Sm3C) { EGS_SM3 } else { EGS_AES };
-    let _ = EGS_SHA;
+    let egs = match op {
+        CryptoOp::Sm3Me | CryptoOp::Sm3C => EGS_SM3,
+        CryptoOp::Sha2Ch | CryptoOp::Sha2Cl | CryptoOp::Sha2Ms => EGS_SHA,
+        _ => EGS_AES,
+    };
 
     if vl < egs {
         return;

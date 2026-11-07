@@ -228,13 +228,7 @@ impl Pmp {
 
         for i in 0..self.entries.len() {
             let entry = &self.entries[i];
-            let mode = entry.match_mode();
-
-            if mode == PmpAddrMatch::Off {
-                continue;
-            }
-
-            let (lo, hi) = match mode {
+            let (lo, hi) = match entry.match_mode() {
                 PmpAddrMatch::Tor => {
                     let hi = entry.addr << 2;
                     let lo = if i == 0 { 0 } else { self.entries[i - 1].addr << 2 };
