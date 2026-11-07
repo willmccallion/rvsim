@@ -10,6 +10,9 @@ use crate::isa::op::{SlideOffset, VecSrcEncoding, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, VRegIdx};
 
+/// The instruction bit holding the top bit of `vror.vi`'s 6-bit rotate.
+const VROR_ZIMM_HIGH_BIT: u32 = 26;
+
 /// Unit-stride lumop: normal unit-stride load.
 const LUMOP_UNIT: u8 = 0b00000;
 
@@ -93,8 +96,8 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                     }
                     v_funct3::OPIVI => {
                         c.vec_reg_write = true;
-                        c.vec_src_encoding = VecSrcEncoding::VI;
                         c.vec_op = decode_opivi(f6, inst)?;
+                        c.vec_src_encoding = VecSrcEncoding::VI(vi_immediate(c.vec_op, inst));
                         // Whole-register moves: validate vd+nregs and vs2+nregs <= 32
                         let nregs: u8 = match c.vec_op {
                             VectorOp::VMv1r => 1,
@@ -316,6 +319,29 @@ const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
 }
 
 /// Decode OPIVI funct3 (integer vector-immediate) operations.
+/// The immediate an OPIVI `op` reads: shifts, gathers and the Zvbb
+/// shifts take `uimm5` (RVV 1.0 §11.7), `vror` a 6-bit `zimm` whose top
+/// bit is instruction bit 26, and the rest a sign-extended `simm5`.
+const fn vi_immediate(op: VectorOp, inst: u32) -> i8 {
+    match op {
+        VectorOp::VRor => {
+            ((((inst >> VROR_ZIMM_HIGH_BIT) & 1) << 5) as u64 | v_enc::uimm5(inst)) as i8
+        }
+        VectorOp::VSll
+        | VectorOp::VSrl
+        | VectorOp::VSra
+        | VectorOp::VNSrl
+        | VectorOp::VNSra
+        | VectorOp::VNClipU
+        | VectorOp::VNClip
+        | VectorOp::VSSrl
+        | VectorOp::VSSra
+        | VectorOp::VRgather
+        | VectorOp::VWsll => v_enc::uimm5(inst) as i8,
+        _ => v_enc::simm5(inst) as i8,
+    }
+}
+
 const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
     Ok(match f6 {
         v_f6::VRSUB => VectorOp::VRsub,

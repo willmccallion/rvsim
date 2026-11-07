@@ -1442,8 +1442,9 @@ pub enum VecSrcEncoding {
     VV,
     /// Vector-scalar integer (OPIVX, OPMVX).
     VX,
-    /// Vector-immediate (OPIVI).
-    VI,
+    /// Vector-immediate (OPIVI), with the immediate as the operation
+    /// reads it: `simm5`, `uimm5`, or `vror`'s 6-bit `zimm`.
+    VI(i8),
     /// Vector-scalar FP (OPFVF).
     VF,
 }
