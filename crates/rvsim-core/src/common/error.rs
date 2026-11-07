@@ -23,24 +23,6 @@ pub enum SimError {
         source: std::io::Error,
     },
 
-    /// The simulator appears to be stuck at the same program counter for an
-    /// unusually large number of cycles.
-    ///
-    /// This is not necessarily fatal — it may be a legitimate WFI spin-wait —
-    /// but it is surfaced so callers can decide whether to abort.
-    #[error(
-        "potential hang: PC {pc:#x} unchanged for {cycle_count} cycles \
-         (instruction word: {inst:#010x})"
-    )]
-    HangDetected {
-        /// Program counter that has not changed.
-        pc: u64,
-        /// Raw instruction word at that address (0 if unreadable).
-        inst: u32,
-        /// Number of consecutive cycles spent at this PC.
-        cycle_count: u64,
-    },
-
     /// The directory the guest's writefile pseudo-operation writes into
     /// could not be created.
     #[error("could not create the output directory '{path}': {source}")]

@@ -885,10 +885,9 @@ impl Simulator {
     ///
     /// # Errors
     ///
-    /// Returns [`SimError::HangDetected`] if the PC has not advanced for too many
-    /// consecutive cycles (and is not stuck in a WFI spin-wait).
-    ///
-    /// Returns [`SimError::KernelPanic`] if the guest OS panic sentinel fires.
+    /// Returns [`SimError::KernelPanic`] if the guest OS panic sentinel fires,
+    /// and [`SimError::CacheInvariant`] if the cache audit is on and an event
+    /// broke an invariant.
     pub fn tick(&mut self) -> Result<(), SimError> {
         self.state.uncore.exited_at = None;
         for (slot, hart) in self.prev_privileges.iter_mut().zip(&self.state.harts) {
