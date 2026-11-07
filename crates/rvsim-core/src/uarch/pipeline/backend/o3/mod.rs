@@ -82,27 +82,27 @@ pub struct RenameView {
 #[derive(Debug)]
 pub struct O3Engine {
     /// Reorder buffer.
-    pub rob: Rob,
+    pub(crate) rob: Rob,
     /// Store buffer.
-    pub store_buffer: StoreBuffer,
+    store_buffer: StoreBuffer,
     /// Load queue for memory ordering violation detection.
-    pub load_queue: LoadQueue,
+    load_queue: LoadQueue,
     /// Physical register file (64-bit values + ready bits).
-    pub prf: PhysRegFile,
+    prf: PhysRegFile,
     /// Free list of available physical register indices.
-    pub free_list: FreeList<PhysReg>,
+    free_list: FreeList<PhysReg>,
     /// Speculative rename map: arch reg → physical reg.
-    pub rename_map: RenameMap,
+    rename_map: RenameMap,
     /// Committed rename map — restored on full trap flush.
-    pub committed_rename_map: RenameMap,
+    committed_rename_map: RenameMap,
     /// CAM-style issue queue with wakeup/select.
-    pub issue_queue: IssueQueue,
+    issue_queue: IssueQueue,
     /// Functional unit pool for structural hazard modeling.
-    pub fu_pool: FuPool,
+    fu_pool: FuPool,
     /// Non-memory results their unit is still producing.
-    pub pending_results: Vec<PendingResult>,
+    pending_results: Vec<PendingResult>,
     /// Memory ops whose address unit is still generating their address.
-    pub pending_addresses: Vec<PendingResult>,
+    pending_addresses: Vec<PendingResult>,
     /// Instructions renamed and dispatched per cycle.
     rename_width: usize,
     /// Instructions issued per cycle.
@@ -113,19 +113,19 @@ pub struct O3Engine {
     /// for a later cycle's slots.
     writeback_width: usize,
     /// Maximum loads issued per cycle.
-    pub load_ports: usize,
+    load_ports: usize,
     /// Maximum stores issued per cycle.
-    pub store_ports: usize,
+    store_ports: usize,
     /// Execute -> Memory1 latch.
-    pub execute_mem1: Vec<ExMem1Entry>,
+    execute_mem1: Vec<ExMem1Entry>,
     /// Memory1 -> Memory2 latch.
-    pub mem1_mem2: Vec<Mem1Mem2Entry>,
+    mem1_mem2: Vec<Mem1Mem2Entry>,
     /// Memory2 -> Writeback latch.
-    pub mem2_wb: Vec<Mem2WbEntry>,
+    mem2_wb: Vec<Mem2WbEntry>,
     /// Memory dependence unit for load-store ordering speculation.
-    pub mdp: MemDepUnit,
+    mdp: MemDepUnit,
     /// Checkpoint table for O(1) branch misprediction recovery.
-    pub checkpoints: CheckpointTable,
+    checkpoints: CheckpointTable,
     /// ROB entries commit squashes per cycle (gem5's `squashWidth`).
     squash_width: usize,
     /// The free slots rename works from this cycle.
@@ -139,28 +139,28 @@ pub struct O3Engine {
     stores_renamed_this_cycle: usize,
     /// Cycles commit still spends squashing the ROB; rename is blocked
     /// while it does.
-    pub squash_stall_remaining: u64,
+    squash_stall_remaining: u64,
     /// Whether rename holds the instruction after a serializing one.
     serialization: serialize::Serialization,
     /// Cycles from a result that redirects to the squash being taken.
     redirect_latency: u64,
     /// Vector physical register file (VLEN-bit storage per register + ready bits).
-    pub vec_prf: VecPhysRegFile,
+    vec_prf: VecPhysRegFile,
     /// Vector physical register free list.
-    pub vec_free_list: FreeList<VecPhysReg>,
+    vec_free_list: FreeList<VecPhysReg>,
     /// Pending vector results tracking chaining wakeup and completion.
-    pub vec_pending: Vec<VecPendingResult>,
+    vec_pending: Vec<VecPendingResult>,
     /// Number of vector execution lanes (derived from VLEN / 64, min 1).
-    pub num_vec_lanes: NumLanes,
+    num_vec_lanes: NumLanes,
     /// Pending vector memory micro-ops waiting to enter the memory pipeline.
-    pub vec_mem_pending: std::collections::VecDeque<VecMemMicroOp>,
+    vec_mem_pending: std::collections::VecDeque<VecMemMicroOp>,
     /// Tracks in-flight vector memory instructions and their remaining element count.
-    pub vec_mem_inflight: Vec<VecMemInflight>,
+    vec_mem_inflight: Vec<VecMemInflight>,
     /// Dedicated store buffer for in-flight vector stores. See
     /// `core::pipeline::vec_store_buffer` for forwarding/drain semantics.
-    pub vec_store_buffer: VecStoreBuffer,
+    vec_store_buffer: VecStoreBuffer,
     /// In-flight memory bookkeeping: mailbox + outstanding tables + routing IDs.
-    pub common: crate::uarch::pipeline::engine::BackendCommon,
+    common: crate::uarch::pipeline::engine::BackendCommon,
 }
 
 impl O3Engine {
