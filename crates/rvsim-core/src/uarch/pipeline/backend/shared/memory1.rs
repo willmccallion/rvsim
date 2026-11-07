@@ -588,7 +588,7 @@ fn translate_cbo<E: ExecutionEngine>(
     resolved: &mut Memory1Outcome,
 ) -> EntryOutcome {
     let hart = state.hart();
-    let effect = match cbo::gate(&hart.csrs, hart.privilege, ex.ctrl.system_op, ex.inst) {
+    let effect = match cbo::gate(&hart.csrs, hart.privilege, ex.ctrl.system_op, ex.bits) {
         Ok(effect) => effect,
         Err(trap) => {
             push_trap(engine, ex, trap);

@@ -346,7 +346,7 @@ const fn memory_entry(
     ExMem1Entry {
         rob_tag: parent.rob_tag,
         pc: parent.pc,
-        inst: parent.inst,
+        bits: parent.bits,
         inst_size: parent.inst_size,
         rd: parent.rd,
         rd_phys: parent.rd_phys,

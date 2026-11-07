@@ -237,7 +237,7 @@ fn builder_raw_field_api() {
 fn ifid_builder_defaults_and_setters() {
     let entry = IfIdBuilder::new().pc(0x1000).inst(0xDEADBEEF).predicted(0x2000).build();
     assert_eq!(entry.pc, VirtAddr::new(0x1000));
-    assert_eq!(entry.inst, 0xDEADBEEF);
+    assert_eq!(entry.bits, 0xDEADBEEF);
     assert_eq!(entry.predicted_target, Some(VirtAddr::new(0x2000)));
 }
 
@@ -245,7 +245,7 @@ fn ifid_builder_defaults_and_setters() {
 fn ifid_builder_defaults_are_zero() {
     let entry = IfIdBuilder::new().build();
     assert_eq!(entry.pc, VirtAddr::new(0));
-    assert_eq!(entry.inst, 0);
+    assert_eq!(entry.bits, 0);
     assert_eq!(entry.predicted_target, None);
 }
 

@@ -104,7 +104,7 @@ pub(super) fn perform_pseudo_result(state: &mut CoreCtx<'_>, entry: &mut RobEntr
     if entry.ctrl.system_op != SystemOp::Pseudo || !entry.ctrl.reg_write {
         return;
     }
-    let result = match PseudoOp::of(entry.inst) {
+    let result = match PseudoOp::of(entry.bits) {
         PseudoOp::ReadFile => host_files::read_file(state) as u64,
         PseudoOp::WriteFile => host_files::write_file(state) as u64,
         PseudoOp::Rpns => simulated_nanoseconds(state),
@@ -184,7 +184,7 @@ fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
 
     let hart_idx = state.hart.hart_id.as_index();
     let pc_trace = &mut state.per_hart_debug[hart_idx].pc_trace;
-    pc_trace.push((entry.pc, entry.inst));
+    pc_trace.push((entry.pc, entry.bits));
     if pc_trace.len() > PC_TRACE_MAX {
         let _ = pc_trace.remove(0);
     }
@@ -403,7 +403,7 @@ fn retire_system(
 fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
     let a0 = state.hart.regs.read(crate::isa::reg::REG_A0);
     let a1 = state.hart.regs.read(crate::isa::reg::REG_A1);
-    match PseudoOp::of(entry.inst) {
+    match PseudoOp::of(entry.bits) {
         PseudoOp::Exit => {
             state.signal_exit(0);
             return CommitFlow::Stop(None);

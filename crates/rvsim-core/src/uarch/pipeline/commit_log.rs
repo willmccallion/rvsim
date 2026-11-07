@@ -286,7 +286,7 @@ impl Retired {
         });
         Self {
             pc: entry.pc,
-            inst: entry.inst,
+            inst: entry.bits,
             privilege,
             cycle,
             destination,

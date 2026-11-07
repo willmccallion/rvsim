@@ -44,12 +44,12 @@ pub fn decode_stage(
 
     for if_entry in input.iter().take(state.config.pipeline.decode_width()) {
         if let Some(trap) = &if_entry.trap {
-            state.trace_decoded(if_entry.seq, if_entry.inst);
+            state.trace_decoded(if_entry.seq, if_entry.bits);
             state.trace_stage(if_entry.seq, Stage::Decode);
             output.push(IdExEntry {
                 inst: Inst {
                     pc: if_entry.pc,
-                    bits: if_entry.inst,
+                    bits: if_entry.bits,
                     size: if_entry.inst_size,
                     ..Default::default()
                 },
@@ -61,7 +61,7 @@ pub fn decode_stage(
             break;
         }
 
-        let inst = if_entry.inst;
+        let inst = if_entry.bits;
 
         let DecodedInst { fields: mut d, mut ctrl, mut trap } =
             decode_inst(inst, if_entry.pc, vector.vtype);
@@ -112,7 +112,7 @@ pub fn decode_stage(
             predicted_target: if_entry.predicted_target,
             seq: if_entry.seq,
         };
-        state.trace_decoded(decoded.seq, if_entry.inst);
+        state.trace_decoded(decoded.seq, if_entry.bits);
         state.trace_stage(decoded.seq, Stage::Decode);
         if !has_trap {
             redirect = check_fetch_prediction(state, &mut decoded);

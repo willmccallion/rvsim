@@ -47,7 +47,7 @@ pub fn fetch2_stage(
             );
             output.push(IfIdEntry {
                 pc: f1.pc,
-                inst: 0,
+                bits: 0,
                 inst_size: InstSize::Standard,
                 predicted_target: f1.predicted_target,
                 trap: f1.trap,
@@ -83,7 +83,7 @@ pub fn fetch2_stage(
             );
             output.push(IfIdEntry {
                 pc: f1.pc,
-                inst: 0,
+                bits: 0,
                 inst_size: step,
                 predicted_target: f1.predicted_target,
                 trap: Some(t),
@@ -102,7 +102,7 @@ pub fn fetch2_stage(
 
         output.push(IfIdEntry {
             pc: f1.pc,
-            inst,
+            bits: inst,
             inst_size: step,
             predicted_target: f1.predicted_target,
             trap: None,

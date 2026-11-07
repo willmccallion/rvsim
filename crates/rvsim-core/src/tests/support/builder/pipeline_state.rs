@@ -22,7 +22,7 @@ impl IfIdBuilder {
     }
 
     pub fn inst(mut self, inst: u32) -> Self {
-        self.0.inst = inst;
+        self.0.bits = inst;
         self
     }
 
