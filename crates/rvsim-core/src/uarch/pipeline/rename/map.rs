@@ -7,7 +7,7 @@
 use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::VRegIdx;
-use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecRegGroup};
 
 use super::prf::PhysReg;
 
@@ -70,24 +70,20 @@ impl RenameMap {
     }
 
     /// The physical registers the `count` vector registers from `base` map
-    /// to, the rest of the group left as `VecPhysReg::ZERO`.
-    pub fn vec_group(&self, base: VRegIdx, count: u8) -> [VecPhysReg; MAX_GROUP_REGS] {
-        let mut group = [VecPhysReg::ZERO; MAX_GROUP_REGS];
-        for (offset, slot) in group.iter_mut().enumerate().take(count as usize) {
+    /// to.
+    pub fn vec_group(&self, base: VRegIdx, count: u8) -> VecRegGroup {
+        let mut regs = [VecPhysReg::ZERO; MAX_GROUP_REGS];
+        for (offset, slot) in regs.iter_mut().enumerate().take(count as usize) {
             *slot = self.get_vec(VRegIdx::new(base.as_u8() + offset as u8));
         }
-        group
+        VecRegGroup::from_slice(&regs[..count as usize])
     }
 
-    /// Maps the vector registers from `base` to `regs` in order, returning
-    /// the group they mapped to before.
-    pub fn rename_vec_group(
-        &mut self,
-        base: VRegIdx,
-        regs: &[VecPhysReg],
-    ) -> [VecPhysReg; MAX_GROUP_REGS] {
-        let old = self.vec_group(base, regs.len() as u8);
-        for (offset, &reg) in regs.iter().enumerate() {
+    /// Maps the vector registers from `base` to `group`'s in order,
+    /// returning the group they mapped to before.
+    pub fn rename_vec_group(&mut self, base: VRegIdx, group: VecRegGroup) -> VecRegGroup {
+        let old = self.vec_group(base, group.len());
+        for (offset, &reg) in group.as_slice().iter().enumerate() {
             self.set_vec(VRegIdx::new(base.as_u8() + offset as u8), reg);
         }
         old

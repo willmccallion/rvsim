@@ -19,7 +19,6 @@ use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::ElementWrite;
 use crate::exec::execute::illegal_in_current_state;
 use crate::isa::privileged::Trap;
-use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::components::{CacheId, PipelineId};
 use crate::uarch::ctx::CoreCtx;
@@ -45,7 +44,7 @@ use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
-use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::rename::vec_prf::VecRegGroup;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
 use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::squash::SquashScope;
@@ -234,8 +233,12 @@ impl InOrderEngine {
         let width = state.config.pipeline.vector_mem_width_bytes();
         // Element writes land in the architectural registers at commit, so
         // there is no physical destination group to wake.
-        let no_group = [VecPhysReg::ZERO; MAX_GROUP_REGS];
-        self.vec_mem_inflight.push(VecMemInflight::plan(&parent, addresses, width, no_group, 0));
+        self.vec_mem_inflight.push(VecMemInflight::plan(
+            &parent,
+            addresses,
+            width,
+            VecRegGroup::EMPTY,
+        ));
     }
 
     /// Moves vector memory micro-ops into the memory pipeline, as many per cycle

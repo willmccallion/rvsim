@@ -287,7 +287,7 @@ impl O3Engine {
             self.free_list.available(),
         );
         let vec_in_flight: usize =
-            self.rob.iter().map(|entry| usize::from(entry.vec_dst_count)).sum();
+            self.rob.iter().map(|entry| usize::from(entry.vec_dst.len())).sum();
         debug_assert_eq!(
             self.vec_free_list.available() + ARCH_VECTOR_REGS + vec_in_flight,
             self.vec_prf.capacity(),

@@ -16,12 +16,11 @@ use crate::exec::signals::ControlSignals;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::{MemWidth, VectorOp};
 use crate::isa::privileged::Trap;
-use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen, parse_vtype};
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, InFlightOp, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
 };
-use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
+use crate::uarch::pipeline::rename::vec_prf::VecRegGroup;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 
 /// One micro-op of a vector memory instruction on its way through the
@@ -46,10 +45,9 @@ pub struct VecMemInflight {
     pub rob_tag: RobTag,
     /// Number of micro-ops still outstanding (not yet written back).
     pub remaining: usize,
-    /// Physical destination registers for the LMUL group (for chaining wakeup).
-    pub vd_phys: [VecPhysReg; MAX_GROUP_REGS],
-    /// Number of destination registers in the LMUL group.
-    pub vd_count: u8,
+    /// Physical destination registers for the LMUL group (for chaining
+    /// wakeup); empty on a backend that renames no vector registers.
+    pub vd: VecRegGroup,
     /// Whether chaining wakeup has fired (first cache-line returned).
     pub wakeup_fired: bool,
     /// Micro-ops generated at issue but not yet pushed into the memory
@@ -69,13 +67,12 @@ pub struct VecMemInflight {
 impl VecMemInflight {
     /// Plans vector memory instruction `parent`'s element `accesses` into
     /// micro-ops at most `width` bytes wide, writing its destination group
-    /// `vd_phys[..vd_count]`.
+    /// `vd`.
     pub fn plan(
         parent: &ExMem1Entry,
         accesses: Vec<ElementAccess>,
         width: usize,
-        vd_phys: [VecPhysReg; MAX_GROUP_REGS],
-        vd_count: u8,
+        vd: VecRegGroup,
     ) -> Self {
         let vec_op = parent.op.ctrl.vec_op;
         let planned = plan_accesses(accesses, moves_in_spans(vec_op), width);
@@ -83,8 +80,7 @@ impl VecMemInflight {
         Self {
             rob_tag: parent.op.rob_tag,
             remaining: pending_micro_ops.len(),
-            vd_phys,
-            vd_count,
+            vd,
             wakeup_fired: false,
             pending_micro_ops,
             trimmed_at: None,

@@ -142,11 +142,12 @@ impl CommitRegisters<'_> {
             // execute at the ROB head, so there is nothing to retire.
             Self::Scoreboard(_) => {}
             Self::Renamed { rename_map, vec_prf, vec_free_list, .. } => {
-                vpr.write_bytes(vreg, vec_prf.read_bytes(entry.vec_phys_dst[i]));
-                if entry.vec_old_phys_dst[i] != entry.vec_phys_dst[i] {
-                    vec_free_list.reclaim(entry.vec_old_phys_dst[i]);
+                let (new, old) = (entry.vec_dst.get(i), entry.vec_old_dst.get(i));
+                vpr.write_bytes(vreg, vec_prf.read_bytes(new));
+                if old != new {
+                    vec_free_list.reclaim(old);
                 }
-                rename_map.set_vec(vreg, entry.vec_phys_dst[i]);
+                rename_map.set_vec(vreg, new);
             }
         }
     }
@@ -159,8 +160,8 @@ impl CommitRegisters<'_> {
         if entry.dst.phys != PhysReg::ZERO {
             free_list.reclaim(entry.dst.phys);
         }
-        for i in 0..entry.vec_dst_count as usize {
-            vec_free_list.reclaim(entry.vec_phys_dst[i]);
+        for &reg in entry.vec_dst.as_slice() {
+            vec_free_list.reclaim(reg);
         }
     }
 

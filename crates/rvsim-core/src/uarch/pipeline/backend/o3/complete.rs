@@ -82,22 +82,14 @@ impl O3Engine {
         while i < self.vec_pending.len() {
             let vp = &mut self.vec_pending[i];
             if vp.should_wakeup(now) {
-                wake_vector_dests(
-                    &mut self.vec_prf,
-                    &mut self.issue_queue,
-                    &vp.vd_phys[..vp.vd_count as usize],
-                );
+                wake_vector_dests(&mut self.vec_prf, &mut self.issue_queue, vp.vd.as_slice());
                 vp.wakeup_fired = true;
             }
             // Some vl=0 ops reach full_complete before first_group_ready; wake here too.
             if vp.is_complete(now) && slots > 0 {
                 slots -= 1;
                 if !vp.wakeup_fired {
-                    wake_vector_dests(
-                        &mut self.vec_prf,
-                        &mut self.issue_queue,
-                        &vp.vd_phys[..vp.vd_count as usize],
-                    );
+                    wake_vector_dests(&mut self.vec_prf, &mut self.issue_queue, vp.vd.as_slice());
                     vp.wakeup_fired = true;
                 }
                 self.rob.complete(vp.rob_tag, 0);
