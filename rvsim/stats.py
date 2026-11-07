@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import math
 import re
-import sys
 from collections.abc import Sequence
 from enum import Enum
 from typing import Any
+
+from ._ansi import BOLD, DIM, PURPLE, RESET, TEAL, stdout_is_tty
 
 __all__ = ["Stats", "Table"]
 
@@ -132,16 +133,14 @@ class Stats(dict):
         key_w = max(len(k) for k in self.keys())
         val_w = max(len(_fmt(v)) for _, v in items)
 
-        is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+        is_tty = stdout_is_tty()
         if not is_tty:
             lines = []
             for key, value in items:
                 lines.append(f"{key:<{key_w}}  {_fmt(value):>{val_w}}")
             return "\n".join(lines)
 
-        bold = "\033[1m"
-        teal = "\033[36m"
-        rst = "\033[0m"
+        bold, teal, rst = BOLD, TEAL, RESET
 
         inner_w = key_w + 2 + val_w
         rule = f"{bold}{teal}{'─' * (inner_w + 4)}{rst}"
@@ -365,7 +364,7 @@ class Table:
         data_rows = [[label] + cells for label, cells in zip(data_labels, data_grid)]
         plain = _format_table(headers, data_rows)
 
-        is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+        is_tty = stdout_is_tty()
         if not is_tty:
             if speedup_labels:
                 spd_rows = [
@@ -375,10 +374,7 @@ class Table:
                 plain += "\n" + _format_table(headers, spd_rows)
             return plain
 
-        bold = "\033[1m"
-        teal = "\033[36m"
-        dim = "\033[2m"
-        rst = "\033[0m"
+        bold, teal, dim, rst = BOLD, TEAL, DIM, RESET
 
         lines = plain.split("\n")
         width = max(len(line) for line in lines)
@@ -387,7 +383,7 @@ class Table:
         parts = []
         if self.__title:
             # Prominent section header above the rule
-            purple = "\033[35m"
+            purple = PURPLE
             parts.append("")
             parts.append(f"  {bold}{purple}›  {self.__title}{rst}")
         parts.append(rule)
@@ -444,11 +440,8 @@ def _compare_flat(
             row.append(_fmt(v))
         rows.append(row)
 
-    is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-    bold = "\033[1m"
-    teal = "\033[36m"
-    dim = "\033[2m"
-    rst = "\033[0m"
+    is_tty = stdout_is_tty()
+    bold, teal, dim, rst = BOLD, TEAL, DIM, RESET
 
     plain = _format_table(headers, rows)
 
