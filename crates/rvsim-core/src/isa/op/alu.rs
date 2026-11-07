@@ -271,3 +271,49 @@ pub enum AluOp {
     /// 8-bit crossbar permutation (xperm8).
     Xperm8,
 }
+
+/// Which kind of ALU or FPU operation this is, finely enough that both the
+/// unit it runs on and the commit statistic that counts it follow from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AluOpGroup {
+    /// Integer arithmetic, logic, shifts and bit manipulation.
+    IntAlu,
+    /// Integer multiplication.
+    IntMul,
+    /// Integer division and remainder.
+    IntDiv,
+    /// Floating-point arithmetic, comparison, conversion and moves, but for the groups below.
+    FpArith,
+    /// Floating-point multiplication.
+    FpMul,
+    /// Floating-point division and square root.
+    FpDivSqrt,
+    /// Floating-point fused multiply-add.
+    FpFma,
+}
+
+impl AluOp {
+    /// The group this operation belongs to.
+    #[must_use]
+    #[allow(clippy::enum_glob_use)]
+    pub const fn group(self) -> AluOpGroup {
+        use AluOp::*;
+        match self {
+            Add | Sub | Sll | Slt | Sltu | Xor | Srl | Sra | Or | And | Sh1Add | Sh2Add
+            | Sh3Add | AddUw | Sh1AddUw | Sh2AddUw | Sh3AddUw | SlliUw | Andn | Orn | Xnor
+            | Clz | Ctz | Cpop | Max | Maxu | Min | Minu | SextB | SextH | Rol | Ror | OrcB
+            | Rev8 | Clmul | Clmulh | Clmulr | Bclr | Bext | Binv | Bset | Brev8 | Pack | Packh
+            | Packw | Xperm4 | Xperm8 => AluOpGroup::IntAlu,
+            Mul | Mulh | Mulhsu | Mulhu => AluOpGroup::IntMul,
+            Div | Divu | Rem | Remu => AluOpGroup::IntDiv,
+            FAdd | FSub | FMin | FMax | FSgnJ | FSgnJN | FSgnJX | FEq | FLt | FLe | FClass
+            | FCvtWS | FCvtWUS | FCvtLS | FCvtLUS | FCvtSW | FCvtSWU | FCvtSL | FCvtSLU
+            | FCvtSD | FCvtDS | FCvtSH | FCvtHS | FCvtDH | FCvtHD | FMvToX | FMvToF => {
+                AluOpGroup::FpArith
+            }
+            FMul => AluOpGroup::FpMul,
+            FDiv | FSqrt => AluOpGroup::FpDivSqrt,
+            FMAdd | FMSub | FNMAdd | FNMSub => AluOpGroup::FpFma,
+        }
+    }
+}
