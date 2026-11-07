@@ -773,8 +773,12 @@ impl Rob {
         None
     }
 
-    /// Finds a mutable reference to the entry with the given tag.
+    /// The entry `tag` names, or `None` once it has left the ROB. Units
+    /// and memory still deliver results for squashed instructions, so
+    /// every setter drops a write to a missing entry; only a tag that was
+    /// never handed out is a bug.
     fn find_entry_mut(&mut self, tag: RobTag) -> Option<&mut RobEntry> {
+        debug_assert!(tag.is_older_than(RobTag(self.next_tag)), "{tag} was never allocated");
         let idx = *self.tag_index.get(&tag)?;
         let entry = &mut self.entries[idx];
         if entry.valid { Some(entry) } else { None }
