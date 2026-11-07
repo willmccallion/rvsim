@@ -1,5 +1,6 @@
 //! Integer comparisons and add/subtract-with-carry into mask registers.
 
+use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
@@ -41,19 +42,7 @@ pub(super) fn exec_comparison(
     let vlen_bits = vpr.vlen().bits();
 
     for i in 0..vlen_bits {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
-            }
+        if ctx.skip_element(vpr, i, FillTarget::MaskBit(vd_idx)) {
             continue;
         }
 
@@ -88,17 +77,15 @@ pub(super) fn exec_carry(
     let loop_end = if writes_mask { vlen_bits } else { vlmax };
 
     for i in 0..loop_end {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                if writes_mask {
-                    vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
-                } else {
-                    vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-                }
-            }
+        if ctx.skip_outside_body(
+            vpr,
+            i,
+            if writes_mask {
+                FillTarget::MaskBit(vd_idx)
+            } else {
+                FillTarget::Element(vd_idx, ctx.sew)
+            },
+        ) {
             continue;
         }
 

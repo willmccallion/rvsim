@@ -8,7 +8,8 @@
 //! The main entry point [`vec_permute_execute`] dispatches to the appropriate
 //! operation based on the [`VectorOp`] variant.
 
-use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, mask_active};
+use crate::exec::compute::vector::context::FillTarget;
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::{PermuteOp, SlideOffset};
@@ -125,19 +126,7 @@ fn exec_slideup(
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd, ctx.sew)) {
             continue;
         }
         if i >= offset {
@@ -167,19 +156,7 @@ fn exec_slidedown(
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd, ctx.sew)) {
             continue;
         }
 
@@ -211,19 +188,7 @@ fn exec_slide1up(
     let scalar = rs1 & ctx.sew.mask();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd, ctx.sew)) {
             continue;
         }
 
@@ -252,19 +217,7 @@ fn exec_slide1down(
     let scalar = rs1 & ctx.sew.mask();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd, ctx.sew)) {
             continue;
         }
 
@@ -297,19 +250,7 @@ fn exec_rgather(
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd, ctx.sew)) {
             continue;
         }
 
@@ -342,19 +283,7 @@ fn exec_rgather_ei16(
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd, ctx.sew)) {
             continue;
         }
 

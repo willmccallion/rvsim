@@ -1,8 +1,9 @@
 //! Widening and narrowing integer operations.
 
 use crate::exec::compute::vector::alu::integer::rounding_incr;
+use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, widen_sew,
+    VecExecCtx, VecExecResult, VecOperand, read_op1, widen_sew,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::op::{NarrowOp, WidenMaccOp, WidenOp};
@@ -167,19 +168,7 @@ pub(super) fn exec_widening(
     let vs2_sew = if op.reads_wide_vs2() { wsew } else { ctx.sew };
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), wsew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), wsew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, wsew)) {
             continue;
         }
 
@@ -211,19 +200,7 @@ pub(super) fn exec_widening_macc(
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), wsew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), wsew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, wsew)) {
             continue;
         }
 
@@ -258,19 +235,7 @@ pub(super) fn exec_narrowing(
     let mut vxsat = false;
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, ctx.sew)) {
             continue;
         }
 

@@ -55,6 +55,69 @@ pub struct VecExecCtx {
     pub zvfh: bool,
 }
 
+/// Where an element the instruction does not compute is filled under an
+/// agnostic policy.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum FillTarget {
+    /// The element of this register group at this width.
+    Element(VRegIdx, Sew),
+    /// The element's bit of this mask register.
+    MaskBit(VRegIdx),
+}
+
+impl FillTarget {
+    fn fill(self, vpr: &mut impl VectorRegFile, i: usize) {
+        match self {
+            Self::Element(vd, sew) => vpr.fill_agnostic_element(vd, ElemIdx::new(i), sew),
+            Self::MaskBit(vd) => vpr.fill_agnostic_mask_bit(vd, ElemIdx::new(i)),
+        }
+    }
+}
+
+impl VecExecCtx {
+    /// Whether element `i` is skipped as prestart, tail or masked off. A
+    /// tail element is filled into `dest` when `vta` is agnostic, and a
+    /// masked-off one when `vma` is.
+    pub(super) fn skip_element(
+        &self,
+        vpr: &mut impl VectorRegFile,
+        i: usize,
+        dest: FillTarget,
+    ) -> bool {
+        if self.skip_outside_body(vpr, i, dest) {
+            return true;
+        }
+        if self.vm || mask_active(vpr, i) {
+            return false;
+        }
+        if self.vma.is_agnostic() {
+            dest.fill(vpr, i);
+        }
+        true
+    }
+
+    /// Whether element `i` is skipped as prestart or tail, the tail filled
+    /// into `dest` when `vta` is agnostic; for a loop that handles masked-off
+    /// elements itself.
+    pub(super) fn skip_outside_body(
+        &self,
+        vpr: &mut impl VectorRegFile,
+        i: usize,
+        dest: FillTarget,
+    ) -> bool {
+        if i < self.vstart {
+            return true;
+        }
+        if i < self.vl {
+            return false;
+        }
+        if self.vta.is_agnostic() {
+            dest.fill(vpr, i);
+        }
+        true
+    }
+}
+
 /// Read v0 mask bit for element `i`.
 #[inline]
 pub(super) fn mask_active(vpr: &impl VectorRegFile, i: usize) -> bool {
