@@ -8,35 +8,34 @@ use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, read_op1};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
-use crate::isa::op::VectorOp;
+use crate::isa::op::{FmaAddend, FmaSigns};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use std::hint::black_box;
 
 /// The multiplicands and addend of an FMA, `a × b + c`, as the RVV ops take
 /// them from `vs1` (or the scalar), `vs2` and `vd`.
-fn fma_operands<T: std::ops::Neg<Output = T> + Default>(
-    op: VectorOp,
+pub(super) fn fma_operands<T: std::ops::Neg<Output = T>>(
+    (signs, addend): (FmaSigns, FmaAddend),
     op1: T,
     vs2: T,
     vd: T,
 ) -> (T, T, T) {
-    match op {
-        VectorOp::VFMacc => (op1, vs2, vd),
-        VectorOp::VFNMacc => (-op1, vs2, -vd),
-        VectorOp::VFMSac => (op1, vs2, -vd),
-        VectorOp::VFNMSac => (-op1, vs2, vd),
-        VectorOp::VFMAdd => (op1, vd, vs2),
-        VectorOp::VFNMAdd => (-op1, vd, -vs2),
-        VectorOp::VFMSub => (op1, vd, -vs2),
-        VectorOp::VFNMSub => (-op1, vd, vs2),
-        _ => (T::default(), T::default(), T::default()),
+    let (multiplicand, added) = match addend {
+        FmaAddend::Vd => (vs2, vd),
+        FmaAddend::Vs2 => (vd, vs2),
+    };
+    match signs {
+        FmaSigns::Macc => (op1, multiplicand, added),
+        FmaSigns::NMacc => (-op1, multiplicand, -added),
+        FmaSigns::MSac => (op1, multiplicand, -added),
+        FmaSigns::NMSac => (-op1, multiplicand, added),
     }
 }
 
 /// Compute FMA for f16 element (Zvfh). The f64 fused result can be inexact
 /// and then rounds twice, so an inexact one is rounded from the exact value.
 pub(super) fn compute_fma_f16(
-    op: VectorOp,
+    op: (FmaSigns, FmaAddend),
     vs2_bits: u64,
     op1_bits: u64,
     vd_bits: u64,
@@ -65,7 +64,7 @@ pub(super) fn compute_fma_f16(
 
 /// FMA operations: vd is both source (accumulator) and destination.
 pub(super) fn exec_fp_fma(
-    op: VectorOp,
+    op: (FmaSigns, FmaAddend),
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -109,7 +108,7 @@ pub(super) fn exec_fp_fma(
 /// - `vfmsub.vv`: vd[i] = vs1[i]*vd[i] - vs2[i]
 /// - `vfnmsub.vv`: vd[i] = -(vs1[i]*vd[i]) + vs2[i]
 pub(super) fn compute_fma_f32(
-    op: VectorOp,
+    op: (FmaSigns, FmaAddend),
     vs2_bits: u64,
     op1_bits: u64,
     vd_bits: u64,
@@ -127,7 +126,7 @@ pub(super) fn compute_fma_f32(
 
 /// Compute FMA for f64 element.
 pub(super) fn compute_fma_f64(
-    op: VectorOp,
+    op: (FmaSigns, FmaAddend),
     vs2_bits: u64,
     op1_bits: u64,
     vd_bits: u64,
