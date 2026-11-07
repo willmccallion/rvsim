@@ -1,7 +1,7 @@
 //! Loading and running the small programs the accounting checks count.
 
 use crate::Simulator;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{BackendKind, Config};
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use crate::system::SystemState;
@@ -83,7 +83,7 @@ pub fn ending_in_spin(mut program: Vec<u32>) -> (Vec<u32>, u64) {
 
 /// Runs until the hart is about to run `end`.
 pub fn run_to_pc(ctx: &mut TestContext, end: u64, context: &str) {
-    let stop = StopAt { pcs: vec![end], cycles: Some(100_000), ..StopAt::default() };
+    let stop = StopAt { pcs: vec![VirtAddr::new(end)], cycles: Some(100_000), ..StopAt::default() };
     let reason = ctx.sim.run_to(&stop).expect("the run ticks");
     assert_eq!(reason, StopReason::Pc { hart: 0 }, "{context}");
 }

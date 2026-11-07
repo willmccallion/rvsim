@@ -8,7 +8,7 @@
 //! machine-mode translation, where the address is not memory at all, and
 //! the resulting fault must never reach commit.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
@@ -118,7 +118,7 @@ fn run(backend: BackendKind, width: usize) -> (u64, u64, u64) {
         hart.csrs.satp = (csr::SATP_MODE_SV39 << 60) | ROOT_PPN;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = CODE;
+        hart.pc = VirtAddr::new(CODE);
     }
     ctx.sim.sync_arch_regs();
 

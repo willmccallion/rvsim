@@ -9,7 +9,7 @@ use std::fs;
 use tempfile::TempDir;
 
 use crate::Simulator;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::csr;
 use crate::isa::op::pseudo::PseudoOp;
@@ -222,7 +222,7 @@ fn run_paged(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext
         hart.privilege = PrivilegeMode::Supervisor;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = CODE_VA;
+        hart.pc = VirtAddr::new(CODE_VA);
     }
     ctx.sim.sync_arch_regs();
     host.attach(&mut ctx.sim);

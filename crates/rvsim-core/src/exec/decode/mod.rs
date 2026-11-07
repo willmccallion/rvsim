@@ -5,6 +5,7 @@ pub mod requirement;
 mod scalar;
 mod vector;
 
+use crate::common::VirtAddr;
 use crate::exec::compute::vector::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
@@ -30,7 +31,7 @@ pub(super) const VEC_WIDTH_32: u32 = 0b110;
 pub(super) const VEC_WIDTH_64: u32 = 0b111;
 
 /// Decodes a single instruction into control signals.
-fn decode_instruction(inst: u32, pc: u64, d: &Decoded) -> Result<ControlSignals, Trap> {
+fn decode_instruction(inst: u32, pc: VirtAddr, d: &Decoded) -> Result<ControlSignals, Trap> {
     let mut c = ControlSignals {
         a_src: OpASrc::Reg1,
         b_src: OpBSrc::Imm,
@@ -62,7 +63,7 @@ pub struct DecodedInst {
 /// A vector instruction takes its register-group size from `vtype`, and is
 /// illegal when its register groups are misaligned for it.
 #[must_use]
-pub fn decode_inst(inst: u32, pc: u64, vtype_bits: u64) -> DecodedInst {
+pub fn decode_inst(inst: u32, pc: VirtAddr, vtype_bits: u64) -> DecodedInst {
     let mut fields = instruction_decode(inst);
     let (mut ctrl, mut trap) = match decode_instruction(inst, pc, &fields) {
         Ok(ctrl) => (ctrl, None),

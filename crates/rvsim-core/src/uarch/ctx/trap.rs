@@ -1,23 +1,24 @@
 //! Trap and exception dispatch, delegation, and MRET/SRET return handling.
 
 use super::CoreCtx;
+use crate::common::VirtAddr;
 use crate::isa::csr;
 use crate::isa::privileged::{PrivilegeMode, Trap, TrapCause};
 use crate::trace_trap;
 
 /// Where a trap with `cause` enters through `tvec`: its base, plus four
 /// bytes per interrupt code in vectored mode.
-const fn handler_pc(tvec: u64, cause: TrapCause) -> u64 {
+const fn handler_pc(tvec: u64, cause: TrapCause) -> VirtAddr {
     let base = tvec & !3;
-    match cause {
+    VirtAddr::new(match cause {
         TrapCause::Interrupt(code) if tvec & 1 != 0 => base + 4 * code,
         _ => base,
-    }
+    })
 }
 
 impl CoreCtx<'_> {
     /// Handles a trap (exception or interrupt).
-    pub fn trap(&mut self, cause: &Trap, epc: u64) {
+    pub fn trap(&mut self, cause: &Trap, epc: VirtAddr) {
         self.clear_reservation();
 
         if self.uncore.processes.is_se() {
@@ -31,10 +32,10 @@ impl CoreCtx<'_> {
                 | Trap::StoreAddressMisaligned(_) => 7,
                 _ => 11,
             };
-            tracing::error!(target: "rvsim::trap", ?cause, pc = %crate::common::trace::Hex(epc), "the program faulted in SE mode");
+            tracing::error!(target: "rvsim::trap", ?cause, pc = %crate::common::trace::Hex(epc.val()), "the program faulted in SE mode");
             // Left for a post-mortem: what faulted, where, and on what.
             self.hart.csrs.mcause = cause.cause().code();
-            self.hart.csrs.mepc = epc;
+            self.hart.csrs.mepc = epc.val();
             self.hart.csrs.mtval = match *cause {
                 Trap::InstructionAddressMisaligned(a)
                 | Trap::InstructionAccessFault(a)
@@ -57,7 +58,7 @@ impl CoreCtx<'_> {
         {
             trace_trap!(self.trace_trap_enabled(cause);
                 event      = "taken",
-                epc        = %crate::common::trace::Hex(epc),
+                epc        = %crate::common::trace::Hex(epc.val()),
                 cause      = ?cause,
                 priv_mode  = ?self.hart.privilege,
                 stvec      = %crate::common::trace::Hex(self.hart.csrs.stvec),
@@ -89,7 +90,7 @@ impl CoreCtx<'_> {
         if delegate_to_s {
             self.hart.csrs.scause = cause.mcause_code();
 
-            self.hart.csrs.sepc = epc;
+            self.hart.csrs.sepc = epc.val();
             self.hart.csrs.stval = tval;
 
             let mut mstatus = self.hart.csrs.mstatus;
@@ -110,7 +111,7 @@ impl CoreCtx<'_> {
             self.hart.pc = handler_pc(self.hart.csrs.stvec, trap_cause);
         } else {
             self.hart.csrs.mcause = cause.mcause_code();
-            self.hart.csrs.mepc = epc;
+            self.hart.csrs.mepc = epc.val();
             self.hart.csrs.mtval = tval;
 
             let mut mstatus = self.hart.csrs.mstatus;
@@ -176,7 +177,7 @@ mod tests {
 
         state.do_mret();
 
-        assert_eq!(state.hart.pc, 0x2000);
+        assert_eq!(state.hart.pc, VirtAddr::new(0x2000));
         assert_eq!(state.hart.privilege, PrivilegeMode::Supervisor);
         assert_eq!(state.hart.csrs.mstatus & csr::MSTATUS_MIE, csr::MSTATUS_MIE);
     }
@@ -192,7 +193,7 @@ mod tests {
 
         state.do_sret();
 
-        assert_eq!(state.hart.pc, 0x3000);
+        assert_eq!(state.hart.pc, VirtAddr::new(0x3000));
         assert_eq!(state.hart.privilege, PrivilegeMode::Supervisor);
         assert_eq!(state.hart.csrs.mstatus & csr::MSTATUS_SIE, csr::MSTATUS_SIE);
     }

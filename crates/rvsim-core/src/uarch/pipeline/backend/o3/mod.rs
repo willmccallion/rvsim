@@ -15,6 +15,7 @@ mod rename;
 mod serialize;
 mod squash;
 
+use crate::common::VirtAddr;
 use crate::config::Config;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::mdp::MemDepUnit;
@@ -298,7 +299,7 @@ impl ExecutionEngine for O3Engine {
         &mut self,
         state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
-        redirect: &mut Option<u64>,
+        redirect: &mut Option<VirtAddr>,
     ) {
         let now = state.cycle;
 

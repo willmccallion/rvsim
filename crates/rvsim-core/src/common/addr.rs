@@ -147,6 +147,12 @@ pub struct VirtAddr(pub u64);
 #[serde(transparent)]
 pub struct PhysAddr(pub u64);
 
+impl std::fmt::LowerHex for VirtAddr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::LowerHex::fmt(&self.0, f)
+    }
+}
+
 impl VirtAddr {
     /// Creates a new virtual address from a raw 64-bit value.
     #[inline(always)]

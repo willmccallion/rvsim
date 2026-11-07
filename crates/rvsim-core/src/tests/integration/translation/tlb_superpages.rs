@@ -1,7 +1,7 @@
 //! The walker caches a superpage leaf as one TLB entry covering the whole
 //! page, as gem5's RISC-V TLB does, so one walk serves every base page in it.
 
-use crate::common::{Asid, PhysAddr, Ppn, Vpn};
+use crate::common::{Asid, PhysAddr, Ppn, VirtAddr, Vpn};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
@@ -48,7 +48,7 @@ fn one_walk_of_a_megapage_translates_every_page_in_it() {
             hart.privilege = PrivilegeMode::Supervisor;
             hart.pmp.set_addr(0, u64::MAX >> 10);
             hart.pmp.set_cfg(0, 0b0000_1111);
-            hart.pc = CODE;
+            hart.pc = VirtAddr::new(CODE);
         }
         ctx.sim.sync_arch_regs();
 

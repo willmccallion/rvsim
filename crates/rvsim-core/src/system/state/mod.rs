@@ -10,7 +10,7 @@ use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
-use crate::common::{HartId, NANOS_PER_SECOND, PhysAddr, SimError};
+use crate::common::{HartId, NANOS_PER_SECOND, PhysAddr, SimError, VirtAddr};
 use crate::config::{Config, InclusionPolicy, MemoryControllerKind, ValidConfig};
 use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{ComponentId, MemCtrlId};
@@ -275,7 +275,7 @@ impl SystemState {
                 Hart::new(HartInit {
                     hart_id,
                     regs: fresh_regs(hart_id),
-                    pc: config.general.start_pc,
+                    pc: VirtAddr::new(config.general.start_pc),
                     csrs: csrs.clone(),
                     privilege,
                     pmp: Pmp::new(),
@@ -325,7 +325,7 @@ impl SystemState {
             .zip(units)
             .map(|(c, units)| Core {
                 units,
-                pipeline: PipelineDispatch::new(config, c, config.general.start_pc),
+                pipeline: PipelineDispatch::new(config, c, VirtAddr::new(config.general.start_pc)),
             })
             .collect();
 

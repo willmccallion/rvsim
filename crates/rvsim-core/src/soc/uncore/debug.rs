@@ -6,6 +6,8 @@
 //! observation, and a retired-instruction ring buffer used by the
 //! invalid-PC dump.
 
+use crate::common::VirtAddr;
+
 /// Maximum number of `(pc, inst)` entries kept in the retire ring buffer.
 pub const PC_TRACE_MAX: usize = 32;
 
@@ -13,16 +15,20 @@ pub const PC_TRACE_MAX: usize = 32;
 #[derive(Debug)]
 pub struct HartDebug {
     /// Last PC observed by the hang detector.
-    pub last_pc: u64,
+    pub last_pc: VirtAddr,
     /// Cycles the hart has spent at `last_pc` without progress.
     pub same_pc_count: u64,
     /// Ring buffer of the last [`PC_TRACE_MAX`] retired `(pc, inst)`
     /// pairs, consulted by the invalid-PC dump.
-    pub pc_trace: Vec<(u64, u32)>,
+    pub pc_trace: Vec<(VirtAddr, u32)>,
 }
 
 impl Default for HartDebug {
     fn default() -> Self {
-        Self { last_pc: 0, same_pc_count: 0, pc_trace: Vec::with_capacity(PC_TRACE_MAX) }
+        Self {
+            last_pc: VirtAddr::new(0),
+            same_pc_count: 0,
+            pc_trace: Vec::with_capacity(PC_TRACE_MAX),
+        }
     }
 }

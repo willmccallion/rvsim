@@ -6,6 +6,8 @@
 
 use thiserror::Error;
 
+use crate::common::VirtAddr;
+
 /// Errors that can be returned from the simulator's public API.
 ///
 /// Each variant is designed to give the user enough context to understand
@@ -78,7 +80,7 @@ pub enum SimError {
         /// The hart.
         hart: usize,
         /// Its architectural PC: the instruction that did not retire.
-        pc: u64,
+        pc: VirtAddr,
         /// Cycles since it last retired an instruction.
         cycles: u64,
     },

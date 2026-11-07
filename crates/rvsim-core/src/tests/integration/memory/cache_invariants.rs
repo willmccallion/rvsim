@@ -2,6 +2,7 @@
 //! strides, stores runs and cleans and flushes lines, on both backends,
 //! under each inclusion policy, with and without every prefetcher.
 
+use crate::common::VirtAddr;
 use crate::config::{
     BackendKind, CacheConfig, Config, InclusionPolicy, LoadPrefetcherConfig, PageBoundary,
     PrefetcherKind, StorePrefetcherConfig,
@@ -95,7 +96,11 @@ fn every_cache_invariant_holds_after_every_event() {
                 let mut ctx = system_with_configured_latency(&config, &program, &[]);
                 ctx.sim.set_audit_caches(true);
 
-                let stop = StopAt { pcs: vec![end], cycles: Some(500_000), ..StopAt::default() };
+                let stop = StopAt {
+                    pcs: vec![VirtAddr::new(end)],
+                    cycles: Some(500_000),
+                    ..StopAt::default()
+                };
                 let reason = ctx.sim.run_to(&stop);
 
                 assert!(matches!(reason, Ok(StopReason::Pc { hart: 0 })), "{context}: {reason:?}");

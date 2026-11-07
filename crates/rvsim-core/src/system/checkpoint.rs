@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::arch::Hart;
 use crate::arch::csr::Csrs;
 use crate::arch::pmp::PmpEntry;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 use crate::sim::memory::Ram;
@@ -90,7 +90,7 @@ struct Header {
 /// One hart's architectural state.
 #[derive(Serialize, Deserialize)]
 struct HartState {
-    pc: u64,
+    pc: VirtAddr,
     privilege: u8,
     wfi_waiting: bool,
     sw_seip: bool,

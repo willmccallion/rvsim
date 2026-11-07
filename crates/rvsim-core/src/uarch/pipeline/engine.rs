@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
-use crate::common::{FetchSeq, InstSeq};
+use crate::common::{FetchSeq, InstSeq, VirtAddr};
 use crate::config::{BackendKind, Config};
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
@@ -47,7 +47,7 @@ pub trait ExecutionEngine {
         &mut self,
         state: &mut crate::uarch::ctx::CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry>,
-        redirect: &mut Option<u64>,
+        redirect: &mut Option<VirtAddr>,
     );
 
     /// How many instructions the engine can rename this cycle: the least
@@ -140,7 +140,7 @@ pub struct PendingTrap {
     /// interrupt is re-evaluated when taken.
     pub trap: crate::isa::privileged::Trap,
     /// The PC the trap reports.
-    pub epc: u64,
+    pub epc: VirtAddr,
     /// The cycle the pipeline squashes into the handler.
     pub taken_at: u64,
 }
@@ -273,7 +273,7 @@ pub struct BackendCommon {
     /// Where fetch continues once a parked fetch walk has completed: the
     /// end of the parked instruction, whose size is known only when its
     /// translation arrives. Taken by the next fetch1 pass.
-    pub fetch_resume_pc: Option<u64>,
+    pub fetch_resume_pc: Option<VirtAddr>,
     /// Oldest load the mailbox drain found inconsistent with an older
     /// load's fresh value (see `LoadQueue::check_coherence_violation`);
     /// the out-of-order engine squashes from it after memory2.
@@ -512,7 +512,7 @@ pub struct Pipeline<E: ExecutionEngine> {
     /// The PC the backend (squash / commit) redirected fetch to this cycle
     /// (branch misprediction, trap, FENCE.I, MRET/SRET); the frontend is
     /// discarded and restarted there after the engine's tick.
-    pub redirect: Option<u64>,
+    pub redirect: Option<VirtAddr>,
     /// Set by a backend redirect until rename hands on the first bundle
     /// from the new path; each cycle in between is a control stall.
     recovering_from_redirect: bool,
@@ -662,7 +662,7 @@ pub enum PipelineDispatch {
 
 impl PipelineDispatch {
     /// Builds the configured backend for `core`, fetching from `pc`.
-    pub fn new(config: &Config, core: &CoreTopology, pc: u64) -> Self {
+    pub fn new(config: &Config, core: &CoreTopology, pc: VirtAddr) -> Self {
         let l1i = core.cache(PrivateCache::L1I);
         let l1d = core.cache(PrivateCache::L1D);
         match config.pipeline.backend {
@@ -722,7 +722,7 @@ impl PipelineDispatch {
     #[cfg(test)]
     /// The PC fetch continues from.
     #[must_use]
-    pub const fn fetch_pc(&self) -> u64 {
+    pub const fn fetch_pc(&self) -> VirtAddr {
         match self {
             Self::InOrder(p) => p.frontend.fetch_pc,
             Self::OutOfOrder(p) => p.frontend.fetch_pc,
@@ -750,7 +750,7 @@ impl PipelineDispatch {
 
     /// Points fetch at `pc` without disturbing anything in flight; for
     /// initialisation, after the hart's architectural PC has been set.
-    pub const fn restart_fetch_at(&mut self, pc: u64) {
+    pub const fn restart_fetch_at(&mut self, pc: VirtAddr) {
         match self {
             Self::InOrder(p) => p.frontend.fetch_pc = pc,
             Self::OutOfOrder(p) => p.frontend.fetch_pc = pc,
@@ -815,7 +815,7 @@ mod tests {
     ) -> PendingSquash {
         PendingSquash {
             keep_tag: Some(RobTag::new(keep)),
-            redirect: crate::uarch::pipeline::squash::Redirect::to(target, cause),
+            redirect: crate::uarch::pipeline::squash::Redirect::to(VirtAddr::new(target), cause),
             apply_at: 10,
         }
     }
@@ -857,7 +857,7 @@ mod tests {
         common.request_squash(squash(5, SquashCause::Branch, 0x2000));
 
         let taken = common.take_due_squash(10).map(|s| s.redirect.target);
-        assert_eq!(taken, Some(0x2000));
+        assert_eq!(taken, Some(VirtAddr::new(0x2000)));
     }
 
     #[test]
@@ -869,7 +869,7 @@ mod tests {
         common.request_squash(squash(5, SquashCause::MemoryOrder, 0x1000));
 
         let taken = common.take_due_squash(10).map(|s| s.redirect.target);
-        assert_eq!(taken, Some(0x2000));
+        assert_eq!(taken, Some(VirtAddr::new(0x2000)));
     }
 
     #[test]

@@ -61,7 +61,7 @@ impl O3Engine {
                 continue;
             }
             let val = if entry.ctrl.control_flow == ControlFlow::Jump {
-                entry.pc.wrapping_add(entry.inst_size.as_u64())
+                entry.pc.wrapping_add(entry.inst_size.as_u64()).val()
             } else {
                 entry.alu
             };

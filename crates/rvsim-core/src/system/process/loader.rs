@@ -190,7 +190,7 @@ fn start_hart(state: &mut SystemState, hart_id: HartId, entry: VirtAddr, sp: Vir
 /// address space open to it, the counters readable, and the FPU and
 /// vector unit on, as Linux leaves them for a process.
 fn enter_user_mode(ctx: &mut CoreCtx<'_>, pc: VirtAddr, satp: u64) {
-    ctx.hart.pc = pc.val();
+    ctx.hart.pc = pc;
     ctx.hart.privilege = PrivilegeMode::User;
     // A user-mode access no PMP entry matches is denied, so the firmware
     // that is not here would have opened the whole address space.

@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
-use rvsim_core::common::PhysAddr;
+use rvsim_core::common::{PhysAddr, VirtAddr};
 use rvsim_core::config::{BackendKind, Config, Console, ValidConfig};
 
 use crate::simulator::PySimulator;
@@ -32,7 +32,7 @@ fn copied_after_python_write(backend: BackendKind) -> u64 {
         for (n, word) in [COPY_A0_TO_A1, JAL_SELF].into_iter().enumerate() {
             inner.probe_mem_store(PhysAddr::new(PROGRAM_BASE + 4 * n as u64), u64::from(word), 4);
         }
-        inner.set_pc(0, PROGRAM_BASE);
+        inner.set_pc(0, VirtAddr::new(PROGRAM_BASE));
         let cpu = Py::new(py, PySimulator { inner }).expect("simulator object");
         let regs = Py::new(py, Registers { cpu: cpu.clone_ref(py), hart: 0 }).expect("view");
         regs.bind(py).set_item(A0, WRITTEN).expect("regs[10] = 42");

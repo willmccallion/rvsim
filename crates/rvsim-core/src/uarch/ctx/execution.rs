@@ -1,7 +1,7 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
 use super::CoreCtx;
-use crate::common::{Asid, PAGE_OFFSET_MASK, PAGE_SHIFT, PhysAddr, VPN_MASK, Vpn};
+use crate::common::{Asid, PAGE_SHIFT, PhysAddr, VPN_MASK, Vpn};
 use crate::isa::csr;
 use crate::isa::encoding::privileged::WFI;
 use crate::isa::privileged::PrivilegeMode;
@@ -61,25 +61,28 @@ impl CoreCtx<'_> {
                 // Hang detection reads the instruction at the stuck PC for
                 // tracing straight from the memory image (bench-side
                 // observability — no cache modelling needed).
-                let paddr_raw = if let Some(hit) =
-                    self.core.mmu.dtlb.peek(Vpn::new((self.hart.pc >> PAGE_SHIFT) & VPN_MASK), asid)
+                let paddr_raw = if let Some(hit) = self
+                    .core
+                    .mmu
+                    .dtlb
+                    .peek(Vpn::new((self.hart.pc.val() >> PAGE_SHIFT) & VPN_MASK), asid)
                 {
-                    hit.ppn.to_addr() | (self.hart.pc & PAGE_OFFSET_MASK)
+                    hit.ppn.to_addr() | self.hart.pc.page_offset()
                 } else {
-                    self.hart.pc
+                    self.hart.pc.val()
                 };
                 let inst = self.memory.read(PhysAddr::new(paddr_raw), 4).unwrap_or(0) as u32;
 
                 if inst == WFI {
                     trace_trap!(self.config.general.trace_instructions;
                         event = "wfi-wait",
-                        pc    = %crate::common::trace::Hex(self.hart.pc),
+                        pc    = %crate::common::trace::Hex(self.hart.pc.val()),
                         "CPU stuck in WFI — waiting for interrupt"
                     );
                 } else {
                     trace_trap!(self.config.general.trace_instructions;
                         event = "potential-hang",
-                        pc    = %crate::common::trace::Hex(self.hart.pc),
+                        pc    = %crate::common::trace::Hex(self.hart.pc.val()),
                         inst  = inst,
                         "CPU potential hang detected"
                     );
@@ -143,7 +146,7 @@ impl CoreCtx<'_> {
                     event      = "mode-switch",
                     from_mode  = prev_priv.name(),
                     to_mode    = self.hart.privilege.name(),
-                    pc         = %crate::common::trace::Hex(self.hart.pc),
+                    pc         = %crate::common::trace::Hex(self.hart.pc.val()),
                     "CPU privilege mode switch"
                 );
             }
@@ -152,7 +155,7 @@ impl CoreCtx<'_> {
                 ::tracing::debug!(
                     target: "rvsim::cpu",
                     cycles = self.cycle,
-                    pc     = %crate::common::trace::Hex(self.hart.pc),
+                    pc     = %crate::common::trace::Hex(self.hart.pc.val()),
                     mode   = self.hart.privilege.name(),
                     "CPU status"
                 );

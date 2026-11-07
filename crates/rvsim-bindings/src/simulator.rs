@@ -252,7 +252,7 @@ impl PySimulator {
     /// drops everything in flight and restarts fetch there.
     #[getter]
     fn pc(&self) -> u64 {
-        self.inner.hart(0).pc
+        self.inner.hart(0).pc.val()
     }
 
     /// In SE mode, each program's exit code in the order they were
@@ -265,7 +265,7 @@ impl PySimulator {
 
     #[setter]
     fn set_pc(&mut self, value: u64) {
-        self.inner.set_pc(0, value);
+        self.inner.set_pc(0, VirtAddr::new(value));
     }
 
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"`` (read-only).
@@ -495,7 +495,7 @@ impl PySimulator {
     /// Committed PC trace from the pipeline as a list of ``(pc, raw_inst)`` pairs.
     #[getter]
     fn pc_trace(&self) -> Vec<(u64, u32)> {
-        self.inner.pc_trace(0).to_vec()
+        self.inner.pc_trace(0).iter().map(|&(pc, inst)| (pc.val(), inst)).collect()
     }
 
     /// Open a commit log file. Each retired instruction is a line
@@ -621,7 +621,7 @@ impl PySimulator {
             let (pc, inst) = trace[trace.len() - kept];
             let asm = rvsim_core::isa::disasm::disassemble(inst);
             let cycles = self.inner.cycle() - start_cycle;
-            return Ok(Some(PyInstruction { pc, raw: inst, asm, cycles }));
+            return Ok(Some(PyInstruction { pc: pc.val(), raw: inst, asm, cycles }));
         }
         Ok(None)
     }
@@ -744,7 +744,7 @@ impl PySimulator {
 
             let stop = {
                 let cpu = slf_py.borrow(py);
-                pc.is_some_and(|p| cpu.inner.hart(0).pc == p)
+                pc.is_some_and(|p| cpu.inner.hart(0).pc == VirtAddr::new(p))
                     || privilege.is_some_and(|mode| cpu.inner.hart(0).privilege == mode)
             };
             if stop {
@@ -796,8 +796,8 @@ impl PySimulator {
         use rvsim_core::system::simulator::{StopAt, StopReason};
         let pcs = match pc {
             None => Vec::new(),
-            Some(PcStop::One(pc)) => vec![pc],
-            Some(PcStop::Any(pcs)) => pcs,
+            Some(PcStop::One(pc)) => vec![VirtAddr::new(pc)],
+            Some(PcStop::Any(pcs)) => pcs.into_iter().map(VirtAddr::new).collect(),
         };
         let stop =
             StopAt { cycles, instructions, pcs, guest_breaks, console_output, ..StopAt::default() };

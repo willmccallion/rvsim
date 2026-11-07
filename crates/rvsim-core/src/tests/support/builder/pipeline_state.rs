@@ -1,3 +1,4 @@
+use crate::common::VirtAddr;
 use crate::exec::signals::ControlSignals;
 use crate::isa::reg::RegIdx;
 use crate::uarch::pipeline::latches::{IdExEntry, IfIdEntry};
@@ -16,7 +17,7 @@ impl IfIdBuilder {
     }
 
     pub fn pc(mut self, pc: u64) -> Self {
-        self.0.pc = pc;
+        self.0.pc = VirtAddr::new(pc);
         self
     }
 
@@ -26,7 +27,7 @@ impl IfIdBuilder {
     }
 
     pub fn predicted(mut self, target: u64) -> Self {
-        self.0.predicted_target = Some(target);
+        self.0.predicted_target = Some(VirtAddr::new(target));
         self
     }
 
@@ -49,7 +50,7 @@ impl IdExBuilder {
     }
 
     pub fn pc(mut self, pc: u64) -> Self {
-        self.0.inst.pc = pc;
+        self.0.inst.pc = VirtAddr::new(pc);
         self
     }
 

@@ -4,7 +4,7 @@
 //! physically adjacent leave the access to the misaligned trap handler
 //! rather than reading the wrong bytes.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
@@ -117,7 +117,7 @@ fn run(backend: BackendKind, second_pa: Option<u64>) -> Outcome {
         hart.privilege = PrivilegeMode::Supervisor;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = CODE;
+        hart.pc = VirtAddr::new(CODE);
     }
     ctx.sim.sync_arch_regs();
 

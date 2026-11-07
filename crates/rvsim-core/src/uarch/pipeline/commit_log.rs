@@ -220,7 +220,7 @@ const fn width_mask(width: MemWidth) -> u64 {
 #[derive(Clone, Debug)]
 #[must_use]
 pub struct Retired {
-    pc: u64,
+    pc: VirtAddr,
     inst: u32,
     privilege: PrivilegeMode,
     cycle: u64,
@@ -416,7 +416,7 @@ fn write_bytes_last_first(out: &mut impl Write, bytes: &[u8]) -> io::Result<()> 
 /// Returns the error writing to `out` raised.
 pub fn write_faulted(
     out: &mut impl Write,
-    pc: u64,
+    pc: VirtAddr,
     inst: u32,
     privilege: PrivilegeMode,
     cycle: u64,
@@ -434,7 +434,7 @@ pub fn write_faulted(
 pub fn write_trap(
     out: &mut impl Write,
     cause: u64,
-    epc: u64,
+    epc: VirtAddr,
     tval: u64,
     cycle: u64,
 ) -> io::Result<()> {
@@ -443,7 +443,7 @@ pub fn write_trap(
 
 fn write_header(
     out: &mut impl Write,
-    pc: u64,
+    pc: VirtAddr,
     inst: u32,
     privilege: PrivilegeMode,
     cycle: u64,

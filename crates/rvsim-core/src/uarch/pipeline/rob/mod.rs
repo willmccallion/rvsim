@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
-use crate::common::InstSeq;
+use crate::common::{InstSeq, VirtAddr};
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::{ElementWrite, VectorWrites};
 use crate::exec::execute::{CsrRequest, CsrWrite};
@@ -158,7 +158,7 @@ pub struct RobEntry {
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
     /// Program counter of the instruction.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Raw 32-bit instruction encoding.
     pub inst: u32,
     /// Instruction size in bytes (2 or 4).
@@ -200,7 +200,7 @@ pub struct RobEntry {
     /// Branch outcome recorded at execute time (taken + mispredicted).
     pub bp_outcome: BpOutcome,
     /// Where a taken branch or a jump goes; `None` for not-taken.
-    pub bp_target: Option<u64>,
+    pub bp_target: Option<VirtAddr>,
     /// The D-bit updates the access applies when it retires.
     pub dirty_updates: DirtyUpdates,
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
@@ -325,7 +325,7 @@ impl Rob {
     #[allow(clippy::too_many_arguments)]
     pub fn allocate(
         &mut self,
-        pc: u64,
+        pc: VirtAddr,
         inst: u32,
         inst_size: InstSize,
         rd: RegIdx,
@@ -495,7 +495,12 @@ impl Rob {
     }
 
     /// Records a branch's or jump's resolved outcome for commit.
-    pub fn set_control_outcome(&mut self, tag: RobTag, outcome: BpOutcome, target: Option<u64>) {
+    pub fn set_control_outcome(
+        &mut self,
+        tag: RobTag,
+        outcome: BpOutcome,
+        target: Option<VirtAddr>,
+    ) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.control_resolved = true;
             entry.bp_outcome = outcome;

@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use crate::common::VirtAddr;
 use crate::config::{Config, MemDepPredictorKind};
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 
@@ -87,7 +88,7 @@ impl MemDepUnit {
     /// same set hasn't drained yet.
     pub fn dispatch(
         &mut self,
-        pc: u64,
+        pc: VirtAddr,
         rob_tag: RobTag,
         is_load: bool,
         is_store: bool,
@@ -116,9 +117,9 @@ impl MemDepUnit {
                     }
                     return MemDepState::None;
                 }
-                let prediction = predictor.predict(pc);
+                let prediction = predictor.predict(pc.val());
                 if is_store {
-                    predictor.register_store(pc, rob_tag);
+                    predictor.register_store(pc.val(), rob_tag);
                 }
                 match prediction {
                     MemPrediction::NoDep => {
@@ -174,10 +175,10 @@ impl MemDepUnit {
     }
 
     /// Train on violation detection.
-    pub fn violation(&mut self, load_pc: u64, store_pc: u64) {
+    pub fn violation(&mut self, load_pc: VirtAddr, store_pc: VirtAddr) {
         self.stats.violations += 1;
         if let PredictorKind::StoreSet(predictor) = &mut self.predictor {
-            predictor.train(load_pc, store_pc);
+            predictor.train(load_pc.val(), store_pc.val());
         }
     }
 
@@ -199,7 +200,7 @@ impl MemDepUnit {
             predictor.flush_after(keep_tag);
             for entry in rob.iter_in_order() {
                 if entry.ctrl.mem_write {
-                    predictor.rebuild_lfst_entry(entry.pc, entry.tag);
+                    predictor.rebuild_lfst_entry(entry.pc.val(), entry.tag);
                 }
             }
         }
@@ -239,7 +240,10 @@ mod tests {
     fn test_blind_dispatch_loads_wait_all() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
-        assert_eq!(mdu.dispatch(0x1000, RobTag::new(1), true, false, false), MemDepState::WaitAll);
+        assert_eq!(
+            mdu.dispatch(VirtAddr::new(0x1000), RobTag::new(1), true, false, false),
+            MemDepState::WaitAll
+        );
         assert_eq!(mdu.stats().predictions_wait_all, 1);
     }
 
@@ -247,21 +251,30 @@ mod tests {
     fn test_blind_dispatch_stores_none() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
-        assert_eq!(mdu.dispatch(0x2000, RobTag::new(2), false, true, false), MemDepState::None);
+        assert_eq!(
+            mdu.dispatch(VirtAddr::new(0x2000), RobTag::new(2), false, true, false),
+            MemDepState::None
+        );
     }
 
     #[test]
     fn test_blind_dispatch_non_memory_none() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
-        assert_eq!(mdu.dispatch(0x3000, RobTag::new(3), false, false, false), MemDepState::None);
+        assert_eq!(
+            mdu.dispatch(VirtAddr::new(0x3000), RobTag::new(3), false, false, false),
+            MemDepState::None
+        );
     }
 
     #[test]
     fn test_store_set_unknown_pc_bypass() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
-        assert_eq!(mdu.dispatch(0x1000, RobTag::new(1), true, false, false), MemDepState::Bypass);
+        assert_eq!(
+            mdu.dispatch(VirtAddr::new(0x1000), RobTag::new(1), true, false, false),
+            MemDepState::Bypass
+        );
         assert_eq!(mdu.stats().predictions_bypass, 1);
     }
 
@@ -273,15 +286,21 @@ mod tests {
         let store_pc = 0x2000;
 
         // Train violation.
-        mdu.violation(load_pc, store_pc);
+        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
 
         // Dispatch store — registers in LFST.
         let s1 = RobTag::new(5);
-        assert_eq!(mdu.dispatch(store_pc, s1, false, true, false), MemDepState::None);
+        assert_eq!(
+            mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false),
+            MemDepState::None
+        );
 
         // Dispatch load — depends on store.
         let l1 = RobTag::new(10);
-        assert_eq!(mdu.dispatch(load_pc, l1, true, false, false), MemDepState::WaitFor(s1));
+        assert_eq!(
+            mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false),
+            MemDepState::WaitFor(s1)
+        );
         assert_eq!(mdu.stats().predictions_wait_for, 1);
     }
 
@@ -292,13 +311,13 @@ mod tests {
         let load_pc = 0x1000;
         let store_pc = 0x2000;
 
-        mdu.violation(load_pc, store_pc);
+        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
 
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(store_pc, s1, false, true, false);
+        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false);
 
         let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(load_pc, l1, true, false, false);
+        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false);
 
         // Resolve store — should wake the load.
         let woken = mdu.store_resolved(s1);
@@ -312,11 +331,11 @@ mod tests {
         let load_pc = 0x1000;
         let store_pc = 0x2000;
 
-        mdu.violation(load_pc, store_pc);
+        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(store_pc, s1, false, true, false);
+        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false);
         let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(load_pc, l1, true, false, false);
+        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false);
 
         // Issue the load — dep record removed.
         mdu.issued(l1);
@@ -330,11 +349,11 @@ mod tests {
         let load_pc = 0x1000;
         let store_pc = 0x2000;
 
-        mdu.violation(load_pc, store_pc);
+        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(store_pc, s1, false, true, false);
+        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false);
         let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(load_pc, l1, true, false, false);
+        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false);
 
         mdu.flush();
         assert!(mdu.deps.is_empty());
@@ -347,18 +366,24 @@ mod tests {
         let load_pc = 0x1000;
         let store_pc = 0x2000;
 
-        mdu.violation(load_pc, store_pc);
+        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
 
         // Dispatch load FIRST (older), then store (younger).
         let l1 = RobTag::new(1);
-        assert_eq!(mdu.dispatch(load_pc, l1, true, false, false), MemDepState::Bypass);
+        assert_eq!(
+            mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false),
+            MemDepState::Bypass
+        );
 
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(store_pc, s1, false, true, false);
+        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false);
 
         // Dispatch another load — LFST points to s1 which is younger, so NoDep for
         // loads older than s1... but l2 is newer than s1, so DepOn(s1).
         let l2 = RobTag::new(10);
-        assert_eq!(mdu.dispatch(load_pc, l2, true, false, false), MemDepState::WaitFor(s1));
+        assert_eq!(
+            mdu.dispatch(VirtAddr::new(load_pc), l2, true, false, false),
+            MemDepState::WaitFor(s1)
+        );
     }
 }

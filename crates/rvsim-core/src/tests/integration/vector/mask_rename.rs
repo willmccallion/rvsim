@@ -2,6 +2,7 @@
 //! v0 still holds its value from reset and a younger instruction writes
 //! v0 before the masked one executes.
 
+use crate::common::VirtAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::rvv::VRegIdx;
@@ -82,7 +83,7 @@ fn rewriting_v0_from_reset_returns_its_physical_register() {
         let mut ctx = TestContext::new_with_config(&config)
             .load_program(PROGRAM_BASE, &program)
             .load_program(HANDLER, &handler);
-        ctx.sim.set_pc(0, PROGRAM_BASE);
+        ctx.sim.set_pc(0, VirtAddr::new(PROGRAM_BASE));
         ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
 
         // The trap's flush checks that every physical register is accounted for.

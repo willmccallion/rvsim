@@ -3,7 +3,7 @@
 //! This module contains unit tests for the binary loading functionality,
 //! including loading binaries from disk and setting up kernel boot configurations.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
@@ -73,7 +73,7 @@ fn test_setup_kernel_load_without_opensbi() {
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // Verify PC is set to RAM base
-    assert_eq!(state.harts[0].pc, config.system.ram_base);
+    assert_eq!(state.harts[0].pc, VirtAddr::new(config.system.ram_base));
 
     // Verify privilege mode is Machine
     assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
@@ -132,7 +132,7 @@ fn an_explicit_firmware_is_loaded_at_ram_base_and_entered_in_machine_mode() {
 
     let ram_base = config.system.ram_base;
     assert_eq!(state.memory.read(PhysAddr::new(ram_base), 1), Some(0x73));
-    assert_eq!(state.harts[0].pc, ram_base);
+    assert_eq!(state.harts[0].pc, VirtAddr::new(ram_base));
     assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
     assert_eq!(state.harts[0].regs.read(reg::REG_A2), 0, "fw_jump takes no info struct");
 }
@@ -221,8 +221,8 @@ fn test_setup_kernel_load_different_ram_bases() {
     loader::setup_kernel_load(&mut cpu2, &config2, &loader::KernelBoot::default()).unwrap();
 
     // PC should match the respective RAM bases
-    assert_eq!(cpu1.harts[0].pc, 0x80000000);
-    assert_eq!(cpu2.harts[0].pc, 0xA000_0000);
+    assert_eq!(cpu1.harts[0].pc, VirtAddr::new(0x80000000));
+    assert_eq!(cpu2.harts[0].pc, VirtAddr::new(0xA000_0000));
 }
 
 #[test]

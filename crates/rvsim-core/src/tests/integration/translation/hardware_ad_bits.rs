@@ -4,7 +4,7 @@
 //! leaf that lacks it, and a store sets D once it retires. With ADUE clear
 //! the hart behaves as Svade.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
@@ -78,7 +78,7 @@ fn run_with(
         hart.privilege = PrivilegeMode::Supervisor;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = CODE_VA;
+        hart.pc = VirtAddr::new(CODE_VA);
     }
     ctx.sim.sync_arch_regs();
 
