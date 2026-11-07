@@ -11,10 +11,11 @@ use crate::arch::csr::Csrs;
 use crate::arch::pmp::{Pmp, PmpResult};
 use crate::arch::translation::{PteUpdate, TranslationResult};
 use crate::common::{AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, VirtAddr};
-use crate::isa::csr::{MENVCFG_ADUE, MSTATUS_MXR, MSTATUS_SUM, SATP_PPN_MASK};
+use crate::isa::csr::{MENVCFG_ADUE, SATP_PPN_MASK};
 use crate::isa::privileged::{PagingMode, Satp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::uarch::mmu::Mmu;
+use crate::uarch::mmu::perms::PagePerms;
 use crate::uarch::mmu::tlb::PageSize;
 
 /// Page Table Entry valid bit (bit 0).
@@ -84,6 +85,11 @@ impl PageTableEntry {
     /// Returns true if the User (U) bit is set.
     const fn is_user(self) -> bool {
         self.0 & PTE_USER_BIT != 0
+    }
+
+    /// Its R, W, X and U bits.
+    const fn perms(self) -> PagePerms {
+        PagePerms { r: self.can_read(), w: self.can_write(), x: self.can_exec(), u: self.is_user() }
     }
 
     /// Returns true if the Accessed (A) bit is set.
@@ -333,7 +339,7 @@ fn classify(mut state: WalkState, pte: PageTableEntry, csrs: &Csrs) -> PteStep {
         }
     }
 
-    if !permits(pte, state.access, state.privilege, csrs) {
+    if !pte.perms().permits(state.access, state.privilege, csrs.mstatus) {
         return PteStep::Fault(state);
     }
 
@@ -376,25 +382,6 @@ fn request_pte(state: WalkState, pmp: Option<&Pmp>) -> WalkStep {
     }
 
     WalkStep::NeedPte { pte_addr: PhysAddr::new(pte_addr), state }
-}
-
-/// Whether leaf `pte` grants `access` at `privilege`: its R/W/X and U
-/// bits, as `mstatus`'s MXR and SUM qualify them.
-fn permits(pte: PageTableEntry, access: AccessType, privilege: PrivilegeMode, csrs: &Csrs) -> bool {
-    let mxr = csrs.mstatus & MSTATUS_MXR != 0;
-    let kind_allowed = match access {
-        AccessType::Fetch => pte.can_exec(),
-        AccessType::Read => pte.can_read() || (pte.can_exec() && mxr),
-        AccessType::Write => pte.can_write(),
-    };
-    let privilege_allowed = match privilege {
-        PrivilegeMode::User => pte.is_user(),
-        PrivilegeMode::Supervisor if pte.is_user() => {
-            csrs.mstatus & MSTATUS_SUM != 0 && access != AccessType::Fetch
-        }
-        _ => true,
-    };
-    kind_allowed && privilege_allowed
 }
 
 /// The hardware A/D updates the access that walked to leaf `pte` needs:

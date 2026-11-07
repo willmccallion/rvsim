@@ -6,6 +6,8 @@
 //! either resolves the translation immediately or returns the first PTE
 //! address the caller must read via a `MemReq` packet.
 
+pub mod perms;
+
 pub mod ptw;
 
 pub mod tlb;
@@ -130,8 +132,6 @@ impl Mmu {
         csrs: &Csrs,
         pmp: Option<&Pmp>,
     ) -> TranslateOutcome {
-        use crate::isa::csr::{MSTATUS_MXR, MSTATUS_SUM};
-
         let satp = Satp::new(csrs.satp);
         let Some(paging) = satp.paging_mode() else {
             return TranslateOutcome::Ready(TranslationResult::fault(
@@ -171,51 +171,12 @@ impl Mmu {
             if access == AccessType::Write && !hit.d {
                 self.dtlb.invalidate(vpn);
             } else {
-                if access == AccessType::Write && !hit.w {
-                    return TranslateOutcome::Ready(TranslationResult::fault(
-                        Trap::StorePageFault(vaddr.val()),
-                        0,
-                    ));
-                }
-                if access == AccessType::Fetch && !hit.x {
-                    return TranslateOutcome::Ready(TranslationResult::fault(
-                        Trap::InstructionPageFault(vaddr.val()),
-                        0,
-                    ));
-                }
-                if access == AccessType::Read {
-                    let mxr = csrs.mstatus & MSTATUS_MXR != 0;
-                    let readable = hit.r || (hit.x && mxr);
-                    if !readable {
-                        return TranslateOutcome::Ready(TranslationResult::fault(
-                            Trap::LoadPageFault(vaddr.val()),
-                            0,
-                        ));
-                    }
-                }
-
-                if privilege == PrivilegeMode::User && !hit.u {
+                if !hit.perms().permits(access, privilege, csrs.mstatus) {
                     return TranslateOutcome::Ready(TranslationResult::fault(
                         Trap::page_fault(access, vaddr.val()),
                         0,
                     ));
                 }
-                if privilege == PrivilegeMode::Supervisor && hit.u {
-                    let sum = csrs.mstatus & MSTATUS_SUM != 0;
-                    if !sum {
-                        return TranslateOutcome::Ready(TranslationResult::fault(
-                            Trap::page_fault(access, vaddr.val()),
-                            0,
-                        ));
-                    }
-                    if access == AccessType::Fetch {
-                        return TranslateOutcome::Ready(TranslationResult::fault(
-                            Trap::InstructionPageFault(vaddr.val()),
-                            0,
-                        ));
-                    }
-                }
-
                 let paddr = hit.ppn.to_addr() | vaddr.page_offset();
                 return TranslateOutcome::Ready(TranslationResult::success(
                     PhysAddr::new(paddr),
@@ -226,53 +187,17 @@ impl Mmu {
 
         let l2_latency = self.l2_tlb_latency;
         if let Some(hit) = self.l2_tlb.lookup(vpn, asid) {
-            let TlbHit { ppn, r, w, x, u, d, mapping } = hit;
+            let perms = hit.perms();
+            let TlbHit { ppn, d, mapping, .. } = hit;
 
             if access == AccessType::Write && !d {
                 // fall through to PTW so it sets the dirty bit
             } else {
-                if access == AccessType::Write && !w {
-                    return TranslateOutcome::Ready(TranslationResult::fault(
-                        Trap::StorePageFault(vaddr.val()),
-                        l2_latency,
-                    ));
-                }
-                if access == AccessType::Fetch && !x {
-                    return TranslateOutcome::Ready(TranslationResult::fault(
-                        Trap::InstructionPageFault(vaddr.val()),
-                        l2_latency,
-                    ));
-                }
-                if access == AccessType::Read {
-                    let mxr = csrs.mstatus & MSTATUS_MXR != 0;
-                    if !(r || (x && mxr)) {
-                        return TranslateOutcome::Ready(TranslationResult::fault(
-                            Trap::LoadPageFault(vaddr.val()),
-                            l2_latency,
-                        ));
-                    }
-                }
-
-                if privilege == PrivilegeMode::User && !u {
+                if !perms.permits(access, privilege, csrs.mstatus) {
                     return TranslateOutcome::Ready(TranslationResult::fault(
                         Trap::page_fault(access, vaddr.val()),
                         l2_latency,
                     ));
-                }
-                if privilege == PrivilegeMode::Supervisor && u {
-                    let sum = csrs.mstatus & MSTATUS_SUM != 0;
-                    if !sum {
-                        return TranslateOutcome::Ready(TranslationResult::fault(
-                            Trap::page_fault(access, vaddr.val()),
-                            l2_latency,
-                        ));
-                    }
-                    if access == AccessType::Fetch {
-                        return TranslateOutcome::Ready(TranslationResult::fault(
-                            Trap::InstructionPageFault(vaddr.val()),
-                            l2_latency,
-                        ));
-                    }
                 }
 
                 if access == AccessType::Fetch {
@@ -319,7 +244,7 @@ impl Mmu {
         let vpn = vaddr.page_number();
         let asid = satp.asid();
         let Some(hit) = self.dtlb.peek(vpn, asid) else { return PrefetchTranslation::Missing };
-        if !readable(&hit, privilege, csrs.mstatus) {
+        if !hit.perms().permits(AccessType::Read, privilege, csrs.mstatus) {
             return PrefetchTranslation::Denied;
         }
         PrefetchTranslation::Mapped {
@@ -370,22 +295,6 @@ pub fn translate_now(
         return Err(Trap::page_fault(access, vaddr.val()));
     }
     ptw::walk_now(WalkRequest { access, privilege, mode: paging }, vaddr, csrs, read_pte)
-}
-
-/// Whether a load at `privilege` may read the page `hit` maps, under the
-/// MXR and SUM bits of `mstatus`.
-const fn readable(hit: &TlbHit, privilege: PrivilegeMode, mstatus: u64) -> bool {
-    use crate::isa::csr::{MSTATUS_MXR, MSTATUS_SUM};
-
-    let mxr = mstatus & MSTATUS_MXR != 0;
-    if !(hit.r || (hit.x && mxr)) {
-        return false;
-    }
-    match privilege {
-        PrivilegeMode::User => hit.u,
-        PrivilegeMode::Supervisor => !hit.u || mstatus & MSTATUS_SUM != 0,
-        PrivilegeMode::Machine => true,
-    }
 }
 
 const fn is_canonical_va(va: u64, mode: crate::isa::privileged::PagingMode) -> bool {
