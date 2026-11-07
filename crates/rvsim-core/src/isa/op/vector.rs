@@ -1051,6 +1051,180 @@ pub enum VecAluOp {
     Merge,
 }
 
+/// Single-width floating-point operations on `vs2` and `vs1` or `fs1`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpBinaryOp {
+    /// `vfadd`.
+    Add,
+    /// `vfsub`.
+    Sub,
+    /// `vfrsub`: `op1 - vs2`.
+    RSub,
+    /// `vfmul`.
+    Mul,
+    /// `vfdiv`.
+    Div,
+    /// `vfrdiv`: `op1 / vs2`.
+    RDiv,
+    /// `vfmin`.
+    Min,
+    /// `vfmax`.
+    Max,
+    /// `vfsgnj`.
+    Sgnj,
+    /// `vfsgnjn`.
+    Sgnjn,
+    /// `vfsgnjx`.
+    Sgnjx,
+}
+
+/// Whether an integer is signed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Signedness {
+    /// Unsigned (`xu`).
+    Unsigned,
+    /// Two's-complement signed (`x`).
+    Signed,
+}
+
+/// How a conversion to an integer rounds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntRounding {
+    /// Under `frm`.
+    Dynamic,
+    /// Toward zero (`.rtz`).
+    TowardZero,
+}
+
+/// A conversion between floating point and an integer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntConvert {
+    /// Floating point to an integer.
+    ToInt(Signedness, IntRounding),
+    /// An integer to floating point.
+    FromInt(Signedness),
+}
+
+/// Single-width floating-point operations on `vs2` alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpUnaryOp {
+    /// `vfsqrt`.
+    Sqrt,
+    /// `vfrsqrt7`.
+    Rsqrt7,
+    /// `vfrec7`.
+    Rec7,
+    /// `vfclass`.
+    Class,
+    /// `vfcvt`.
+    Convert(IntConvert),
+}
+
+/// The signs of a fused multiply-add's product and addend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FmaSigns {
+    /// `+(a × b) + c`.
+    Macc,
+    /// `-(a × b) - c`.
+    NMacc,
+    /// `+(a × b) - c`.
+    MSac,
+    /// `-(a × b) + c`.
+    NMSac,
+}
+
+/// Which register a single-width fused multiply-add adds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FmaAddend {
+    /// `vd`, as `vfmacc` and its kin accumulate.
+    Vd,
+    /// `vs2`, as `vfmadd` and its kin, which multiply `vd`.
+    Vs2,
+}
+
+/// Floating-point comparisons, which write mask bits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpCompareOp {
+    /// `vmfeq`.
+    Eq,
+    /// `vmfne`.
+    Ne,
+    /// `vmflt`.
+    Lt,
+    /// `vmfle`.
+    Le,
+    /// `vmfgt`.
+    Gt,
+    /// `vmfge`.
+    Ge,
+}
+
+/// Widening floating-point arithmetic: a 2×SEW result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpWidenOp {
+    /// `vfwadd`.
+    Add,
+    /// `vfwsub`.
+    Sub,
+    /// `vfwmul`.
+    Mul,
+    /// `vfwadd.w`: `vs2` is already 2×SEW.
+    AddW,
+    /// `vfwsub.w`: `vs2` is already 2×SEW.
+    SubW,
+}
+
+/// Widening conversions: a 2×SEW result from a SEW source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpWidenConvertOp {
+    /// To or from an integer.
+    Int(IntConvert),
+    /// `vfwcvt.f.f`.
+    Float,
+}
+
+/// Narrowing conversions: a SEW result from a 2×SEW source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpNarrowConvertOp {
+    /// To or from an integer.
+    Int(IntConvert),
+    /// `vfncvt.f.f`.
+    Float,
+    /// `vfncvt.rod.f.f`: rounding to odd.
+    FloatRoundToOdd,
+}
+
+/// The vector floating-point operations, by how they compute.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VecFpOp {
+    /// Single-width, from `vs2` and `vs1` or `fs1`.
+    Binary(FpBinaryOp),
+    /// Single-width, from `vs2` alone.
+    Unary(FpUnaryOp),
+    /// Single-width fused multiply-add.
+    Fma(FmaSigns, FmaAddend),
+    /// A comparison into a mask.
+    Compare(FpCompareOp),
+    /// Widening arithmetic.
+    Widen(FpWidenOp),
+    /// Widening fused multiply-accumulate into `vd`.
+    WidenFma(FmaSigns),
+    /// Widening conversion.
+    WidenConvert(FpWidenConvertOp),
+    /// Narrowing conversion.
+    NarrowConvert(FpNarrowConvertOp),
+    /// `vfmerge`.
+    Merge,
+    /// `vfmv.f.s`.
+    MoveToScalar,
+    /// `vfmv.s.f`.
+    MoveFromScalar,
+    /// `vfslide1up`.
+    Slide1Up,
+    /// `vfslide1down`.
+    Slide1Down,
+}
+
 /// Integer reductions at SEW.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IntReduceOp {
@@ -1241,8 +1415,8 @@ pub enum VecClass {
     Load,
     /// A vector store.
     Store,
-    /// The floating-point unit's element-wise operations.
-    Fp,
+    /// A floating-point operation.
+    Fp(VecFpOp),
     /// The integer ALU.
     Alu(VecAluOp),
     /// A reduction.
@@ -1270,15 +1444,110 @@ impl VectorOp {
             VStoreUnit | VStoreMask | VStoreWholeReg | VStoreStride | VStoreIndexOrd
             | VStoreIndexUnord => VecClass::Store,
 
-            VFAdd | VFSub | VFRSub | VFMul | VFDiv | VFRDiv | VFMin | VFMax | VFSgnj | VFSgnjn
-            | VFSgnjx | VMFEq | VMFNe | VMFLt | VMFLe | VMFGt | VMFGe | VFMacc | VFNMacc
-            | VFMSac | VFNMSac | VFMAdd | VFNMAdd | VFMSub | VFNMSub | VFSqrt | VFRsqrt7
-            | VFRec7 | VFClass | VFCvtXuF | VFCvtXF | VFCvtFXu | VFCvtFX | VFCvtRtzXuF
-            | VFCvtRtzXF | VFWAdd | VFWSub | VFWMul | VFWAddW | VFWSubW | VFWMacc | VFWNMacc
-            | VFWMSac | VFWNMSac | VFWCvtXuF | VFWCvtXF | VFWCvtFXu | VFWCvtFX | VFWCvtFF
-            | VFWCvtRtzXuF | VFWCvtRtzXF | VFNCvtXuF | VFNCvtXF | VFNCvtFXu | VFNCvtFX
-            | VFNCvtFF | VFNCvtRodFF | VFNCvtRtzXuF | VFNCvtRtzXF | VFMerge | VFMvSF | VFMvFS
-            | VFSlide1Up | VFSlide1Down => VecClass::Fp,
+            VFAdd => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Add)),
+            VFSub => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Sub)),
+            VFRSub => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::RSub)),
+            VFMul => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Mul)),
+            VFDiv => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Div)),
+            VFRDiv => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::RDiv)),
+            VFMin => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Min)),
+            VFMax => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Max)),
+            VFSgnj => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Sgnj)),
+            VFSgnjn => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Sgnjn)),
+            VFSgnjx => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Sgnjx)),
+            VMFEq => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Eq)),
+            VMFNe => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Ne)),
+            VMFLt => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Lt)),
+            VMFLe => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Le)),
+            VMFGt => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Gt)),
+            VMFGe => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Ge)),
+            VFMacc => VecClass::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vd)),
+            VFNMacc => VecClass::Fp(VecFpOp::Fma(FmaSigns::NMacc, FmaAddend::Vd)),
+            VFMSac => VecClass::Fp(VecFpOp::Fma(FmaSigns::MSac, FmaAddend::Vd)),
+            VFNMSac => VecClass::Fp(VecFpOp::Fma(FmaSigns::NMSac, FmaAddend::Vd)),
+            VFMAdd => VecClass::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vs2)),
+            VFNMAdd => VecClass::Fp(VecFpOp::Fma(FmaSigns::NMacc, FmaAddend::Vs2)),
+            VFMSub => VecClass::Fp(VecFpOp::Fma(FmaSigns::MSac, FmaAddend::Vs2)),
+            VFNMSub => VecClass::Fp(VecFpOp::Fma(FmaSigns::NMSac, FmaAddend::Vs2)),
+            VFSqrt => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Sqrt)),
+            VFRsqrt7 => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Rsqrt7)),
+            VFRec7 => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Rec7)),
+            VFClass => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Class)),
+            VFCvtXuF => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::ToInt(
+                Signedness::Unsigned,
+                IntRounding::Dynamic,
+            )))),
+            VFCvtXF => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::ToInt(
+                Signedness::Signed,
+                IntRounding::Dynamic,
+            )))),
+            VFCvtFXu => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::FromInt(
+                Signedness::Unsigned,
+            )))),
+            VFCvtFX => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::FromInt(
+                Signedness::Signed,
+            )))),
+            VFCvtRtzXuF => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::ToInt(
+                Signedness::Unsigned,
+                IntRounding::TowardZero,
+            )))),
+            VFCvtRtzXF => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::ToInt(
+                Signedness::Signed,
+                IntRounding::TowardZero,
+            )))),
+            VFWAdd => VecClass::Fp(VecFpOp::Widen(FpWidenOp::Add)),
+            VFWSub => VecClass::Fp(VecFpOp::Widen(FpWidenOp::Sub)),
+            VFWMul => VecClass::Fp(VecFpOp::Widen(FpWidenOp::Mul)),
+            VFWAddW => VecClass::Fp(VecFpOp::Widen(FpWidenOp::AddW)),
+            VFWSubW => VecClass::Fp(VecFpOp::Widen(FpWidenOp::SubW)),
+            VFWMacc => VecClass::Fp(VecFpOp::WidenFma(FmaSigns::Macc)),
+            VFWNMacc => VecClass::Fp(VecFpOp::WidenFma(FmaSigns::NMacc)),
+            VFWMSac => VecClass::Fp(VecFpOp::WidenFma(FmaSigns::MSac)),
+            VFWNMSac => VecClass::Fp(VecFpOp::WidenFma(FmaSigns::NMSac)),
+            VFWCvtXuF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
+                IntConvert::ToInt(Signedness::Unsigned, IntRounding::Dynamic),
+            ))),
+            VFWCvtXF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
+                IntConvert::ToInt(Signedness::Signed, IntRounding::Dynamic),
+            ))),
+            VFWCvtFXu => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
+                IntConvert::FromInt(Signedness::Unsigned),
+            ))),
+            VFWCvtFX => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
+                IntConvert::FromInt(Signedness::Signed),
+            ))),
+            VFWCvtFF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Float)),
+            VFWCvtRtzXuF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
+                IntConvert::ToInt(Signedness::Unsigned, IntRounding::TowardZero),
+            ))),
+            VFWCvtRtzXF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
+                IntConvert::ToInt(Signedness::Signed, IntRounding::TowardZero),
+            ))),
+            VFNCvtXuF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
+                IntConvert::ToInt(Signedness::Unsigned, IntRounding::Dynamic),
+            ))),
+            VFNCvtXF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
+                IntConvert::ToInt(Signedness::Signed, IntRounding::Dynamic),
+            ))),
+            VFNCvtFXu => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
+                IntConvert::FromInt(Signedness::Unsigned),
+            ))),
+            VFNCvtFX => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
+                IntConvert::FromInt(Signedness::Signed),
+            ))),
+            VFNCvtFF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Float)),
+            VFNCvtRodFF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::FloatRoundToOdd)),
+            VFNCvtRtzXuF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
+                IntConvert::ToInt(Signedness::Unsigned, IntRounding::TowardZero),
+            ))),
+            VFNCvtRtzXF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
+                IntConvert::ToInt(Signedness::Signed, IntRounding::TowardZero),
+            ))),
+            VFMerge => VecClass::Fp(VecFpOp::Merge),
+            VFMvSF => VecClass::Fp(VecFpOp::MoveFromScalar),
+            VFMvFS => VecClass::Fp(VecFpOp::MoveToScalar),
+            VFSlide1Up => VecClass::Fp(VecFpOp::Slide1Up),
+            VFSlide1Down => VecClass::Fp(VecFpOp::Slide1Down),
 
             VAdd => VecClass::Alu(VecAluOp::Int(IntOp::Add)),
             VSub => VecClass::Alu(VecAluOp::Int(IntOp::Sub)),

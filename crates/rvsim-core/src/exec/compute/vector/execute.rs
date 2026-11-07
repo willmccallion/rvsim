@@ -186,7 +186,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     let (vd, vs2, vs1) = (inst.ctrl.vd, inst.ctrl.vs2, inst.ctrl.vs1);
 
     let result = match vec_op.class() {
-        VecClass::Fp => fpu::vec_fp_execute(vec_op, vpr, vd, vs2, operand1, &ctx),
+        VecClass::Fp(op) => fpu::vec_fp_execute(op, vpr, vd, vs2, operand1, &ctx),
         VecClass::Reduce(op) => reduction::vec_reduce(op, vpr, vd, vs2, vs1, &ctx),
         VecClass::Mask(op) => {
             let result = mask::vec_mask_execute(op, vpr, vd, vs2, vs1, &ctx);

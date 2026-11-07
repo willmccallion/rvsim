@@ -5,7 +5,6 @@ use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
 
 /// FP merge: like integer merge but for FP values.
@@ -35,9 +34,19 @@ pub(super) fn exec_fp_merge(
     VecExecResult::default()
 }
 
+/// Which way a one-element slide moves.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum SlideDirection {
+    /// `vfslide1up`: towards higher elements, the scalar entering element 0.
+    Up,
+    /// `vfslide1down`: towards lower elements, the scalar entering element
+    /// `vl - 1`.
+    Down,
+}
+
 /// FP slide1up/slide1down operations.
 pub(super) fn exec_fp_slide1(
-    op: VectorOp,
+    direction: SlideDirection,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -55,22 +64,21 @@ pub(super) fn exec_fp_slide1(
             continue;
         }
 
-        let result = match op {
-            VectorOp::VFSlide1Up => {
+        let result = match direction {
+            SlideDirection::Up => {
                 if i == 0 {
                     scalar
                 } else {
                     vpr.read_element(vs2_idx, ElemIdx::new(i - 1), ctx.sew)
                 }
             }
-            VectorOp::VFSlide1Down => {
+            SlideDirection::Down => {
                 if i == ctx.vl - 1 {
                     scalar
                 } else {
                     vpr.read_element(vs2_idx, ElemIdx::new(i + 1), ctx.sew)
                 }
             }
-            _ => 0,
         };
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }

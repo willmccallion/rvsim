@@ -28,85 +28,21 @@ mod widen;
 use crate::exec::compute::fpu::half::F16_NAN_BOX_MASK;
 use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
 use crate::exec::compute::fpu::nan_handling::F32_NAN_BOX_MASK;
+use crate::exec::compute::fpu::{IntTarget, fp_to_int};
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::op::VectorOp;
+use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::op::{IntRounding, Signedness, VecClass, VecFpOp, VectorOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
-use arith::exec_fp_standard;
+use arith::{StandardOp, exec_fp_standard};
 use compare::exec_fp_comparison;
 use fma::exec_fp_fma;
-use moves::{exec_fp_merge, exec_fp_slide1};
-use widen::{exec_fp_narrowing, exec_fp_widening};
+use moves::{SlideDirection, exec_fp_merge, exec_fp_slide1};
+use widen::{exec_fp_narrowing, exec_fp_widen_convert, exec_fp_widening, exec_fp_widening_fma};
 
 /// Returns `true` if `op` is a vector floating-point operation handled by this module.
 pub const fn is_vec_fp(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VFAdd
-            | VectorOp::VFSub
-            | VectorOp::VFRSub
-            | VectorOp::VFMul
-            | VectorOp::VFDiv
-            | VectorOp::VFRDiv
-            | VectorOp::VFMin
-            | VectorOp::VFMax
-            | VectorOp::VFSgnj
-            | VectorOp::VFSgnjn
-            | VectorOp::VFSgnjx
-            | VectorOp::VMFEq
-            | VectorOp::VMFNe
-            | VectorOp::VMFLt
-            | VectorOp::VMFLe
-            | VectorOp::VMFGt
-            | VectorOp::VMFGe
-            | VectorOp::VFMacc
-            | VectorOp::VFNMacc
-            | VectorOp::VFMSac
-            | VectorOp::VFNMSac
-            | VectorOp::VFMAdd
-            | VectorOp::VFNMAdd
-            | VectorOp::VFMSub
-            | VectorOp::VFNMSub
-            | VectorOp::VFSqrt
-            | VectorOp::VFRsqrt7
-            | VectorOp::VFRec7
-            | VectorOp::VFClass
-            | VectorOp::VFCvtXuF
-            | VectorOp::VFCvtXF
-            | VectorOp::VFCvtFXu
-            | VectorOp::VFCvtFX
-            | VectorOp::VFCvtRtzXuF
-            | VectorOp::VFCvtRtzXF
-            | VectorOp::VFWAdd
-            | VectorOp::VFWSub
-            | VectorOp::VFWMul
-            | VectorOp::VFWAddW
-            | VectorOp::VFWSubW
-            | VectorOp::VFWMacc
-            | VectorOp::VFWNMacc
-            | VectorOp::VFWMSac
-            | VectorOp::VFWNMSac
-            | VectorOp::VFWCvtXuF
-            | VectorOp::VFWCvtXF
-            | VectorOp::VFWCvtFXu
-            | VectorOp::VFWCvtFX
-            | VectorOp::VFWCvtFF
-            | VectorOp::VFWCvtRtzXuF
-            | VectorOp::VFWCvtRtzXF
-            | VectorOp::VFNCvtXuF
-            | VectorOp::VFNCvtXF
-            | VectorOp::VFNCvtFXu
-            | VectorOp::VFNCvtFX
-            | VectorOp::VFNCvtFF
-            | VectorOp::VFNCvtRodFF
-            | VectorOp::VFNCvtRtzXuF
-            | VectorOp::VFNCvtRtzXF
-            | VectorOp::VFMerge
-            | VectorOp::VFMvSF
-            | VectorOp::VFMvFS
-            | VectorOp::VFSlide1Up
-            | VectorOp::VFSlide1Down
-    )
+    matches!(op.class(), VecClass::Fp(_))
 }
 
 /// Execute a vector floating-point operation.
@@ -123,7 +59,7 @@ pub const fn is_vec_fp(op: VectorOp) -> bool {
 /// * `operand1` - First operand (vector, scalar, or immediate).
 /// * `ctx`      - Execution context (SEW, vl, masking policies, etc.).
 pub fn vec_fp_execute(
-    op: VectorOp,
+    op: VecFpOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
@@ -138,78 +74,95 @@ pub fn vec_fp_execute(
 }
 
 fn vec_fp_dispatch(
-    op: VectorOp,
+    op: VecFpOp,
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
     operand1: VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    // Scalar move: vfmv.f.s — read vs2[0] as scalar result
-    // The result is written to a 64-bit FP register; NaN-box sub-64-bit values
-    // per RISC-V spec §13.2 (upper bits all-1s for narrower FP widths).
-    if op == VectorOp::VFMvFS {
-        let raw = vpr.read_element(vs2_idx, ElemIdx::new(0), ctx.sew);
-        let val = match ctx.sew {
-            Sew::E32 => raw | F32_NAN_BOX_MASK,
-            Sew::E16 => raw | F16_NAN_BOX_MASK,
-            _ => raw,
-        };
-        return VecExecResult { scalar_result: Some(val), ..VecExecResult::default() };
-    }
-
-    // Scalar move: vfmv.s.f — write scalar into vd[0]
-    if op == VectorOp::VFMvSF {
-        let scalar = match operand1 {
-            VecOperand::Scalar(s) => s,
-            _ => 0,
-        };
-        if ctx.vl > 0 {
-            vpr.write_element(vd_idx, ElemIdx::new(0), ctx.sew, scalar & ctx.sew.mask());
+    match op {
+        VecFpOp::Binary(op) => {
+            exec_fp_standard(StandardOp::Binary(op), vpr, vd_idx, vs2_idx, operand1, ctx)
         }
-        // Tail elements follow the tail-agnostic rule.
-        if ctx.vta.is_agnostic() {
-            let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-            let start = if ctx.vl > 0 { 1 } else { 0 };
-            for i in start..vlmax {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
+        VecFpOp::Unary(op) => {
+            exec_fp_standard(StandardOp::Unary(op), vpr, vd_idx, vs2_idx, operand1, ctx)
         }
-        return VecExecResult::default();
+        VecFpOp::Fma(signs, addend) => {
+            exec_fp_fma((signs, addend), vpr, vd_idx, vs2_idx, operand1, ctx)
+        }
+        VecFpOp::Compare(op) => exec_fp_comparison(op, vpr, vd_idx, vs2_idx, operand1, ctx),
+        VecFpOp::Widen(op) => exec_fp_widening(op, vpr, vd_idx, vs2_idx, operand1, ctx),
+        VecFpOp::WidenFma(signs) => {
+            exec_fp_widening_fma(signs, vpr, vd_idx, vs2_idx, operand1, ctx)
+        }
+        VecFpOp::WidenConvert(op) => exec_fp_widen_convert(op, vpr, vd_idx, vs2_idx, ctx),
+        VecFpOp::NarrowConvert(op) => exec_fp_narrowing(op, vpr, vd_idx, vs2_idx, ctx),
+        VecFpOp::Merge => exec_fp_merge(vpr, vd_idx, vs2_idx, operand1, ctx),
+        VecFpOp::Slide1Up => {
+            exec_fp_slide1(SlideDirection::Up, vpr, vd_idx, vs2_idx, operand1, ctx)
+        }
+        VecFpOp::Slide1Down => {
+            exec_fp_slide1(SlideDirection::Down, vpr, vd_idx, vs2_idx, operand1, ctx)
+        }
+        VecFpOp::MoveToScalar => move_to_scalar(vpr, vs2_idx, ctx),
+        VecFpOp::MoveFromScalar => move_from_scalar(vpr, vd_idx, operand1, ctx),
     }
+}
 
-    // Merge
-    if op == VectorOp::VFMerge {
-        return exec_fp_merge(vpr, vd_idx, vs2_idx, operand1, ctx);
+/// `vfmv.f.s`: `vs2[0]` as the scalar result, NaN-boxed into the 64-bit
+/// FP register when narrower (RISC-V spec §13.2).
+fn move_to_scalar(vpr: &impl VectorRegFile, vs2_idx: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
+    let raw = vpr.read_element(vs2_idx, ElemIdx::new(0), ctx.sew);
+    let val = match ctx.sew {
+        Sew::E32 => raw | F32_NAN_BOX_MASK,
+        Sew::E16 => raw | F16_NAN_BOX_MASK,
+        Sew::E8 | Sew::E64 => raw,
+    };
+    VecExecResult { scalar_result: Some(val), ..VecExecResult::default() }
+}
+
+/// `vfmv.s.f`: the scalar into `vd[0]`, the tail as its policy says.
+fn move_from_scalar(
+    vpr: &mut impl VectorRegFile,
+    vd_idx: VRegIdx,
+    operand1: VecOperand,
+    ctx: &VecExecCtx,
+) -> VecExecResult {
+    let scalar = match operand1 {
+        VecOperand::Scalar(s) => s,
+        _ => 0,
+    };
+    if ctx.vl > 0 {
+        vpr.write_element(vd_idx, ElemIdx::new(0), ctx.sew, scalar & ctx.sew.mask());
     }
-
-    // Slide operations
-    if matches!(op, VectorOp::VFSlide1Up | VectorOp::VFSlide1Down) {
-        return exec_fp_slide1(op, vpr, vd_idx, vs2_idx, operand1, ctx);
+    if ctx.vta.is_agnostic() {
+        let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
+        let start = if ctx.vl > 0 { 1 } else { 0 };
+        for i in start..vlmax {
+            vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
+        }
     }
+    VecExecResult::default()
+}
 
-    // Comparisons (write mask bits)
-    if is_fp_comparison(op) {
-        return exec_fp_comparison(op, vpr, vd_idx, vs2_idx, operand1, ctx);
-    }
-
-    // Widening operations
-    if is_fp_widening(op) {
-        return exec_fp_widening(op, vpr, vd_idx, vs2_idx, operand1, ctx);
-    }
-
-    // Narrowing operations
-    if is_fp_narrowing(op) {
-        return exec_fp_narrowing(op, vpr, vd_idx, vs2_idx, operand1, ctx);
-    }
-
-    // FMA operations (need vd as accumulator)
-    if is_fp_fma(op) {
-        return exec_fp_fma(op, vpr, vd_idx, vs2_idx, operand1, ctx);
-    }
-
-    // Standard element-wise FP operations
-    exec_fp_standard(op, vpr, vd_idx, vs2_idx, operand1, ctx)
+/// `value` as a `bits`-wide integer of the signedness and rounding a
+/// conversion names, with the flags.
+fn float_to_int(
+    value: f64,
+    (signedness, rounding): (Signedness, IntRounding),
+    bits: u32,
+    frm: RoundingMode,
+) -> (u64, FpFlags) {
+    let target = match signedness {
+        Signedness::Unsigned => IntTarget::unsigned(bits),
+        Signedness::Signed => IntTarget::signed(bits),
+    };
+    let rm = match rounding {
+        IntRounding::Dynamic => frm,
+        IntRounding::TowardZero => RoundingMode::Rtz,
+    };
+    fp_to_int(value, target, rm)
 }
 
 /// Convert a raw u64 element to f32 (unboxed from lower 32 bits).
@@ -230,72 +183,6 @@ const F32_SIGN_BIT: u32 = 0x8000_0000;
 /// Bit mask for the sign bit in a 64-bit IEEE 754 float.
 const F64_SIGN_BIT: u64 = 0x8000_0000_0000_0000;
 
-/// Returns `true` for FP comparison ops that write mask bits.
-const fn is_fp_comparison(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VMFEq
-            | VectorOp::VMFNe
-            | VectorOp::VMFLt
-            | VectorOp::VMFLe
-            | VectorOp::VMFGt
-            | VectorOp::VMFGe
-    )
-}
-
-/// Returns `true` for FP widening operations.
-const fn is_fp_widening(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VFWAdd
-            | VectorOp::VFWSub
-            | VectorOp::VFWMul
-            | VectorOp::VFWAddW
-            | VectorOp::VFWSubW
-            | VectorOp::VFWMacc
-            | VectorOp::VFWNMacc
-            | VectorOp::VFWMSac
-            | VectorOp::VFWNMSac
-            | VectorOp::VFWCvtXuF
-            | VectorOp::VFWCvtXF
-            | VectorOp::VFWCvtFXu
-            | VectorOp::VFWCvtFX
-            | VectorOp::VFWCvtFF
-            | VectorOp::VFWCvtRtzXuF
-            | VectorOp::VFWCvtRtzXF
-    )
-}
-
-/// Returns `true` for FP narrowing operations.
-const fn is_fp_narrowing(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VFNCvtXuF
-            | VectorOp::VFNCvtXF
-            | VectorOp::VFNCvtFXu
-            | VectorOp::VFNCvtFX
-            | VectorOp::VFNCvtFF
-            | VectorOp::VFNCvtRodFF
-            | VectorOp::VFNCvtRtzXuF
-            | VectorOp::VFNCvtRtzXF
-    )
-}
-
-/// Returns `true` for FMA operations (need vd as accumulator).
-const fn is_fp_fma(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VFMacc
-            | VectorOp::VFNMacc
-            | VectorOp::VFMSac
-            | VectorOp::VFNMSac
-            | VectorOp::VFMAdd
-            | VectorOp::VFNMAdd
-            | VectorOp::VFMSub
-            | VectorOp::VFNMSub
-    )
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -304,6 +191,14 @@ mod tests {
     use crate::isa::fp::FpFlags;
     use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::Vlen;
+
+    /// The floating-point operation `op` decodes to.
+    fn fp(op: VectorOp) -> VecFpOp {
+        match op.class() {
+            VecClass::Fp(op) => op,
+            other => panic!("{op:?} is not a floating-point op: {other:?}"),
+        }
+    }
 
     fn vpr128() -> Vpr {
         Vpr::new(Vlen::new_unchecked(128))
@@ -319,7 +214,7 @@ mod tests {
         vpr.write_element(v1, ElemIdx::new(0), Sew::E16, u64::from(vs1));
         vpr.write_element(v3, ElemIdx::new(0), Sew::E16, u64::from(vd));
 
-        vec_fp_execute(op, &mut vpr, v3, v2, VecOperand::Vector(v1), &ctx).fp_flags
+        vec_fp_execute(fp(op), &mut vpr, v3, v2, VecOperand::Vector(v1), &ctx).fp_flags
     }
 
     /// The flags a widening `op` raises with a signaling NaN in `vs2[0]` and
@@ -331,7 +226,7 @@ mod tests {
         vpr.write_element(v2, ElemIdx::new(0), sew, snan);
         vpr.write_element(v1, ElemIdx::new(0), sew, one);
         vpr.write_element(v4, ElemIdx::new(0), Sew::E64, 1f64.to_bits());
-        vec_fp_execute(op, &mut vpr, v4, v2, VecOperand::Vector(v1), &ctx).fp_flags
+        vec_fp_execute(fp(op), &mut vpr, v4, v2, VecOperand::Vector(v1), &ctx).fp_flags
     }
 
     #[test]
@@ -397,7 +292,7 @@ mod tests {
         let ctx = VecExecCtx { frm, zvfh, ..VecExecCtx::unmasked(sew, 1) };
         let (v2, v4) = (VRegIdx::new(2), VRegIdx::new(4));
         vpr.write_element(v2, ElemIdx::new(0), src_sew, src);
-        let flags = vec_fp_execute(op, &mut vpr, v4, v2, VecOperand::Vector(v2), &ctx).fp_flags;
+        let flags = vec_fp_execute(fp(op), &mut vpr, v4, v2, VecOperand::Vector(v2), &ctx).fp_flags;
         (vpr.read_element(v4, ElemIdx::new(0), dst_sew), flags)
     }
 
@@ -412,7 +307,7 @@ mod tests {
         vpr.write_element(v12, ElemIdx::new(0), Sew::E32, F32_SIGNALING_NAN);
 
         let flags =
-            vec_fp_execute(VectorOp::VFWCvtFF, &mut vpr, v4, v2, VecOperand::Vector(v12), &ctx)
+            vec_fp_execute(fp(VectorOp::VFWCvtFF), &mut vpr, v4, v2, VecOperand::Vector(v12), &ctx)
                 .fp_flags;
 
         assert_eq!(vpr.read_element(v4, ElemIdx::new(0), Sew::E64), 1f64.to_bits());
@@ -563,7 +458,7 @@ mod tests {
         vpr.write_element(v1, ElemIdx::new(0), Sew::E16, f16_two_to_minus_24);
 
         let result =
-            vec_fp_execute(VectorOp::VFWAdd, &mut vpr, v4, v2, VecOperand::Vector(v1), &ctx);
+            vec_fp_execute(fp(VectorOp::VFWAdd), &mut vpr, v4, v2, VecOperand::Vector(v1), &ctx);
 
         assert!(result.fp_flags.contains(FpFlags::NX));
         assert_eq!(vpr.read_element(v4, ElemIdx::new(0), Sew::E32), u64::from(32768f32.to_bits()));
@@ -600,7 +495,7 @@ mod tests {
         }
 
         let result =
-            vec_fp_execute(VectorOp::VFAdd, &mut vpr, v3, v2, VecOperand::Vector(v1), &ctx);
+            vec_fp_execute(fp(VectorOp::VFAdd), &mut vpr, v3, v2, VecOperand::Vector(v1), &ctx);
 
         assert!(!result.vxsat);
         for i in 0..4 {
@@ -624,7 +519,7 @@ mod tests {
         vpr.write_element(v1, ElemIdx::new(3), Sew::E32, f32::NAN.to_bits() as u64);
 
         let _result =
-            vec_fp_execute(VectorOp::VFClass, &mut vpr, v2, v1, VecOperand::Scalar(0), &ctx);
+            vec_fp_execute(fp(VectorOp::VFClass), &mut vpr, v2, v1, VecOperand::Scalar(0), &ctx);
 
         assert_eq!(vpr.read_element(v2, ElemIdx::new(0), Sew::E32), 1 << 4); // +zero
         assert_eq!(vpr.read_element(v2, ElemIdx::new(1), Sew::E32), 1 << 3); // -zero
@@ -640,7 +535,7 @@ mod tests {
 
         let scalar = 42.0f32.to_bits() as u64;
         let result = vec_fp_execute(
-            VectorOp::VFMvSF,
+            fp(VectorOp::VFMvSF),
             &mut vpr,
             v1,
             VRegIdx::new(0),
@@ -662,7 +557,7 @@ mod tests {
         vpr.write_element(v1, ElemIdx::new(0), Sew::E32, 99.5f32.to_bits() as u64);
 
         let result = vec_fp_execute(
-            VectorOp::VFMvFS,
+            fp(VectorOp::VFMvFS),
             &mut vpr,
             VRegIdx::new(2),
             v1,
