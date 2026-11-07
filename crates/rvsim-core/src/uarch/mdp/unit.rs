@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 use crate::common::VirtAddr;
 use crate::config::{Config, MemDepPredictorKind};
+use crate::exec::signals::ControlSignals;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 use crate::uarch::pipeline::squash::SquashScope;
 
@@ -32,6 +33,37 @@ pub enum MemDepState {
     WaitFor(RobTag),
     /// Was waiting on a specific store that has now resolved — can issue.
     Resolved(RobTag),
+}
+
+/// The memory access an instruction makes, as the MDP orders it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemDepAccess {
+    /// None the MDP orders.
+    None,
+    /// A load.
+    Load,
+    /// A store or a cache-block operation: one the store buffer holds.
+    Store,
+    /// An LR, SC or AMO. It waits for every older store and neither trains
+    /// nor chains through the store sets: an atomic must observe all prior
+    /// memory in program order, and chaining atomics through SSIT/LFST
+    /// can deadlock on an older one in the same set that has not drained.
+    Atomic,
+}
+
+impl MemDepAccess {
+    /// The access `ctrl` makes.
+    pub const fn of(ctrl: &ControlSignals) -> Self {
+        if ctrl.atomic_op.is_some() {
+            Self::Atomic
+        } else if ctrl.mem_read {
+            Self::Load
+        } else if ctrl.uses_store_buffer() {
+            Self::Store
+        } else {
+            Self::None
+        }
+    }
 }
 
 /// Memory Dependence Unit — owns a predictor and dependency tracking.
@@ -74,79 +106,41 @@ impl MemDepUnit {
         Self { predictor, deps: HashMap::new(), stats: MdpStats::default() }
     }
 
-    /// Called at dispatch for every instruction.
-    ///
-    /// Returns the [`MemDepState`] to cache in the IQ entry.
-    /// For stores, also registers them in the LFST (after querying for
-    /// their chain predecessor).
-    ///
-    /// `is_atomic` forces conservative ordering: LR / SC / AMO never
-    /// participate in speculative prediction, because their semantics
-    /// (reservation tracking, store-conditional success) require that
-    /// they observe all prior memory state and resolve in program order.
-    /// Chaining them through SSIT/LFST creates inter-iteration wait
-    /// dependencies that can deadlock when an earlier atomic in the
-    /// same set hasn't drained yet.
-    pub fn dispatch(
-        &mut self,
-        pc: VirtAddr,
-        rob_tag: RobTag,
-        is_load: bool,
-        is_store: bool,
-        is_atomic: bool,
-    ) -> MemDepState {
-        match &mut self.predictor {
-            PredictorKind::Blind => {
-                if is_load {
-                    self.stats.predictions_wait_all += 1;
-                    MemDepState::WaitAll
-                } else {
-                    MemDepState::None
-                }
+    /// Called at dispatch for every instruction: the [`MemDepState`] to
+    /// cache in its IQ entry. A store is also registered in the LFST, after
+    /// it is looked up for its own chain predecessor.
+    pub fn dispatch(&mut self, pc: VirtAddr, rob_tag: RobTag, access: MemDepAccess) -> MemDepState {
+        match (&mut self.predictor, access) {
+            (_, MemDepAccess::None) | (PredictorKind::Blind, MemDepAccess::Store) => {
+                MemDepState::None
             }
-            PredictorKind::StoreSet(predictor) => {
-                if !is_load && !is_store {
-                    return MemDepState::None;
-                }
+            (PredictorKind::Blind, MemDepAccess::Load | MemDepAccess::Atomic) => {
+                self.stats.predictions_wait_all += 1;
+                MemDepState::WaitAll
+            }
+            (PredictorKind::StoreSet(predictor), MemDepAccess::Atomic) => {
                 predictor.note_mem_op();
-                if is_atomic {
-                    // LR/SC/AMO: serialize against older stores, do not
-                    // train or chain through the store set.
-                    if is_load {
-                        self.stats.predictions_wait_all += 1;
-                        return MemDepState::WaitAll;
-                    }
-                    return MemDepState::None;
-                }
+                self.stats.predictions_wait_all += 1;
+                MemDepState::WaitAll
+            }
+            (PredictorKind::StoreSet(predictor), MemDepAccess::Load | MemDepAccess::Store) => {
+                predictor.note_mem_op();
                 let prediction = predictor.predict(pc.val());
-                if is_store {
+                if access == MemDepAccess::Store {
                     predictor.register_store(pc.val(), rob_tag);
                 }
                 match prediction {
-                    MemPrediction::NoDep => {
-                        if is_load {
-                            self.stats.predictions_bypass += 1;
-                            MemDepState::Bypass
-                        } else {
-                            MemDepState::None
-                        }
+                    MemPrediction::DepOn(barrier) if barrier.is_older_than(rob_tag) => {
+                        let _ = self.deps.insert(rob_tag, DepRecord { barrier, resolved: false });
+                        self.stats.predictions_wait_for += 1;
+                        MemDepState::WaitFor(barrier)
                     }
-                    MemPrediction::DepOn(barrier) => {
-                        if barrier.is_older_than(rob_tag) {
-                            let _ =
-                                self.deps.insert(rob_tag, DepRecord { barrier, resolved: false });
-                            self.stats.predictions_wait_for += 1;
-                            MemDepState::WaitFor(barrier)
-                        } else {
-                            // Younger barrier = LFST alias, ignore.
-                            if is_load {
-                                self.stats.predictions_bypass += 1;
-                                MemDepState::Bypass
-                            } else {
-                                MemDepState::None
-                            }
-                        }
+                    // No dependence, or a younger barrier: an LFST alias.
+                    _ if access == MemDepAccess::Load => {
+                        self.stats.predictions_bypass += 1;
+                        MemDepState::Bypass
                     }
+                    _ => MemDepState::None,
                 }
             }
         }
@@ -251,7 +245,7 @@ mod tests {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
         assert_eq!(
-            mdu.dispatch(VirtAddr::new(0x1000), RobTag::new(1), true, false, false),
+            mdu.dispatch(VirtAddr::new(0x1000), RobTag::new(1), MemDepAccess::Load),
             MemDepState::WaitAll
         );
         assert_eq!(mdu.stats().predictions_wait_all, 1);
@@ -262,7 +256,7 @@ mod tests {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
         assert_eq!(
-            mdu.dispatch(VirtAddr::new(0x2000), RobTag::new(2), false, true, false),
+            mdu.dispatch(VirtAddr::new(0x2000), RobTag::new(2), MemDepAccess::Store),
             MemDepState::None
         );
     }
@@ -272,9 +266,21 @@ mod tests {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
         assert_eq!(
-            mdu.dispatch(VirtAddr::new(0x3000), RobTag::new(3), false, false, false),
+            mdu.dispatch(VirtAddr::new(0x3000), RobTag::new(3), MemDepAccess::None),
             MemDepState::None
         );
+    }
+
+    #[test]
+    fn an_atomic_waits_for_all_older_stores_under_either_predictor() {
+        for config in [blind_config(), store_set_config()] {
+            let mut mdu = MemDepUnit::new(&config);
+
+            let state = mdu.dispatch(VirtAddr::new(0x4000), RobTag::new(4), MemDepAccess::Atomic);
+
+            assert_eq!(state, MemDepState::WaitAll);
+            assert_eq!(mdu.stats().predictions_wait_all, 1);
+        }
     }
 
     #[test]
@@ -282,7 +288,7 @@ mod tests {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
         assert_eq!(
-            mdu.dispatch(VirtAddr::new(0x1000), RobTag::new(1), true, false, false),
+            mdu.dispatch(VirtAddr::new(0x1000), RobTag::new(1), MemDepAccess::Load),
             MemDepState::Bypass
         );
         assert_eq!(mdu.stats().predictions_bypass, 1);
@@ -301,14 +307,14 @@ mod tests {
         // Dispatch store — registers in LFST.
         let s1 = RobTag::new(5);
         assert_eq!(
-            mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false),
+            mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store),
             MemDepState::None
         );
 
         // Dispatch load — depends on store.
         let l1 = RobTag::new(10);
         assert_eq!(
-            mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false),
+            mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load),
             MemDepState::WaitFor(s1)
         );
         assert_eq!(mdu.stats().predictions_wait_for, 1);
@@ -324,10 +330,10 @@ mod tests {
         mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
 
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false);
+        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store);
 
         let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false);
+        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load);
 
         // Resolve store — should wake the load.
         let woken = mdu.store_resolved(s1);
@@ -343,9 +349,9 @@ mod tests {
 
         mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false);
+        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store);
         let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false);
+        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load);
 
         // Issue the load — dep record removed.
         mdu.issued(l1);
@@ -361,9 +367,9 @@ mod tests {
 
         mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false);
+        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store);
         let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false);
+        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load);
 
         mdu.flush();
         assert!(mdu.deps.is_empty());
@@ -381,18 +387,18 @@ mod tests {
         // Dispatch load FIRST (older), then store (younger).
         let l1 = RobTag::new(1);
         assert_eq!(
-            mdu.dispatch(VirtAddr::new(load_pc), l1, true, false, false),
+            mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load),
             MemDepState::Bypass
         );
 
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, false, true, false);
+        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store);
 
         // Dispatch another load — LFST points to s1 which is younger, so NoDep for
         // loads older than s1... but l2 is newer than s1, so DepOn(s1).
         let l2 = RobTag::new(10);
         assert_eq!(
-            mdu.dispatch(VirtAddr::new(load_pc), l2, true, false, false),
+            mdu.dispatch(VirtAddr::new(load_pc), l2, MemDepAccess::Load),
             MemDepState::WaitFor(s1)
         );
     }
