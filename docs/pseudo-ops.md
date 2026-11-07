@@ -116,7 +116,7 @@ Linux returns them.
 
 ## What the host sees
 
-- A snapshot comes back through `Simulator.stats_dumps()`, as pairs of
+- A snapshot comes back through `Simulator.stats_dumps`, as pairs of
   label and stats; `Simulator.stats_between(a, b)` subtracts two of them
   to give the region between. The [Session API](api.md#sessions)
   measures regions the same way.

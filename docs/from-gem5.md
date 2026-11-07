@@ -97,7 +97,7 @@ parameter with its default.
 | `m5.simulate()` returning an exit event | `Simulator.run()` to the exit, or `run_to` with stop conditions |
 | `m5.simulate(ticks)` | `run(limit=cycles)` |
 | exit events from `m5_exit`, work items, checkpoints | `Session.run(Marker(label))`, `Cycles(n)`, `Instructions(n)`, `Pc(addr)`, `Console(pattern)`, `Exit()`, `When(predicate)`, `AnyOf(...)` |
-| `m5.stats.dump()`, `m5.stats.reset()` from the script | `Session.measure(until=...)` for a region; `sim.stats_dumps()` for the dumps the program asked for |
+| `m5.stats.dump()`, `m5.stats.reset()` from the script | `Session.measure(until=...)` for a region; `sim.stats_dumps` for the dumps the program asked for |
 | `m5_dump_stats`, `m5_reset_stats`, `m5_exit`, `m5_fail`, work markers in the program | the same instructions; `software/include/rvsim.h` wraps them, and a binary linked with `libm5` runs unchanged ([Pseudo-operations](pseudo-ops.md)) |
 | `stats.txt` | `result.stats`, a dict keyed by path (`core0.cache.l1d.misses`, `hart0.retired_insts`, `ipc`) with `query(regex)` and `compare(other)`; `--json FILE` from the command line |
 | `--debug-flags=Exec` | `Config(trace=True)` with `RUST_LOG=rvsim::commit=trace`, or the commit log (`open_commit_log`) a lockstep checker replays on spike |

@@ -60,7 +60,7 @@ class Simulator(_CoreSimulator):
         sim = Simulator(Config(width=4), binary="qsort.elf")
         exit_code = sim.run(limit=10_000_000)
 
-        sim = Simulator(kernel_config(), kernel="linux.img", disk="rootfs.img")
+        sim = Simulator(presets.linux(harts=1), kernel="Image", disk="disk.img")
         sim.run()
     """
 
