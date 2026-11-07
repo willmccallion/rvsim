@@ -6,24 +6,44 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
+use crate::arch::Hart;
+use crate::arch::csr::Csrs;
 use crate::common::{FetchSeq, InstSeq, VirtAddr};
 use crate::config::{BackendKind, Config};
+use crate::isa::privileged::Trap;
+use crate::isa::rvv::VectorConfig;
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
 use crate::sim::packet::Packet;
 use crate::soc::topology::{CoreTopology, PrivateCache};
+use crate::uarch::CoreUnits;
 use crate::uarch::bpred::BranchPredictor;
+use crate::uarch::ctx::CoreCtx;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::inorder::InOrderEngine;
 use crate::uarch::pipeline::backend::o3::O3Engine;
 use crate::uarch::pipeline::frontend::Frontend;
+use crate::uarch::pipeline::latches::ExMem1Entry;
+use crate::uarch::pipeline::latches::Mem1Mem2Entry;
+use crate::uarch::pipeline::latches::Mem2WbEntry;
 use crate::uarch::pipeline::latches::{
     IdExEntry, IssueRegisters, Latch, RenameIssueEntry, SourceReadiness,
 };
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
+use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
+use crate::uarch::pipeline::mailbox::drain;
+use crate::uarch::pipeline::outstanding::DelayedAccess;
+use crate::uarch::pipeline::outstanding::ForwardedLoad;
+use crate::uarch::pipeline::outstanding::OutstandingFetch;
+use crate::uarch::pipeline::outstanding::OutstandingLoad;
+use crate::uarch::pipeline::outstanding::OutstandingStore;
+use crate::uarch::pipeline::outstanding::OutstandingWalk;
+use crate::uarch::pipeline::outstanding::WalkContinuation;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 use crate::uarch::pipeline::snapshot::LatchSnapshot;
 use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::squash::SquashScope;
+use crate::uarch::pipeline::trace::Departure;
 
 /// Where the next fetch1 pass starts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -77,7 +97,7 @@ pub trait ExecutionEngine {
     /// FENCE.I, MRET/SRET).
     fn tick(
         &mut self,
-        state: &mut crate::uarch::ctx::CoreCtx<'_>,
+        state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry<Self::Regs>>,
         redirect: &mut Option<VirtAddr>,
     );
@@ -90,25 +110,21 @@ pub trait ExecutionEngine {
     /// returns the entry the issue stage works on, or hands the
     /// instruction back when a resource `can_accept` does not cover is
     /// short; the frontend retries it next cycle.
-    fn rename(
-        &mut self,
-        state: &mut crate::uarch::ctx::StageCtx<'_>,
-        decoded: IdExEntry,
-    ) -> Renamed<Self::Regs>;
+    fn rename(&mut self, state: &mut StageCtx<'_>, decoded: IdExEntry) -> Renamed<Self::Regs>;
 
     /// Flush all speculative state, in-flight loads and data walks included.
     /// Committed stores in the store buffer remain.
-    fn flush(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>);
+    fn flush(&mut self, state: &mut CoreCtx<'_>);
 
     /// Sends the next write of a committed store still buffered, as the
     /// commit stage does each cycle. Returns whether any committed store's
     /// write has yet to be acknowledged.
-    fn send_committed_write(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) -> bool;
+    fn send_committed_write(&mut self, state: &mut CoreCtx<'_>) -> bool;
 
     /// The vector configuration an instruction decoded now runs under: the
     /// result of the youngest executed `vsetvl` still in the ROB, else the
     /// architectural CSRs.
-    fn vector_config(&self, csrs: &crate::arch::csr::Csrs) -> crate::isa::rvv::VectorConfig {
+    fn vector_config(&self, csrs: &Csrs) -> VectorConfig {
         self.rob().youngest_vec_csr_update().unwrap_or_else(|| csrs.vector_config())
     }
 
@@ -136,12 +152,10 @@ pub trait ExecutionEngine {
     fn store_buffer_mut(&mut self) -> &mut StoreBuffer;
 
     /// The vector store buffer younger loads forward from.
-    fn vec_store_buffer(&self) -> &crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
+    fn vec_store_buffer(&self) -> &VecStoreBuffer;
 
     /// The vector store buffer, for the mailbox to acknowledge its writes.
-    fn vec_store_buffer_mut(
-        &mut self,
-    ) -> &mut crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
+    fn vec_store_buffer_mut(&mut self) -> &mut VecStoreBuffer;
 
     /// The load queue, on a backend that tracks loads for ordering
     /// violations.
@@ -151,25 +165,25 @@ pub trait ExecutionEngine {
     /// stage uses this to re-inject `ExMem1Entry` values after a page-table
     /// walk completes so memory1 reprocesses them with the new TLB entry in
     /// place.
-    fn execute_mem1_mut(&mut self) -> &mut Vec<crate::uarch::pipeline::latches::ExMem1Entry>;
+    fn execute_mem1_mut(&mut self) -> &mut Vec<ExMem1Entry>;
 
     /// Mutable access to the Memory1→Memory2 latch. Memory1 pushes
     /// completed (non-load or SB-forwarded) entries here directly; the
     /// mailbox-drain stage pushes parked-load completions here once the
     /// matching `MemResp` arrives.
-    fn mem1_mem2_mut(&mut self) -> &mut Vec<crate::uarch::pipeline::latches::Mem1Mem2Entry>;
+    fn mem1_mem2_mut(&mut self) -> &mut Vec<Mem1Mem2Entry>;
 
     /// The issue queue's entries, oldest first.
     fn issue_snapshot(&self) -> Vec<RenameIssueEntry<SourceReadiness>>;
 
     /// The Execute→Memory1 latch.
-    fn execute_mem1(&self) -> &[crate::uarch::pipeline::latches::ExMem1Entry];
+    fn execute_mem1(&self) -> &[ExMem1Entry];
 
     /// The Memory1→Memory2 latch.
-    fn mem1_mem2(&self) -> &[crate::uarch::pipeline::latches::Mem1Mem2Entry];
+    fn mem1_mem2(&self) -> &[Mem1Mem2Entry];
 
     /// The Memory2→Writeback latch.
-    fn mem2_wb(&self) -> &[crate::uarch::pipeline::latches::Mem2WbEntry];
+    fn mem2_wb(&self) -> &[Mem2WbEntry];
 
     /// Shared in-flight memory bookkeeping (mailbox + outstanding tables +
     /// routing IDs).
@@ -186,7 +200,7 @@ pub trait ExecutionEngine {
 pub struct PendingTrap {
     /// The exception, or the interrupt as it was when detected; an
     /// interrupt is re-evaluated when taken.
-    pub trap: crate::isa::privileged::Trap,
+    pub trap: Trap,
     /// The PC the trap reports.
     pub epc: VirtAddr,
     /// The cycle the pipeline squashes into the handler.
@@ -244,7 +258,7 @@ pub enum DataCacheFlush {
 #[derive(Debug, Default)]
 pub struct FetchInFlight {
     /// Inflight instruction fetches keyed by request id.
-    pub outstanding_fetches: HashMap<ReqId, crate::uarch::pipeline::outstanding::OutstandingFetch>,
+    pub outstanding_fetches: HashMap<ReqId, OutstandingFetch>,
     /// Fetch waits until this cycle for an L2 ITLB hit's latency.
     pub fetch_hold_until: u64,
     /// Completed but not-yet-emittable fetch groups, keyed by `fetch_seq`.
@@ -252,7 +266,7 @@ pub struct FetchInFlight {
     /// a fetch walk that finishes while the previous line is still
     /// missing); this reorder buffer holds it until every older group has
     /// completed, then drains contiguously into the fetch1→fetch2 latch.
-    pub fetch_reorder: BTreeMap<FetchSeq, crate::uarch::pipeline::outstanding::OutstandingFetch>,
+    pub fetch_reorder: BTreeMap<FetchSeq, OutstandingFetch>,
     /// Next `fetch_seq` to assign at fetch issue time.
     pub next_fetch_seq: FetchSeq,
     /// Next `fetch_seq` we expect to emit to the fetch1→fetch2 latch.
@@ -268,11 +282,11 @@ pub struct FetchInFlight {
 #[derive(Debug, Default)]
 pub struct MemoryInFlight {
     /// Inflight demand loads (and atomic LR/AMO) keyed by request id.
-    pub outstanding_loads: HashMap<ReqId, crate::uarch::pipeline::outstanding::OutstandingLoad>,
+    pub outstanding_loads: HashMap<ReqId, OutstandingLoad>,
     /// Inflight store write-allocate requests keyed by request id.
-    pub outstanding_stores: HashMap<ReqId, crate::uarch::pipeline::outstanding::OutstandingStore>,
+    pub outstanding_stores: HashMap<ReqId, OutstandingStore>,
     /// Inflight page-table walks keyed by the current PTE-read request id.
-    pub outstanding_walks: HashMap<ReqId, crate::uarch::pipeline::outstanding::OutstandingWalk>,
+    pub outstanding_walks: HashMap<ReqId, OutstandingWalk>,
     /// Memory ops memory1 could not service yet: loads that partially
     /// overlap an older store still in the store buffer, and LR/AMO ops
     /// with an older store to the same address. They are retried at the
@@ -280,15 +294,15 @@ pub struct MemoryInFlight {
     /// `rescheduleMemInst` / `replayMemInst`). Kept out of the
     /// execute→memory1 latch so a blocked op never back-pressures issue:
     /// the store it waits on may sit behind an older, not-yet-issued load.
-    pub mem1_replay: Vec<crate::uarch::pipeline::latches::ExMem1Entry>,
+    pub mem1_replay: Vec<ExMem1Entry>,
     /// Memory ops continuing with translations they already hold.
-    pub mem1_delayed: Vec<crate::uarch::pipeline::outstanding::DelayedAccess>,
+    pub mem1_delayed: Vec<DelayedAccess>,
     /// Loads forwarded from the store buffer, waiting out the forwarding
     /// latency.
-    pub forwarded_loads: Vec<crate::uarch::pipeline::outstanding::ForwardedLoad>,
+    pub forwarded_loads: Vec<ForwardedLoad>,
     /// Loads forwarded this cycle with no latency, finalized by memory1 and
     /// written back once it has run.
-    pub forwarded_results: Vec<crate::uarch::pipeline::latches::Mem2WbEntry>,
+    pub forwarded_results: Vec<Mem2WbEntry>,
     /// Secondary request of a line-straddling load, mapped to the request
     /// its [`OutstandingLoad`](crate::uarch::pipeline::outstanding::OutstandingLoad) is filed under.
     pub load_parts: std::collections::HashMap<ReqId, ReqId>,
@@ -420,10 +434,8 @@ impl BackendCommon {
             .outstanding_loads
             .retain(|_, load| load.entry.op.rob_tag.is_older_or_eq(keep_tag));
         self.memory.outstanding_walks.retain(|_, walk| match &walk.continuation {
-            crate::uarch::pipeline::outstanding::WalkContinuation::LoadStore { entry, .. } => {
-                entry.op.rob_tag.is_older_or_eq(keep_tag)
-            }
-            crate::uarch::pipeline::outstanding::WalkContinuation::Fetch { .. } => true,
+            WalkContinuation::LoadStore { entry, .. } => entry.op.rob_tag.is_older_or_eq(keep_tag),
+            WalkContinuation::Fetch { .. } => true,
         });
         self.memory.mem1_replay.retain(|entry| entry.op.rob_tag.is_older_or_eq(keep_tag));
         self.memory.mem1_delayed.retain(|access| access.entry.op.rob_tag.is_older_or_eq(keep_tag));
@@ -442,12 +454,9 @@ impl BackendCommon {
     pub fn squash_all(&mut self) {
         self.commit.pending_squash = None;
         self.memory.outstanding_loads.clear();
-        self.memory.outstanding_walks.retain(|_, walk| {
-            matches!(
-                walk.continuation,
-                crate::uarch::pipeline::outstanding::WalkContinuation::Fetch { .. }
-            )
-        });
+        self.memory
+            .outstanding_walks
+            .retain(|_, walk| matches!(walk.continuation, WalkContinuation::Fetch { .. }));
         self.memory.mem1_replay.clear();
         self.memory.mem1_delayed.clear();
         self.memory.forwarded_loads.clear();
@@ -568,12 +577,9 @@ impl BackendCommon {
 
     pub fn drop_fetches(&mut self) {
         self.fetch.outstanding_fetches.clear();
-        self.memory.outstanding_walks.retain(|_, walk| {
-            !matches!(
-                walk.continuation,
-                crate::uarch::pipeline::outstanding::WalkContinuation::Fetch { .. }
-            )
-        });
+        self.memory
+            .outstanding_walks
+            .retain(|_, walk| !matches!(walk.continuation, WalkContinuation::Fetch { .. }));
         self.fetch.fetch_reorder.clear();
         self.fetch.fetch_restart = FetchRestart::FromPc;
         self.fetch.fetch_hold_until = 0;
@@ -667,7 +673,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// flight in the pipeline, its store buffers or the write-combining
     /// buffer. What the frontend fetched past the WFI may stay: the
     /// frontend does not tick while the hart waits.
-    pub fn is_idle(&self, hart: &crate::arch::Hart, units: &crate::uarch::CoreUnits) -> bool {
+    pub fn is_idle(&self, hart: &Hart, units: &CoreUnits) -> bool {
         let common = self.engine.common();
         hart.wfi_waiting
             && hart.csrs.mip & hart.csrs.mie == 0
@@ -691,8 +697,8 @@ impl<E: ExecutionEngine> Pipeline<E> {
     ///    re-inject into Execute→Memory1; completed fetches land in F1→F2.
     /// 2. `engine.tick` — commit, writeback, memory2, memory1, issue, execute.
     /// 3. Frontend — fetch1 / fetch2 / decode / rename.
-    pub fn tick(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
-        crate::uarch::pipeline::mailbox::drain(self, &mut state.stage());
+    pub fn tick(&mut self, state: &mut CoreCtx<'_>) {
+        drain(self, &mut state.stage());
 
         let frontend_empty = self.frontend.is_empty()
             && self.rename_output.is_empty()
@@ -721,7 +727,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
 
     /// Counts a cycle in which rename has yet to hand on anything from the
     /// path a backend redirect started.
-    fn count_control_stall(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
+    fn count_control_stall(&mut self, state: &mut CoreCtx<'_>) {
         if !self.recovering_from_redirect || state.hart.wfi_waiting {
             return;
         }
@@ -736,7 +742,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// fetches and fetch walks, and the fetch reorder buffer. Backend
     /// resources (outstanding loads, stores and their walks) belong to ROB
     /// entries a redirect leaves intact, so they survive.
-    fn discard_frontend_speculation(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
+    fn discard_frontend_speculation(&mut self, state: &mut CoreCtx<'_>) {
         let squashed = self
             .frontend
             .seqs()
@@ -744,7 +750,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             .chain(self.engine.common().in_flight_fetch_seqs())
             .collect::<Vec<_>>();
         for seq in squashed {
-            state.trace_left(seq, crate::uarch::pipeline::trace::Departure::Squashed);
+            state.trace_left(seq, Departure::Squashed);
         }
         self.frontend.flush();
         self.rename_output.clear();
@@ -756,14 +762,14 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// One cycle of draining a flushed pipeline: takes the memory system's
     /// acknowledgements and sends the next committed store's write. Returns
     /// whether any committed store has yet to finish writing.
-    pub fn drain_writes(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) -> bool {
-        crate::uarch::pipeline::mailbox::drain(self, &mut state.stage());
+    pub fn drain_writes(&mut self, state: &mut CoreCtx<'_>) -> bool {
+        drain(self, &mut state.stage());
         self.engine.send_committed_write(state)
     }
 
     /// Flush the entire pipeline; fetch restarts at the hart's
     /// architectural PC.
-    pub fn flush(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
+    pub fn flush(&mut self, state: &mut CoreCtx<'_>) {
         self.frontend.fetch_pc = state.hart.pc;
         self.redirect = None;
         self.recovering_from_redirect = false;
@@ -783,9 +789,9 @@ impl<E: ExecutionEngine> Pipeline<E> {
 #[derive(Debug)]
 pub enum PipelineDispatch {
     /// In-order pipeline.
-    InOrder(Box<Pipeline<crate::uarch::pipeline::backend::inorder::InOrderEngine>>),
+    InOrder(Box<Pipeline<InOrderEngine>>),
     /// Out-of-order pipeline.
-    OutOfOrder(Box<Pipeline<crate::uarch::pipeline::backend::o3::O3Engine>>),
+    OutOfOrder(Box<Pipeline<O3Engine>>),
 }
 
 /// Runs `$body` with `$p` bound to whichever pipeline `$dispatch` holds.
@@ -819,7 +825,7 @@ impl PipelineDispatch {
 
     /// Whether a committed store has yet to finish writing: one in the
     /// store buffer, the vector store buffer or the write-combining buffer.
-    pub fn has_committed_writes(&self, units: &crate::uarch::CoreUnits) -> bool {
+    pub fn has_committed_writes(&self, units: &CoreUnits) -> bool {
         let (store_buffer, vec_store_buffer) =
             on_pipeline!(self, p => (p.engine.store_buffer(), p.engine.vec_store_buffer()));
         store_buffer.has_committed_stores()
@@ -828,12 +834,12 @@ impl PipelineDispatch {
     }
 
     /// See [`Pipeline::is_idle`].
-    pub fn is_idle(&self, hart: &crate::arch::Hart, units: &crate::uarch::CoreUnits) -> bool {
+    pub fn is_idle(&self, hart: &Hart, units: &CoreUnits) -> bool {
         on_pipeline!(self, p => p.is_idle(hart, units))
     }
 
     /// Run one cycle.
-    pub fn tick(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
+    pub fn tick(&mut self, state: &mut CoreCtx<'_>) {
         on_pipeline!(self, p => p.tick(state));
     }
 
@@ -869,12 +875,12 @@ impl PipelineDispatch {
     }
 
     /// Flush.
-    pub fn flush(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
+    pub fn flush(&mut self, state: &mut CoreCtx<'_>) {
         on_pipeline!(self, p => p.flush(state));
     }
 
     /// See [`Pipeline::drain_writes`].
-    pub fn drain_writes(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) -> bool {
+    pub fn drain_writes(&mut self, state: &mut CoreCtx<'_>) -> bool {
         on_pipeline!(self, p => p.drain_writes(state))
     }
 

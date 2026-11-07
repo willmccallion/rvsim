@@ -293,7 +293,7 @@ pub fn translate_now(
     ptw::walk_now(WalkRequest { access, privilege, mode: paging }, vaddr, csrs, read_pte)
 }
 
-const fn is_canonical_va(va: u64, mode: crate::isa::privileged::PagingMode) -> bool {
+const fn is_canonical_va(va: u64, mode: PagingMode) -> bool {
     let top = mode.va_top_bit();
     if top >= 63 {
         return true;

@@ -4,6 +4,8 @@
 //! handling. CSR writes and MRET/SRET are deferred to commit via the ROB.
 
 use super::issue::InOrderEntry;
+use crate::common::trace::Hex;
+use crate::common::trace::Hex32;
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::shadow::ShadowVpr;
@@ -73,13 +75,13 @@ fn execute_one(
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = %issued.rob_tag,
-        pc       = %crate::common::trace::Hex(issued.inst.pc.val()),
-        inst     = %crate::common::trace::Hex32(issued.inst.bits),
+        pc       = %Hex(issued.inst.pc.val()),
+        inst     = %Hex32(issued.inst.bits),
         rd       = issued.inst.rd.as_usize(),
         rs1      = issued.inst.rs1.as_usize(),
-        rv1      = %crate::common::trace::Hex(issued.inst.rv1),
+        rv1      = %Hex(issued.inst.rv1),
         rs2      = issued.inst.rs2.as_usize(),
-        rv2      = %crate::common::trace::Hex(issued.inst.rv2),
+        rv2      = %Hex(issued.inst.rv2),
         imm      = issued.inst.imm,
         alu_op   = ?issued.inst.ctrl.alu,
         "EX: begin"

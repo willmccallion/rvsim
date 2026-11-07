@@ -7,6 +7,7 @@
 //! 16`) sees the previous producer.
 
 use super::{O3Engine, RenameView};
+use crate::common::trace::Hex;
 use crate::exec::compute::vector::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
@@ -285,7 +286,7 @@ pub type O3Entry = RenameIssueEntry<RenamedRegisters>;
 
 fn trace_renamed(state: &StageCtx<'_>, entry: &O3Entry, old_phys_dst: PhysReg) {
     trace_rename!(state.config.general.trace_instructions;
-        pc         = %crate::common::trace::Hex(entry.inst.pc.val()),
+        pc         = %Hex(entry.inst.pc.val()),
         rob_tag    = %entry.rob_tag,
         rd         = entry.inst.rd.as_usize(),
         rd_phys    = entry.regs.rd_phys.index(),

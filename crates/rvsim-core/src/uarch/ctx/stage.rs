@@ -23,6 +23,7 @@ use crate::sim::events::EventQueue;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::Counter;
+use crate::sim::stats::StatId;
 use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
 use crate::uarch::mmu::TranslateOutcome;
@@ -115,7 +116,7 @@ impl<'a> StageCtx<'a> {
 
     /// The stat counter `stat`.
     #[inline]
-    pub fn counter(&mut self, stat: crate::sim::stats::StatId) -> &mut Counter {
+    pub fn counter(&mut self, stat: StatId) -> &mut Counter {
         self.uncore.stats.counter(stat)
     }
 

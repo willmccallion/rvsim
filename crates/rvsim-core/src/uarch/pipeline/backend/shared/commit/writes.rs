@@ -3,6 +3,7 @@
 
 use super::gate::older_stores_pending;
 use super::is_pure_ram;
+use crate::common::trace::Hex;
 use crate::common::{PhysAddr, crosses_cache_line};
 use crate::exec::cbo::CboEffect;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
@@ -64,8 +65,8 @@ pub(super) fn send_data_store(
     // device sees each store.
     let via_wcb = !state.core.wcb.is_disabled() && is_pure_ram(state, paddr, width);
     trace_commit!(state.config.general.trace_instructions;
-        paddr      = %crate::common::trace::Hex(paddr.val()),
-        data       = %crate::common::trace::Hex(data),
+        paddr      = %Hex(paddr.val()),
+        data       = %Hex(data),
         width      = ?width,
         via_wcb    = via_wcb,
         "CM: committed store's write sent to memory"

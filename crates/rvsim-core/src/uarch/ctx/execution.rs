@@ -2,6 +2,7 @@
 
 use super::CoreCtx;
 use crate::common::PhysAddr;
+use crate::common::trace::Hex;
 use crate::isa::csr;
 use crate::isa::encoding::privileged::WFI;
 use crate::isa::privileged::{PrivilegeMode, Satp};
@@ -82,13 +83,13 @@ impl CoreCtx<'_> {
         if inst == WFI {
             trace_trap!(self.config.general.trace_instructions;
                 event = "wfi-wait",
-                pc    = %crate::common::trace::Hex(self.hart.pc.val()),
+                pc    = %Hex(self.hart.pc.val()),
                 "CPU stuck in WFI — waiting for interrupt"
             );
         } else {
             trace_trap!(self.config.general.trace_instructions;
                 event = "potential-hang",
-                pc    = %crate::common::trace::Hex(self.hart.pc.val()),
+                pc    = %Hex(self.hart.pc.val()),
                 inst  = inst,
                 "CPU potential hang detected"
             );
@@ -128,7 +129,7 @@ impl CoreCtx<'_> {
                     event      = "mode-switch",
                     from_mode  = prev_priv.name(),
                     to_mode    = self.hart.privilege.name(),
-                    pc         = %crate::common::trace::Hex(self.hart.pc.val()),
+                    pc         = %Hex(self.hart.pc.val()),
                     "CPU privilege mode switch"
                 );
             }
@@ -137,7 +138,7 @@ impl CoreCtx<'_> {
                 ::tracing::debug!(
                     target: "rvsim::cpu",
                     cycles = self.cycle,
-                    pc     = %crate::common::trace::Hex(self.hart.pc.val()),
+                    pc     = %Hex(self.hart.pc.val()),
                     mode   = self.hart.privilege.name(),
                     "CPU status"
                 );

@@ -8,11 +8,13 @@
 //! work the original stage couldn't (apply sign extension, complete the
 //! ROB, advance the walk, push a fetch latch entry, …) and forgets it.
 
+use crate::arch::translation::DirtyUpdates;
 use crate::arch::translation::TranslationResult;
 use crate::common::{FetchSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::sim::memory::write_log::WriteSeq;
 use crate::sim::packet::MemRespData;
 use crate::uarch::mmu::ptw::WalkState;
+use crate::uarch::pipeline::latches::Mem1Mem2Entry;
 use crate::uarch::pipeline::latches::{ExMem1Entry, Fetch1Fetch2Entry, VecMemAccess, VecMemTarget};
 
 /// One instruction-fetch group: the instructions fetch1 produced in a single
@@ -55,7 +57,7 @@ pub struct OutstandingLoad {
     /// field and for trace output).
     pub vaddr: VirtAddr,
     /// The D-bit updates the access applies when it retires (an AMO's).
-    pub dirty_updates: crate::arch::translation::DirtyUpdates,
+    pub dirty_updates: DirtyUpdates,
     /// The access reads a device, so it was issued non-speculatively from
     /// the ROB head and must complete before anything pre-empts it.
     pub side_effecting: bool,
@@ -241,5 +243,5 @@ pub struct ForwardedLoad {
     /// Cycle the data reaches memory2.
     pub ready_cycle: u64,
     /// The completed memory1 entry.
-    pub entry: crate::uarch::pipeline::latches::Mem1Mem2Entry,
+    pub entry: Mem1Mem2Entry,
 }

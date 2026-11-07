@@ -8,8 +8,16 @@
 //! 4. **Forwarding:** Provides the most recent result for any register from in-flight instructions.
 //! 5. **Flush:** Squashes speculative entries after a misprediction or trap.
 
+#[cfg(feature = "commit-log")]
+use crate::exec::compute::vector::agnostic::AgnosticFills;
+use crate::isa::op::SystemOp;
 use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::sim::memory::write_log::WriteSeq;
+#[cfg(feature = "commit-log")]
+use crate::uarch::pipeline::commit_log::MemEffect;
+#[cfg(feature = "commit-log")]
+use crate::uarch::pipeline::commit_log::VectorElementAccess;
+use crate::uarch::pipeline::latches::MemAccess;
 use crate::uarch::pipeline::squash::SquashScope;
 use std::collections::VecDeque;
 
@@ -241,7 +249,7 @@ pub struct RobEntry {
     pub observed: Option<WriteSeq>,
     /// The address a load, store or atomic touched, for stops on a watched
     /// range.
-    pub mem_access: Option<crate::uarch::pipeline::latches::MemAccess>,
+    pub mem_access: Option<MemAccess>,
     /// Checkpoint table slot allocated for this branch/jump (O3 backend).
     pub checkpoint_id: Option<CheckpointId>,
     /// Physical vector registers allocated for destination LMUL group (O3 backend).
@@ -257,15 +265,15 @@ pub struct RobEntry {
     pub vec_writes: Option<Box<VectorWrites>>,
     /// The access a load, LR, SC or AMO performed, for the commit log.
     #[cfg(feature = "commit-log")]
-    pub mem_effect: Option<crate::uarch::pipeline::commit_log::MemEffect>,
+    pub mem_effect: Option<MemEffect>,
     /// The destination bits a vector instruction filled under an agnostic
     /// policy, for the commit log.
     #[cfg(feature = "commit-log")]
-    pub vec_agnostic: Option<Box<crate::exec::compute::vector::agnostic::AgnosticFills>>,
+    pub vec_agnostic: Option<Box<AgnosticFills>>,
     /// The element accesses a vector memory instruction's micro-ops made,
     /// for the commit log.
     #[cfg(feature = "commit-log")]
-    pub vec_mem_effects: Vec<crate::uarch::pipeline::commit_log::VectorElementAccess>,
+    pub vec_mem_effects: Vec<VectorElementAccess>,
 }
 
 impl RobEntry {
@@ -559,11 +567,7 @@ impl Rob {
     }
 
     /// Records the address a load, store or atomic touched.
-    pub fn set_mem_access(
-        &mut self,
-        tag: RobTag,
-        access: crate::uarch::pipeline::latches::MemAccess,
-    ) {
+    pub fn set_mem_access(&mut self, tag: RobTag, access: MemAccess) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.mem_access = Some(access);
         }
@@ -571,11 +575,7 @@ impl Rob {
 
     /// Records the access a load, LR, SC or AMO performed, for the commit log.
     #[cfg(feature = "commit-log")]
-    pub fn set_mem_effect(
-        &mut self,
-        tag: RobTag,
-        effect: crate::uarch::pipeline::commit_log::MemEffect,
-    ) {
+    pub fn set_mem_effect(&mut self, tag: RobTag, effect: MemEffect) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.mem_effect = Some(effect);
         }
@@ -584,11 +584,7 @@ impl Rob {
     /// Records the destination bits a vector instruction filled under an
     /// agnostic policy, for the commit log.
     #[cfg(feature = "commit-log")]
-    pub fn set_vec_agnostic(
-        &mut self,
-        tag: RobTag,
-        fills: crate::exec::compute::vector::agnostic::AgnosticFills,
-    ) {
+    pub fn set_vec_agnostic(&mut self, tag: RobTag, fills: AgnosticFills) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.vec_agnostic = Some(Box::new(fills));
         }
@@ -597,11 +593,7 @@ impl Rob {
     /// Adds the element accesses a vector memory micro-op made, for the
     /// commit log.
     #[cfg(feature = "commit-log")]
-    pub fn add_vec_mem_effects(
-        &mut self,
-        tag: RobTag,
-        accesses: &[crate::uarch::pipeline::commit_log::VectorElementAccess],
-    ) {
+    pub fn add_vec_mem_effects(&mut self, tag: RobTag, accesses: &[VectorElementAccess]) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.vec_mem_effects.extend_from_slice(accesses);
         }
@@ -723,7 +715,7 @@ impl Rob {
 
     /// The sequence numbers of the entries a squash drops: those after
     /// `keep_tag`, or all of them.
-    pub fn seqs_after(&self, keep_tag: Option<RobTag>) -> Vec<crate::common::InstSeq> {
+    pub fn seqs_after(&self, keep_tag: Option<RobTag>) -> Vec<InstSeq> {
         self.iter()
             .filter(|entry| keep_tag.is_none_or(|keep| entry.tag.is_newer_than(keep)))
             .map(|entry| entry.seq)
@@ -765,7 +757,7 @@ impl Rob {
         accesses.has_memory()
             && self.older_than(tag).any(|entry| {
                 (accesses.r && entry.ctrl.acquire && entry.state == RobState::Issued)
-                    || (entry.ctrl.system_op == crate::isa::op::SystemOp::Fence
+                    || (entry.ctrl.system_op == SystemOp::Fence
                         && Fence::decode(entry.bits).succ.orders(accesses))
             })
     }

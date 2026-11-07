@@ -2,7 +2,9 @@
 
 use super::CoreCtx;
 use crate::arch::Hart;
+use crate::arch::csr::legalize_envcfg;
 use crate::arch::csr::legalize_tvec;
+use crate::arch::csr::with_state_dirty;
 use crate::arch::trigger;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
@@ -34,7 +36,7 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
         csr::FCSR => hart.csrs.fcsr(),
         csr::MVENDORID | csr::MARCHID | csr::MIMPID => 0,
         csr::MHARTID => u64::from(hart.hart_id.val()),
-        csr::MSTATUS => crate::arch::csr::with_state_dirty(hart.csrs.mstatus),
+        csr::MSTATUS => with_state_dirty(hart.csrs.mstatus),
         csr::MEDELEG => hart.csrs.medeleg,
         csr::MIDELEG => hart.csrs.mideleg,
         csr::MIE => hart.csrs.mie,
@@ -45,7 +47,7 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
         csr::MCAUSE => hart.csrs.mcause,
         csr::MTVAL => hart.csrs.mtval,
         csr::MIP => hart.csrs.mip,
-        csr::SSTATUS => crate::arch::csr::with_state_dirty(hart.csrs.sstatus()),
+        csr::SSTATUS => with_state_dirty(hart.csrs.sstatus()),
         csr::SIE => hart.csrs.mie & hart.csrs.mideleg,
         csr::STVEC => hart.csrs.stvec,
         csr::SSCRATCH => hart.csrs.sscratch,
@@ -204,11 +206,10 @@ impl CoreCtx<'_> {
             csr::MENVCFG => {
                 let svadu = if self.config.isa.svadu { csr::MENVCFG_ADUE } else { 0 };
                 let writable = csr::MENVCFG_WRITABLE | svadu;
-                self.hart.csrs.menvcfg = crate::arch::csr::legalize_envcfg(val, writable);
+                self.hart.csrs.menvcfg = legalize_envcfg(val, writable);
             }
             csr::SENVCFG => {
-                self.hart.csrs.senvcfg =
-                    crate::arch::csr::legalize_envcfg(val, csr::SENVCFG_WRITABLE);
+                self.hart.csrs.senvcfg = legalize_envcfg(val, csr::SENVCFG_WRITABLE);
             }
             csr::MCYCLE => self.hart.csrs.mcycle = val,
             csr::MINSTRET => self.hart.csrs.minstret = val,

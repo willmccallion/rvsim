@@ -3,6 +3,9 @@
 //! releases.
 
 use crate::arch::reservation::LrScRecord;
+use crate::common::NANOS_PER_SECOND;
+use crate::common::trace::Hex;
+use crate::common::trace::Hex32;
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::execute::perform_csr_access;
 use crate::exec::retire;
@@ -10,6 +13,8 @@ use crate::exec::signals::ControlFlow;
 use crate::isa::csr;
 use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::op::{MemWidth, SystemOp, VectorOp};
+use crate::isa::reg::REG_A0;
+use crate::isa::reg::REG_A1;
 use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvv::VRegIdx;
 use crate::soc::uncore::SimOp;
@@ -121,8 +126,7 @@ pub(super) fn perform_pseudo_result(state: &mut CoreCtx<'_>, entry: &mut RobEntr
 fn simulated_nanoseconds(state: &CoreCtx<'_>) -> u64 {
     let clock_hz = state.uncore.config.system.cpu_clock_hz();
     u64::try_from(
-        u128::from(state.uncore.cycle) * u128::from(crate::common::NANOS_PER_SECOND)
-            / u128::from(clock_hz),
+        u128::from(state.uncore.cycle) * u128::from(NANOS_PER_SECOND) / u128::from(clock_hz),
     )
     .unwrap_or(u64::MAX)
 }
@@ -171,11 +175,11 @@ fn advance_pc(state: &mut CoreCtx<'_>, entry: &RobEntry) {
 fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     trace_commit!(state.config.general.trace_instructions;
         rob_tag    = %entry.tag,
-        pc         = %crate::common::trace::Hex(entry.pc.val()),
+        pc         = %Hex(entry.pc.val()),
         rd         = entry.rd.as_usize(),
         rd_phys    = entry.dst.phys.index(),
         old_phys   = entry.dst.old.index(),
-        result     = %crate::common::trace::Hex(entry.result.unwrap_or(0)),
+        result     = %Hex(entry.result.unwrap_or(0)),
         is_fp      = entry.ctrl.fp_reg_write,
         reg_write  = entry.ctrl.reg_write,
         is_store   = entry.ctrl.mem_write,
@@ -200,10 +204,10 @@ fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     if let Some(control) = entry.control {
         trace_branch!(state.config.general.trace_instructions;
             event         = "retire",
-            pc            = %crate::common::trace::Hex(entry.pc.val()),
+            pc            = %Hex(entry.pc.val()),
             rob_tag       = %entry.tag,
             actual_taken  = control.outcome.taken,
-            actual_target = %crate::common::trace::Hex(control.target.map_or(0, |target| target.val())),
+            actual_target = %Hex(control.target.map_or(0, |target| target.val())),
             mispredicted  = control.outcome.mispredicted,
             "CM: branch retired"
         );
@@ -234,12 +238,12 @@ fn write_destinations(
             retire::write_fp(state.hart, rd, val);
             registers.retire_scalar(entry, dest);
             trace_commit!(state.config.general.trace_instructions;
-                pc       = %crate::common::trace::Hex(entry.pc.val()),
+                pc       = %Hex(entry.pc.val()),
                 rob_tag  = %entry.tag,
                 reg      = entry.rd.as_usize(),
                 rd_phys  = entry.dst.phys.index(),
                 old_phys = entry.dst.old.index(),
-                value    = %crate::common::trace::Hex(val),
+                value    = %Hex(val),
                 is_fp    = true,
                 "CM: FP register write"
             );
@@ -251,12 +255,12 @@ fn write_destinations(
             }
             registers.retire_scalar(entry, dest);
             trace_commit!(state.config.general.trace_instructions;
-                pc       = %crate::common::trace::Hex(entry.pc.val()),
+                pc       = %Hex(entry.pc.val()),
                 rob_tag  = %entry.tag,
                 reg      = entry.rd.as_usize(),
                 rd_phys  = entry.dst.phys.index(),
                 old_phys = entry.dst.old.index(),
-                value    = %crate::common::trace::Hex(val),
+                value    = %Hex(val),
                 is_fp    = false,
                 "CM: integer register write"
             );
@@ -325,11 +329,11 @@ fn retire_system(
         }
         trace_csr!(state.config.general.trace_instructions;
             op       = "write-deferred",
-            pc       = %crate::common::trace::Hex(entry.pc.val()),
+            pc       = %Hex(entry.pc.val()),
             rob_tag  = %entry.tag,
-            csr_addr = %crate::common::trace::Hex32(csr_update.addr.as_u32()),
-            old_val  = %crate::common::trace::Hex(csr_update.old_val),
-            new_val  = %crate::common::trace::Hex(csr_update.new_val),
+            csr_addr = %Hex32(csr_update.addr.as_u32()),
+            old_val  = %Hex(csr_update.old_val),
+            new_val  = %Hex(csr_update.new_val),
             "CM: CSR write applied at commit"
         );
         // SATP redirect: post-execute fetches used old tables; refetch from
@@ -350,10 +354,10 @@ fn retire_system(
             trace_trap!(state.config.general.trace_instructions;
                 event      = "return",
                 insn       = "MRET",
-                pc         = %crate::common::trace::Hex(entry.pc.val()),
+                pc         = %Hex(entry.pc.val()),
                 rob_tag    = %entry.tag,
-                return_pc  = %crate::common::trace::Hex(state.hart.pc.val()),
-                mstatus    = %crate::common::trace::Hex(state.hart.csrs.mstatus),
+                return_pc  = %Hex(state.hart.pc.val()),
+                mstatus    = %Hex(state.hart.csrs.mstatus),
                 priv_mode  = ?state.hart.privilege,
                 "CM: MRET committed — privilege restored"
             );
@@ -364,10 +368,10 @@ fn retire_system(
             trace_trap!(state.config.general.trace_instructions;
                 event      = "return",
                 insn       = "SRET",
-                pc         = %crate::common::trace::Hex(entry.pc.val()),
+                pc         = %Hex(entry.pc.val()),
                 rob_tag    = %entry.tag,
-                return_pc  = %crate::common::trace::Hex(state.hart.pc.val()),
-                mstatus    = %crate::common::trace::Hex(state.hart.csrs.mstatus),
+                return_pc  = %Hex(state.hart.pc.val()),
+                mstatus    = %Hex(state.hart.csrs.mstatus),
                 priv_mode  = ?state.hart.privilege,
                 "CM: SRET committed — privilege restored"
             );
@@ -403,8 +407,8 @@ fn retire_system(
 /// entry's result was written; the instructions fetched behind it may
 /// have read the memory it changed, so they are refetched.
 fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
-    let a0 = state.hart.regs.read(crate::isa::reg::REG_A0);
-    let a1 = state.hart.regs.read(crate::isa::reg::REG_A1);
+    let a0 = state.hart.regs.read(REG_A0);
+    let a1 = state.hart.regs.read(REG_A1);
     match PseudoOp::of(entry.bits) {
         PseudoOp::Exit => {
             state.signal_exit(0);
@@ -415,7 +419,7 @@ fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
             return CommitFlow::Stop(None);
         }
         PseudoOp::Panic => {
-            tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(entry.pc.val()),
+            tracing::warn!(target: "rvsim::pseudo_op", pc = %Hex(entry.pc.val()),
                 "the guest called m5_panic; the run ends with exit code 1");
             state.signal_exit(1);
             return CommitFlow::Stop(None);
@@ -438,7 +442,7 @@ fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry) -> CommitFlow {
         }
         PseudoOp::Unknown(func) => tracing::warn!(
             target: "rvsim::pseudo_op",
-            pc = %crate::common::trace::Hex(entry.pc.val()),
+            pc = %Hex(entry.pc.val()),
             func,
             "pseudo-operation rvsim does not perform"
         ),

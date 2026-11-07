@@ -80,7 +80,7 @@ fn finalize_outcome(
     vaddr: VirtAddr,
     access: AccessType,
     size: u64,
-    effective_priv: crate::isa::privileged::PrivilegeMode,
+    effective_priv: PrivilegeMode,
 ) -> TranslateOutcome {
     match outcome {
         TranslateOutcome::Ready(mut result) => {

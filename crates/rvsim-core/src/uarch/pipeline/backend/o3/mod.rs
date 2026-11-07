@@ -21,11 +21,17 @@ use crate::common::VirtAddr;
 use crate::config::Config;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
+use crate::sim::components::CacheId;
+use crate::sim::components::PipelineId;
 use crate::uarch::ctx::CoreCtx;
+use crate::uarch::ctx::StageCtx;
 use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit;
 use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, VecMemMicroOp};
+use crate::uarch::pipeline::engine::BackendCommon;
+use crate::uarch::pipeline::engine::Renamed;
 use crate::uarch::pipeline::engine::{BundleHazard, DataCacheFlush, ExecutionEngine};
+use crate::uarch::pipeline::latches::IdExEntry;
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry, SourceReadiness,
 };
@@ -160,7 +166,7 @@ pub struct O3Engine {
     /// `core::pipeline::vec_store_buffer` for forwarding/drain semantics.
     vec_store_buffer: VecStoreBuffer,
     /// In-flight memory bookkeeping: mailbox + outstanding tables + routing IDs.
-    common: crate::uarch::pipeline::engine::BackendCommon,
+    common: BackendCommon,
 }
 
 impl O3Engine {
@@ -185,9 +191,9 @@ impl O3Engine {
     /// Creates a new O3 engine from config and routing IDs.
     pub fn new(
         config: &Config,
-        pipeline_id: crate::sim::components::PipelineId,
-        l1_i_id: crate::sim::components::CacheId,
-        l1_d_id: crate::sim::components::CacheId,
+        pipeline_id: PipelineId,
+        l1_i_id: CacheId,
+        l1_d_id: CacheId,
     ) -> Self {
         let rob_size = config.pipeline.rob_size;
         let prf_gpr_size = config.pipeline.prf_gpr_size;
@@ -244,19 +250,14 @@ impl O3Engine {
                 config.pipeline.vec_store_buffer_size,
                 config.pipeline.vec_store_forwarding,
             ),
-            common: crate::uarch::pipeline::engine::BackendCommon {
-                pipeline_id,
-                l1_i_id,
-                l1_d_id,
-                ..crate::uarch::pipeline::engine::BackendCommon::default()
-            },
+            common: BackendCommon { pipeline_id, l1_i_id, l1_d_id, ..BackendCommon::default() },
         }
     }
 
     /// Copies the hart's architectural registers into the physical
     /// registers its committed rename map names: at reset, and whenever a
     /// debugger changes a register while nothing is in flight.
-    pub fn sync_arch_regs(&mut self, state: &crate::uarch::ctx::CoreCtx<'_>) {
+    pub fn sync_arch_regs(&mut self, state: &CoreCtx<'_>) {
         use crate::isa::reg::ArchReg;
         for reg in RegIdx::all().skip(1) {
             let phys = self.committed_rename_map.get(ArchReg::Int(reg));
@@ -383,9 +384,9 @@ impl ExecutionEngine for O3Engine {
 
     fn rename(
         &mut self,
-        state: &mut crate::uarch::ctx::StageCtx<'_>,
-        decoded: crate::uarch::pipeline::latches::IdExEntry,
-    ) -> crate::uarch::pipeline::engine::Renamed<RenamedRegisters> {
+        state: &mut StageCtx<'_>,
+        decoded: IdExEntry,
+    ) -> Renamed<RenamedRegisters> {
         self.rename_one(state, decoded)
     }
 
@@ -399,11 +400,11 @@ impl ExecutionEngine for O3Engine {
         commit::committed_writes_pending(state, &self.store_buffer, &self.vec_store_buffer)
     }
 
-    fn execute_mem1_mut(&mut self) -> &mut Vec<crate::uarch::pipeline::latches::ExMem1Entry> {
+    fn execute_mem1_mut(&mut self) -> &mut Vec<ExMem1Entry> {
         &mut self.execute_mem1
     }
 
-    fn mem1_mem2_mut(&mut self) -> &mut Vec<crate::uarch::pipeline::latches::Mem1Mem2Entry> {
+    fn mem1_mem2_mut(&mut self) -> &mut Vec<Mem1Mem2Entry> {
         &mut self.mem1_mem2
     }
 
@@ -411,11 +412,11 @@ impl ExecutionEngine for O3Engine {
         self.issue_queue.queue_snapshot()
     }
 
-    fn execute_mem1(&self) -> &[crate::uarch::pipeline::latches::ExMem1Entry] {
+    fn execute_mem1(&self) -> &[ExMem1Entry] {
         &self.execute_mem1
     }
 
-    fn mem1_mem2(&self) -> &[crate::uarch::pipeline::latches::Mem1Mem2Entry] {
+    fn mem1_mem2(&self) -> &[Mem1Mem2Entry] {
         &self.mem1_mem2
     }
 
@@ -423,11 +424,11 @@ impl ExecutionEngine for O3Engine {
         &self.mem2_wb
     }
 
-    fn common(&self) -> &crate::uarch::pipeline::engine::BackendCommon {
+    fn common(&self) -> &BackendCommon {
         &self.common
     }
 
-    fn common_mut(&mut self) -> &mut crate::uarch::pipeline::engine::BackendCommon {
+    fn common_mut(&mut self) -> &mut BackendCommon {
         &mut self.common
     }
 
