@@ -54,26 +54,6 @@ pub const fn store_misaligned_trap(addr: u64) -> Trap {
     Trap::StoreAddressMisaligned(addr)
 }
 
-/// Returns the size in bytes for a memory operation width.
-///
-/// # Arguments
-///
-/// * `width` - The `MemWidth` enum value
-///
-/// # Returns
-///
-/// The size in bytes (0 for Nop, 1/2/4/8 for actual operations)
-pub const fn width_to_bytes(width: crate::isa::op::MemWidth) -> u64 {
-    use crate::isa::op::MemWidth;
-    match width {
-        MemWidth::Nop => 0,
-        MemWidth::Byte => 1,
-        MemWidth::Half => 2,
-        MemWidth::Word => 4,
-        MemWidth::Double => 8,
-    }
-}
-
 /// The start of the second page an access of `size` bytes at `addr`
 /// spills into, if it crosses a page boundary.
 #[must_use]
