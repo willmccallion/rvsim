@@ -26,7 +26,9 @@ use crate::sim::packet::{AccessSize, MemOp, MemRespData, Packet, WriteData, Writ
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::ctx::stage::PteUpdateOutcome;
 use crate::uarch::mmu::TranslateOutcome;
-use crate::uarch::pipeline::engine::{BackendCommon, DataCacheFlush, ExecutionEngine, Pipeline};
+use crate::uarch::pipeline::engine::{
+    BackendCommon, DataCacheFlush, ExecutionEngine, FetchRestart, Pipeline,
+};
 use crate::uarch::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch_reorder};
 use crate::uarch::pipeline::latches::Mem1Mem2Entry;
 use crate::uarch::pipeline::outstanding::{
@@ -211,13 +213,13 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
 ) {
     match continuation {
         WalkContinuation::Fetch { fetch_seq, mut entry } => {
-            pipeline.engine.common_mut().fetch_walk_pending = false;
+            pipeline.engine.common_mut().fetch_restart = FetchRestart::FromPc;
             if result.trap.is_none() {
                 // The TLB now holds the page. Fetch the instruction again
                 // from fetch1 so its size, its upper half-word and its
                 // prediction are formed the normal way; the sequence
                 // number reserved for it drains empty.
-                pipeline.engine.common_mut().fetch_resume_pc = Some(entry.pc);
+                pipeline.engine.common_mut().fetch_restart = FetchRestart::At(entry.pc);
                 dispatch_fetch_group(
                     state,
                     &mut pipeline.engine,
