@@ -210,7 +210,7 @@ impl InOrderEngine {
         let vec_op = entry.inst.ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
         let vtype = parse_vtype(state.hart.csrs.vtype);
-        if let Err(trap) = check_vec_mem_emul(entry.inst.bits, vec_op, &entry.inst.ctrl, vtype) {
+        if let Err(trap) = check_vec_mem_emul(entry.inst.bits, &entry.inst.ctrl, vtype) {
             self.rob.fault(entry.rob_tag, trap);
             return;
         }
@@ -220,7 +220,6 @@ impl InOrderEngine {
             entry.inst.rv2 as i64,
             &entry.inst.ctrl,
             state.hart.csrs.vector_config(),
-            vec_op,
         );
         if is_store {
             self.vec_store_buffer.set_expected_elements(entry.rob_tag, addresses.len());

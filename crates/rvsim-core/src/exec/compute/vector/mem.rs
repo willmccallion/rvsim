@@ -90,7 +90,6 @@ pub fn vec_mem_dst_count(
 #[allow(clippy::missing_const_for_fn)]
 pub fn check_vec_mem_emul(
     inst: u32,
-    op: VectorOp,
     ctrl: &ControlSignals,
     vtype: VtypeFields,
 ) -> Result<(), Trap> {
@@ -101,7 +100,7 @@ pub fn check_vec_mem_emul(
     let sew = vtype.vsew;
     let lmul = vtype.vlmul;
     let vd = ctrl.vd.as_u8() as usize;
-    let illegal = match op {
+    let illegal = match ctrl.vec_op {
         VectorOp::VLoadUnit
         | VectorOp::VStoreUnit
         | VectorOp::VLoadFF
@@ -198,15 +197,14 @@ const fn dest_slot(elem: usize, seg: usize, emul_regs: usize, elements_per_reg: 
 /// The element accesses a vector memory instruction makes, reading store
 /// data and index values from `vrf`. Performs no memory access.
 #[must_use]
-#[allow(clippy::too_many_arguments)]
 pub fn element_accesses<V: VectorRegFile>(
     vrf: &V,
     base_addr: u64,
     stride: i64,
     ctrl: &ControlSignals,
     config: VectorConfig,
-    vec_op: VectorOp,
 ) -> Vec<ElementAccess> {
+    let vec_op = ctrl.vec_op;
     let vtype = parse_vtype(config.vtype);
     let (vl, vstart) = (config.vl as usize, config.vstart as usize);
     if vtype.vill && vec_op.depends_on_vtype() {
