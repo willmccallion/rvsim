@@ -158,7 +158,7 @@ fn check_fetch_prediction(state: &mut StageCtx<'_>, entry: &mut IdExEntry) -> Op
     let size = entry.inst.size.as_u64();
     let fallthrough = entry.inst.pc.wrapping_add(size);
     let fetched_next = entry.predicted_target.unwrap_or(fallthrough);
-    let control = ControlInst::from_encoding(entry.inst.pc, size, entry.inst.bits);
+    let control = ControlInst::of(&entry.inst);
     let predictor = &mut state.core_mut().branch_predictor;
     let predicted_by_fetch = predictor.is_predicted(entry.seq);
 

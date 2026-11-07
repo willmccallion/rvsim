@@ -10,12 +10,16 @@
 use std::collections::VecDeque;
 
 use crate::common::{InstSeq, VirtAddr};
+use crate::exec::inst::Inst;
+use crate::exec::signals::{ControlFlow, JumpKind};
+use crate::isa::reg;
+use crate::isa::reg::RegIdx;
 use crate::uarch::bpred::btb::{BranchKind, Btb, BtbHit};
 use crate::uarch::bpred::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 use crate::uarch::bpred::ras::{Ras, RasHistory};
 
 /// A control instruction as the predictor sees it: from its BTB entry at
-/// fetch, or from its encoding once decode has it.
+/// fetch, or as decode classified it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ControlInst {
     /// A conditional branch and its encoded target.
@@ -51,31 +55,20 @@ impl ControlInst {
         matches!(self, Self::IndirectJump { returns: false, .. })
     }
 
-    /// The control instruction `inst` at `pc` is, if it is one: what
-    /// decode knows once it has the encoding. `size` is its length in bytes.
+    /// The control instruction the decoded `inst` is, if it is one.
     #[must_use]
-    pub fn from_encoding(pc: VirtAddr, size: u64, inst: u32) -> Option<Self> {
-        use crate::isa::encoding::rv64i::opcodes;
-        use crate::isa::instruction::{InstructionBits, decode_b_type_imm, decode_j_type_imm};
-        use crate::isa::reg;
-        use crate::isa::reg::RegIdx;
-
-        let rd = inst.rd();
-        let rs1 = inst.rs1();
+    pub fn of(inst: &Inst) -> Option<Self> {
         let is_link = |reg: RegIdx| reg == reg::REG_RA || reg == reg::REG_T0;
-        let link = is_link(rd).then(|| pc.wrapping_add(size));
-        match inst.opcode() {
-            opcodes::OP_BRANCH => {
-                Some(Self::Branch { target: pc.wrapping_add(decode_b_type_imm(inst) as u64) })
-            }
-            opcodes::OP_JAL => {
-                Some(Self::Jump { target: pc.wrapping_add(decode_j_type_imm(inst) as u64), link })
-            }
-            opcodes::OP_JALR => {
-                let returns = is_link(rs1) && (!is_link(rd) || rd != rs1);
+        let link = is_link(inst.rd).then(|| inst.next_pc());
+        let pc_relative = inst.pc.wrapping_add(inst.imm as u64);
+        match inst.ctrl.control_flow {
+            ControlFlow::Sequential => None,
+            ControlFlow::Branch(_) => Some(Self::Branch { target: pc_relative }),
+            ControlFlow::Jump(JumpKind::Jal) => Some(Self::Jump { target: pc_relative, link }),
+            ControlFlow::Jump(JumpKind::Jalr) => {
+                let returns = is_link(inst.rs1) && (!is_link(inst.rd) || inst.rd != inst.rs1);
                 Some(Self::IndirectJump { returns, link })
             }
-            _ => None,
         }
     }
 
