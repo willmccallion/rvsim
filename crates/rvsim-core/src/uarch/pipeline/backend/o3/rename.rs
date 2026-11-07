@@ -261,11 +261,8 @@ impl O3Engine {
                 .is_masked_vector_op()
                 .then(|| self.rename_map.get_vec(VRegIdx::new(0))),
             // Snapshot vector CSRs so execute uses dispatch-time context even after vsetvl.
-            vec_vtype: vector.vtype,
-            vec_vl: vector.vl,
-            vec_vstart: vector.vstart,
-            vec_vxrm: state.hart().csrs.vxrm,
-            vec_frm: state.hart().csrs.frm,
+            vector_config: vector,
+            vector_rounding: state.hart().csrs.vector_rounding(),
         };
 
         trace_rename!(state.config.general.trace_instructions;

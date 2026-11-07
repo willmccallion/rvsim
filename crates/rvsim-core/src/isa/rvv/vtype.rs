@@ -428,6 +428,16 @@ pub const fn encode_vtype(fields: &VtypeFields) -> u64 {
     val
 }
 
+/// The rounding modes a vector instruction reads: `vxrm` for fixed-point
+/// and `frm` for floating-point arithmetic.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VectorRounding {
+    /// Fixed-point rounding.
+    pub vxrm: Vxrm,
+    /// Floating-point rounding.
+    pub frm: crate::isa::fp::RoundingMode,
+}
+
 /// The vector configuration a `vsetvl` establishes: what the front end
 /// snapshots for the vector instructions it renames, and what commit
 /// writes to the `vtype`, `vl` and `vstart` CSRs.

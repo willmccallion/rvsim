@@ -13,10 +13,9 @@ use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::compute::vector::{crypto, fpu, mask, permute, reduction};
 use crate::exec::inst::Inst;
 use crate::isa::encoding::rvv::encoding as v_enc;
-use crate::isa::fp::RoundingMode;
 use crate::isa::op::{VecClass, VecSrcEncoding, VectorOp};
 use crate::isa::privileged::Trap;
-use crate::isa::rvv::{Sew, Vlmul, Vxrm, parse_vtype_with_elen};
+use crate::isa::rvv::{Sew, VectorConfig, VectorRounding, Vlmul, parse_vtype_with_elen};
 
 /// Build operand1 from pipeline latch data based on source encoding.
 ///
@@ -166,30 +165,24 @@ fn fp_widths_supported(op: VectorOp, sew: Sew, zvfh: bool, elen: usize) -> bool 
     }
 }
 
-/// Build execution context from raw CSR values (no `SystemState` reference needed).
+/// Build execution context from the CSR snapshot (no `SystemState` reference needed).
 const fn build_ctx_from_csrs(
-    vtype_bits: u64,
-    vl: u64,
-    vstart: u64,
-    vxrm: u64,
-    frm: u64,
+    config: VectorConfig,
+    rounding: VectorRounding,
     elen: usize,
     zvfh: bool,
 ) -> VecExecCtx {
-    let vtype = parse_vtype_with_elen(vtype_bits, elen);
+    let vtype = parse_vtype_with_elen(config.vtype, elen);
     VecExecCtx {
         sew: vtype.vsew,
-        vl: vl as usize,
-        vstart: vstart as usize,
+        vl: config.vl as usize,
+        vstart: config.vstart as usize,
         vma: vtype.vma,
         vta: vtype.vta,
         vlmul: vtype.vlmul,
         vm: true, // overridden per-instruction
-        vxrm: Vxrm::from_bits(vxrm as u8),
-        frm: match RoundingMode::from_bits(frm as u8) {
-            Some(rm) => rm,
-            None => RoundingMode::Rne,
-        },
+        vxrm: rounding.vxrm,
+        frm: rounding.frm,
         zvfh,
     }
 }
@@ -204,26 +197,22 @@ const fn build_ctx_from_csrs(
 ///
 /// Returns `Trap::IllegalInstruction` if vtype.vill is set.
 ///
-#[allow(clippy::too_many_arguments)]
 pub fn execute_vec_op_on<V: VectorRegFile>(
     vpr: &mut V,
-    vtype_bits: u64,
-    vl: u64,
-    vstart: u64,
-    vxrm: u64,
-    frm: u64,
+    config: VectorConfig,
+    rounding: VectorRounding,
     elen: usize,
     zvfh: bool,
     inst: &Inst,
 ) -> Result<VecExecResult, Trap> {
-    check_vill(inst, vtype_bits, elen)?;
-    let vtype = parse_vtype_with_elen(vtype_bits, elen);
+    check_vill(inst, config.vtype, elen)?;
+    let vtype = parse_vtype_with_elen(config.vtype, elen);
     check_widening_lmul(inst.bits, inst.ctrl.vec_op, vtype.vlmul)?;
     if !fp_widths_supported(inst.ctrl.vec_op, vtype.vsew, zvfh, elen) {
         return Err(Trap::IllegalInstruction(inst.bits));
     }
 
-    let mut ctx = build_ctx_from_csrs(vtype_bits, vl, vstart, vxrm, frm, elen, zvfh);
+    let mut ctx = build_ctx_from_csrs(config, rounding, elen, zvfh);
     ctx.vm = inst.ctrl.vm;
     if ctx.vstart >= ctx.vl && !inst.ctrl.vec_op.executes_without_body() {
         return Ok(VecExecResult::default());
@@ -318,7 +307,8 @@ mod tests {
 
     fn run(vpr: &mut Vpr, vec_op: VectorOp, vl: u64, vstart: u64) -> VecExecResult {
         let inst = vector_inst(vec_op);
-        execute_vec_op_on(vpr, E32_M1_TAIL_AGNOSTIC, vl, vstart, 0, 0, ELEN, false, &inst).unwrap()
+        let config = VectorConfig { vtype: E32_M1_TAIL_AGNOSTIC, vl, vstart };
+        execute_vec_op_on(vpr, config, VectorRounding::default(), ELEN, false, &inst).unwrap()
     }
 
     fn vd_elements(vpr: &Vpr) -> Vec<u64> {
@@ -367,7 +357,8 @@ mod tests {
         let mut vpr = registers();
         let vtype = u64::from(sew.to_encoding()) << 3;
         let inst = vector_inst(vec_op);
-        execute_vec_op_on(&mut vpr, vtype, 1, 0, 0, 0, elen, zvfh, &inst).is_ok()
+        let config = VectorConfig { vtype, vl: 1, vstart: 0 };
+        execute_vec_op_on(&mut vpr, config, VectorRounding::default(), elen, zvfh, &inst).is_ok()
     }
 
     #[test]

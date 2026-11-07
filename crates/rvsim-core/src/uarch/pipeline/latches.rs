@@ -19,7 +19,7 @@ use crate::isa::instruction::InstSize;
 use crate::isa::op::AtomicOp;
 use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
-use crate::isa::rvv::{ElemIdx, Sew};
+use crate::isa::rvv::{ElemIdx, Sew, VectorConfig, VectorRounding};
 use crate::sim::memory::write_log::WriteSeq;
 use crate::uarch::pipeline::backend::shared::vec_mem::VecMemAddrOp;
 use crate::uarch::pipeline::rename::prf::PhysReg;
@@ -331,16 +331,11 @@ pub struct RenameIssueEntry {
     pub vec_src3_count: u8,
     /// The physical register holding v0 when a masked vector op was renamed.
     pub mask: Option<VecPhysReg>,
-    /// `vtype` CSR captured at dispatch time (O3: prevents stale reads when vsetvl is in-flight).
-    pub vec_vtype: u64,
-    /// `vl` CSR captured at dispatch time.
-    pub vec_vl: u64,
-    /// `vstart` CSR captured at dispatch time.
-    pub vec_vstart: u64,
-    /// `vxrm` CSR captured at dispatch time.
-    pub vec_vxrm: u64,
-    /// `frm` (FP rounding mode) CSR captured at dispatch time.
-    pub vec_frm: u64,
+    /// The vector configuration at rename, so a `vsetvl` still in flight
+    /// cannot change what the instruction executes with.
+    pub vector_config: VectorConfig,
+    /// The vector rounding modes at rename.
+    pub vector_rounding: VectorRounding,
 }
 
 /// Entry from Execute -> Memory1 latch.

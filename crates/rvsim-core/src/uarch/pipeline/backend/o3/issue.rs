@@ -99,7 +99,7 @@ impl O3Engine {
             let latency = self.fu_pool.vector_op_latency(
                 fu_type,
                 &entry.inst.ctrl,
-                entry.vec_vl as usize,
+                entry.vector_config.vl as usize,
                 self.num_vec_lanes.as_usize(),
             );
             self.fu_pool.acquire_with_latency(unit, now, latency, entry.rob_tag)
@@ -180,11 +180,8 @@ impl O3Engine {
         let mut recorder = AgnosticRecorder::new(&mut view, commit_log_open(state));
         let executed = execute_vec_op_on(
             &mut recorder,
-            entry.vec_vtype,
-            entry.vec_vl,
-            entry.vec_vstart,
-            entry.vec_vxrm,
-            entry.vec_frm,
+            entry.vector_config,
+            entry.vector_rounding,
             state.config.isa.vector.elen,
             state.core.isa.extensions.contains(Extension::Zvfh),
             &entry.inst,
@@ -239,7 +236,7 @@ impl O3Engine {
         let vd_phys = dest.map_or([VecPhysReg::ZERO; 8], |d| d.phys);
 
         // Reject illegal EMUL (>8) before element_accesses would panic.
-        let vtype = parse_vtype(entry.vec_vtype);
+        let vtype = parse_vtype(entry.vector_config.vtype);
         if let Err(trap) = check_vec_mem_emul(result.inst, vec_op, ctrl, vtype) {
             self.rob.fault(result.rob_tag, trap);
             return;
@@ -257,9 +254,7 @@ impl O3Engine {
                 result.alu,
                 result.store_data as i64,
                 ctrl,
-                entry.vec_vtype,
-                entry.vec_vl as usize,
-                entry.vec_vstart as usize,
+                entry.vector_config,
                 vec_op,
             ),
             &vd_phys,
@@ -354,7 +349,7 @@ fn vector_dest(entry: &RenameIssueEntry, is_vec_mem: bool) -> Option<VecDest> {
         ctrl.vec_broadcast_vs2,
     );
     if is_vec_mem {
-        let vtype = parse_vtype(entry.vec_vtype);
+        let vtype = parse_vtype(entry.vector_config.vtype);
         if !vtype.vill || !ctrl.vec_op.depends_on_vtype() {
             groups.vd =
                 vec_mem_dst_count(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);

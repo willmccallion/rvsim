@@ -103,11 +103,8 @@ impl InOrderEngine {
             vec_src2_count: 0,
             vec_src3_count: 0,
             mask: None,
-            vec_vtype: vector.vtype,
-            vec_vl: vector.vl,
-            vec_vstart: vector.vstart,
-            vec_vxrm: state.hart().csrs.vxrm,
-            vec_frm: state.hart().csrs.frm,
+            vector_config: vector,
+            vector_rounding: state.hart().csrs.vector_rounding(),
         };
 
         trace_rename!(state.config.general.trace_instructions;
