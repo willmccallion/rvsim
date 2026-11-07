@@ -23,9 +23,11 @@ impl O3Engine {
             &state.stage(),
             &mut self.mem1_mem2,
             &mut memory2_results,
-            &mut self.store_buffer,
-            Some(&mut self.load_queue),
-            Some(&mut self.vec_store_buffer),
+            memory2::MemoryQueues {
+                store_buffer: &mut self.store_buffer,
+                load_queue: Some(&mut self.load_queue),
+                vec_store_buffer: &mut self.vec_store_buffer,
+            },
         );
         for entry in &memory2_results {
             if entry.ctrl.mem_write
