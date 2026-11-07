@@ -23,20 +23,24 @@ pub struct Checkpoint {
     pub rename_map: RenameMap,
 }
 
-/// A free slot a [`CheckpointTable::reserve`] call set aside.
+/// A free slot [`CheckpointTable::free_slot`] found, for
+/// [`FreeCheckpoint::fill`] to write before anything else fills a slot.
 #[derive(Debug)]
-pub struct ReservedCheckpoint<'a> {
-    table: &'a mut CheckpointTable,
-    index: usize,
-}
+#[must_use]
+pub struct FreeCheckpoint(usize);
 
-impl ReservedCheckpoint<'_> {
-    /// Saves `rename_map` for `branch_tag` in the reserved slot.
-    pub fn fill(self, branch_tag: RobTag, rename_map: &RenameMap) -> CheckpointId {
-        self.table.slots[self.index] =
-            Some(Checkpoint { branch_tag, rename_map: rename_map.clone() });
-        self.table.count += 1;
-        CheckpointId(self.index as u8)
+impl FreeCheckpoint {
+    /// Saves `rename_map` for `branch_tag` in this slot of `table`.
+    pub fn fill(
+        self,
+        table: &mut CheckpointTable,
+        branch_tag: RobTag,
+        rename_map: &RenameMap,
+    ) -> CheckpointId {
+        debug_assert!(table.slots[self.0].is_none(), "a slot was filled after free_slot");
+        table.slots[self.0] = Some(Checkpoint { branch_tag, rename_map: rename_map.clone() });
+        table.count += 1;
+        CheckpointId(self.0 as u8)
     }
 }
 
@@ -75,19 +79,16 @@ impl CheckpointTable {
         self.slots.len() - self.count
     }
 
-    /// Reserves the first free slot, or `None` if the table is full. The
-    /// reservation borrows the table, so the slot is still free when
-    /// [`ReservedCheckpoint::fill`] writes it.
-    pub fn reserve(&mut self) -> Option<ReservedCheckpoint<'_>> {
-        let index = self.slots.iter().position(Option::is_none)?;
-        Some(ReservedCheckpoint { table: self, index })
+    /// The first free slot, or `None` if the table is full.
+    pub fn free_slot(&self) -> Option<FreeCheckpoint> {
+        self.slots.iter().position(Option::is_none).map(FreeCheckpoint)
     }
 
     #[cfg(test)]
     /// Allocates a checkpoint slot saving `rename_map` for `branch_tag`.
     /// Returns `None` if the table is full.
     pub fn allocate(&mut self, branch_tag: RobTag, rename_map: &RenameMap) -> Option<CheckpointId> {
-        Some(self.reserve()?.fill(branch_tag, rename_map))
+        Some(self.free_slot()?.fill(self, branch_tag, rename_map))
     }
 
     /// Finds the checkpoint with the given `branch_tag`.
