@@ -2,6 +2,7 @@
 //! merges, extensions and carry-less multiplies.
 
 use crate::exec::compute::vector::alu::frac_sew;
+use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
@@ -341,19 +342,7 @@ pub(super) fn exec_standard(
     let mut vxsat = false;
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, ctx.sew)) {
             continue;
         }
 
@@ -380,19 +369,7 @@ pub(super) fn exec_macc(
     let mask = ctx.sew.mask();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, ctx.sew)) {
             continue;
         }
 
@@ -430,13 +407,7 @@ pub(super) fn exec_merge(
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_outside_body(vpr, i, FillTarget::Element(vd_idx, ctx.sew)) {
             continue;
         }
 
@@ -473,19 +444,7 @@ pub(super) fn exec_extension(
     };
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, ctx.sew)) {
             continue;
         }
 

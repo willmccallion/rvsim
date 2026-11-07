@@ -3,9 +3,8 @@
 use super::{elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, is_snan_f16};
 use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
-use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
-};
+use crate::exec::compute::vector::context::FillTarget;
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, read_op1};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::VectorOp;
@@ -29,19 +28,7 @@ pub(super) fn exec_fp_comparison(
     let mut flags = FpFlags::NONE;
 
     for i in 0..vlen_bits {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_mask_bit(vd_idx, ElemIdx::new(i));
-            }
+        if ctx.skip_element(vpr, i, FillTarget::MaskBit(vd_idx)) {
             continue;
         }
 

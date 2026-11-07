@@ -7,6 +7,7 @@
 //! - Mask-producing: `vmsbf.m`, `vmsif.m`, `vmsof.m`
 //! - Mask misc: `viota.m`, `vid.v`
 
+use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, mask_active};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
@@ -80,13 +81,7 @@ fn exec_mask_logical(
     let vlen_bits = vpr.vlen().bits();
 
     for i in 0..vlen_bits {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_mask_bit(vd, ElemIdx::new(i));
-            }
+        if ctx.skip_outside_body(vpr, i, FillTarget::MaskBit(vd)) {
             continue;
         }
         let s2 = vpr.read_mask_bit(vs2, ElemIdx::new(i));
@@ -155,19 +150,7 @@ fn exec_mask_set(
     let mut found_first = false;
 
     for i in 0..vlen_bits {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_mask_bit(vd, ElemIdx::new(i));
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_mask_bit(vd, ElemIdx::new(i));
-            }
+        if ctx.skip_element(vpr, i, FillTarget::MaskBit(vd)) {
             continue;
         }
 
@@ -210,13 +193,7 @@ fn exec_viota(
     let mut running_sum: u64 = 0;
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_outside_body(vpr, i, FillTarget::Element(vd, ctx.sew)) {
             continue;
         }
 
@@ -250,19 +227,7 @@ fn exec_vid(vpr: &mut impl VectorRegFile, vd: VRegIdx, ctx: &VecExecCtx) -> VecE
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd, ctx.sew)) {
             continue;
         }
 

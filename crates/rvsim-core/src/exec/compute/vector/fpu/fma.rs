@@ -4,9 +4,8 @@ use super::{elem_to_f32, elem_to_f64};
 use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, fused_is_invalid, is_snan_f16};
 use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
-use crate::exec::compute::vector::context::{
-    VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
-};
+use crate::exec::compute::vector::context::FillTarget;
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, read_op1};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::VectorOp;
@@ -77,19 +76,7 @@ pub(super) fn exec_fp_fma(
     let mut flags = FpFlags::NONE;
 
     for i in 0..vlmax {
-        if i < ctx.vstart {
-            continue;
-        }
-        if i >= ctx.vl {
-            if ctx.vta.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
-            continue;
-        }
-        if !ctx.vm && !mask_active(vpr, i) {
-            if ctx.vma.is_agnostic() {
-                vpr.fill_agnostic_element(vd_idx, ElemIdx::new(i), ctx.sew);
-            }
+        if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, ctx.sew)) {
             continue;
         }
 
