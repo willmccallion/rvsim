@@ -6,7 +6,6 @@
 //! operand instead of scanning the entire ROB.
 
 use crate::isa::reg::RegIdx;
-use crate::isa::rvv::VRegIdx;
 use crate::uarch::pipeline::rob::{Rob, RobTag};
 
 /// Tag-based scoreboard: maps each architectural register to the ROB tag
@@ -18,8 +17,6 @@ pub struct Scoreboard {
     gpr: [Option<RobTag>; 32],
     /// FPR scoreboard.
     fpr: [Option<RobTag>; 32],
-    /// VPR scoreboard.
-    vpr: [Option<RobTag>; 32],
 }
 
 impl Default for Scoreboard {
@@ -31,7 +28,7 @@ impl Default for Scoreboard {
 impl Scoreboard {
     /// Create a new scoreboard with all registers clear (no pending writers).
     pub const fn new() -> Self {
-        Self { gpr: [None; 32], fpr: [None; 32], vpr: [None; 32] }
+        Self { gpr: [None; 32], fpr: [None; 32] }
     }
 
     /// Mark a register as having a pending writer with the given ROB tag.
@@ -63,30 +60,10 @@ impl Scoreboard {
         }
     }
 
-    /// Mark a vector register as having a pending writer with the given ROB tag.
-    pub const fn set_vec_producer(&mut self, vreg: VRegIdx, tag: RobTag) {
-        self.vpr[vreg.as_usize()] = Some(tag);
-    }
-
-    #[cfg(test)]
-    /// Get the ROB tag of the latest pending writer for a vector register.
-    pub const fn get_vec_producer(&self, vreg: VRegIdx) -> Option<RobTag> {
-        self.vpr[vreg.as_usize()]
-    }
-
-    /// Clear a vector register's pending writer, but ONLY if the current tag matches.
-    pub fn clear_vec_if_match(&mut self, vreg: VRegIdx, tag: RobTag) {
-        let slot = &mut self.vpr[vreg.as_usize()];
-        if *slot == Some(tag) {
-            *slot = None;
-        }
-    }
-
     /// Flush: clear all entries (all speculative state is gone).
     pub const fn flush(&mut self) {
         self.gpr = [None; 32];
         self.fpr = [None; 32];
-        self.vpr = [None; 32];
     }
 
     /// Rebuild scoreboard from the remaining valid ROB entries.
@@ -102,14 +79,6 @@ impl Scoreboard {
                 self.fpr[idx] = Some(entry.tag);
             } else if entry.ctrl.reg_write && !entry.rd.is_zero() {
                 self.gpr[idx] = Some(entry.tag);
-            }
-            if entry.ctrl.vec_reg_write {
-                for i in 0..entry.vec_dst_count {
-                    let vd_idx = idx as u8 + i;
-                    if vd_idx < 32 {
-                        self.set_vec_producer(VRegIdx::new(vd_idx), entry.tag);
-                    }
-                }
             }
         });
     }
@@ -183,36 +152,6 @@ mod tests {
             assert_eq!(sb.get_producer(RegIdx::new(i), false), None);
             assert_eq!(sb.get_producer(RegIdx::new(i), true), None);
         }
-    }
-
-    #[test]
-    fn test_vec_set_and_get_producer() {
-        let mut sb = Scoreboard::new();
-        let tag = RobTag::new(42);
-        let v5 = VRegIdx::new(5);
-        sb.set_vec_producer(v5, tag);
-        assert_eq!(sb.get_vec_producer(v5), Some(tag));
-        assert_eq!(sb.get_vec_producer(VRegIdx::new(6)), None);
-    }
-
-    #[test]
-    fn test_vec_clear_if_match() {
-        let mut sb = Scoreboard::new();
-        let tag = RobTag::new(10);
-        let v3 = VRegIdx::new(3);
-        sb.set_vec_producer(v3, tag);
-        sb.clear_vec_if_match(v3, tag);
-        assert_eq!(sb.get_vec_producer(v3), None);
-    }
-
-    #[test]
-    fn test_vec_clear_mismatch_preserves() {
-        let mut sb = Scoreboard::new();
-        let v3 = VRegIdx::new(3);
-        sb.set_vec_producer(v3, RobTag::new(10));
-        sb.set_vec_producer(v3, RobTag::new(20));
-        sb.clear_vec_if_match(v3, RobTag::new(10));
-        assert_eq!(sb.get_vec_producer(v3), Some(RobTag::new(20)));
     }
 
     #[test]
