@@ -93,8 +93,7 @@ fn test_fault_commit() {
     rob.fault(t1, Trap::IllegalInstruction(0));
 
     let entry = rob.commit_head().unwrap();
-    assert_eq!(entry.state, RobState::Faulted);
-    assert!(entry.trap.is_some());
+    assert!(entry.trap().is_some());
 }
 
 #[test]
