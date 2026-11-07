@@ -1,11 +1,11 @@
 //! RISC-V Exception Flag tests.
 //!
-//! These tests verify that `fpu::execute_full()` returns both the
+//! These tests verify that `fpu::execute_full_rm()` returns both the
 //! result and the correct accrued exception flags (NV, DZ, OF, NX).
 
 use crate::exec::compute::fpu;
 use crate::exec::compute::fpu::nan_handling::box_f32;
-use crate::isa::fp::FpFlags;
+use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::AluOp;
 
 #[test]
@@ -13,7 +13,8 @@ fn test_exception_dz() {
     // 1.0 / 0.0 should set DZ flag
     let one = box_f32(1.0);
     let zero = box_f32(0.0);
-    let (result, flags) = fpu::execute_full(AluOp::FDiv, one, zero, 0, true);
+    let (result, flags) =
+        fpu::execute_full_rm(AluOp::FDiv, one, zero, 0, FpFormat::Single, RoundingMode::Rne);
 
     // Result should be +infinity
     let res_f32 = f32::from_bits(result as u32);
@@ -29,7 +30,8 @@ fn test_exception_dz() {
 fn test_exception_nv() {
     // sqrt(-1.0) should set NV flag
     let neg_one = box_f32(-1.0);
-    let (_result, flags) = fpu::execute_full(AluOp::FSqrt, neg_one, 0, 0, true);
+    let (_result, flags) =
+        fpu::execute_full_rm(AluOp::FSqrt, neg_one, 0, 0, FpFormat::Single, RoundingMode::Rne);
 
     assert!(flags.contains(FpFlags::NV), "NV flag must be set for sqrt(-1.0)");
 }
@@ -39,7 +41,8 @@ fn test_exception_of_nx() {
     // Large value multiplication resulting in overflow to infinity
     let large = box_f32(f32::MAX);
     let two = box_f32(2.0);
-    let (result, flags) = fpu::execute_full(AluOp::FMul, large, two, 0, true);
+    let (result, flags) =
+        fpu::execute_full_rm(AluOp::FMul, large, two, 0, FpFormat::Single, RoundingMode::Rne);
 
     let res_f32 = f32::from_bits(result as u32);
     assert!(res_f32.is_infinite(), "MAX * 2 should overflow to infinity");
@@ -52,7 +55,8 @@ fn test_exception_of_nx() {
 fn test_exception_nv_zero_div_zero() {
     // 0.0 / 0.0 should set NV (invalid), not DZ
     let zero = box_f32(0.0);
-    let (_result, flags) = fpu::execute_full(AluOp::FDiv, zero, zero, 0, true);
+    let (_result, flags) =
+        fpu::execute_full_rm(AluOp::FDiv, zero, zero, 0, FpFormat::Single, RoundingMode::Rne);
 
     assert!(flags.contains(FpFlags::NV), "0/0 should set NV (invalid operation)");
     assert!(!flags.contains(FpFlags::DZ), "0/0 should NOT set DZ");
@@ -62,7 +66,8 @@ fn test_exception_nv_zero_div_zero() {
 fn test_no_exception_normal_add() {
     let a = box_f32(1.0);
     let b = box_f32(2.0);
-    let (_result, flags) = fpu::execute_full(AluOp::FAdd, a, b, 0, true);
+    let (_result, flags) =
+        fpu::execute_full_rm(AluOp::FAdd, a, b, 0, FpFormat::Single, RoundingMode::Rne);
 
     assert!(flags.is_empty(), "Normal addition should raise no flags");
 }
@@ -73,7 +78,8 @@ fn test_exception_snan_input_sets_nv() {
     let snan_bits = 0x7f800001u32; // sNaN (quiet bit=0, payload!=0)
     let snan = box_f32(f32::from_bits(snan_bits));
     let one = box_f32(1.0);
-    let (_result, flags) = fpu::execute_full(AluOp::FAdd, snan, one, 0, true);
+    let (_result, flags) =
+        fpu::execute_full_rm(AluOp::FAdd, snan, one, 0, FpFormat::Single, RoundingMode::Rne);
 
     assert!(flags.contains(FpFlags::NV), "sNaN input must raise NV");
 }
@@ -83,7 +89,8 @@ fn test_exception_dz_f64() {
     // f64: 1.0 / 0.0 should set DZ
     let one = f64::to_bits(1.0);
     let zero = f64::to_bits(0.0);
-    let (result, flags) = fpu::execute_full(AluOp::FDiv, one, zero, 0, false);
+    let (result, flags) =
+        fpu::execute_full_rm(AluOp::FDiv, one, zero, 0, FpFormat::Double, RoundingMode::Rne);
 
     let res_f64 = f64::from_bits(result);
     assert!(res_f64.is_infinite());
@@ -93,7 +100,8 @@ fn test_exception_dz_f64() {
 #[test]
 fn test_exception_nv_sqrt_neg_f64() {
     let neg_one = f64::to_bits(-1.0);
-    let (_result, flags) = fpu::execute_full(AluOp::FSqrt, neg_one, 0, 0, false);
+    let (_result, flags) =
+        fpu::execute_full_rm(AluOp::FSqrt, neg_one, 0, 0, FpFormat::Double, RoundingMode::Rne);
     assert!(flags.contains(FpFlags::NV));
 }
 
