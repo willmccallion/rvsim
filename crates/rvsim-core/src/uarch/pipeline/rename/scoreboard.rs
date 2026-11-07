@@ -81,11 +81,11 @@ impl Scoreboard {
     /// walking head-to-tail so the latest writer wins for each register.
     pub fn rebuild_from_rob(&mut self, rob: &Rob) {
         self.flush();
-        rob.for_each_valid(|entry| {
+        for entry in rob.iter() {
             if let Some(dest) = entry.ctrl.dest(entry.rd) {
                 self.set_producer(dest, entry.tag);
             }
-        });
+        }
     }
 }
 

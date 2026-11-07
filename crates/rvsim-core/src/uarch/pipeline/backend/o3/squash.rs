@@ -124,7 +124,7 @@ impl O3Engine {
     /// Rebuild the speculative rename map after a partial flush by replaying surviving ROB entries.
     fn rebuild_rename_map(&mut self) {
         self.rename_map = self.committed_rename_map.clone();
-        for entry in self.rob.iter_in_order() {
+        for entry in self.rob.iter() {
             if let Some(dest) = entry.ctrl.dest(entry.rd) {
                 self.rename_map.set(dest, entry.phys_dst);
             }

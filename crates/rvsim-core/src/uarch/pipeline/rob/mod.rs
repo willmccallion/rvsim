@@ -11,7 +11,7 @@
 use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::sim::memory::write_log::WriteSeq;
 use crate::uarch::pipeline::squash::SquashScope;
-use std::collections::HashMap;
+use std::collections::VecDeque;
 
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
@@ -190,8 +190,6 @@ pub struct RobEntry {
     pub fault_vstart: Option<u64>,
     /// The `vl` a fault-only-first load trimmed itself to, written at commit.
     pub vl_trim: Option<u64>,
-    /// Whether this entry is valid (occupied).
-    pub valid: bool,
     /// Physical register allocated for rd at rename (O3 backend).
     pub phys_dst: PhysReg,
     /// Previous mapping for rd — returned to free list at commit (O3 backend).
@@ -262,37 +260,27 @@ impl RobEntry {
     }
 }
 
-/// Reorder Buffer — circular buffer for in-order commit.
+/// Reorder Buffer: the in-flight instructions in program order, committed
+/// from the oldest.
 #[derive(Debug)]
 pub struct Rob {
-    /// Fixed-size entry array.
-    entries: Vec<RobEntry>,
-    /// Index of the oldest entry (commit point).
-    head: usize,
-    /// Index where the next entry will be allocated.
-    tail: usize,
-    /// Number of valid entries.
-    count: usize,
+    /// The in-flight instructions, oldest first, so in tag age order.
+    entries: VecDeque<RobEntry>,
+    /// The most instructions it holds.
+    capacity: usize,
     /// Monotonically increasing tag counter.
     next_tag: u32,
-    /// O(1) tag → slot index lookup.
-    tag_index: HashMap<RobTag, usize>,
-    /// Valid entries carrying a `vec_csr_update`.
+    /// Entries carrying a `vec_csr_update`.
     vec_config_updates: usize,
 }
 
 impl Rob {
     /// Creates a new ROB with the given capacity.
     pub fn new(capacity: usize) -> Self {
-        let mut entries = Vec::with_capacity(capacity);
-        entries.resize_with(capacity, RobEntry::default);
         Self {
-            entries,
-            head: 0,
-            tail: 0,
-            count: 0,
+            entries: VecDeque::with_capacity(capacity),
+            capacity,
             next_tag: 1,
-            tag_index: HashMap::with_capacity(capacity),
             vec_config_updates: 0,
         }
     }
@@ -307,26 +295,26 @@ impl Rob {
 
     /// Returns the number of occupied entries.
     #[inline]
-    pub const fn len(&self) -> usize {
-        self.count
+    pub fn len(&self) -> usize {
+        self.entries.len()
     }
 
     /// Returns true if the ROB is empty.
     #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.count == 0
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     /// Returns true if the ROB is full.
     #[inline]
-    pub const fn is_full(&self) -> bool {
-        self.count == self.entries.len()
+    pub fn is_full(&self) -> bool {
+        self.entries.len() == self.capacity
     }
 
     /// Returns the number of free slots.
     #[inline]
-    pub const fn free_slots(&self) -> usize {
-        self.entries.len() - self.count
+    pub fn free_slots(&self) -> usize {
+        self.capacity - self.entries.len()
     }
 
     /// Allocates a new ROB entry. Returns `None` if the ROB is full.
@@ -352,7 +340,7 @@ impl Rob {
             self.next_tag = 1;
         }
 
-        self.entries[self.tail] = RobEntry {
+        self.entries.push_back(RobEntry {
             tag,
             seq,
             pc,
@@ -368,7 +356,6 @@ impl Rob {
             vec_csr_update: None,
             fault_vstart: None,
             vl_trim: None,
-            valid: true,
             phys_dst,
             old_phys_dst,
             fp_flags: FpFlags::NONE,
@@ -392,11 +379,7 @@ impl Rob {
             vec_agnostic: None,
             #[cfg(feature = "commit-log")]
             vec_mem_effects: Vec::new(),
-        };
-
-        let _ = self.tag_index.insert(tag, self.tail);
-        self.tail = (self.tail + 1) % self.entries.len();
-        self.count += 1;
+        });
         Some(tag)
     }
 
@@ -483,16 +466,7 @@ impl Rob {
         if self.vec_config_updates == 0 {
             return None;
         }
-        let len = self.entries.len();
-        let mut idx = (self.tail + len - 1) % len;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid && entry.vec_csr_update.is_some() {
-                return entry.vec_csr_update;
-            }
-            idx = (idx + len - 1) % len;
-        }
-        None
+        self.entries.iter().rev().find_map(|entry| entry.vec_csr_update)
     }
 
     /// Sets the CSR update for a given entry.
@@ -645,29 +619,19 @@ impl Rob {
 
     /// Returns a reference to the head entry (oldest), if the ROB is non-empty.
     pub fn peek_head(&self) -> Option<&RobEntry> {
-        if self.count == 0 { None } else { Some(&self.entries[self.head]) }
+        self.entries.front()
     }
 
     /// Commits (retires) the head entry. Returns the entry if it was Completed or Faulted.
     /// Returns `None` if the ROB is empty or the head is still Issued.
     pub fn commit_head(&mut self) -> Option<RobEntry> {
-        if self.count == 0 {
+        if self.entries.front()?.state == RobState::Issued {
             return None;
         }
-
-        let entry = &self.entries[self.head];
-        if entry.state == RobState::Issued {
-            return None;
-        }
-
-        let committed = self.entries[self.head].clone();
-        let _ = self.tag_index.remove(&committed.tag);
+        let committed = self.entries.pop_front()?;
         if committed.vec_csr_update.is_some() {
             self.vec_config_updates -= 1;
         }
-        self.entries[self.head].valid = false;
-        self.head = (self.head + 1) % self.entries.len();
-        self.count -= 1;
         Some(committed)
     }
 
@@ -681,96 +645,35 @@ impl Rob {
 
     /// The entries `scope` squashes, oldest first.
     pub fn iter_squashed(&self, scope: SquashScope) -> impl Iterator<Item = &RobEntry> {
-        self.iter_all().filter(move |entry| !scope.keeps(entry.tag))
+        self.iter().filter(move |entry| !scope.keeps(entry.tag))
     }
 
     /// Flushes all entries from the ROB.
     pub fn flush_all(&mut self) {
-        for entry in &mut self.entries {
-            entry.valid = false;
-        }
-        self.tag_index.clear();
-        self.head = 0;
-        self.tail = 0;
-        self.count = 0;
+        self.entries.clear();
         self.vec_config_updates = 0;
     }
 
     /// Flushes all entries allocated *after* the given tag (exclusive).
     /// The entry with `tag` itself is kept.
     pub fn flush_after(&mut self, tag: RobTag) {
-        if self.count == 0 {
-            return;
-        }
-
-        let mut idx = self.head;
-        let mut found = false;
-        for _ in 0..self.count {
-            if self.entries[idx].tag == tag {
-                found = true;
-                break;
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
-
-        if !found {
-            return;
-        }
-
-        let keep_idx = (idx + 1) % self.entries.len();
-
-        // Avoid recount bug when ROB is full: head == tail means both full and empty.
-        if keep_idx == self.tail {
-            return;
-        }
-
-        let mut remove_idx = keep_idx;
-        while remove_idx != self.tail {
-            let _ = self.tag_index.remove(&self.entries[remove_idx].tag);
-            if self.entries[remove_idx].vec_csr_update.is_some() {
-                self.vec_config_updates -= 1;
-            }
-            self.entries[remove_idx].valid = false;
-            remove_idx = (remove_idx + 1) % self.entries.len();
-        }
-
-        self.tail = keep_idx;
-        self.count = 0;
-        let mut i = self.head;
-        loop {
-            if i == self.tail {
-                break;
-            }
-            if self.entries[i].valid {
-                self.count += 1;
-            }
-            i = (i + 1) % self.entries.len();
-        }
+        let Some(keep) = self.position(tag) else { return };
+        let squashed_updates =
+            self.entries.range(keep + 1..).filter(|entry| entry.vec_csr_update.is_some()).count();
+        self.vec_config_updates -= squashed_updates;
+        self.entries.truncate(keep + 1);
     }
 
     /// Returns the tag of the ROB entry immediately before `tag` in program
     /// order, or `None` if `tag` is at the head (no preceding in-flight entry).
-    ///
-    /// This walks the ROB from head to tail and returns the last entry seen
-    /// before hitting `tag`. Unlike synthesizing a tag one below `tag`, this
-    /// always returns a tag that is actually present in the ROB.
     pub fn prev_tag_of(&self, tag: RobTag) -> Option<RobTag> {
-        if self.count == 0 {
-            return None;
-        }
-        let mut prev: Option<RobTag> = None;
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid {
-                if entry.tag == tag {
-                    return prev;
-                }
-                prev = Some(entry.tag);
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
-        None
+        let position = self.position(tag)?;
+        Some(self.entries.get(position.checked_sub(1)?)?.tag)
+    }
+
+    /// Where `tag`'s entry sits, oldest first, if it is in flight.
+    fn position(&self, tag: RobTag) -> Option<usize> {
+        self.entries.binary_search_by(|entry| entry.tag.age_cmp(tag)).ok()
     }
 
     /// The entry `tag` names, or `None` once it has left the ROB. Units
@@ -779,114 +682,55 @@ impl Rob {
     /// never handed out is a bug.
     fn find_entry_mut(&mut self, tag: RobTag) -> Option<&mut RobEntry> {
         debug_assert!(tag.is_older_than(RobTag(self.next_tag)), "{tag} was never allocated");
-        let idx = *self.tag_index.get(&tag)?;
-        let entry = &mut self.entries[idx];
-        if entry.valid { Some(entry) } else { None }
-    }
-
-    /// Iterate over all valid entries from head to tail, calling `f` on each.
-    pub fn for_each_valid(&self, mut f: impl FnMut(&RobEntry)) {
-        if self.count == 0 {
-            return;
-        }
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            if self.entries[idx].valid {
-                f(&self.entries[idx]);
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
+        let position = self.position(tag)?;
+        self.entries.get_mut(position)
     }
 
     /// Finds a reference to the entry with the given tag.
     pub fn find_entry(&self, tag: RobTag) -> Option<&RobEntry> {
-        let idx = *self.tag_index.get(&tag)?;
-        let entry = &self.entries[idx];
-        if entry.valid { Some(entry) } else { None }
+        self.entries.get(self.position(tag)?)
     }
 
-    /// Iterate over all valid entries from head to tail in program order.
-    pub fn iter_in_order(&self) -> impl Iterator<Item = &RobEntry> {
-        let cap = self.entries.len();
-        let head = self.head;
-        let count = self.count;
-        (0..count).filter_map(move |i| {
-            let idx = (head + i) % cap;
-            let e = &self.entries[idx];
-            if e.valid { Some(e) } else { None }
-        })
+    /// The in-flight entries, oldest first.
+    pub fn iter(&self) -> impl Iterator<Item = &RobEntry> {
+        self.entries.iter()
     }
 
-    /// Iterate over all valid entries with `tag > keep_tag` (i.e., entries that
-    /// would be squashed by `flush_after(keep_tag)`).
-    pub fn iter_after(&self, keep_tag: RobTag) -> impl Iterator<Item = &RobEntry> {
-        self.iter_all().filter(move |e| e.tag.is_newer_than(keep_tag))
+    /// The entries older than `tag`, oldest first: every entry when `tag`
+    /// is not in flight.
+    fn older_than(&self, tag: RobTag) -> impl Iterator<Item = &RobEntry> {
+        self.entries.iter().take_while(move |entry| entry.tag != tag)
     }
 
-    /// Iterate over all valid entries (head to tail).
     /// The sequence numbers of the entries a squash drops: those after
     /// `keep_tag`, or all of them.
     pub fn seqs_after(&self, keep_tag: Option<RobTag>) -> Vec<crate::common::InstSeq> {
-        keep_tag.map_or_else(
-            || self.iter_all().map(|entry| entry.seq).collect(),
-            |tag| self.iter_after(tag).map(|entry| entry.seq).collect(),
-        )
-    }
-
-    pub fn iter_all(&self) -> impl Iterator<Item = &RobEntry> {
-        let entries = &self.entries;
-        let head = self.head;
-        (0..self.count).map(move |i| &entries[(head + i) % entries.len()]).filter(|e| e.valid)
+        self.iter()
+            .filter(|entry| keep_tag.is_none_or(|keep| entry.tag.is_newer_than(keep)))
+            .map(|entry| entry.seq)
+            .collect()
     }
 
     /// Returns true if every entry older than `tag` making an access in
     /// a FENCE's predecessor set `pred` has completed (Completed or
     /// Faulted). A set naming no memory access is vacuously satisfied.
     pub fn fence_pred_satisfied(&self, tag: RobTag, pred: FenceSet) -> bool {
-        if !pred.has_memory() {
-            return true;
-        }
-        if self.count == 0 {
-            return true;
-        }
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid {
-                if entry.tag == tag {
-                    return true;
-                }
-                if entry.state == RobState::Issued && pred.orders(entry.ctrl.memory_accesses()) {
-                    return false;
-                }
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
-        true
+        !pred.has_memory()
+            || !self.older_than(tag).any(|entry| {
+                entry.state == RobState::Issued && pred.orders(entry.ctrl.memory_accesses())
+            })
     }
 
     /// Whether an instruction older than `tag` that reads or writes memory,
     /// a vector or cache-block one included, is still in flight.
     pub fn has_older_memory_access(&self, tag: RobTag) -> bool {
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid {
-                if entry.tag == tag {
-                    return false;
-                }
-                if entry.ctrl.mem_read
-                    || entry.ctrl.mem_write
-                    || is_vec_load(entry.ctrl.vec_op)
-                    || is_vec_store(entry.ctrl.vec_op)
-                    || entry.ctrl.system_op.is_cbo()
-                {
-                    return true;
-                }
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
-        false
+        self.older_than(tag).any(|entry| {
+            entry.ctrl.mem_read
+                || entry.ctrl.mem_write
+                || is_vec_load(entry.ctrl.vec_op)
+                || is_vec_store(entry.ctrl.vec_op)
+                || entry.ctrl.system_op.is_cbo()
+        })
     }
 
     /// Checks if an older in-flight FENCE in the ROB blocks issuance of the
@@ -899,28 +743,12 @@ impl Rob {
     /// `aq` atomic into the atomic and a full barrier). Returns `true` if
     /// the instruction is blocked.
     pub fn has_fence_blocking(&self, tag: RobTag, accesses: FenceSet) -> bool {
-        if self.count == 0 || !accesses.has_memory() {
-            return false;
-        }
-        let mut idx = self.head;
-        for _ in 0..self.count {
-            let entry = &self.entries[idx];
-            if entry.valid {
-                if entry.tag == tag {
-                    return false;
-                }
-                if accesses.r && entry.ctrl.acquire && entry.state == RobState::Issued {
-                    return true;
-                }
-                if entry.ctrl.system_op == crate::isa::op::SystemOp::Fence
-                    && Fence::decode(entry.bits).succ.orders(accesses)
-                {
-                    return true;
-                }
-            }
-            idx = (idx + 1) % self.entries.len();
-        }
-        false
+        accesses.has_memory()
+            && self.older_than(tag).any(|entry| {
+                (accesses.r && entry.ctrl.acquire && entry.state == RobState::Issued)
+                    || (entry.ctrl.system_op == crate::isa::op::SystemOp::Fence
+                        && Fence::decode(entry.bits).succ.orders(accesses))
+            })
     }
 }
 
