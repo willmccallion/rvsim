@@ -29,7 +29,6 @@
 use crate::common::{AccessType, FetchSeq, InstSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::isa::instruction::{InstSize, instruction_size};
 use crate::isa::privileged::Trap;
-use crate::isa::rvc::expand;
 use crate::sim::components::ComponentId;
 use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::trace_branch;
@@ -415,8 +414,8 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         let seq = engine.common_mut().alloc_inst_seq();
         state.trace_fetched(seq, current_pc);
 
-        let full_inst = if is_compressed {
-            expand(half_word)
+        let fetched_bits = if is_compressed {
+            u32::from(half_word)
         } else {
             let upper_va = current_pc.wrapping_add(2);
             let crosses_page = (current_pc >> 12) != (upper_va >> 12);
@@ -487,7 +486,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
                 event       = "predict",
                 pc          = %crate::common::trace::Hex(current_pc),
                 paddr       = %crate::common::trace::Hex(phys_addr),
-                inst        = %crate::common::trace::Hex32(full_inst),
+                inst        = %crate::common::trace::Hex32(fetched_bits),
                 bp_type     = kind,
                 pred_taken  = predicted_target.is_some(),
                 next_pc     = %crate::common::trace::Hex(next_pc_calc),

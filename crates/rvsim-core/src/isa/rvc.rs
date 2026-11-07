@@ -8,12 +8,13 @@ use crate::isa::encoding::rv64f::opcodes as fp_opcodes;
 use crate::isa::encoding::rv64i::{funct3, funct7, opcodes};
 use crate::isa::encoding::rvc::{QUADRANT_0, QUADRANT_1, QUADRANT_2, QUADRANT_MASK, q0, q1, q2};
 
-/// Expands a 16-bit RVC instruction into its 32-bit equivalent.
-pub const fn expand(inst: u16) -> u32 {
+/// Expands a 16-bit RVC instruction into its 32-bit equivalent, or `None`
+/// when it is reserved or illegal.
+pub const fn expand(inst: u16) -> Option<u32> {
     let op = inst & QUADRANT_MASK;
     let funct3 = (inst >> 13) & 0x7;
 
-    match op {
+    let expanded = match op {
         QUADRANT_0 => match funct3 {
             q0::C_ADDI4SPN => {
                 let imm = ((inst >> 6) & 1) << 2
@@ -21,7 +22,7 @@ pub const fn expand(inst: u16) -> u32 {
                     | ((inst >> 11) & 0x3) << 4
                     | ((inst >> 7) & 0xF) << 6;
                 if imm == 0 {
-                    return 0;
+                    return None;
                 }
                 let rd = 8 + ((inst >> 2) & 0x7) as u32;
                 (imm as u32) << 20
@@ -93,7 +94,7 @@ pub const fn expand(inst: u16) -> u32 {
                     | (imm_low << 7)
                     | opcodes::OP_STORE
             }
-            _ => 0,
+            _ => return None,
         },
 
         QUADRANT_1 => match funct3 {
@@ -110,7 +111,7 @@ pub const fn expand(inst: u16) -> u32 {
                 let imm = sign_extend((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32, 6);
                 let rd = ((inst >> 7) & 0x1F) as u32;
                 if rd == 0 {
-                    return 0;
+                    return None;
                 }
                 ((imm & 0xFFF) << 20)
                     | (rd << 15)
@@ -135,7 +136,7 @@ pub const fn expand(inst: u16) -> u32 {
                         10,
                     );
                     if imm == 0 {
-                        return 0;
+                        return None;
                     }
                     ((imm & 0xFFF) << 20)
                         | (2 << 15)
@@ -146,7 +147,7 @@ pub const fn expand(inst: u16) -> u32 {
                     let imm =
                         sign_extend((((inst >> 2) & 0x1F) | ((inst >> 12) & 1) << 5) as u32, 6);
                     if imm == 0 {
-                        return 0;
+                        return None;
                     }
                     (imm << 12) | (rd << 7) | opcodes::OP_LUI
                 }
@@ -228,10 +229,10 @@ pub const fn expand(inst: u16) -> u32 {
                                     | (rd << 7)
                                     | opcodes::OP_REG_32
                             }
-                            _ => 0,
+                            _ => return None,
                         }
                     }
-                    _ => 0,
+                    _ => return None,
                 }
             }
             q1::C_J => {
@@ -296,7 +297,7 @@ pub const fn expand(inst: u16) -> u32 {
                     | (imm11 << 7)
                     | opcodes::OP_BRANCH
             }
-            _ => 0,
+            _ => return None,
         },
 
         QUADRANT_2 => match funct3 {
@@ -322,7 +323,7 @@ pub const fn expand(inst: u16) -> u32 {
                     ((inst >> 12) & 1) << 5 | ((inst >> 4) & 0x7) << 2 | ((inst >> 2) & 0x3) << 6;
                 let rd = ((inst >> 7) & 0x1F) as u32;
                 if rd == 0 {
-                    return 0;
+                    return None;
                 }
                 (imm as u32) << 20 | (2 << 15) | (funct3::LW << 12) | (rd << 7) | opcodes::OP_LOAD
             }
@@ -331,7 +332,7 @@ pub const fn expand(inst: u16) -> u32 {
                     ((inst >> 12) & 1) << 5 | ((inst >> 5) & 0x3) << 3 | ((inst >> 2) & 0x7) << 6;
                 let rd = ((inst >> 7) & 0x1F) as u32;
                 if rd == 0 {
-                    return 0;
+                    return None;
                 }
                 (imm as u32) << 20 | (2 << 15) | (funct3::LD << 12) | (rd << 7) | opcodes::OP_LOAD
             }
@@ -342,7 +343,7 @@ pub const fn expand(inst: u16) -> u32 {
                 if bit12 == 0 {
                     if rs2 == 0 {
                         if rs1 == 0 {
-                            return 0;
+                            return None;
                         }
                         (rs1 << 15) | (funct3::ADD_SUB << 12) | opcodes::OP_JALR
                     } else {
@@ -398,10 +399,11 @@ pub const fn expand(inst: u16) -> u32 {
                     | (imm_low << 7)
                     | opcodes::OP_STORE
             }
-            _ => 0,
+            _ => return None,
         },
-        _ => 0,
-    }
+        _ => return None,
+    };
+    Some(expanded)
 }
 
 /// Sign-extends a value from `bits` width to 32 bits.
