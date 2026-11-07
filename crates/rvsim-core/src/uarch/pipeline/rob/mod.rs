@@ -161,8 +161,8 @@ pub struct RobEntry {
     pub seq: InstSeq,
     /// Program counter of the instruction.
     pub pc: VirtAddr,
-    /// Raw 32-bit instruction encoding.
-    pub inst: u32,
+    /// Its encoding, expanded to 32 bits when it is compressed.
+    pub bits: u32,
     /// Instruction size in bytes (2 or 4).
     pub inst_size: InstSize,
     /// Destination register index.
@@ -355,7 +355,7 @@ impl Rob {
             tag,
             seq,
             pc,
-            inst,
+            bits: inst,
             inst_size,
             rd,
             result: None,
@@ -908,7 +908,7 @@ impl Rob {
                     return true;
                 }
                 if entry.ctrl.system_op == crate::isa::op::SystemOp::Fence
-                    && Fence::decode(entry.inst).succ.orders(accesses)
+                    && Fence::decode(entry.bits).succ.orders(accesses)
                 {
                     return true;
                 }

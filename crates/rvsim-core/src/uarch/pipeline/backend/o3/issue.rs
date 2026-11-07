@@ -233,7 +233,7 @@ impl O3Engine {
 
         // Reject illegal EMUL (>8) before element_accesses would panic.
         let vtype = parse_vtype(entry.vector_config.vtype);
-        if let Err(trap) = check_vec_mem_emul(result.inst, vec_op, ctrl, vtype) {
+        if let Err(trap) = check_vec_mem_emul(result.bits, vec_op, ctrl, vtype) {
             self.rob.fault(result.rob_tag, trap);
             return;
         }

@@ -233,8 +233,8 @@ impl VecMemSpan {
 pub struct IfIdEntry {
     /// Program counter of the instruction.
     pub pc: VirtAddr,
-    /// 32-bit instruction encoding.
-    pub inst: u32,
+    /// Its encoding, expanded to 32 bits when it is compressed.
+    pub bits: u32,
     /// Size of the instruction in bytes (2 for compressed, 4 for standard).
     pub inst_size: InstSize,
     /// Where the branch predictor sent fetch next, when it predicted
@@ -345,8 +345,8 @@ pub struct ExMem1Entry {
     pub rob_tag: RobTag,
     /// Program counter.
     pub pc: VirtAddr,
-    /// Raw instruction.
-    pub inst: u32,
+    /// Its encoding, expanded to 32 bits when it is compressed.
+    pub bits: u32,
     /// Instruction size.
     pub inst_size: InstSize,
     /// Destination register.
@@ -382,8 +382,8 @@ pub struct Mem1Mem2Entry {
     pub rob_tag: RobTag,
     /// Program counter.
     pub pc: VirtAddr,
-    /// Raw instruction.
-    pub inst: u32,
+    /// Its encoding, expanded to 32 bits when it is compressed.
+    pub bits: u32,
     /// Instruction size.
     pub inst_size: InstSize,
     /// Destination register.
@@ -455,7 +455,7 @@ impl ExMem1Entry {
         Self {
             rob_tag: id.rob_tag,
             pc: id.inst.pc,
-            inst: id.inst.bits,
+            bits: id.inst.bits,
             inst_size: id.inst.size,
             rd: id.inst.rd,
             rd_phys: id.rd_phys,
@@ -479,7 +479,7 @@ impl Mem1Mem2Entry {
         Self {
             rob_tag: ex.rob_tag,
             pc: ex.pc,
-            inst: ex.inst,
+            bits: ex.bits,
             inst_size: ex.inst_size,
             rd: ex.rd,
             rd_phys: ex.rd_phys,
@@ -508,8 +508,8 @@ pub struct Mem2WbEntry {
     pub rob_tag: RobTag,
     /// Program counter.
     pub pc: VirtAddr,
-    /// Raw instruction.
-    pub inst: u32,
+    /// Its encoding, expanded to 32 bits when it is compressed.
+    pub bits: u32,
     /// Instruction size.
     pub inst_size: InstSize,
     /// Destination register.
@@ -578,7 +578,7 @@ impl Mem2WbEntry {
             mem_access,
             rob_tag: mem.rob_tag,
             pc: mem.pc,
-            inst: mem.inst,
+            bits: mem.bits,
             inst_size: mem.inst_size,
             rd: mem.rd,
             rd_phys: mem.rd_phys,

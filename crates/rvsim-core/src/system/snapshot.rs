@@ -169,7 +169,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                 .iter()
                 .map(|e| FetchedSlot {
                     pc: e.pc,
-                    raw: e.inst,
+                    raw: e.bits,
                     predicted_target: e.predicted_target,
                 })
                 .collect(),
@@ -192,7 +192,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                 .iter()
                 .map(|e| ExecutedSlot {
                     pc: e.pc,
-                    raw: e.inst,
+                    raw: e.bits,
                     rd: e.rd,
                     alu: e.alu,
                     store_data: e.store_data,
@@ -204,7 +204,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                 .iter()
                 .map(|e| MemorySlot {
                     pc: e.pc,
-                    raw: e.inst,
+                    raw: e.bits,
                     rd: e.rd,
                     alu: e.alu,
                     vaddr: e.vaddr,
@@ -218,7 +218,7 @@ impl From<&LatchSnapshot> for PipelineSnapshot {
                 .iter()
                 .map(|e| WritebackSlot {
                     pc: e.pc,
-                    raw: e.inst,
+                    raw: e.bits,
                     rd: e.rd,
                     alu: e.alu,
                     load_data: e.load_data,

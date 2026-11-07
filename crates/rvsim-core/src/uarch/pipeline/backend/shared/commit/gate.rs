@@ -210,7 +210,7 @@ fn take_fault(
             let _ = crate::uarch::pipeline::commit_log::write_faulted(
                 log,
                 entry.pc,
-                entry.inst,
+                entry.bits,
                 state.hart.privilege,
                 state.uncore.cycle,
             );
@@ -336,7 +336,7 @@ fn advance_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut BackendCommon)
 /// buffer.
 fn waits_for_older_stores(head: &RobEntry) -> bool {
     matches!(head.ctrl.system_op, SystemOp::SfenceVma | SystemOp::FenceI)
-        || (head.ctrl.system_op == SystemOp::Fence && Fence::decode(head.inst).pred.w)
+        || (head.ctrl.system_op == SystemOp::Fence && Fence::decode(head.bits).pred.w)
         || head.result_at_commit()
             && matches!(head.ctrl.system_op, SystemOp::Ecall | SystemOp::Pseudo)
 }
