@@ -2,7 +2,7 @@
 //! over exactly its own bytes: a `cbo.zero` over 64 bytes, a word load
 //! over four.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::csr;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
@@ -80,7 +80,7 @@ fn run(
         hart.csrs.mtvec = TRAP_PARK;
         hart.privilege = PrivilegeMode::Supervisor;
         pmp(&mut hart.pmp);
-        hart.pc = CODE_VA;
+        hart.pc = VirtAddr::new(CODE_VA);
     }
     ctx.sim.sync_arch_regs();
 

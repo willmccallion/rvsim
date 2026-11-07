@@ -182,7 +182,7 @@ impl InOrderIssueUnit {
                 selected.push(issued);
             } else {
                 trace_issue!(state.config.general.trace_instructions;
-                    pc       = %crate::common::trace::Hex(entry.inst.pc),
+                    pc       = %crate::common::trace::Hex(entry.inst.pc.val()),
                     rs1      = entry.inst.rs1.as_usize(),
                     rs1_tag  = ?entry.rs1_tag,
                     rs1_rdy  = rv1.is_some(),

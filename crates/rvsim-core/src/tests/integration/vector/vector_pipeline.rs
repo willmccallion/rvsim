@@ -8,7 +8,7 @@
 //! immediately-preceding scalar instruction must observe the new scalar
 //! value, not a stale/zero GPR read.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::tests::support::harness::TestContext;
 
@@ -59,7 +59,7 @@ fn run_program(config: &Config, program: &[u32], cycles: u64) -> TestContext {
         let addr = RAM_BASE + (i as u64) * 4;
         ctx.sim.probe_mem_store(PhysAddr::new(addr), u64::from(*inst), 4);
     }
-    ctx.sim.set_pc(0, RAM_BASE);
+    ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     ctx.run(cycles);
     ctx
 }
@@ -267,7 +267,7 @@ fn cycles_through_four(funct6: u32, funct3: u32) -> u64 {
     for (i, inst) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + (i as u64) * 4), u64::from(*inst), 4);
     }
-    ctx.sim.set_pc(0, RAM_BASE);
+    ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     for cycle in 1..=2_000 {
         ctx.run(1);
         if ctx.get_reg(A0 as usize) == 1 {

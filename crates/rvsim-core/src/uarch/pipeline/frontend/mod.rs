@@ -19,8 +19,8 @@ pub mod fetch1;
 pub mod fetch2;
 pub mod rename;
 
-use crate::common::InstSeq;
 use crate::common::PhysAddr;
+use crate::common::{InstSeq, VirtAddr};
 use crate::config::PipelineConfig;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::ExecutionEngine;
@@ -42,7 +42,7 @@ pub struct Frontend<E: ExecutionEngine> {
     /// Where fetch continues: the next PC fetch1 forms a group from. It
     /// runs ahead of the hart's architectural PC and is reset by every
     /// redirect.
-    pub fetch_pc: u64,
+    pub fetch_pc: VirtAddr,
     /// Fetch1 → Fetch2 latch (populated by the mailbox-drain stage when
     /// fetch `MemResp` packets arrive, or directly on a fetch-buffer hit).
     pub fetch1_fetch2: Latch<Fetch1Fetch2Entry>,
@@ -58,7 +58,7 @@ pub struct Frontend<E: ExecutionEngine> {
 impl<E: ExecutionEngine> Frontend<E> {
     /// Creates a new frontend fetching from `pc`, with the stage latencies
     /// `pipeline` configures.
-    pub fn new(pc: u64, pipeline: &PipelineConfig) -> Self {
+    pub fn new(pc: VirtAddr, pipeline: &PipelineConfig) -> Self {
         Self {
             fetch_pc: pc,
             fetch1_fetch2: Latch::new(FETCH_LANDING_DELAY),

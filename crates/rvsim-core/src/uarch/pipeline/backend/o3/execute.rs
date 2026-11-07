@@ -35,13 +35,13 @@ pub fn execute_one(
     }
 
     if state.check_execute_trigger(id.inst.pc) {
-        return faulted(state, id, Trap::Breakpoint(id.inst.pc));
+        return faulted(state, id, Trap::Breakpoint(id.inst.pc.val()));
     }
     state.trace_stage(id.seq, Stage::Execute);
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = %id.rob_tag,
-        pc       = %crate::common::trace::Hex(id.inst.pc),
+        pc       = %crate::common::trace::Hex(id.inst.pc.val()),
         inst     = %crate::common::trace::Hex32(id.inst.bits),
         rd       = id.inst.rd.as_usize(),
         rd_phys  = id.rd_phys.0,
@@ -116,7 +116,7 @@ fn execute_system(
             if matches!(id.inst.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
                 trace_trap!(state.config.general.trace_instructions;
                     event     = "return",
-                    pc        = %crate::common::trace::Hex(id.inst.pc),
+                    pc        = %crate::common::trace::Hex(id.inst.pc.val()),
                     rob_tag   = %id.rob_tag,
                     insn      = ?id.inst.ctrl.system_op,
                     priv_mode = ?state.hart().privilege,
@@ -156,6 +156,7 @@ fn execute_system(
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
+    use crate::common::VirtAddr;
     use crate::config::Config;
     use crate::exec::inst::Inst;
     use crate::exec::signals::{ControlFlow, ControlSignals, OpBSrc};
@@ -171,7 +172,7 @@ mod tests {
 
         let tag = rob
             .allocate(
-                0x1000,
+                VirtAddr::new(0x1000),
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
@@ -184,7 +185,7 @@ mod tests {
 
         let issue = RenameIssueEntry {
             inst: Inst {
-                pc: 0x1000,
+                pc: VirtAddr::new(0x1000),
                 bits: 0,
                 size: InstSize::Standard,
                 rs1: RegIdx::new(0),
@@ -235,7 +236,7 @@ mod tests {
 
         let tag = rob
             .allocate(
-                0x1000,
+                VirtAddr::new(0x1000),
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
@@ -248,7 +249,7 @@ mod tests {
 
         let issue = RenameIssueEntry {
             inst: Inst {
-                pc: 0x1000,
+                pc: VirtAddr::new(0x1000),
                 bits: 0,
                 size: InstSize::Standard,
                 rs1: RegIdx::new(0),
@@ -301,7 +302,7 @@ mod tests {
 
         let tag = rob
             .allocate(
-                0x1000,
+                VirtAddr::new(0x1000),
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
@@ -316,7 +317,7 @@ mod tests {
 
         let issue = RenameIssueEntry {
             inst: Inst {
-                pc: 0x1000,
+                pc: VirtAddr::new(0x1000),
                 bits: 0,
                 size: InstSize::Standard,
                 rs1: RegIdx::new(0),
@@ -353,7 +354,7 @@ mod tests {
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
-        assert_eq!(redirect.map(|r| r.target), Some(0x1004));
+        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(0x1004)));
     }
 
     #[test]
@@ -367,7 +368,7 @@ mod tests {
 
         let tag = rob
             .allocate(
-                0x1000,
+                VirtAddr::new(0x1000),
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
@@ -385,7 +386,7 @@ mod tests {
 
         let issue = RenameIssueEntry {
             inst: Inst {
-                pc: 0x1000,
+                pc: VirtAddr::new(0x1000),
                 bits: 0,
                 size: InstSize::Standard,
                 rs1: RegIdx::new(0),
@@ -436,7 +437,7 @@ mod tests {
 
         let tag = rob
             .allocate(
-                0x1000,
+                VirtAddr::new(0x1000),
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
@@ -456,7 +457,7 @@ mod tests {
         let issue = RenameIssueEntry {
             // BEQ (funct3 = 0) with rv1 == rv2, so taken.
             inst: Inst {
-                pc: 0x1000,
+                pc: VirtAddr::new(0x1000),
                 bits: 0,
                 size: InstSize::Standard,
                 rs1: RegIdx::new(0),
@@ -494,7 +495,7 @@ mod tests {
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
-        assert_eq!(redirect.map(|r| r.target), Some(0x1008));
+        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(0x1008)));
         assert!(redirect.is_some_and(|r| r.repair.is_some_and(|repair| repair.taken)));
         let entry = rob.find_entry(tag).unwrap();
         assert!(entry.bp_outcome.mispredicted);
@@ -509,7 +510,7 @@ mod tests {
 
         let tag = rob
             .allocate(
-                0x1000,
+                VirtAddr::new(0x1000),
                 0,
                 InstSize::Standard,
                 RegIdx::new(1),
@@ -524,7 +525,7 @@ mod tests {
 
         let issue = RenameIssueEntry {
             inst: Inst {
-                pc: 0x1000,
+                pc: VirtAddr::new(0x1000),
                 bits: crate::isa::encoding::rv64i::opcodes::OP_JALR,
                 size: InstSize::Standard,
                 rs1: RegIdx::new(0),
@@ -546,7 +547,7 @@ mod tests {
             rs3_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             rd_phys: crate::uarch::pipeline::rename::prf::PhysReg(0),
             trap: None,
-            predicted_target: Some(0),
+            predicted_target: Some(VirtAddr::new(0)),
             // Predicted incorrectly
             seq: crate::common::InstSeq::default(),
             vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
@@ -565,6 +566,6 @@ mod tests {
         assert!(redirect.is_some());
 
         let expected_target = (0x2000 + 0x15) & !1;
-        assert_eq!(redirect.map(|r| r.target), Some(expected_target));
+        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(expected_target)));
     }
 }

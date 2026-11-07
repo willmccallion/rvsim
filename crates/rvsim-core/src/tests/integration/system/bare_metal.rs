@@ -1,7 +1,7 @@
 //! A bare-metal image starts as under spike's boot ROM: every hart at the
 //! entry in machine mode, its id in `a0`, the system's device tree in `a1`.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{Config, Console};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
@@ -58,7 +58,7 @@ fn every_hart_starts_at_the_entry_with_its_id_and_the_device_tree() {
 
     let dtb_addr = RAM_BASE + config.memory.ram_size as u64 - DTB_RESERVE;
     for (index, hart) in sim.state.harts.iter().enumerate() {
-        assert_eq!(hart.pc, RAM_BASE + CODE_OFFSET, "hart {index}");
+        assert_eq!(hart.pc, VirtAddr::new(RAM_BASE + CODE_OFFSET), "hart {index}");
         assert_eq!(hart.privilege, PrivilegeMode::Machine, "hart {index}");
         assert_eq!(hart.regs.read(reg::REG_A0), index as u64, "hart {index}");
         assert_eq!(hart.regs.read(reg::REG_A1), dtb_addr, "hart {index}");

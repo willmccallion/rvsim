@@ -3,7 +3,7 @@
 //! A compressed instruction whose translation needs a page-table walk must
 //! not swallow the instruction after it once the walk returns.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
@@ -48,7 +48,7 @@ fn run_from_a_cold_tlb(backend: BackendKind, width: usize) -> (u64, u64) {
         hart.privilege = PrivilegeMode::Supervisor;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = CODE;
+        hart.pc = VirtAddr::new(CODE);
     }
     ctx.sim.sync_arch_regs();
 

@@ -4,7 +4,7 @@
 //! pipeline drives it: a prediction, a correction when it was wrong, and a
 //! commit.
 
-use crate::common::InstSeq;
+use crate::common::{InstSeq, VirtAddr};
 use crate::config::{
     BhtConfig, Config, MAX_ITTAGE_HISTORY, PerceptronConfig, PipelineConfig, TageConfig,
     TournamentConfig,
@@ -35,16 +35,16 @@ impl<P: DirectionPredictor> Driver<P> {
     fn predict(&mut self, pc: u64, inst: ControlInst) -> (InstSeq, Option<u64>) {
         let seq = InstSeq::new(self.next_seq);
         self.next_seq += 1;
-        (seq, self.unit.predict(seq, pc, inst))
+        (seq, self.unit.predict(seq, VirtAddr::new(pc), inst).map(|target| target.val()))
     }
 
     /// Predicts, corrects and commits one conditional branch; returns
     /// whether it was predicted taken.
     fn run_branch(&mut self, pc: u64, taken: bool) -> bool {
-        let (seq, target) = self.predict(pc, ControlInst::Branch { target: TARGET });
+        let (seq, target) = self.predict(pc, ControlInst::Branch { target: VirtAddr::new(TARGET) });
         let predicted = target.is_some();
         if predicted != taken {
-            self.unit.mispredict(seq, taken, TARGET);
+            self.unit.mispredict(seq, taken, VirtAddr::new(TARGET));
         }
         self.unit.commit(seq);
         predicted
@@ -58,7 +58,7 @@ impl<P: DirectionPredictor> Driver<P> {
 
     /// The direction the next prediction of `pc` takes, then squashed.
     fn predicts_taken(&mut self, pc: u64) -> bool {
-        let (_, target) = self.predict(pc, ControlInst::Branch { target: TARGET });
+        let (_, target) = self.predict(pc, ControlInst::Branch { target: VirtAddr::new(TARGET) });
         self.unit.squash_all();
         target.is_some()
     }
@@ -184,7 +184,7 @@ fn bht_resets_the_history_to_a_mispredicted_jumps_fetch_time_history() {
     let before = bp.unit.direction().history();
 
     let (seq, _) = bp.predict(PC + 8, ControlInst::IndirectJump { returns: false, link: None });
-    bp.unit.mispredict(seq, true, TARGET);
+    bp.unit.mispredict(seq, true, VirtAddr::new(TARGET));
 
     assert_eq!(bp.unit.direction().history(), before);
 }
@@ -282,7 +282,7 @@ fn indirect_target_after_training(pipeline: &PipelineConfig) -> Option<u64> {
     for _ in 0..20 {
         let (seq, predicted) = bp.predict(PC, jump);
         if predicted != Some(TARGET) {
-            bp.unit.mispredict(seq, true, TARGET);
+            bp.unit.mispredict(seq, true, VirtAddr::new(TARGET));
         }
         bp.unit.commit(seq);
         last_prediction = predicted;
@@ -316,7 +316,7 @@ fn a_mispredicted_indirect_jump_trains_the_btb<P: DirectionPredictor>(direction:
     let jump = ControlInst::IndirectJump { returns: false, link: None };
     let (seq, predicted) = bp.predict(PC, jump);
     assert_eq!(predicted, None);
-    bp.unit.mispredict(seq, true, TARGET);
+    bp.unit.mispredict(seq, true, VirtAddr::new(TARGET));
     bp.unit.commit(seq);
 
     assert_eq!(bp.predict(PC, jump).1, Some(TARGET));
@@ -336,7 +336,7 @@ fn a_correctly_predicted_indirect_jump_leaves_the_btb_alone() {
     let mut bp = Driver::new(StaticPredictor::new());
     let jump = ControlInst::IndirectJump { returns: false, link: None };
     let (first, _) = bp.predict(PC, jump);
-    bp.unit.mispredict(first, true, TARGET);
+    bp.unit.mispredict(first, true, VirtAddr::new(TARGET));
     bp.unit.commit(first);
     let (second, predicted) = bp.predict(PC, jump);
     assert_eq!(predicted, Some(TARGET));
@@ -348,7 +348,10 @@ fn a_correctly_predicted_indirect_jump_leaves_the_btb_alone() {
 #[test]
 fn a_return_predicts_the_address_its_call_pushed() {
     let mut bp = Driver::new(StaticPredictor::new());
-    let _ = bp.predict(PC, ControlInst::Jump { target: TARGET, link: Some(PC + 4) });
+    let _ = bp.predict(
+        PC,
+        ControlInst::Jump { target: VirtAddr::new(TARGET), link: Some(VirtAddr::new(PC + 4)) },
+    );
 
     let (_, target) = bp.predict(TARGET, ControlInst::IndirectJump { returns: true, link: None });
 
@@ -358,11 +361,20 @@ fn a_return_predicts_the_address_its_call_pushed() {
 #[test]
 fn squashing_a_return_and_a_call_restores_the_entry_the_call_overwrote() {
     let mut bp = Driver::new(StaticPredictor::new());
-    let _ = bp.predict(0x100, ControlInst::Jump { target: TARGET, link: Some(0x1000) });
-    let (kept, _) = bp.predict(0x200, ControlInst::Jump { target: TARGET, link: Some(0x2000) });
+    let _ = bp.predict(
+        0x100,
+        ControlInst::Jump { target: VirtAddr::new(TARGET), link: Some(VirtAddr::new(0x1000)) },
+    );
+    let (kept, _) = bp.predict(
+        0x200,
+        ControlInst::Jump { target: VirtAddr::new(TARGET), link: Some(VirtAddr::new(0x2000)) },
+    );
     let ret = ControlInst::IndirectJump { returns: true, link: None };
     let _ = bp.predict(0x300, ret);
-    let _ = bp.predict(0x400, ControlInst::Jump { target: TARGET, link: Some(0x3000) });
+    let _ = bp.predict(
+        0x400,
+        ControlInst::Jump { target: VirtAddr::new(TARGET), link: Some(VirtAddr::new(0x3000)) },
+    );
 
     bp.unit.squash_after(kept);
 
@@ -376,7 +388,7 @@ fn squashing_every_prediction_restores_the_global_history() {
     bp.train(PC, true, 3);
     let committed = bp.unit.direction().history();
     for _ in 0..5 {
-        let _ = bp.predict(PC, ControlInst::Jump { target: TARGET, link: None });
+        let _ = bp.predict(PC, ControlInst::Jump { target: VirtAddr::new(TARGET), link: None });
     }
 
     bp.unit.squash_all();

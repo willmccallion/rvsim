@@ -333,7 +333,7 @@ fn process_entry<E: ExecutionEngine>(
         return EntryOutcome::Done;
     }
 
-    let pc = VirtAddr::new(ex.pc);
+    let pc = ex.pc;
 
     // A device read has side effects, so it waits until nothing older can
     // still fault, redirect or be interrupted: the load must be the oldest
@@ -448,7 +448,7 @@ fn process_span<E: ExecutionEngine>(
     if let Some(lq) = engine.load_queue_mut() {
         lq.fill_address(ex.rob_tag, Some(micro_op), vaddr, paddr);
     }
-    let pc = VirtAddr::new(ex.pc);
+    let pc = ex.pc;
     match forward_span_from_pending_stores(state, engine, &ex, paddr, bytes) {
         SpanForward::Hit(data) => {
             push_forwarded_span(state, engine, ex, paddr, vaddr, data);
@@ -705,7 +705,7 @@ fn resolve_store<E: ExecutionEngine>(
     {
         trace_fwd!(state.config.general.trace_instructions;
             event           = "violation",
-            store_pc        = %crate::common::trace::Hex(ex.pc),
+            store_pc        = %crate::common::trace::Hex(ex.pc.val()),
             store_tag       = %ex.rob_tag,
             paddr           = %crate::common::trace::Hex(paddr.val()),
             violation_flush = %found.load,
@@ -716,7 +716,7 @@ fn resolve_store<E: ExecutionEngine>(
     trace_mem!(state.config.general.trace_instructions;
         stage      = "M1",
         rob_tag    = %ex.rob_tag,
-        pc         = %crate::common::trace::Hex(ex.pc),
+        pc         = %crate::common::trace::Hex(ex.pc.val()),
         op         = "store-resolve",
         paddr      = %crate::common::trace::Hex(paddr.val()),
         store_data = %crate::common::trace::Hex(ex.store_data),
@@ -814,7 +814,7 @@ fn emit_span_read<E: ExecutionEngine>(
     let target = ComponentId::Cache(common.l1_d_id);
     let pipeline = ComponentId::Pipeline(common.pipeline_id);
     let size = AccessSize::Span(bytes as u8);
-    let pc = VirtAddr::new(ex.pc);
+    let pc = ex.pc;
     let cycle = state.cycle;
     state.events().schedule(
         cycle,
@@ -868,7 +868,7 @@ fn emit_load_req<E: ExecutionEngine>(
 
     let cycle = state.cycle;
     let first_size = low_bytes.map_or(access_size, |low| AccessSize::of_bytes(low as usize));
-    let pc = VirtAddr::new(ex.pc);
+    let pc = ex.pc;
     state.events().schedule(
         cycle,
         target,

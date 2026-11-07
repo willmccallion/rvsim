@@ -197,9 +197,9 @@ impl PyPipelineSnapshot {
             .iter()
             .map(|e| -> PyResult<_> {
                 let d = PyDict::new(py);
-                d.set_item("pc", e.pc)?;
+                d.set_item("pc", e.pc.val())?;
                 d.set_item("pred_taken", e.predicted_target.is_some())?;
-                d.set_item("pred_target", e.predicted_target)?;
+                d.set_item("pred_target", e.predicted_target.map(|target| target.val()))?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -217,9 +217,9 @@ impl PyPipelineSnapshot {
             .fetch2_decode
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.raw)?;
+                let d = slot_dict(py, e.pc.val(), e.raw)?;
                 d.set_item("pred_taken", e.predicted_target.is_some())?;
-                d.set_item("pred_target", e.predicted_target)?;
+                d.set_item("pred_target", e.predicted_target.map(|target| target.val()))?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -237,7 +237,7 @@ impl PyPipelineSnapshot {
             .decode_rename
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.raw)?;
+                let d = slot_dict(py, e.pc.val(), e.raw)?;
                 d.set_item("rs1", e.rs1.as_u8())?;
                 d.set_item("rs2", e.rs2.as_u8())?;
                 d.set_item("rd", e.rd.as_u8())?;
@@ -258,7 +258,7 @@ impl PyPipelineSnapshot {
             .rename_issue
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.raw)?;
+                let d = slot_dict(py, e.pc.val(), e.raw)?;
                 d.set_item("rs1", e.rs1.as_u8())?;
                 d.set_item("rs2", e.rs2.as_u8())?;
                 d.set_item("rd", e.rd.as_u8())?;
@@ -284,7 +284,7 @@ impl PyPipelineSnapshot {
             .issue_queue
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.raw)?;
+                let d = slot_dict(py, e.pc.val(), e.raw)?;
                 d.set_item("rs1", e.rs1.as_u8())?;
                 d.set_item("rs2", e.rs2.as_u8())?;
                 d.set_item("rd", e.rd.as_u8())?;
@@ -311,7 +311,7 @@ impl PyPipelineSnapshot {
             .execute_mem1
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.raw)?;
+                let d = slot_dict(py, e.pc.val(), e.raw)?;
                 d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("store_data", e.store_data)?;
@@ -332,7 +332,7 @@ impl PyPipelineSnapshot {
             .mem1_mem2
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.raw)?;
+                let d = slot_dict(py, e.pc.val(), e.raw)?;
                 d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("vaddr", e.vaddr.val())?;
@@ -357,7 +357,7 @@ impl PyPipelineSnapshot {
             .mem2_wb
             .iter()
             .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc, e.raw)?;
+                let d = slot_dict(py, e.pc.val(), e.raw)?;
                 d.set_item("rd", e.rd.as_u8())?;
                 d.set_item("alu", e.alu)?;
                 d.set_item("load_data", e.load_data)?;

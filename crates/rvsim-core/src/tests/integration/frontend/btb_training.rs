@@ -4,7 +4,7 @@
 //! An indirect jump executed down a path an older branch squashes before
 //! the jump's own correction arrives leaves no trace in it.
 
-use crate::common::InstSeq;
+use crate::common::{InstSeq, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::{BranchPredictorKind, Config};
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -49,5 +49,8 @@ fn a_wrong_path_indirect_jump_leaves_the_btb_alone() {
 
     let jump = ControlInst::IndirectJump { returns: false, link: None };
     let predictor = &mut ctx.sim.state.cores[0].units.branch_predictor;
-    assert_eq!(predictor.predict(InstSeq::new(u64::MAX), WRONG_PATH_JALR, jump), None);
+    assert_eq!(
+        predictor.predict(InstSeq::new(u64::MAX), VirtAddr::new(WRONG_PATH_JALR), jump),
+        None
+    );
 }

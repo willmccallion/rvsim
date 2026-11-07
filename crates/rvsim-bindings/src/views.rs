@@ -169,12 +169,12 @@ impl Hart {
     /// drops everything in flight and restarts fetch there.
     #[getter]
     fn pc(&self, py: Python<'_>) -> u64 {
-        self.cpu.borrow(py).inner.hart(self.index).pc
+        self.cpu.borrow(py).inner.hart(self.index).pc.val()
     }
 
     #[setter]
     fn set_pc(&self, py: Python<'_>, value: u64) {
-        self.cpu.borrow_mut(py).inner.set_pc(self.index, value);
+        self.cpu.borrow_mut(py).inner.set_pc(self.index, VirtAddr::new(value));
     }
 
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"``.

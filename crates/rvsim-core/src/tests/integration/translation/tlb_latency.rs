@@ -4,7 +4,7 @@
 //! so the final load of page 0 hits the L2 TLB; that load, and nothing
 //! else, gets slower when `l2_tlb_latency` grows.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
@@ -85,7 +85,7 @@ fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
         hart.privilege = PrivilegeMode::Supervisor;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = CODE;
+        hart.pc = VirtAddr::new(CODE);
     }
     ctx.sim.sync_arch_regs();
 

@@ -39,28 +39,28 @@ pub struct PipelineSnapshot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FetchSlot {
     /// The address to fetch.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// The target the predictor gave, when it said the instruction there
     /// is a taken branch.
-    pub predicted_target: Option<u64>,
+    pub predicted_target: Option<VirtAddr>,
 }
 
 /// An instruction word fetched, before decode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FetchedSlot {
     /// Its address.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Its encoding.
     pub raw: u32,
     /// The target the predictor gave, when it said this is a taken branch.
-    pub predicted_target: Option<u64>,
+    pub predicted_target: Option<VirtAddr>,
 }
 
 /// A decoded instruction with its operands read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DecodedSlot {
     /// Its address.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Its encoding.
     pub raw: u32,
     /// First source register.
@@ -77,7 +77,7 @@ pub struct DecodedSlot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RenamedSlot {
     /// Its address.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Its encoding.
     pub raw: u32,
     /// First source register.
@@ -102,7 +102,7 @@ pub struct RenamedSlot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExecutedSlot {
     /// Its address.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Its encoding.
     pub raw: u32,
     /// Destination register.
@@ -119,7 +119,7 @@ pub struct ExecutedSlot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MemorySlot {
     /// Its address.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Its encoding.
     pub raw: u32,
     /// Destination register.
@@ -140,7 +140,7 @@ pub struct MemorySlot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WritebackSlot {
     /// Its address.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Its encoding.
     pub raw: u32,
     /// Destination register.

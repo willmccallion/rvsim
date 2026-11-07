@@ -2,6 +2,7 @@
 //! instruction count, at a PC, at a guest's break, or when the console
 //! prints.
 
+use crate::common::VirtAddr;
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::reg::RegIdx;
@@ -75,11 +76,14 @@ fn any_of_the_pcs_stops_when_a_hart_is_about_to_run_it() {
 
     let reason = ctx
         .sim
-        .run_to(&StopAt { pcs: vec![PROGRAM_BASE + 0x100, loop_exit], ..StopAt::default() })
+        .run_to(&StopAt {
+            pcs: vec![VirtAddr::new(PROGRAM_BASE + 0x100), VirtAddr::new(loop_exit)],
+            ..StopAt::default()
+        })
         .expect("the run ticks");
 
     assert_eq!(reason, StopReason::Pc { hart: 0 });
-    assert_eq!(ctx.sim.state.harts[0].pc, loop_exit);
+    assert_eq!(ctx.sim.state.harts[0].pc, VirtAddr::new(loop_exit));
     assert_eq!(ctx.get_reg(COUNTER as usize), 0, "the loop has finished");
 }
 
@@ -144,12 +148,13 @@ fn a_pc_stop_lands_before_its_instruction_inside_a_commit_group() {
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &independent_adds());
     let third = PROGRAM_BASE + 8;
-    let stop = StopAt { pcs: vec![third], cycles: Some(10_000), ..StopAt::default() };
+    let stop =
+        StopAt { pcs: vec![VirtAddr::new(third)], cycles: Some(10_000), ..StopAt::default() };
 
     let reason = ctx.sim.run_to_with(&stop, || true).expect("the run stops");
 
     assert_eq!(reason, StopReason::Pc { hart: 0 });
-    assert_eq!(ctx.sim.hart(0).pc, third);
+    assert_eq!(ctx.sim.hart(0).pc, VirtAddr::new(third));
     assert_eq!(ctx.sim.hart(0).regs.read(RegIdx::new(6)), 2, "the add before it retired");
     assert_eq!(ctx.sim.hart(0).regs.read(RegIdx::new(7)), 0, "the add at the stop did not");
 }

@@ -20,7 +20,7 @@ use crate::{trace_branch, trace_trap};
 pub fn fault(state: &StageCtx<'_>, id: &RenameIssueEntry, trap: Trap) -> ExMem1Entry {
     trace_trap!(state.trace_trap_enabled(&trap);
         event   = "fault",
-        pc      = %crate::common::trace::Hex(id.inst.pc),
+        pc      = %crate::common::trace::Hex(id.inst.pc.val()),
         rob_tag = %id.rob_tag,
         trap    = ?trap,
         "EX: instruction faulted"
@@ -83,12 +83,12 @@ fn resolve_branch(
     );
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
-        pc             = %crate::common::trace::Hex(id.inst.pc),
+        pc             = %crate::common::trace::Hex(id.inst.pc.val()),
         rob_tag        = %id.rob_tag,
         pred_taken     = id.predicted_target.is_some(),
-        pred_target    = %crate::common::trace::Hex(predicted_next_pc),
+        pred_target    = %crate::common::trace::Hex(predicted_next_pc.val()),
         actual_taken   = taken,
-        actual_target  = %crate::common::trace::Hex(actual_next_pc),
+        actual_target  = %crate::common::trace::Hex(actual_next_pc.val()),
         mispredicted,
         "EX: branch resolved"
     );
@@ -120,13 +120,13 @@ fn resolve_jump(
     let rs1_link = is_jalr && (id.inst.rs1 == reg::REG_RA || id.inst.rs1 == reg::REG_T0);
     trace_branch!(state.config.general.trace_instructions;
         event          = "resolve",
-        pc             = %crate::common::trace::Hex(id.inst.pc),
+        pc             = %crate::common::trace::Hex(id.inst.pc.val()),
         rob_tag        = %id.rob_tag,
         bp_type        = if rs1_link && !rd_link { "JALR/RAS" } else if rd_link { "JAL/call" } else { "JAL/JALR" },
         pred_taken     = id.predicted_target.is_some(),
-        pred_target    = %crate::common::trace::Hex(predicted_target),
+        pred_target    = %crate::common::trace::Hex(predicted_target.val()),
         actual_taken   = true,
-        actual_target  = %crate::common::trace::Hex(actual_target),
+        actual_target  = %crate::common::trace::Hex(actual_target.val()),
         mispredicted,
         "EX: jump resolved"
     );

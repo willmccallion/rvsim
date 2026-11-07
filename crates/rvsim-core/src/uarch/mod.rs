@@ -18,7 +18,7 @@ pub mod prefetch;
 
 pub mod vector;
 
-use crate::common::CoreId;
+use crate::common::{CoreId, VirtAddr};
 use crate::config::{Config, InclusionPolicy, LoadPrefetcherConfig, StorePrefetcherConfig};
 use crate::isa::extension::Isa;
 use crate::sim::components::{CacheId, ComponentId};
@@ -80,7 +80,7 @@ pub struct CoreUnits {
     pub single_step: bool,
     /// PCs the run stops at: commit does not retire past one within a
     /// cycle, so the hart's next instruction is at it when the cycle ends.
-    pub stop_pcs: Vec<u64>,
+    pub stop_pcs: Vec<VirtAddr>,
     /// Ranges the run stops after an access to.
     pub watches: Vec<Watch>,
     /// The access to a watched range the core just retired.

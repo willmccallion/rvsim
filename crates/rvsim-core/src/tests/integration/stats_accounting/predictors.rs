@@ -6,6 +6,7 @@ use super::program::{
     system, system_with,
 };
 use super::{Recorder, accounting_checks};
+use crate::common::VirtAddr;
 use crate::config::{BackendKind, LoadPrefetcherConfig, MemDepPredictorKind, PageBoundary};
 use crate::tests::integration::translation::load_prefetch_paging::{Data, Mode, run_system};
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -159,7 +160,7 @@ fn predictor_counts_start_again_after_a_stats_reset(rec: &mut Recorder) {
     run_to_pc(&mut ctx, end, context);
 
     ctx.sim.reset_stats();
-    ctx.sim.set_pc(0, continuation);
+    ctx.sim.set_pc(0, VirtAddr::new(continuation));
     run_to_exit(&mut ctx, context);
 
     rec.expect(&ctx.sim, "core0.mdp.predictions.bypass", 2, context);

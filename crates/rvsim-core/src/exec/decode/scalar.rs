@@ -2,6 +2,7 @@
 
 use super::vector;
 use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64};
+use crate::common::VirtAddr;
 use crate::exec::signals::{ControlFlow, ControlSignals, OpASrc, OpBSrc};
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64a::{
@@ -53,7 +54,12 @@ const FP_FMT_HALF: u32 = 2;
 
 /// Decodes a scalar instruction (RV64IMAFDC, Zb*, Zk*, Zicsr, Zicbo*,
 /// Zfh) into `c`.
-pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) -> Result<(), Trap> {
+pub(super) fn decode(
+    c: &mut ControlSignals,
+    inst: u32,
+    pc: VirtAddr,
+    d: &Decoded,
+) -> Result<(), Trap> {
     match d.opcode {
         i_opcodes::OP_LUI => {
             c.reg_write = true;
@@ -380,7 +386,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, pc: u64, d: &Decoded) ->
                 c.system_op = SystemOp::SfenceVma;
             } else if d.funct3 == 0 {
                 c.system_op = match d.raw {
-                    sys_ops::EBREAK => return Err(Trap::Breakpoint(pc)),
+                    sys_ops::EBREAK => return Err(Trap::Breakpoint(pc.val())),
                     sys_ops::MRET => SystemOp::Mret,
                     sys_ops::SRET => SystemOp::Sret,
                     sys_ops::WFI => SystemOp::Wfi,

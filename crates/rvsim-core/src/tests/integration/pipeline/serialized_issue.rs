@@ -4,6 +4,7 @@
 //! never happen in the same cycle. The in-order backend issues a CSR read
 //! in order and performs it when it retires.
 
+use crate::common::VirtAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -42,7 +43,7 @@ fn retire_and_issue_cycles(backend: BackendKind) -> (Option<u64>, u64) {
             last_add_retired = Some(cycle);
         }
         let snapshot = ctx.sim.state.cores[0].pipeline.snapshot(1);
-        let in_queue = snapshot.issue_queue.iter().any(|e| e.inst.pc == csr_pc);
+        let in_queue = snapshot.issue_queue.iter().any(|e| e.inst.pc == VirtAddr::new(csr_pc));
         if queued && !in_queue {
             return (last_add_retired, cycle);
         }

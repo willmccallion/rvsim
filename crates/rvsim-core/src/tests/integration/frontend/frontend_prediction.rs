@@ -5,7 +5,7 @@
 //! fetched right behind it is predicted; and compressed control flow is
 //! predicted like its 32-bit form.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::harness::TestContext;
@@ -37,7 +37,7 @@ fn mispredicts_running(backend: BackendKind, program: &[u16], retired: u64) -> f
     for (i, half) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(PhysAddr::new(PROGRAM_BASE + 2 * i as u64), u64::from(*half), 2);
     }
-    ctx.sim.state.harts[0].pc = PROGRAM_BASE;
+    ctx.sim.state.harts[0].pc = VirtAddr::new(PROGRAM_BASE);
     ctx.sim.sync_arch_regs();
 
     ctx.run(600);

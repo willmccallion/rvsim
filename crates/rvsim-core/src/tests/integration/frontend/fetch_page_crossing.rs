@@ -3,7 +3,7 @@
 //! Fetch1 translates the upper half-word, walking the page table when the
 //! TLB is cold, then fetches the instruction again and predicts it.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
@@ -60,7 +60,7 @@ fn straddling_context(backend: BackendKind) -> TestContext {
         hart.privilege = PrivilegeMode::Supervisor;
         hart.pmp.set_addr(0, u64::MAX >> 10);
         hart.pmp.set_cfg(0, 0b0000_1111);
-        hart.pc = CODE_VA + 0xFFE;
+        hart.pc = VirtAddr::new(CODE_VA + 0xFFE);
     }
     ctx.sim.sync_arch_regs();
     ctx

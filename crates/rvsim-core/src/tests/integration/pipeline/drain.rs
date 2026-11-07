@@ -3,7 +3,7 @@
 //! The hart sits at its committed PC and every committed store is in RAM,
 //! whether it was still sitting in a store buffer or not.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -84,7 +84,7 @@ fn keeps_running_after_a_drain(backend: BackendKind, cycles: u64) {
     );
     assert_eq!(
         hart.pc,
-        PROGRAM_BASE + 4 * (STORES + 2),
+        VirtAddr::new(PROGRAM_BASE + 4 * (STORES + 2)),
         "{backend:?} @{cycles}: the program reached its spin"
     );
     for s in 0..STORES {

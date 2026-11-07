@@ -232,14 +232,14 @@ impl VecMemSpan {
 #[derive(Clone, Default, Debug)]
 pub struct IfIdEntry {
     /// Program counter of the instruction.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// 32-bit instruction encoding.
     pub inst: u32,
     /// Size of the instruction in bytes (2 for compressed, 4 for standard).
     pub inst_size: InstSize,
     /// Where the branch predictor sent fetch next, when it predicted
     /// this instruction taken.
-    pub predicted_target: Option<u64>,
+    pub predicted_target: Option<VirtAddr>,
     /// Trap that occurred during fetch, if any.
     pub trap: Option<Trap>,
     /// The instruction's place in fetch order.
@@ -257,7 +257,7 @@ pub struct IdExEntry {
     pub trap: Option<Trap>,
     /// Where the branch predictor sent fetch next, when it predicted
     /// this instruction taken.
-    pub predicted_target: Option<u64>,
+    pub predicted_target: Option<VirtAddr>,
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
 }
@@ -269,7 +269,7 @@ pub struct IdExEntry {
 #[derive(Clone, Default, Debug)]
 pub struct Fetch1Fetch2Entry {
     /// Program counter.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Physical address after I-TLB lookup.
     pub paddr: PhysAddr,
     /// Physical address of the upper half-word when a 32-bit instruction
@@ -277,7 +277,7 @@ pub struct Fetch1Fetch2Entry {
     pub upper_paddr: Option<PhysAddr>,
     /// Where the branch predictor sent fetch next, when it predicted
     /// this instruction taken.
-    pub predicted_target: Option<u64>,
+    pub predicted_target: Option<VirtAddr>,
     /// Trap during fetch (alignment, TLB fault).
     pub trap: Option<Trap>,
     /// The instruction's place in fetch order.
@@ -312,7 +312,7 @@ pub struct RenameIssueEntry {
     pub trap: Option<Trap>,
     /// Where the branch predictor sent fetch next, when it predicted
     /// this instruction taken.
-    pub predicted_target: Option<u64>,
+    pub predicted_target: Option<VirtAddr>,
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
     /// Physical vector registers for vs1 LMUL group (O3 backend).
@@ -344,7 +344,7 @@ pub struct ExMem1Entry {
     /// ROB tag.
     pub rob_tag: RobTag,
     /// Program counter.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Raw instruction.
     pub inst: u32,
     /// Instruction size.
@@ -381,7 +381,7 @@ pub struct Mem1Mem2Entry {
     /// ROB tag.
     pub rob_tag: RobTag,
     /// Program counter.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Raw instruction.
     pub inst: u32,
     /// Instruction size.
@@ -487,7 +487,7 @@ pub struct Mem2WbEntry {
     /// ROB tag.
     pub rob_tag: RobTag,
     /// Program counter.
-    pub pc: u64,
+    pub pc: VirtAddr,
     /// Raw instruction.
     pub inst: u32,
     /// Instruction size.
@@ -534,7 +534,7 @@ impl Mem2WbEntry {
         if self.ctrl.mem_read || self.ctrl.atomic_op.is_some() {
             self.load_data
         } else if self.ctrl.control_flow == ControlFlow::Jump {
-            self.pc.wrapping_add(self.inst_size.as_u64())
+            self.pc.wrapping_add(self.inst_size.as_u64()).val()
         } else {
             self.alu
         }

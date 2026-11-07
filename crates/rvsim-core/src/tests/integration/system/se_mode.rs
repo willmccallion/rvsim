@@ -2,7 +2,7 @@
 //! are served as syscalls, and a fault ends it the way a signal would.
 
 use crate::Simulator;
-use crate::common::SimError;
+use crate::common::{SimError, VirtAddr};
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::op::pseudo::PseudoOp;
 use crate::system::checkpoint::CheckpointError;
@@ -446,7 +446,7 @@ fn a_static_position_independent_executable_loads_and_runs() {
 
         assert_eq!(
             sim.state.harts[0].pc,
-            PIE_BASE.val() + LOAD_ADDRESS + CODE_OFFSET,
+            VirtAddr::new(PIE_BASE.val() + LOAD_ADDRESS + CODE_OFFSET),
             "{backend:?}"
         );
         assert_eq!(run_for(&mut sim, 50_000), StopReason::Exited(3), "{backend:?}");

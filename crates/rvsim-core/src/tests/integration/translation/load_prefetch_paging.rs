@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use crate::common::{Asid, LineAddr, PhysAddr, Ppn, Vpn};
+use crate::common::{Asid, LineAddr, PhysAddr, Ppn, VirtAddr, Vpn};
 use crate::config::{BackendKind, Config, LoadPrefetcherConfig, PageBoundary, PrefetcherKind};
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
@@ -260,7 +260,7 @@ pub fn run_system(
             hart.pmp.set_addr(0, u64::MAX >> 10);
             hart.pmp.set_cfg(0, 0b0000_1111);
         }
-        hart.pc = CODE;
+        hart.pc = VirtAddr::new(CODE);
     }
     let second_page_in_tlb = match data {
         Data::ExecuteOnlySecondPage => Some(PTE_LEAF_X_A),

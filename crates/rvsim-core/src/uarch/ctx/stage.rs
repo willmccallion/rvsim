@@ -122,7 +122,7 @@ impl<'a> StageCtx<'a> {
     /// The event queue, to schedule a packet.
     #[inline]
     /// Reports a fetched instruction to the open pipeline trace, if any.
-    pub fn trace_fetched(&mut self, seq: InstSeq, pc: u64) {
+    pub fn trace_fetched(&mut self, seq: InstSeq, pc: VirtAddr) {
         self.uncore.trace_fetched(self.hart.hart_id, seq, pc);
     }
 
@@ -237,7 +237,7 @@ impl<'a> StageCtx<'a> {
 
     /// True when an execute trigger fires for `pc` at the current privilege.
     #[must_use]
-    pub fn check_execute_trigger(&self, pc: u64) -> bool {
+    pub fn check_execute_trigger(&self, pc: VirtAddr) -> bool {
         self.hart.check_execute_trigger(pc)
     }
 

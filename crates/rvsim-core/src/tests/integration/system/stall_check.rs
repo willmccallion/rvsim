@@ -1,7 +1,7 @@
 //! A hart outside WFI that retires nothing for the stall limit stops the
 //! run with `SimError::Stalled`; WFI and a limit of `None` never do.
 
-use crate::common::SimError;
+use crate::common::{SimError, VirtAddr};
 use crate::config::{Config, Console};
 use crate::isa::csr::MIE_MTIE;
 use crate::isa::encoding::privileged::WFI;
@@ -37,7 +37,7 @@ fn a_hart_that_retires_nothing_for_the_limit_stops_the_run() {
     let Err(SimError::Stalled { hart, pc, cycles }) = stopped else {
         panic!("expected a stall, got {stopped:?}");
     };
-    assert_eq!((hart, pc, cycles), (0, PROGRAM_BASE, SHORTER_THAN_A_COLD_FETCH));
+    assert_eq!((hart, pc, cycles), (0, VirtAddr::new(PROGRAM_BASE), SHORTER_THAN_A_COLD_FETCH));
 }
 
 #[test]

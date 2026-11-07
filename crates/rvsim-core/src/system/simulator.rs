@@ -54,7 +54,7 @@ pub struct StopAt {
     pub instructions: Option<u64>,
     /// When any hart's next instruction to retire is at one of these
     /// addresses.
-    pub pcs: Vec<u64>,
+    pub pcs: Vec<VirtAddr>,
     /// When guest software asks to stop (a work-marker or checkpoint
     /// pseudo-operation).
     pub guest_breaks: bool,
@@ -223,7 +223,7 @@ impl Simulator {
         let dtb_addr = config.system.ram_base + config.memory.ram_size as u64 - DTB_RESERVE;
         self.state.load_binary_at(&dtb::generate_dtb(&config), PhysAddr::new(dtb_addr));
         for hart in &mut self.state.harts {
-            hart.pc = entry;
+            hart.pc = VirtAddr::new(entry);
             hart.privilege = PrivilegeMode::Machine;
             hart.regs.write(reg::REG_A0, u64::from(hart.hart_id.val()));
             hart.regs.write(reg::REG_A1, dtb_addr);
@@ -498,7 +498,7 @@ impl Simulator {
     ///
     /// Panics if `hart` is not a hart index.
     #[must_use]
-    pub fn pc_trace(&self, hart: usize) -> &[(u64, u32)] {
+    pub fn pc_trace(&self, hart: usize) -> &[(VirtAddr, u32)] {
         &self.state.uncore.per_hart_debug[hart].pc_trace
     }
 
@@ -679,7 +679,7 @@ impl Simulator {
 
     /// Points `hart` at `pc`: its architectural PC, and its fetch PC after
     /// everything its pipeline had in flight is dropped.
-    pub fn set_pc(&mut self, hart: usize, pc: u64) {
+    pub fn set_pc(&mut self, hart: usize, pc: VirtAddr) {
         self.state.harts[hart].pc = pc;
         self.restart_from_architectural_state(hart);
     }

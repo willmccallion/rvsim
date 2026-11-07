@@ -3,6 +3,7 @@
 //! system's, on two harts sharing lines.
 
 use super::{Recorder, accounting_checks};
+use crate::common::VirtAddr;
 use crate::config::{BackendKind, Config, HomeAgentConfig, InterconnectConfig};
 use crate::system::simulator::StopAt;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
@@ -71,7 +72,8 @@ fn per_hart(hart0: &[u32], hart1: &[u32]) -> (Vec<u32>, u64) {
 /// Runs until hart 0 reaches `end`, then until every transaction is done.
 fn run_settled(config: &Config, (program, end): (Vec<u32>, u64), context: &str) -> MultiHart {
     let mut system = MultiHart::with_config(config, &program);
-    let stop = StopAt { pcs: vec![end], cycles: Some(2_000_000), ..StopAt::default() };
+    let stop =
+        StopAt { pcs: vec![VirtAddr::new(end)], cycles: Some(2_000_000), ..StopAt::default() };
     let reason = system.sim.run_to(&stop).expect("the run ticks");
     assert_eq!(reason, crate::system::simulator::StopReason::Pc { hart: 0 }, "{context}");
     for _ in 0..SETTLE {
