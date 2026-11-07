@@ -39,6 +39,34 @@ pub struct IssuedUnit {
     pub busy_cycles: u64,
 }
 
+/// What the in-order issue stage reads to decide what may issue.
+#[derive(Clone, Copy, Debug)]
+pub struct IssueContext<'a> {
+    /// The instructions in flight, whose results bypass to their consumers.
+    pub rob: &'a Rob,
+    /// The oldest instruction as the cycle began.
+    pub head: HeadAtCycleStart,
+    /// The stores whose addresses a load must not pass while unresolved.
+    pub store_buffer: &'a StoreBuffer,
+    /// The vector stores, likewise.
+    pub vec_store_buffer: &'a VecStoreBuffer,
+    /// The squash a resolved misprediction has asked for.
+    pub pending_squash: Option<PendingSquash>,
+    /// The current cycle.
+    pub now: u64,
+}
+
+/// What issue selected this cycle.
+#[derive(Debug, Default)]
+pub struct Selection {
+    /// The instructions issued, with their operands read, oldest first.
+    pub issued: Vec<RenameIssueEntry>,
+    /// The unit each took and when its result is ready.
+    pub units: Vec<IssuedUnit>,
+    /// What held the head of the queue, when something did.
+    pub held: Option<IssueHold>,
+}
+
 /// FIFO issue unit for in-order execution.
 #[derive(Debug)]
 pub struct InOrderIssueUnit {
@@ -69,124 +97,53 @@ impl InOrderIssueUnit {
     }
 
     /// Select instructions to execute this cycle, reading operands via
-    /// tags captured at rename time. Returns up to `width` entries with
-    /// operands populated.
+    /// tags captured at rename time, and taking a unit for each; a trapped
+    /// instruction takes none. Up to `width` instructions issue.
     ///
-    /// In-order: if the head-of-queue is blocked, nothing behind it can issue.
-    /// Nothing a pending squash will remove issues at all: an in-order
-    /// core drops the instructions behind a resolved misprediction at once.
-    ///
-    /// Each issued instruction's unit and the cycle its result is ready are
-    /// returned alongside it; a trapped instruction takes no unit. So is
-    /// what held the head of the queue, when something did.
-    #[allow(clippy::too_many_arguments)]
+    /// In-order: if the head-of-queue is blocked, nothing behind it can
+    /// issue, and the selection says what held it. Nothing a pending squash
+    /// will remove issues at all: an in-order core drops the instructions
+    /// behind a resolved misprediction at once.
     pub fn select(
         &mut self,
         width: usize,
-        rob: &Rob,
-        head: HeadAtCycleStart,
-        store_buffer: &StoreBuffer,
-        vec_store_buffer: &VecStoreBuffer,
+        ctx: &IssueContext<'_>,
         state: &StageCtx<'_>,
         fu_pool: &mut FuPool,
-        now: u64,
-        pending_squash: Option<PendingSquash>,
-    ) -> (Vec<RenameIssueEntry>, Vec<IssuedUnit>, Option<IssueHold>) {
-        let mut selected = Vec::with_capacity(width);
-        let mut units = Vec::with_capacity(width);
-        let mut held = None;
-
+    ) -> Selection {
+        let mut selection = Selection {
+            issued: Vec::with_capacity(width),
+            units: Vec::with_capacity(width),
+            held: None,
+        };
         for _ in 0..width {
             let Some(entry) = self.queue.front() else { break };
-            if pending_squash.is_some_and(|squash| squash.squashes(entry.rob_tag)) {
-                held = Some(IssueHold::Ordering);
+            if ctx.pending_squash.is_some_and(|squash| squash.squashes(entry.rob_tag)) {
+                selection.held = Some(IssueHold::Ordering);
                 break;
             }
-
             if entry.trap.is_some() {
-                if let Some(e) = self.queue.pop_front() {
-                    selected.push(e);
-                }
+                selection.issued.extend(self.queue.pop_front());
                 continue;
             }
-
-            // A vector instruction reads the architectural vector registers,
-            // so it executes only as the oldest instruction, and so does an
-            // atomic that takes effect in the cache. A system instruction
-            // flows: its effect waits for commit.
-            let waits_for_head = (entry.inst.ctrl.vec_op != VectorOp::None
-                && !entry.inst.ctrl.vec_op.is_config())
-                || entry.inst.ctrl.performs_at_rob_head();
-            if waits_for_head && !head.is(entry.rob_tag) {
-                held = Some(IssueHold::Ordering);
+            if is_held_by_ordering(entry, ctx) {
+                selection.held = Some(IssueHold::Ordering);
                 break;
             }
-
-            if held_by_fence(rob, entry.rob_tag, &entry.inst) {
-                held = Some(IssueHold::Ordering);
+            let Some(operands) = read_operands(entry, ctx.rob, state) else {
+                selection.held = Some(IssueHold::Operands);
                 break;
-            }
-
-            // Loads need older store addresses resolved or forwarding can miss an overlap.
-            if entry.inst.ctrl.mem_read
-                && (store_buffer.has_unresolved_store_before(entry.rob_tag)
-                    || vec_store_buffer.has_unresolved_store_before(entry.rob_tag))
-            {
-                held = Some(IssueHold::Ordering);
+            };
+            let Some(unit) = take_unit(fu_pool, entry, state, ctx.now) else {
+                selection.held = Some(IssueHold::Unit);
                 break;
-            }
-
-            let ctrl = &entry.inst.ctrl;
-            let rv1 = read_operand_by_tag(ctrl.src1(entry.inst.rs1), entry.rs1_tag, rob, state);
-            let rv2 = read_operand_by_tag(ctrl.src2(entry.inst.rs2), entry.rs2_tag, rob, state);
-            let rv3 = ctrl
-                .src3(entry.inst.rs3)
-                .map_or(Some(0), |rs3| read_operand_by_tag(rs3, entry.rs3_tag, rob, state));
-
-            if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
-                let fu_type = FuType::classify(&entry.inst.ctrl);
-                let Some(unit) = fu_pool.free_unit(fu_type, now) else {
-                    held = Some(IssueHold::Unit);
-                    break;
-                };
-                let complete_cycle = if is_vector_arithmetic(entry.inst.ctrl.vec_op) {
-                    // A vector op issues only as the oldest instruction, so
-                    // the architectural vl is the one it executes under.
-                    let latency = fu_pool.vector_op_latency(
-                        fu_type,
-                        &entry.inst.ctrl,
-                        state.hart().csrs.vl as usize,
-                        state.config.pipeline.vector_lanes(),
-                    );
-                    fu_pool.acquire_with_latency(unit, now, latency, entry.rob_tag)
-                } else {
-                    fu_pool.acquire(unit, now, entry.rob_tag)
-                };
-                let busy_cycles = fu_pool.busy_cycles(unit, now);
-                let Some(mut issued) = self.queue.pop_front() else { break };
-                let tag = issued.rob_tag;
-                units.push(IssuedUnit { tag, fu_type, complete_cycle, busy_cycles });
-                issued.inst.rv1 = v1;
-                issued.inst.rv2 = v2;
-                issued.inst.rv3 = v3;
-                selected.push(issued);
-            } else {
-                trace_issue!(state.config.general.trace_instructions;
-                    pc       = %crate::common::trace::Hex(entry.inst.pc.val()),
-                    rs1      = entry.inst.rs1.as_usize(),
-                    rs1_tag  = ?entry.rs1_tag,
-                    rs1_rdy  = rv1.is_some(),
-                    rs2      = entry.inst.rs2.as_usize(),
-                    rs2_tag  = ?entry.rs2_tag,
-                    rs2_rdy  = rv2.is_some(),
-                    "IS: stall — operand not ready"
-                );
-                held = Some(IssueHold::Operands);
-                break;
-            }
+            };
+            let Some(mut issued) = self.queue.pop_front() else { break };
+            [issued.inst.rv1, issued.inst.rv2, issued.inst.rv3] = operands;
+            selection.units.push(unit);
+            selection.issued.push(issued);
         }
-
-        (selected, units, held)
+        selection
     }
 
     /// Return a snapshot of the current issue queue contents (front = oldest).
@@ -203,6 +160,75 @@ impl InOrderIssueUnit {
     pub fn flush(&mut self) {
         self.queue.clear();
     }
+}
+
+/// Whether ordering holds `entry` back: a vector op, or an atomic that
+/// takes effect in the cache, executes only as the oldest instruction, as
+/// a vector op reads the architectural vector registers; a fence waits for
+/// what it orders; and a load waits for older store addresses, or
+/// forwarding could miss an overlap. A system instruction flows: its
+/// effect waits for commit.
+fn is_held_by_ordering(entry: &RenameIssueEntry, ctx: &IssueContext<'_>) -> bool {
+    let ctrl = &entry.inst.ctrl;
+    let tag = entry.rob_tag;
+    let waits_for_head =
+        (ctrl.vec_op != VectorOp::None && !ctrl.vec_op.is_config()) || ctrl.performs_at_rob_head();
+    (waits_for_head && !ctx.head.is(tag))
+        || held_by_fence(ctx.rob, tag, &entry.inst)
+        || (ctrl.mem_read
+            && (ctx.store_buffer.has_unresolved_store_before(tag)
+                || ctx.vec_store_buffer.has_unresolved_store_before(tag)))
+}
+
+/// `entry`'s three source operands, or `None`, traced, while one is still
+/// being computed.
+fn read_operands(entry: &RenameIssueEntry, rob: &Rob, state: &StageCtx<'_>) -> Option<[u64; 3]> {
+    let ctrl = &entry.inst.ctrl;
+    let rv1 = read_operand_by_tag(ctrl.src1(entry.inst.rs1), entry.rs1_tag, rob, state);
+    let rv2 = read_operand_by_tag(ctrl.src2(entry.inst.rs2), entry.rs2_tag, rob, state);
+    let rv3 = ctrl
+        .src3(entry.inst.rs3)
+        .map_or(Some(0), |rs3| read_operand_by_tag(rs3, entry.rs3_tag, rob, state));
+    if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
+        return Some([v1, v2, v3]);
+    }
+    trace_issue!(state.config.general.trace_instructions;
+        pc       = %crate::common::trace::Hex(entry.inst.pc.val()),
+        rs1      = entry.inst.rs1.as_usize(),
+        rs1_tag  = ?entry.rs1_tag,
+        rs1_rdy  = rv1.is_some(),
+        rs2      = entry.inst.rs2.as_usize(),
+        rs2_tag  = ?entry.rs2_tag,
+        rs2_rdy  = rv2.is_some(),
+        "IS: stall — operand not ready"
+    );
+    None
+}
+
+/// Takes a free unit of `entry`'s kind, or `None` while every one is busy.
+fn take_unit(
+    fu_pool: &mut FuPool,
+    entry: &RenameIssueEntry,
+    state: &StageCtx<'_>,
+    now: u64,
+) -> Option<IssuedUnit> {
+    let fu_type = FuType::classify(&entry.inst.ctrl);
+    let unit = fu_pool.free_unit(fu_type, now)?;
+    let complete_cycle = if is_vector_arithmetic(entry.inst.ctrl.vec_op) {
+        // A vector op issues only as the oldest instruction, so the
+        // architectural vl is the one it executes under.
+        let latency = fu_pool.vector_op_latency(
+            fu_type,
+            &entry.inst.ctrl,
+            state.hart().csrs.vl as usize,
+            state.config.pipeline.vector_lanes(),
+        );
+        fu_pool.acquire_with_latency(unit, now, latency, entry.rob_tag)
+    } else {
+        fu_pool.acquire(unit, now, entry.rob_tag)
+    };
+    let busy_cycles = fu_pool.busy_cycles(unit, now);
+    Some(IssuedUnit { tag: entry.rob_tag, fu_type, complete_cycle, busy_cycles })
 }
 
 /// A vector op that computes in a vector unit rather than setting the
