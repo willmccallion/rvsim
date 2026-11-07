@@ -67,7 +67,7 @@ impl O3Engine {
             } else {
                 entry.alu
             };
-            if entry.fp_flags != 0 {
+            if !entry.fp_flags.is_empty() {
                 self.rob.set_fp_flags(entry.rob_tag, entry.fp_flags);
             }
             if let Some(info) = entry.sfence_vma {

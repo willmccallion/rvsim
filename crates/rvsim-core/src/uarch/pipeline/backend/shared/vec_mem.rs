@@ -14,6 +14,7 @@ use std::collections::VecDeque;
 use crate::common::VirtAddr;
 use crate::exec::compute::vector::mem::ElementAccess;
 use crate::exec::signals::ControlSignals;
+use crate::isa::fp::FpFlags;
 use crate::isa::op::{MemWidth, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen, parse_vtype};
@@ -329,7 +330,7 @@ const fn memory_entry(
         ctrl,
         trap: None,
         exception_stage: None,
-        fp_flags: 0,
+        fp_flags: FpFlags::NONE,
         sfence_vma: None,
         vec_mem: Some(access),
         store_data_follows: false,

@@ -189,7 +189,7 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
     }
     rob.set_vec_writes(id.rob_tag, shadow.into_writes());
     if !result.fp_flags.is_empty() {
-        rob.set_fp_flags(id.rob_tag, result.fp_flags.bits());
+        rob.set_fp_flags(id.rob_tag, result.fp_flags);
     }
     if result.vxsat {
         rob.set_vxsat(id.rob_tag, true);

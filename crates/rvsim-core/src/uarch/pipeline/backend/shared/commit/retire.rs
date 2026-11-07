@@ -178,7 +178,7 @@ fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
         reg_write  = entry.ctrl.reg_write,
         is_store   = entry.ctrl.mem_write,
         is_load    = entry.ctrl.mem_read,
-        fp_flags   = entry.fp_flags,
+        fp_flags   = entry.fp_flags.bits(),
         "CM: instruction retired"
     );
 

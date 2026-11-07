@@ -204,7 +204,7 @@ impl O3Engine {
             self.rob.set_vec_agnostic(result.rob_tag, fills);
         }
         if !vec_result.fp_flags.is_empty() {
-            self.rob.set_fp_flags(result.rob_tag, vec_result.fp_flags.bits());
+            self.rob.set_fp_flags(result.rob_tag, vec_result.fp_flags);
         }
         if vec_result.vxsat {
             self.rob.set_vxsat(result.rob_tag, true);

@@ -14,6 +14,7 @@ use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
 use crate::common::{InstSeq, PhysAddr, VirtAddr};
 use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, ControlSignals};
+use crate::isa::fp::FpFlags;
 use crate::isa::instruction::InstSize;
 use crate::isa::op::AtomicOp;
 use crate::isa::privileged::Trap;
@@ -381,7 +382,7 @@ pub struct ExMem1Entry {
     /// Exception stage.
     pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
-    pub fp_flags: u8,
+    pub fp_flags: FpFlags,
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Vector memory element metadata (None for scalar ops).
@@ -433,7 +434,7 @@ pub struct Mem1Mem2Entry {
     /// Exception stage.
     pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
-    pub fp_flags: u8,
+    pub fp_flags: FpFlags,
     /// Cycle at which this entry's memory operation completes (O3 per-op latency).
     /// For non-memory ops or in-order backend, defaults to 0 (ready immediately).
     pub complete_cycle: u64,
@@ -465,7 +466,7 @@ impl ExMem1Entry {
             ctrl: id.inst.ctrl,
             trap: None,
             exception_stage: None,
-            fp_flags: 0,
+            fp_flags: FpFlags::NONE,
             sfence_vma: None,
             vec_mem: None,
             store_data_follows: false,
@@ -530,7 +531,7 @@ pub struct Mem2WbEntry {
     /// Exception stage.
     pub exception_stage: Option<ExceptionStage>,
     /// FP exception flags from this instruction (deferred to commit).
-    pub fp_flags: u8,
+    pub fp_flags: FpFlags,
     /// The D-bit updates the access applies when it retires.
     pub dirty_updates: DirtyUpdates,
     /// Deferred SFENCE.VMA operands for commit-time TLB invalidation.

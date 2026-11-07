@@ -347,7 +347,7 @@ fn counter_access_denied(state: &impl ArchState, inst: &Inst) -> bool {
 }
 
 /// Evaluates `id`'s ALU or FPU operation and returns `(result, fp_flags)`.
-pub fn evaluate(state: &impl ArchState, inst: &Inst, op_a: u64, op_b: u64) -> (u64, u8) {
+pub fn evaluate(state: &impl ArchState, inst: &Inst, op_a: u64, op_b: u64) -> (u64, FpFlags) {
     let fp_rm = match inst.ctrl.fp_rm {
         Some(Rounding::Static(mode)) => Some(mode),
         Some(Rounding::Dynamic) => frm_mode(state.hart()),
@@ -402,13 +402,13 @@ pub const fn jump_target(inst: &Inst) -> u64 {
 
 /// Runs `convert` with the host FPU set to `rm` and returns its result with
 /// the IEEE flags the host raised, so conversions report INEXACT/OVERFLOW.
-fn on_host_fpu(rm: RoundingMode, convert: impl FnOnce() -> u64) -> (u64, u8) {
+fn on_host_fpu(rm: RoundingMode, convert: impl FnOnce() -> u64) -> (u64, FpFlags) {
     let saved = set_host_round_mode(rm);
     clear_host_fp_flags();
     let value = std::hint::black_box(convert());
     let flags = read_host_fp_flags();
     restore_host_round_mode(saved);
-    (value, flags.bits())
+    (value, flags)
 }
 
 /// Runs a rounding conversion on the host FPU in `rm`, and under RMM, which
@@ -420,21 +420,21 @@ fn convert_rounded(
     single: bool,
     convert: impl FnOnce() -> u64,
     exact: impl FnOnce() -> Exact,
-) -> (u64, u8) {
+) -> (u64, FpFlags) {
     use crate::exec::compute::fpu::nan_handling::box_f32_canon;
     let (value, flags) = on_host_fpu(rm, convert);
     let format = if single { Format::Single } else { Format::Double };
-    match exact::rmm_correction(rm, FpFlags::from_bits(flags), format, || Some(exact())) {
+    match exact::rmm_correction(rm, flags, format, || Some(exact())) {
         Some((bits, flags)) => {
             let boxed = if single { box_f32_canon(f32::from_bits(bits as u32)) } else { bits };
-            (boxed, flags.bits())
+            (boxed, flags)
         }
         None => (value, flags),
     }
 }
 
-/// Computes the ALU/FPU result and returns `(result, fp_flags)`.
-/// `fp_flags` is non-zero only for floating-point arithmetic operations.
+/// Computes the ALU/FPU result and returns `(result, fp_flags)`; the flags
+/// are empty for everything but floating-point arithmetic.
 pub fn compute_alu(
     alu_op: AluOp,
     op_a: u64,
@@ -443,7 +443,7 @@ pub fn compute_alu(
     is_f16: bool,
     is_rv32: bool,
     fp_rm: Option<RoundingMode>,
-) -> (u64, u8) {
+) -> (u64, FpFlags) {
     use crate::exec::compute::fpu::half::{box_f16, f16_to_f32, unbox_f16};
     use crate::exec::compute::fpu::nan_handling::{
         box_f32_canon, canonicalize_f64_bits, unbox_f32,
@@ -509,14 +509,14 @@ pub fn compute_alu(
             } else {
                 op_a
             };
-            (value, 0)
+            (value, FpFlags::NONE)
         }
         _ if is_fp_op(alu_op) => {
             let (result, fp_flags) =
                 fpu::execute_full_rm(alu_op, op_a, op_b, op_c, is_f16, is_rv32, rm);
-            (result, fp_flags.bits())
+            (result, fp_flags)
         }
-        _ => (alu::execute(alu_op, op_a, op_b, is_rv32), 0),
+        _ => (alu::execute(alu_op, op_a, op_b, is_rv32), FpFlags::NONE),
     }
 }
 
@@ -569,11 +569,11 @@ mod tests {
 
         let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false, false, rne);
         assert_eq!(res, (1.0f64).to_bits());
-        assert_eq!(flags, 0);
+        assert_eq!(flags, FpFlags::NONE);
 
         let (res, flags) = compute_alu(AluOp::FCvtSW, 1, 0, 0, false, true, rne);
         assert_eq!(res, 0xFFFF_FFFF_0000_0000 | u64::from((1.0f32).to_bits()));
-        assert_eq!(flags, 0);
+        assert_eq!(flags, FpFlags::NONE);
     }
 
     #[test]
@@ -582,7 +582,7 @@ mod tests {
             compute_alu(AluOp::FMvToF, 42, 0, 0, false, false, Some(RoundingMode::Rne));
 
         assert_eq!(res, 42);
-        assert_eq!(flags, 0);
+        assert_eq!(flags, FpFlags::NONE);
     }
 
     #[test]
@@ -597,6 +597,6 @@ mod tests {
             Some(RoundingMode::Rne),
         );
 
-        assert_ne!(flags, 0);
+        assert!(!flags.is_empty());
     }
 }
