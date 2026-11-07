@@ -59,7 +59,7 @@ def _find_bundled_binaries():
 
 
 def _cmd_list():
-    from .style import BOLD, DIM, RESET, TEAL
+    from .._ansi import BOLD, DIM, RESET, TEAL, stdout_is_tty
 
     programs, benchmarks = _find_bundled_binaries()
     if programs is None:
@@ -69,7 +69,7 @@ def _cmd_list():
         )
         sys.exit(1)
 
-    is_tty = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+    is_tty = stdout_is_tty()
 
     def section(name):
         if is_tty:
