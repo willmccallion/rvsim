@@ -11,13 +11,13 @@
 //! the unit when it issues, and the unit reports when the result is ready.
 
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
-use crate::isa::fence::Fence;
-use crate::isa::op::{SystemOp, VectorOp};
+use crate::isa::op::VectorOp;
 use crate::isa::reg::ArchReg;
 use crate::trace_issue;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FuPool, FuType};
 use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
+use crate::uarch::pipeline::backend::shared::ordering::held_by_fence;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
@@ -122,14 +122,7 @@ impl InOrderIssueUnit {
                 break;
             }
 
-            if entry.inst.ctrl.system_op == SystemOp::Fence
-                && !rob.fence_pred_satisfied(entry.rob_tag, Fence::decode(entry.inst.bits).pred)
-            {
-                held = Some(IssueHold::Ordering);
-                break;
-            }
-
-            if rob.has_fence_blocking(entry.rob_tag, entry.inst.ctrl.memory_accesses()) {
+            if held_by_fence(rob, entry.rob_tag, &entry.inst) {
                 held = Some(IssueHold::Ordering);
                 break;
             }

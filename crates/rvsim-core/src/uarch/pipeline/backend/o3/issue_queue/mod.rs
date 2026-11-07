@@ -7,12 +7,12 @@
 //! - **Select**: each cycle, the oldest entries with all operands ready are
 //!   selected for execution (up to `width`).
 
-use crate::isa::fence::Fence;
 use crate::isa::op::SystemOp;
 use crate::isa::reg::ArchReg;
 use crate::uarch::mdp::MemDepState;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
+use crate::uarch::pipeline::backend::shared::ordering::held_by_fence;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
@@ -534,12 +534,7 @@ impl IssueQueue {
                 return false;
             }
         }
-        if ctrl.system_op == SystemOp::Fence
-            && !rob.fence_pred_satisfied(iq.entry.rob_tag, Fence::decode(iq.entry.inst.bits).pred)
-        {
-            return false;
-        }
-        !rob.has_fence_blocking(iq.entry.rob_tag, ctrl.memory_accesses())
+        !held_by_fence(rob, iq.entry.rob_tag, &iq.entry.inst)
     }
 
     /// The operand value at select time; `NotReady` only for faulted
