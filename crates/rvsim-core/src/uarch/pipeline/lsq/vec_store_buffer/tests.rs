@@ -185,9 +185,9 @@ fn flush_after_drops_newer_entries() {
     b.reserve_for_test(RobTag::new(2), 1);
     b.reserve_for_test(RobTag::new(3), 1);
     b.flush_after(RobTag::new(1));
-    assert!(b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag::new(1)));
-    assert!(!b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag::new(2)));
-    assert!(!b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag::new(3)));
+    assert!(b.entries().any(|e| e.rob_tag == RobTag::new(1)));
+    assert!(!b.entries().any(|e| e.rob_tag == RobTag::new(2)));
+    assert!(!b.entries().any(|e| e.rob_tag == RobTag::new(3)));
 }
 
 #[test]
@@ -198,8 +198,8 @@ fn flush_speculative_keeps_committed() {
     b.resolve_element(RobTag::new(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
     b.mark_committed(RobTag::new(1));
     b.flush_speculative();
-    assert!(b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag::new(1)));
-    assert!(!b.entries.iter().any(|e| e.valid && e.rob_tag == RobTag::new(2)));
+    assert!(b.entries().any(|e| e.rob_tag == RobTag::new(1)));
+    assert!(!b.entries().any(|e| e.rob_tag == RobTag::new(2)));
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn a_drained_entry_keeps_its_slot_until_its_writes_are_acknowledged() {
     b.reserve_for_test(RobTag::new(1), 1);
     b.resolve_element(RobTag::new(1), PhysAddr::new(0x8000_0000), 0xAA, MemWidth::Byte);
     b.mark_committed(RobTag::new(1));
-    let entry = b.entries.iter_mut().find(|e| e.valid).expect("entry");
+    let entry = b.slots.iter_mut().flatten().next().expect("entry");
     let line = entry.lines.remove(0);
     entry.sent.push(SentVsbLine { line, writes: vec![ReqId::new(9)] });
 

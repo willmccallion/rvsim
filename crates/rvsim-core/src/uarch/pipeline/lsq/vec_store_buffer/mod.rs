@@ -143,8 +143,6 @@ pub struct VecStoreBufferEntry {
     /// Lines whose writes are sent and not all acknowledged: they still
     /// forward, since the memory system has not yet performed them.
     pub sent: Vec<SentVsbLine>,
-    /// `true` while this slot occupies an in-flight entry.
-    pub valid: bool,
 }
 
 /// A drained line and the writes carrying it that are not yet acknowledged.
@@ -164,8 +162,7 @@ impl VecStoreBufferEntry {
     }
 
     const fn is_committed_and_resolved(&self) -> bool {
-        self.valid
-            && self.committed
+        self.committed
             && matches!(self.expected_elements, Some(expected) if expected == self.resolved_elements)
     }
 
@@ -183,7 +180,8 @@ impl VecStoreBufferEntry {
 /// Bounded buffer of in-flight vector stores. See module documentation.
 #[derive(Debug)]
 pub struct VecStoreBuffer {
-    entries: Vec<VecStoreBufferEntry>,
+    /// The stores' slots, `None` once freed for reuse.
+    slots: Vec<Option<VecStoreBufferEntry>>,
     capacity: usize,
     forwarding: VecStoreForwarding,
 }
@@ -191,18 +189,27 @@ pub struct VecStoreBuffer {
 impl VecStoreBuffer {
     /// Constructs a new buffer with the given capacity and forwarding policy.
     pub fn new(capacity: usize, forwarding: VecStoreForwarding) -> Self {
-        Self { entries: Vec::with_capacity(capacity), capacity, forwarding }
+        Self { slots: Vec::with_capacity(capacity), capacity, forwarding }
+    }
+
+    /// The stores in flight, in slot order.
+    fn entries(&self) -> impl Iterator<Item = &VecStoreBufferEntry> {
+        self.slots.iter().flatten()
+    }
+
+    fn find_mut(&mut self, rob_tag: RobTag) -> Option<&mut VecStoreBufferEntry> {
+        self.slots.iter_mut().flatten().find(|e| e.rob_tag == rob_tag)
     }
 
     /// Returns the number of in-flight entries.
     #[inline]
     pub fn len(&self) -> usize {
-        self.entries.iter().filter(|e| e.valid).count()
+        self.entries().count()
     }
 
     /// True while a committed store still has lines to write to memory.
     pub fn has_committed_stores(&self) -> bool {
-        self.entries.iter().any(|e| e.valid && e.committed)
+        self.entries().any(|e| e.committed)
     }
 
     /// Returns true if there are no in-flight entries.
@@ -225,7 +232,7 @@ impl VecStoreBuffer {
     /// Panics in debug builds if `rob_tag` is already present.
     pub fn allocate(&mut self, rob_tag: RobTag) -> bool {
         debug_assert!(
-            !self.entries.iter().any(|e| e.valid && e.rob_tag == rob_tag),
+            !self.entries().any(|e| e.rob_tag == rob_tag),
             "VSB allocate: rob_tag {rob_tag:?} already present",
         );
 
@@ -241,13 +248,12 @@ impl VecStoreBuffer {
             resolved_elements: 0,
             committed: false,
             sent: Vec::new(),
-            valid: true,
         };
 
-        if let Some(slot) = self.entries.iter_mut().find(|e| !e.valid) {
-            *slot = new_entry;
+        if let Some(slot) = self.slots.iter_mut().find(|slot| slot.is_none()) {
+            *slot = Some(new_entry);
         } else {
-            self.entries.push(new_entry);
+            self.slots.push(Some(new_entry));
         }
 
         true
@@ -257,7 +263,7 @@ impl VecStoreBuffer {
     /// deliver, once execute has evaluated `vl` and the mask. Zero (a fully
     /// masked store) makes the entry drainable as a no-op.
     pub fn set_expected_elements(&mut self, rob_tag: RobTag, expected_elements: usize) {
-        let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag) else {
+        let Some(entry) = self.find_mut(rob_tag) else {
             debug_assert!(false, "VSB set_expected_elements: no entry for {rob_tag:?}");
             return;
         };
@@ -283,7 +289,7 @@ impl VecStoreBuffer {
             return;
         }
 
-        let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag) else {
+        let Some(entry) = self.find_mut(rob_tag) else {
             debug_assert!(false, "VSB resolve_element: no entry for {rob_tag:?}");
             return;
         };
@@ -324,7 +330,7 @@ impl VecStoreBuffer {
     /// the parent vec store). The entry becomes drainable once all expected
     /// elements have also been resolved.
     pub fn mark_committed(&mut self, rob_tag: RobTag) {
-        if let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag) {
+        if let Some(entry) = self.find_mut(rob_tag) {
             entry.committed = true;
         }
         self.release_finished();
@@ -335,9 +341,8 @@ impl VecStoreBuffer {
     /// receiving all element-resolves. Used by callers that need to know
     /// whether a vec store can be safely drained at flush time.
     pub fn is_fully_resolved(&self, rob_tag: RobTag) -> bool {
-        self.entries
-            .iter()
-            .find(|e| e.valid && e.rob_tag == rob_tag)
+        self.entries()
+            .find(|e| e.rob_tag == rob_tag)
             .is_some_and(|e| e.expected_elements == Some(e.resolved_elements))
     }
 
@@ -345,10 +350,8 @@ impl VecStoreBuffer {
     /// addresses are not yet known, so a load cannot tell whether it
     /// overlaps.
     pub fn has_unresolved_store_before(&self, rob_tag: RobTag) -> bool {
-        self.entries.iter().any(|e| {
-            e.valid
-                && e.rob_tag.is_older_than(rob_tag)
-                && e.expected_elements != Some(e.resolved_elements)
+        self.entries().any(|e| {
+            e.rob_tag.is_older_than(rob_tag) && e.expected_elements != Some(e.resolved_elements)
         })
     }
 
@@ -358,7 +361,7 @@ impl VecStoreBuffer {
     #[must_use]
     pub fn has_older_store_to(&self, paddr: PhysAddr, bytes: usize, rob_tag: RobTag) -> bool {
         let (start, end) = (paddr.val(), paddr.val() + bytes as u64);
-        self.entries.iter().filter(|e| e.valid && e.rob_tag.is_older_than(rob_tag)).any(|e| {
+        self.entries().filter(|e| e.rob_tag.is_older_than(rob_tag)).any(|e| {
             e.expected_elements != Some(e.resolved_elements)
                 || e.forwarding_lines().any(|line| line.holds_any_of(start, end))
         })
@@ -370,9 +373,8 @@ impl VecStoreBuffer {
     #[must_use]
     pub fn has_unsent_older_line_to(&self, paddr: PhysAddr, bytes: usize, rob_tag: RobTag) -> bool {
         let (start, end) = (paddr.val(), paddr.val() + bytes as u64);
-        self.entries
-            .iter()
-            .filter(|e| e.valid && e.rob_tag.is_older_than(rob_tag))
+        self.entries()
+            .filter(|e| e.rob_tag.is_older_than(rob_tag))
             .flat_map(|e| &e.lines)
             .any(|line| line.holds_any_of(start, end))
     }
@@ -389,9 +391,8 @@ impl VecStoreBuffer {
         bytes: usize,
     ) -> bool {
         let (start, end) = (paddr.val(), paddr.val() + bytes as u64);
-        self.entries
-            .iter()
-            .filter(|e| e.valid && e.rob_tag.is_newer_than(after))
+        self.entries()
+            .filter(|e| e.rob_tag.is_newer_than(after))
             .filter(|e| e.rob_tag.is_older_than(load_rob_tag))
             .flat_map(VecStoreBufferEntry::forwarding_lines)
             .any(|line| line.holds_any_of(start, end))
@@ -446,8 +447,7 @@ impl VecStoreBuffer {
         let offset = (paddr.val() - line_addr) as usize;
         let span_mask =
             if bytes >= VSB_LINE_BYTES { u64::MAX } else { ((1u64 << bytes) - 1) << offset };
-        let older =
-            self.entries.iter().filter(|e| e.valid && e.rob_tag.is_older_than(load_rob_tag));
+        let older = self.entries().filter(|e| e.rob_tag.is_older_than(load_rob_tag));
         match self.forwarding {
             VecStoreForwarding::Off => {
                 if older.count() > 0 {
@@ -495,7 +495,7 @@ impl VecStoreBuffer {
         let line_a = load_lo & !(VSB_LINE_BYTES as u64 - 1);
         let line_b = (load_hi - 1) & !(VSB_LINE_BYTES as u64 - 1);
 
-        for entry in self.entries.iter().filter(|e| e.valid) {
+        for entry in self.entries() {
             if !entry.rob_tag.is_older_than(load_rob_tag) {
                 continue;
             }
@@ -522,9 +522,8 @@ impl VecStoreBuffer {
         load_rob_tag: RobTag,
     ) -> ForwardResult {
         let youngest = self
-            .entries
-            .iter()
-            .filter(|e| e.valid && e.rob_tag.is_older_than(load_rob_tag))
+            .entries()
+            .filter(|e| e.rob_tag.is_older_than(load_rob_tag))
             .filter_map(|e| {
                 let line = e.forwarding_lines().find(|l| l.line_addr == load_line)?;
                 (line.valid_mask & load_byte_mask != 0).then_some((e.rob_tag, line))
@@ -548,7 +547,7 @@ impl VecStoreBuffer {
         load_byte_mask: u64,
         load_rob_tag: RobTag,
     ) -> ForwardResult {
-        for entry in self.entries.iter().filter(|e| e.valid) {
+        for entry in self.entries() {
             if !entry.rob_tag.is_older_than(load_rob_tag) {
                 continue;
             }
@@ -567,7 +566,7 @@ impl VecStoreBuffer {
     }
 
     fn forward_load_off(&self, load_rob_tag: RobTag) -> ForwardResult {
-        for entry in self.entries.iter().filter(|e| e.valid) {
+        for entry in self.entries() {
             if entry.rob_tag.is_older_than(load_rob_tag) {
                 return ForwardResult::Stall;
             }
@@ -579,7 +578,7 @@ impl VecStoreBuffer {
     #[must_use]
     pub fn next_drainable_line(&self) -> Option<&VsbLine> {
         let idx = self.oldest_drainable_entry_index()?;
-        self.entries[idx].lines.first()
+        self.slots[idx].as_ref()?.lines.first()
     }
 
     /// Takes the next line to write: the first line of the oldest committed
@@ -589,7 +588,7 @@ impl VecStoreBuffer {
     pub fn take_drainable_line(&mut self) -> Option<(RobTag, VsbLine)> {
         self.release_finished();
         let idx = self.oldest_drainable_entry_index()?;
-        let entry = &mut self.entries[idx];
+        let entry = self.slots[idx].as_mut()?;
         let line = entry.lines.remove(0);
         entry.sent.push(SentVsbLine { line: line.clone(), writes: Vec::new() });
         Some((entry.rob_tag, line))
@@ -599,7 +598,7 @@ impl VecStoreBuffer {
     /// last handed out for `rob_tag`; it forwards until they are all
     /// acknowledged.
     pub fn line_sent(&mut self, rob_tag: RobTag, requests: Vec<ReqId>) {
-        if let Some(entry) = self.entries.iter_mut().find(|e| e.valid && e.rob_tag == rob_tag)
+        if let Some(entry) = self.find_mut(rob_tag)
             && let Some(sent) = entry.sent.last_mut()
         {
             sent.writes = requests;
@@ -610,7 +609,7 @@ impl VecStoreBuffer {
 
     /// The memory system acknowledged `req`, one of a drained line's writes.
     pub fn write_acked(&mut self, req: ReqId) {
-        for entry in &mut self.entries {
+        for entry in self.slots.iter_mut().flatten() {
             for sent in &mut entry.sent {
                 sent.writes.retain(|pending| *pending != req);
             }
@@ -621,9 +620,14 @@ impl VecStoreBuffer {
 
     /// Frees the entries whose writes have all been acknowledged.
     fn release_finished(&mut self) {
-        for entry in &mut self.entries {
-            if entry.is_finished() {
-                entry.valid = false;
+        self.free_where(VecStoreBufferEntry::is_finished);
+    }
+
+    /// Frees every slot whose store `frees` picks.
+    fn free_where(&mut self, frees: impl Fn(&VecStoreBufferEntry) -> bool) {
+        for slot in &mut self.slots {
+            if slot.as_ref().is_some_and(&frees) {
+                *slot = None;
             }
         }
     }
@@ -641,41 +645,23 @@ impl VecStoreBuffer {
     /// committed or not) survive. Used on partial flush — branch
     /// misprediction or memory-ordering violation.
     pub fn flush_after(&mut self, keep_tag: RobTag) {
-        for entry in &mut self.entries {
-            if entry.valid && entry.rob_tag.is_newer_than(keep_tag) {
-                entry.valid = false;
-                entry.lines.clear();
-            }
-        }
+        self.free_where(|entry| entry.rob_tag.is_newer_than(keep_tag));
     }
 
     /// Drops every entry that has not been committed. Committed entries stay
     /// and will continue draining on subsequent cycles. Called as part of a
     /// full speculative teardown.
     pub fn flush_speculative(&mut self) {
-        for entry in &mut self.entries {
-            if entry.valid && !entry.committed {
-                entry.valid = false;
-                entry.lines.clear();
-            }
-        }
+        self.free_where(|entry| !entry.committed);
     }
 
     fn oldest_drainable_entry_index(&self) -> Option<usize> {
-        let mut chosen: Option<usize> = None;
-        for (i, e) in self.entries.iter().enumerate() {
-            if !e.is_drainable() {
-                continue;
-            }
-            match chosen {
-                None => chosen = Some(i),
-                Some(prev) if e.rob_tag.is_older_than(self.entries[prev].rob_tag) => {
-                    chosen = Some(i);
-                }
-                _ => {}
-            }
-        }
-        chosen
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, slot)| Some((i, slot.as_ref().filter(|e| e.is_drainable())?.rob_tag)))
+            .reduce(|oldest, next| if next.1.is_older_than(oldest.1) { next } else { oldest })
+            .map(|(i, _)| i)
     }
 }
 
