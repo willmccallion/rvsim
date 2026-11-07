@@ -6,15 +6,14 @@
 //! previous producer.
 
 use super::InOrderEngine;
+use super::issue::ProducerTags;
 use crate::exec::compute::vector::mem::is_vec_store;
 use crate::exec::inst::Inst;
-use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
 use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};
 use crate::uarch::pipeline::rename::prf::PhysReg;
-use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::trace::Stage;
 
 impl InOrderEngine {
@@ -22,7 +21,11 @@ impl InOrderEngine {
     /// buffer slots. A store waits here, before anything is allocated, when
     /// its buffer is full; `can_accept` covers the ROB and issue-queue slots
     /// every instruction needs.
-    pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, decoded: IdExEntry) -> Renamed {
+    pub(super) fn rename_one(
+        &mut self,
+        state: &mut StageCtx<'_>,
+        decoded: IdExEntry,
+    ) -> Renamed<ProducerTags> {
         let store_slot = if decoded.inst.ctrl.uses_store_buffer() {
             !self.store_buffer.is_full()
         } else if is_vec_store(decoded.inst.ctrl.vec_op) {
@@ -70,26 +73,12 @@ impl InOrderEngine {
         let entry = RenameIssueEntry {
             inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..decoded.inst },
             rob_tag,
-            rs1_phys: PhysReg(0),
-            rs2_phys: PhysReg(0),
-            rs3_phys: PhysReg(0),
-            rd_phys: PhysReg(0),
-            rs1_tag,
-            rs2_tag,
-            rs3_tag,
             trap: decoded.trap,
             predicted_target: decoded.predicted_target,
             seq: decoded.seq,
-            vs1_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs2_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vs3_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vd_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
-            vec_src1_count: 0,
-            vec_src2_count: 0,
-            vec_src3_count: 0,
-            mask: None,
             vector_config: vector,
             vector_rounding: state.hart().csrs.vector_rounding(),
+            regs: ProducerTags { rs1: rs1_tag, rs2: rs2_tag, rs3: rs3_tag },
         };
 
         trace_rename!(state.config.general.trace_instructions;
@@ -97,9 +86,9 @@ impl InOrderEngine {
             rob_tag    = %entry.rob_tag,
             rd         = entry.inst.rd.as_usize(),
             rs1        = entry.inst.rs1.as_usize(),
-            rs1_tag    = ?entry.rs1_tag,
+            rs1_tag    = ?entry.regs.rs1,
             rs2        = entry.inst.rs2.as_usize(),
-            rs2_tag    = ?entry.rs2_tag,
+            rs2_tag    = ?entry.regs.rs2,
             is_store   = entry.inst.ctrl.mem_write,
             is_load    = entry.inst.ctrl.mem_read,
             "RN: in-order rename"

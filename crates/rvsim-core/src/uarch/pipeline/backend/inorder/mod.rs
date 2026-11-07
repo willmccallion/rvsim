@@ -35,7 +35,9 @@ use crate::uarch::pipeline::backend::shared::{commit, memory1, memory2, writebac
 use crate::uarch::pipeline::engine::{
     BackendCommon, BundleHazard, DataCacheFlush, ExecutionEngine,
 };
-use crate::uarch::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
+use crate::uarch::pipeline::latches::{
+    ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry, SourceReadiness,
+};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
@@ -45,7 +47,9 @@ use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::squash::SquashScope;
 use crate::uarch::pipeline::trace::Departure;
 
-use self::issue::{InOrderIssueUnit, IssueContext, IssuedUnit, Selection};
+use self::issue::{
+    InOrderEntry, InOrderIssueUnit, IssueContext, IssuedUnit, ProducerTags, Selection,
+};
 use crate::uarch::pipeline::backend::o3::fu_pool::FuPool;
 
 /// A computed result waiting for its unit's latency to elapse.
@@ -193,7 +197,7 @@ impl InOrderEngine {
     /// Starts a vector load or store: its element micro-ops are generated
     /// from the architectural registers, which are current because a
     /// vector instruction issues only from the ROB head.
-    fn start_vec_mem_op(&mut self, state: &CoreCtx<'_>, entry: &RenameIssueEntry) {
+    fn start_vec_mem_op(&mut self, state: &CoreCtx<'_>, entry: &InOrderEntry) {
         use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses};
         if illegal_in_current_state(state.hart, &entry.inst) {
             let trap = Trap::IllegalInstruction(entry.inst.bits);
@@ -426,10 +430,12 @@ impl InOrderEngine {
 }
 
 impl ExecutionEngine for InOrderEngine {
+    type Regs = ProducerTags;
+
     fn tick(
         &mut self,
         state: &mut CoreCtx<'_>,
-        rename_output: &mut Vec<RenameIssueEntry>,
+        rename_output: &mut Vec<InOrderEntry>,
         redirect: &mut Option<VirtAddr>,
     ) {
         let now = state.cycle;
@@ -522,7 +528,7 @@ impl ExecutionEngine for InOrderEngine {
         &mut self,
         state: &mut crate::uarch::ctx::StageCtx<'_>,
         decoded: crate::uarch::pipeline::latches::IdExEntry,
-    ) -> crate::uarch::pipeline::engine::Renamed {
+    ) -> crate::uarch::pipeline::engine::Renamed<ProducerTags> {
         self.rename_one(state, decoded)
     }
 
@@ -546,7 +552,7 @@ impl ExecutionEngine for InOrderEngine {
         &mut self.mem1_mem2
     }
 
-    fn issue_snapshot(&self) -> Vec<RenameIssueEntry> {
+    fn issue_snapshot(&self) -> Vec<RenameIssueEntry<SourceReadiness>> {
         self.issuer.queue_snapshot()
     }
 

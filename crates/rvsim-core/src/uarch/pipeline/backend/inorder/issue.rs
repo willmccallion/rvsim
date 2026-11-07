@@ -18,13 +18,41 @@ use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FuPool, FuType};
 use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
 use crate::uarch::pipeline::backend::shared::ordering::held_by_fence;
-use crate::uarch::pipeline::latches::RenameIssueEntry;
+use crate::uarch::pipeline::latches::{IssueRegisters, RenameIssueEntry, SourceReadiness};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
+use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 use crate::uarch::pipeline::squash::PendingSquash;
 
 use std::collections::VecDeque;
+
+/// The in-order backend's operand sources: the ROB entry producing each
+/// of rs1, rs2 and rs3 when it was renamed, `None` to read the register
+/// file.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ProducerTags {
+    /// rs1's producer.
+    pub rs1: Option<RobTag>,
+    /// rs2's producer.
+    pub rs2: Option<RobTag>,
+    /// rs3's producer.
+    pub rs3: Option<RobTag>,
+}
+
+impl IssueRegisters for ProducerTags {
+    /// x0's: the in-order backend renames nothing, so writeback ignores it.
+    fn rd_phys(&self) -> PhysReg {
+        PhysReg(0)
+    }
+
+    fn readiness(&self) -> SourceReadiness {
+        SourceReadiness { rs1: self.rs1.is_none(), rs2: self.rs2.is_none() }
+    }
+}
+
+/// An instruction the in-order backend renamed.
+pub type InOrderEntry = RenameIssueEntry<ProducerTags>;
 
 /// The unit an issued instruction took and when its result is ready.
 #[derive(Clone, Copy, Debug)]
@@ -60,7 +88,7 @@ pub struct IssueContext<'a> {
 #[derive(Debug, Default)]
 pub struct Selection {
     /// The instructions issued, with their operands read, oldest first.
-    pub issued: Vec<RenameIssueEntry>,
+    pub issued: Vec<InOrderEntry>,
     /// The unit each took and when its result is ready.
     pub units: Vec<IssuedUnit>,
     /// What held the head of the queue, when something did.
@@ -70,7 +98,7 @@ pub struct Selection {
 /// FIFO issue unit for in-order execution.
 #[derive(Debug)]
 pub struct InOrderIssueUnit {
-    queue: VecDeque<RenameIssueEntry>,
+    queue: VecDeque<InOrderEntry>,
     capacity: usize,
 }
 
@@ -82,7 +110,7 @@ impl InOrderIssueUnit {
 
     /// Accept dispatched instructions from rename, which takes no more
     /// than [`Self::available_slots`] a cycle, so the queue never overflows.
-    pub fn dispatch(&mut self, entries: Vec<RenameIssueEntry>) {
+    pub fn dispatch(&mut self, entries: Vec<InOrderEntry>) {
         for entry in entries {
             debug_assert!(
                 self.queue.len() < self.capacity,
@@ -147,8 +175,8 @@ impl InOrderIssueUnit {
     }
 
     /// Return a snapshot of the current issue queue contents (front = oldest).
-    pub fn queue_snapshot(&self) -> Vec<RenameIssueEntry> {
-        self.queue.iter().cloned().collect()
+    pub fn queue_snapshot(&self) -> Vec<RenameIssueEntry<SourceReadiness>> {
+        self.queue.iter().map(RenameIssueEntry::snapshot).collect()
     }
 
     /// How many slots are available for dispatch?
@@ -168,7 +196,7 @@ impl InOrderIssueUnit {
 /// what it orders; and a load waits for older store addresses, or
 /// forwarding could miss an overlap. A system instruction flows: its
 /// effect waits for commit.
-fn is_held_by_ordering(entry: &RenameIssueEntry, ctx: &IssueContext<'_>) -> bool {
+fn is_held_by_ordering(entry: &InOrderEntry, ctx: &IssueContext<'_>) -> bool {
     let ctrl = &entry.inst.ctrl;
     let tag = entry.rob_tag;
     let waits_for_head =
@@ -182,23 +210,24 @@ fn is_held_by_ordering(entry: &RenameIssueEntry, ctx: &IssueContext<'_>) -> bool
 
 /// `entry`'s three source operands, or `None`, traced, while one is still
 /// being computed.
-fn read_operands(entry: &RenameIssueEntry, rob: &Rob, state: &StageCtx<'_>) -> Option<[u64; 3]> {
+fn read_operands(entry: &InOrderEntry, rob: &Rob, state: &StageCtx<'_>) -> Option<[u64; 3]> {
     let ctrl = &entry.inst.ctrl;
-    let rv1 = read_operand_by_tag(ctrl.src1(entry.inst.rs1), entry.rs1_tag, rob, state);
-    let rv2 = read_operand_by_tag(ctrl.src2(entry.inst.rs2), entry.rs2_tag, rob, state);
+    let tags = &entry.regs;
+    let rv1 = read_operand_by_tag(ctrl.src1(entry.inst.rs1), tags.rs1, rob, state);
+    let rv2 = read_operand_by_tag(ctrl.src2(entry.inst.rs2), tags.rs2, rob, state);
     let rv3 = ctrl
         .src3(entry.inst.rs3)
-        .map_or(Some(0), |rs3| read_operand_by_tag(rs3, entry.rs3_tag, rob, state));
+        .map_or(Some(0), |rs3| read_operand_by_tag(rs3, tags.rs3, rob, state));
     if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
         return Some([v1, v2, v3]);
     }
     trace_issue!(state.config.general.trace_instructions;
         pc       = %crate::common::trace::Hex(entry.inst.pc.val()),
         rs1      = entry.inst.rs1.as_usize(),
-        rs1_tag  = ?entry.rs1_tag,
+        rs1_tag  = ?entry.regs.rs1,
         rs1_rdy  = rv1.is_some(),
         rs2      = entry.inst.rs2.as_usize(),
-        rs2_tag  = ?entry.rs2_tag,
+        rs2_tag  = ?entry.regs.rs2,
         rs2_rdy  = rv2.is_some(),
         "IS: stall — operand not ready"
     );
@@ -208,7 +237,7 @@ fn read_operands(entry: &RenameIssueEntry, rob: &Rob, state: &StageCtx<'_>) -> O
 /// Takes a free unit of `entry`'s kind, or `None` while every one is busy.
 fn take_unit(
     fu_pool: &mut FuPool,
-    entry: &RenameIssueEntry,
+    entry: &InOrderEntry,
     state: &StageCtx<'_>,
     now: u64,
 ) -> Option<IssuedUnit> {

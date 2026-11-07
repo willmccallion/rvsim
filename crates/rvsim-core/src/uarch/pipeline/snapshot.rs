@@ -4,7 +4,7 @@
 
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Fetch1Fetch2Entry, IdExEntry, IfIdEntry, Mem1Mem2Entry, Mem2WbEntry,
-    RenameIssueEntry,
+    RenameIssueEntry, SourceReadiness,
 };
 
 /// Point-in-time copy of every inter-stage latch in the pipeline.
@@ -22,9 +22,9 @@ pub struct LatchSnapshot {
     /// Decode → Rename latch (instruction decode).
     pub decode_rename: Vec<IdExEntry>,
     /// Rename → Issue latch (register rename / ROB allocation, pending dispatch).
-    pub rename_issue: Vec<RenameIssueEntry>,
+    pub rename_issue: Vec<RenameIssueEntry<SourceReadiness>>,
     /// Issue queue contents (waiting for operands, front = oldest).
-    pub issue_queue: Vec<RenameIssueEntry>,
+    pub issue_queue: Vec<RenameIssueEntry<SourceReadiness>>,
     /// Execute → Memory1 latch.
     pub execute_mem1: Vec<ExMem1Entry>,
     /// Memory1 → Memory2 latch.

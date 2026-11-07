@@ -19,7 +19,9 @@ use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::expected_load_micro_ops;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
-use crate::uarch::pipeline::latches::{IdExEntry, RenameIssueEntry};
+use crate::uarch::pipeline::latches::{
+    IdExEntry, IssueRegisters, RenameIssueEntry, SourceReadiness,
+};
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
@@ -35,7 +37,11 @@ impl O3Engine {
     /// anything is allocated; `can_accept` covers only the ROB and issue
     /// queue slots every instruction needs, as gem5's rename checks each
     /// instruction's own resources.
-    pub(super) fn rename_one(&mut self, state: &mut StageCtx<'_>, decoded: IdExEntry) -> Renamed {
+    pub(super) fn rename_one(
+        &mut self,
+        state: &mut StageCtx<'_>,
+        decoded: IdExEntry,
+    ) -> Renamed<RenamedRegisters> {
         if !self.serialization.admits(state.cycle) {
             state.counter(state.core().stat_paths.pipeline.stalls_serialize).inc();
             return Renamed::Stalled(Box::new(decoded));
@@ -68,7 +74,7 @@ impl O3Engine {
             let checkpoint_id = slot.fill(&mut self.checkpoints, dests.rob_tag, &self.rename_map);
             self.rob.set_checkpoint_id(dests.rob_tag, checkpoint_id);
         }
-        let entry = renamed_entry(decoded, &sources, &dests, vector);
+        let entry = renamed_entry(decoded, sources, &dests, vector);
         trace_renamed(state, &entry, dests.old_phys_dst);
         if entry.inst.ctrl.system_op.serializes_after() {
             self.serialization = super::serialize::Serialization::after(entry.rob_tag);
@@ -95,7 +101,8 @@ impl O3Engine {
 
     /// The physical registers `inst` reads, mapped before its destinations
     /// are renamed: a masked compare writing v0 is masked by the old v0.
-    fn capture_sources(&self, inst: &Inst, groups: VecOperandGroups) -> Sources {
+    /// The destinations are left for `allocate_destinations`.
+    fn capture_sources(&self, inst: &Inst, groups: VecOperandGroups) -> RenamedRegisters {
         let ctrl = &inst.ctrl;
         let map = &self.rename_map;
         let is_vector = ctrl.vec_lmul_regs > 0;
@@ -103,17 +110,18 @@ impl O3Engine {
         let vs2_count = if is_vector { groups.vs2 } else { 0 };
         let reads_old_vd = is_vector && (ctrl.vec_reg_write || is_vec_store(ctrl.vec_op));
         let vs3_count = if reads_old_vd { groups.vd } else { 0 };
-        Sources {
-            rs1: map.get(ctrl.src1(inst.rs1)),
-            rs2: map.get(ctrl.src2(inst.rs2)),
-            rs3: ctrl.src3(inst.rs3).map_or(PhysReg(0), |rs3| map.get(rs3)),
-            vs1: map.vec_group(ctrl.vs1, vs1_count),
-            vs2: map.vec_group(ctrl.vs2, vs2_count),
-            vs3: map.vec_group(ctrl.vd, vs3_count),
-            vs1_count,
-            vs2_count,
-            vs3_count,
+        RenamedRegisters {
+            rs1_phys: map.get(ctrl.src1(inst.rs1)),
+            rs2_phys: map.get(ctrl.src2(inst.rs2)),
+            rs3_phys: ctrl.src3(inst.rs3).map_or(PhysReg(0), |rs3| map.get(rs3)),
+            vs1_phys: map.vec_group(ctrl.vs1, vs1_count),
+            vs2_phys: map.vec_group(ctrl.vs2, vs2_count),
+            vs3_phys: map.vec_group(ctrl.vd, vs3_count),
+            vec_src1_count: vs1_count,
+            vec_src2_count: vs2_count,
+            vec_src3_count: vs3_count,
             mask: ctrl.is_masked_vector_op().then(|| map.get_vec(VRegIdx::new(0))),
+            ..RenamedRegisters::default()
         }
     }
 
@@ -208,21 +216,6 @@ struct VectorContext {
     rounding: VectorRounding,
 }
 
-/// The physical registers an instruction reads, as rename found them.
-struct Sources {
-    rs1: PhysReg,
-    rs2: PhysReg,
-    rs3: PhysReg,
-    vs1: [VecPhysReg; MAX_GROUP_REGS],
-    vs2: [VecPhysReg; MAX_GROUP_REGS],
-    /// The old destination group, for tail and mask merging and as store data.
-    vs3: [VecPhysReg; MAX_GROUP_REGS],
-    vs1_count: u8,
-    vs2_count: u8,
-    vs3_count: u8,
-    mask: Option<VecPhysReg>,
-}
-
 /// The ROB entry and physical registers rename allocated for an
 /// instruction's results.
 struct Destinations {
@@ -233,50 +226,82 @@ struct Destinations {
     vd_phys: [VecPhysReg; MAX_GROUP_REGS],
 }
 
-/// The issue-queue entry for `id`, renamed to `sources` and `dests`.
+/// The issue-queue entry for `decoded`, its sources renamed to `sources`
+/// and its results to `dests`.
 const fn renamed_entry(
     decoded: IdExEntry,
-    sources: &Sources,
+    sources: RenamedRegisters,
     dests: &Destinations,
     vector: VectorContext,
-) -> RenameIssueEntry {
+) -> O3Entry {
     RenameIssueEntry {
         inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..decoded.inst },
         rob_tag: dests.rob_tag,
-        rs1_phys: sources.rs1,
-        rs2_phys: sources.rs2,
-        rs3_phys: sources.rs3,
-        rd_phys: dests.rd_phys,
-        rs1_tag: None,
-        rs2_tag: None,
-        rs3_tag: None,
         trap: decoded.trap,
         predicted_target: decoded.predicted_target,
         seq: decoded.seq,
-        vs1_phys: sources.vs1,
-        vs2_phys: sources.vs2,
-        vs3_phys: sources.vs3,
-        vd_phys: dests.vd_phys,
-        vec_src1_count: sources.vs1_count,
-        vec_src2_count: sources.vs2_count,
-        vec_src3_count: sources.vs3_count,
-        mask: sources.mask,
         vector_config: vector.config,
         vector_rounding: vector.rounding,
+        regs: RenamedRegisters { rd_phys: dests.rd_phys, vd_phys: dests.vd_phys, ..sources },
     }
 }
 
-fn trace_renamed(state: &StageCtx<'_>, entry: &RenameIssueEntry, old_phys_dst: PhysReg) {
+/// The out-of-order backend's registers: the physical registers each
+/// source was renamed to, and those the results go to.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RenamedRegisters {
+    /// rs1's physical register.
+    pub rs1_phys: PhysReg,
+    /// rs2's physical register.
+    pub rs2_phys: PhysReg,
+    /// rs3's physical register, x0's when the instruction has no rs3.
+    pub rs3_phys: PhysReg,
+    /// The physical register the result goes to, x0's when it has none.
+    pub rd_phys: PhysReg,
+    /// The vs1 group.
+    pub vs1_phys: [VecPhysReg; MAX_GROUP_REGS],
+    /// The vs2 group.
+    pub vs2_phys: [VecPhysReg; MAX_GROUP_REGS],
+    /// The old destination group, for tail and mask merging and as store
+    /// data.
+    pub vs3_phys: [VecPhysReg; MAX_GROUP_REGS],
+    /// The destination group.
+    pub vd_phys: [VecPhysReg; MAX_GROUP_REGS],
+    /// Registers in the vs1 group.
+    pub vec_src1_count: u8,
+    /// Registers in the vs2 group.
+    pub vec_src2_count: u8,
+    /// Registers in the vs3 group.
+    pub vec_src3_count: u8,
+    /// The physical register holding v0 when a masked vector op was renamed.
+    pub mask: Option<VecPhysReg>,
+}
+
+impl IssueRegisters for RenamedRegisters {
+    fn rd_phys(&self) -> PhysReg {
+        self.rd_phys
+    }
+
+    /// Both known: an O3 instruction waits on physical registers instead.
+    fn readiness(&self) -> SourceReadiness {
+        SourceReadiness { rs1: true, rs2: true }
+    }
+}
+
+/// An instruction the out-of-order backend renamed.
+pub type O3Entry = RenameIssueEntry<RenamedRegisters>;
+
+fn trace_renamed(state: &StageCtx<'_>, entry: &O3Entry, old_phys_dst: PhysReg) {
     trace_rename!(state.config.general.trace_instructions;
         pc         = %crate::common::trace::Hex(entry.inst.pc.val()),
         rob_tag    = %entry.rob_tag,
         rd         = entry.inst.rd.as_usize(),
-        rd_phys    = entry.rd_phys.0,
+        rd_phys    = entry.regs.rd_phys.0,
         old_phys   = old_phys_dst.0,
         rs1        = entry.inst.rs1.as_usize(),
-        rs1_phys   = entry.rs1_phys.0,
+        rs1_phys   = entry.regs.rs1_phys.0,
         rs2        = entry.inst.rs2.as_usize(),
-        rs2_phys   = entry.rs2_phys.0,
+        rs2_phys   = entry.regs.rs2_phys.0,
         is_store   = entry.inst.ctrl.mem_write,
         is_load    = entry.inst.ctrl.mem_read,
         is_fp      = entry.inst.ctrl.fp_reg_write,

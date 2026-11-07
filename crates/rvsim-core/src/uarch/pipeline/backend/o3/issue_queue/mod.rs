@@ -11,10 +11,11 @@ use crate::isa::op::SystemOp;
 use crate::isa::reg::ArchReg;
 use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::uarch::mdp::MemDepState;
+use crate::uarch::pipeline::backend::o3::O3Entry;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
 use crate::uarch::pipeline::backend::shared::ordering::held_by_fence;
-use crate::uarch::pipeline::latches::RenameIssueEntry;
+use crate::uarch::pipeline::latches::{RenameIssueEntry, SourceReadiness};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
@@ -108,7 +109,7 @@ impl VecOperandState {
 #[derive(Clone, Debug)]
 pub struct IssueQueueEntry {
     /// The instruction from rename.
-    pub entry: RenameIssueEntry,
+    pub entry: O3Entry,
     /// Source operand 1 state.
     pub src1: OperandState,
     /// Source operand 2 state.
@@ -181,14 +182,14 @@ impl IssueQueueEntry {
 
 /// An instruction selected from the IQ for execution.
 ///
-/// Bundles the resolved `RenameIssueEntry` with its cached `MemDepState`
+/// Bundles the resolved `O3Entry` with its cached `MemDepState`
 /// so that re-dispatch (on backpressure or FU stall) preserves the
 /// original memory dependency prediction. Without this, re-dispatch
 /// would lose the prediction and allow loads to bypass stores unsafely.
 #[derive(Clone, Debug)]
 pub struct SelectedEntry {
     /// The instruction with resolved operand values.
-    pub entry: RenameIssueEntry,
+    pub entry: O3Entry,
     /// Its functional unit class.
     pub fu_type: FuType,
     /// The free unit reserved for it.
@@ -264,7 +265,7 @@ impl IssueQueue {
     /// reading each source operand that is ready from the register files.
     pub fn dispatch(
         &mut self,
-        entry: RenameIssueEntry,
+        entry: O3Entry,
         prf: &PhysRegFile,
         vec_prf: &VecPhysRegFile,
         mem_dep: MemDepState,
@@ -274,33 +275,33 @@ impl IssueQueue {
         };
 
         let ctrl = &entry.inst.ctrl;
-        let src1 = resolve_operand(ctrl.src1(entry.inst.rs1), entry.rs1_phys, prf);
-        let src2 = resolve_operand(ctrl.src2(entry.inst.rs2), entry.rs2_phys, prf);
+        let src1 = resolve_operand(ctrl.src1(entry.inst.rs1), entry.regs.rs1_phys, prf);
+        let src2 = resolve_operand(ctrl.src2(entry.inst.rs2), entry.regs.rs2_phys, prf);
         let src3 = ctrl.src3(entry.inst.rs3).map_or(OperandState::ready(PhysReg(0), 0), |rs3| {
-            resolve_operand(rs3, entry.rs3_phys, prf)
+            resolve_operand(rs3, entry.regs.rs3_phys, prf)
         });
 
         let mut vec_src1 = VecOperandState {
-            phys: entry.vs1_phys,
-            count: entry.vec_src1_count,
-            ready: entry.vec_src1_count == 0,
+            phys: entry.regs.vs1_phys,
+            count: entry.regs.vec_src1_count,
+            ready: entry.regs.vec_src1_count == 0,
         };
         let mut vec_src2 = VecOperandState {
-            phys: entry.vs2_phys,
-            count: entry.vec_src2_count,
-            ready: entry.vec_src2_count == 0,
+            phys: entry.regs.vs2_phys,
+            count: entry.regs.vec_src2_count,
+            ready: entry.regs.vec_src2_count == 0,
         };
         let mut vec_src3 = VecOperandState {
-            phys: entry.vs3_phys,
-            count: entry.vec_src3_count,
-            ready: entry.vec_src3_count == 0,
+            phys: entry.regs.vs3_phys,
+            count: entry.regs.vec_src3_count,
+            ready: entry.regs.vec_src3_count == 0,
         };
 
         vec_src1.check_ready(vec_prf);
         vec_src2.check_ready(vec_prf);
         vec_src3.check_ready(vec_prf);
 
-        let mask_ready = entry.mask.is_none_or(|mask| vec_prf.is_ready(mask));
+        let mask_ready = entry.regs.mask.is_none_or(|mask| vec_prf.is_ready(mask));
 
         let store_issue = if entry.inst.ctrl.splits_store() && entry.trap.is_none() {
             StoreIssue::Unissued
@@ -349,7 +350,7 @@ impl IssueQueue {
             iq.vec_src1.wakeup_check(p, vec_prf);
             iq.vec_src2.wakeup_check(p, vec_prf);
             iq.vec_src3.wakeup_check(p, vec_prf);
-            if !iq.mask_ready && iq.entry.mask == Some(p) {
+            if !iq.mask_ready && iq.entry.regs.mask == Some(p) {
                 iq.mask_ready = vec_prf.is_ready(p);
             }
         }
@@ -472,7 +473,7 @@ impl IssueQueue {
     }
 
     /// The entry's instruction with its operand values filled in.
-    fn with_operands(iq: IssueQueueEntry) -> RenameIssueEntry {
+    fn with_operands(iq: IssueQueueEntry) -> O3Entry {
         let mut entry = iq.entry;
         if entry.trap.is_none() {
             debug_assert!(
@@ -595,11 +596,11 @@ impl IssueQueue {
     }
 
     /// Return a snapshot of all entries in the queue (sorted by `rob_tag`, oldest first).
-    pub fn queue_snapshot(&self) -> Vec<RenameIssueEntry> {
+    pub fn queue_snapshot(&self) -> Vec<RenameIssueEntry<SourceReadiness>> {
         let mut entries: Vec<&IssueQueueEntry> =
             self.slots.iter().filter_map(|s| s.as_ref()).collect();
         entries.sort_by(|a, b| a.entry.rob_tag.age_cmp(b.entry.rob_tag));
-        entries.into_iter().map(|iq| iq.entry.clone()).collect()
+        entries.into_iter().map(|iq| iq.entry.snapshot()).collect()
     }
 
     /// Whether the queue is empty.

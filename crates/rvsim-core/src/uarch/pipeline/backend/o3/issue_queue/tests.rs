@@ -6,12 +6,12 @@ use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
 use crate::isa::reg::RegIdx;
-use crate::isa::rvv::MAX_GROUP_REGS;
+use crate::uarch::pipeline::backend::o3::RenamedRegisters;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, RobTag};
 
-fn make_entry(rob_tag: u32) -> RenameIssueEntry {
+fn make_entry(rob_tag: u32) -> O3Entry {
     RenameIssueEntry {
         // NOP
         inst: Inst {
@@ -29,26 +29,12 @@ fn make_entry(rob_tag: u32) -> RenameIssueEntry {
             ctrl: ControlSignals::default(),
         },
         rob_tag: RobTag::new(rob_tag),
-        rs1_tag: None,
-        rs2_tag: None,
-        rs3_tag: None,
-        rs1_phys: PhysReg(0),
-        rs2_phys: PhysReg(0),
-        rs3_phys: PhysReg(0),
-        rd_phys: PhysReg(0),
         trap: None,
         predicted_target: None,
         seq: crate::common::InstSeq::default(),
-        vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-        vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-        vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-        vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
-        vec_src1_count: 0,
-        vec_src2_count: 0,
-        vec_src3_count: 0,
-        mask: None,
         vector_config: crate::isa::rvv::VectorConfig::default(),
         vector_rounding: crate::isa::rvv::VectorRounding::default(),
+        regs: RenamedRegisters::default(),
     }
 }
 
