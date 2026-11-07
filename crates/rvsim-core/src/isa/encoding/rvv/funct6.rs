@@ -352,6 +352,9 @@ pub const VCLMULH: u32 = 0b001101;
 pub const VROR: u32 = 0b010100;
 /// `vrol.vv`/`vrol.vx` (Zvbb).
 pub const VROL: u32 = 0b010101;
+/// `vror.vi` with bit 5 of its rotate set: Zvbb puts that bit in funct6's
+/// low bit, so the OPIVI form occupies both 0b010100 and 0b010101.
+pub const VROR_VI_ROTATE_HIGH: u32 = VROR | 1;
 /// `vwsll.vv`/`vwsll.vx`/`vwsll.vi` (Zvbb). Shares funct6 0b110101 with
 /// `VWADD_W` (different funct3).
 pub const VWSLL: u32 = 0b110101;
