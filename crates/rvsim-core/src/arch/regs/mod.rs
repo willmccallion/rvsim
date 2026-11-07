@@ -6,6 +6,8 @@ pub mod gpr;
 
 pub mod vpr;
 
+pub(crate) mod vec_storage;
+
 use crate::arch::regs::fpr::Fpr;
 use crate::arch::regs::gpr::Gpr;
 use crate::arch::regs::vpr::Vpr;
