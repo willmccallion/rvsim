@@ -465,7 +465,7 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
 /// Returns `(VectorOp, writes_vec_reg)`.
 const fn decode_opmvx(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
     Ok(match f6 {
-        0b010000 => (VectorOp::VMvSX, true),
+        v_f6::VRXUNARY0 => (VectorOp::VMvSX, true),
         v_f6::VSLIDEUP => (VectorOp::VSlide1Up, true),
         v_f6::VSLIDEDOWN => (VectorOp::VSlide1Down, true),
         v_f6::VMUL => (VectorOp::VMul, true),

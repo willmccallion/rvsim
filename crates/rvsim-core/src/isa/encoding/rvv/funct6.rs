@@ -289,6 +289,9 @@ pub const VFWNMSAC: u32 = 0b111111;
 
 /// Unary scalar-result ops in OPMVV: `vmv.x.s`, `vcpop.m`, `vfirst.m`.
 pub const VWXUNARY0: u32 = 0b010000;
+
+/// OPMVX funct6 for `vmv.s.x`.
+pub const VRXUNARY0: u32 = 0b010000;
 /// Integer extension unary ops in OPMVV: `vzext`, `vsext`.
 pub const VXUNARY0: u32 = 0b010010;
 /// Mask-source unary ops in OPMVV: `vmsbf.m`, `vmsof.m`, `vmsif.m`, `viota.m`, `vid.v`.
