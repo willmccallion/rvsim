@@ -10,4 +10,4 @@ mod predictor;
 mod store_set;
 mod unit;
 
-pub use unit::{MemDepState, MemDepUnit};
+pub use unit::{MemDepAccess, MemDepState, MemDepUnit};

@@ -7,6 +7,7 @@ use crate::isa::extension::Extension;
 use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
+use crate::uarch::mdp::MemDepAccess;
 use crate::uarch::pipeline::backend::shared::execute::record_vector_flags;
 use crate::uarch::pipeline::backend::shared::issue_stats::count_issue_stalls;
 use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, route_to_phys};
@@ -295,11 +296,8 @@ impl O3Engine {
     ) {
         for entry in std::mem::take(rename_output) {
             state.trace_stage(entry.seq, Stage::Dispatch);
-            let is_load = entry.inst.ctrl.mem_read;
-            let is_store = entry.inst.ctrl.uses_store_buffer();
-            let is_atomic = entry.inst.ctrl.atomic_op.is_some();
-            let mem_dep =
-                self.mdp.dispatch(entry.inst.pc, entry.rob_tag, is_load, is_store, is_atomic);
+            let access = MemDepAccess::of(&entry.inst.ctrl);
+            let mem_dep = self.mdp.dispatch(entry.inst.pc, entry.rob_tag, access);
             let ok = self.issue_queue.dispatch(entry, &self.prf, &self.vec_prf, mem_dep);
             debug_assert!(ok, "IQ dispatch failed — rename budget should prevent this");
         }
