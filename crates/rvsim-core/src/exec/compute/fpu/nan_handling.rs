@@ -17,8 +17,8 @@ const CANONICAL_NAN_F32: u32 = 0x7fc0_0000;
 /// Canonical quiet NaN for IEEE 754 double-precision (positive, quiet, zero payload).
 const CANONICAL_NAN_F64: u64 = 0x7ff8_0000_0000_0000;
 
-/// Upper-32-bit mask used for NaN boxing validation.
-const NAN_BOX_MASK: u64 = 0xFFFF_FFFF_0000_0000;
+/// The upper 32 bits a NaN-boxed f32 has set.
+pub const F32_NAN_BOX_MASK: u64 = 0xFFFF_FFFF_0000_0000;
 
 /// Boxes an f32 value into a 64-bit NaN-boxed representation.
 ///
@@ -33,7 +33,7 @@ const NAN_BOX_MASK: u64 = 0xFFFF_FFFF_0000_0000;
 /// A 64-bit value with the f32 in the lower 32 bits and all 1s in the upper 32 bits.
 #[inline]
 pub const fn box_f32(f: f32) -> u64 {
-    (f.to_bits() as u64) | NAN_BOX_MASK
+    (f.to_bits() as u64) | F32_NAN_BOX_MASK
 }
 
 /// Canonicalizes an f32 result and boxes it into a 64-bit NaN-boxed value.
@@ -52,7 +52,7 @@ pub const fn box_f32_canon(f: f32) -> u64 {
     if (bits & 0x7F80_0000) == 0x7F80_0000 && (bits & 0x007F_FFFF) != 0 {
         bits = CANONICAL_NAN_F32;
     }
-    (bits as u64) | NAN_BOX_MASK
+    (bits as u64) | F32_NAN_BOX_MASK
 }
 
 /// Canonicalizes an f64 result and returns its bits.
@@ -85,7 +85,7 @@ pub const fn canonicalize_f64_bits(f: f64) -> u64 {
 /// The unboxed f32, or canonical NaN if the value was not properly NaN-boxed.
 #[inline]
 pub const fn unbox_f32(val: u64) -> f32 {
-    if (val & NAN_BOX_MASK) == NAN_BOX_MASK {
+    if (val & F32_NAN_BOX_MASK) == F32_NAN_BOX_MASK {
         f32::from_bits(val as u32)
     } else {
         // Not properly NaN-boxed: treat as canonical NaN (RISC-V spec §12.2).

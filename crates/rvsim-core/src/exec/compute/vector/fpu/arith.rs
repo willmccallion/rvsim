@@ -8,7 +8,7 @@ use crate::exec::compute::fpu::half::{
     sum_is_invalid,
 };
 use crate::exec::compute::fpu::nan_handling::{
-    box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
+    box_f32, box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
 };
 use crate::exec::compute::fpu::nan_handling::{is_snan_f32, is_snan_f64};
 use crate::exec::compute::fpu::{IntTarget, fp_to_int};
@@ -89,24 +89,24 @@ pub(super) fn compute_f32(
             let r = fmin_f32(a, b);
             // IEEE 754-2008 minNum: raise NV if either operand is a signaling NaN.
             let f = if is_snan_f32(a) || is_snan_f32(b) { FpFlags::NV } else { FpFlags::NONE };
-            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, f)
+            (box_f32(r), f)
         }
         VectorOp::VFMax => {
             let r = fmax_f32(a, b);
             let f = if is_snan_f32(a) || is_snan_f32(b) { FpFlags::NV } else { FpFlags::NONE };
-            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, f)
+            (box_f32(r), f)
         }
         VectorOp::VFSgnj => {
             let r = f32::from_bits((a.to_bits() & !F32_SIGN_BIT) | (b.to_bits() & F32_SIGN_BIT));
-            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+            (box_f32(r), FpFlags::NONE)
         }
         VectorOp::VFSgnjn => {
             let r = f32::from_bits((a.to_bits() & !F32_SIGN_BIT) | (!b.to_bits() & F32_SIGN_BIT));
-            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+            (box_f32(r), FpFlags::NONE)
         }
         VectorOp::VFSgnjx => {
             let r = f32::from_bits(a.to_bits() ^ (b.to_bits() & F32_SIGN_BIT));
-            (r.to_bits() as u64 | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+            (box_f32(r), FpFlags::NONE)
         }
         VectorOp::VFClass => (FpClass::of(FpFormat::Single, vs2_bits).mask(), FpFlags::NONE),
         // Conversions: float -> unsigned int (uses dynamic FRM)

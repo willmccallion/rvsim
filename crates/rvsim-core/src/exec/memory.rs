@@ -1,5 +1,7 @@
 //! What memory instructions compute from the data they access.
 
+use crate::exec::compute::fpu::half::box_f16;
+use crate::exec::compute::fpu::nan_handling::F32_NAN_BOX_MASK;
 use crate::isa::bits::zext_word;
 use crate::isa::op::MemWidth;
 
@@ -12,8 +14,8 @@ pub const fn load_result(raw: u64, width: MemWidth, signed: bool, fp_dest: bool)
         return value;
     }
     match width {
-        MemWidth::Word => value | 0xFFFF_FFFF_0000_0000,
-        MemWidth::Half => (value & 0xFFFF) | 0xFFFF_FFFF_FFFF_0000,
+        MemWidth::Word => value | F32_NAN_BOX_MASK,
+        MemWidth::Half => box_f16(value as u16),
         _ => value,
     }
 }

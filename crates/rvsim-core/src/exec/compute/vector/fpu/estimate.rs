@@ -2,7 +2,9 @@
 //! estimates, from the spec's lookup tables.
 
 use crate::exec::compute::fpu::half::CANONICAL_NAN_F16;
-use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
+use crate::exec::compute::fpu::nan_handling::{
+    F32_NAN_BOX_MASK, box_f32_canon, canonicalize_f64_bits,
+};
 use crate::isa::bits::zext_word;
 use crate::isa::fp::{FpFlags, RoundingMode};
 
@@ -73,11 +75,11 @@ pub(super) fn vfrsqrt7_32(bits: u32) -> (u64, FpFlags) {
         if sign != 0 {
             return (zext_word(box_f32_canon(f32::NAN)), FpFlags::NV);
         }
-        return (0xFFFF_FFFF_0000_0000, FpFlags::NONE);
+        return (F32_NAN_BOX_MASK, FpFlags::NONE);
     }
     if exp == 0 && sig == 0 {
         let r = if sign != 0 { 0xFF80_0000u64 } else { 0x7F80_0000u64 };
-        return (r | 0xFFFF_FFFF_0000_0000, FpFlags::DZ);
+        return (r | F32_NAN_BOX_MASK, FpFlags::DZ);
     }
     if sign != 0 {
         return (zext_word(box_f32_canon(f32::NAN)), FpFlags::NV);
@@ -97,7 +99,7 @@ pub(super) fn vfrsqrt7_32(bits: u32) -> (u64, FpFlags) {
     let out_exp = u64::midpoint(3 * 127, !exp);
 
     let result = (sign << 31) | ((out_exp & 0xFF) << 23) | (out_sig & 0x007F_FFFF);
-    (result | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+    (result | F32_NAN_BOX_MASK, FpFlags::NONE)
 }
 
 /// Compute vfrsqrt7 for an f64 value. Returns `(result_bits, flags)`.
@@ -288,10 +290,10 @@ pub(super) fn vfrec7_32(bits: u32, frm: RoundingMode) -> (u64, FpFlags) {
         return (zext_word(box_f32_canon(f32::NAN)), f);
     }
     if exp == 0xFF && sig == 0 {
-        return ((sign << 31) | 0xFFFF_FFFF_0000_0000, FpFlags::NONE);
+        return ((sign << 31) | F32_NAN_BOX_MASK, FpFlags::NONE);
     }
     if exp == 0 && sig == 0 {
-        return (((sign << 31) | 0x7F80_0000) | 0xFFFF_FFFF_0000_0000, FpFlags::DZ);
+        return (((sign << 31) | 0x7F80_0000) | F32_NAN_BOX_MASK, FpFlags::DZ);
     }
 
     let sub = exp == 0;
@@ -304,7 +306,7 @@ pub(super) fn vfrec7_32(bits: u32, frm: RoundingMode) -> (u64, FpFlags) {
         if exp != 0 && exp != u64::MAX {
             let to_max = vfrec7_saturate_to_max(sign, frm);
             let sat = if to_max { 0x7F7F_FFFFu64 } else { 0x7F80_0000u64 };
-            return (((sign << 31) | sat) | 0xFFFF_FFFF_0000_0000, FpFlags::OF | FpFlags::NX);
+            return (((sign << 31) | sat) | F32_NAN_BOX_MASK, FpFlags::OF | FpFlags::NX);
         }
     }
 
@@ -321,7 +323,7 @@ pub(super) fn vfrec7_32(bits: u32, frm: RoundingMode) -> (u64, FpFlags) {
     }
 
     let result = (sign << 31) | ((out_exp & 0xFF) << 23) | (out_sig & 0x007F_FFFF);
-    (result | 0xFFFF_FFFF_0000_0000, FpFlags::NONE)
+    (result | F32_NAN_BOX_MASK, FpFlags::NONE)
 }
 
 /// Compute vfrec7 for an f64 value. Returns `(result_bits, flags)`.
