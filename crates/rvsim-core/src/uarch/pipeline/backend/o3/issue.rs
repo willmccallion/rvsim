@@ -322,14 +322,7 @@ impl O3Engine {
             let is_atomic = entry.inst.ctrl.atomic_op.is_some();
             let mem_dep =
                 self.mdp.dispatch(entry.inst.pc, entry.rob_tag, is_load, is_store, is_atomic);
-            let ok = self.issue_queue.dispatch(
-                entry,
-                &self.rob,
-                &state.stage(),
-                Some(&self.prf),
-                Some(&self.vec_prf),
-                mem_dep,
-            );
+            let ok = self.issue_queue.dispatch(entry, &self.prf, &self.vec_prf, mem_dep);
             debug_assert!(ok, "IQ dispatch failed — rename budget should prevent this");
         }
     }
