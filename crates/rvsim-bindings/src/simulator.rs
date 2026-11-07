@@ -564,38 +564,36 @@ impl PySimulator {
 
     /// Execute until one instruction commits.
     ///
-    /// Returns an `Instruction` or ``None`` if the simulation exited
-    /// before an instruction could commit.
+    /// Returns an `Instruction` (the first, when several commit in one
+    /// cycle) or ``None`` if the simulation exited, or ``max_cycles``
+    /// passed, before an instruction could commit.
     #[pyo3(signature = (max_cycles=100_000))]
     fn step(&mut self, py: Python<'_>, max_cycles: u64) -> PyResult<Option<PyInstruction>> {
-        let before_last = self.inner.pc_trace(0).last().copied();
-        let mut cycles_run: u64 = 0;
-
-        loop {
-            if cycles_run >= max_cycles {
-                return Ok(None);
-            }
-            if cycles_run.is_multiple_of(10_000) {
+        let start_cycle = self.inner.cycle();
+        let retired_before = self.inner.hart(0).instructions_retired;
+        let mut ticks: u64 = 0;
+        while self.inner.cycle() - start_cycle < max_cycles {
+            if ticks.is_multiple_of(10_000) {
                 py.check_signals()?;
             }
-            match self.inner.tick() {
-                Ok(()) => {
-                    if self.inner.take_exit().is_some() {
-                        return Ok(None);
-                    }
-                }
-                Err(e) => return Err(PyRuntimeError::new_err(e.to_string())),
+            self.inner.tick().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            ticks += 1;
+            if self.inner.take_exit().is_some() {
+                return Ok(None);
             }
-            cycles_run += 1;
-
-            let new_last = self.inner.pc_trace(0).last().copied();
-            if new_last != before_last
-                && let Some((pc, inst)) = new_last
-            {
-                let asm = rvsim_core::isa::disasm::disassemble(inst);
-                return Ok(Some(PyInstruction { pc, raw: inst, asm, cycles: self.inner.cycle() }));
+            let retired = self.inner.hart(0).instructions_retired - retired_before;
+            if retired == 0 {
+                continue;
             }
+            // This tick's retirements are the trace's last `retired` entries.
+            let trace = self.inner.pc_trace(0);
+            let kept = usize::try_from(retired).map_or(trace.len(), |n| n.min(trace.len()));
+            let (pc, inst) = trace[trace.len() - kept];
+            let asm = rvsim_core::isa::disasm::disassemble(inst);
+            let cycles = self.inner.cycle() - start_cycle;
+            return Ok(Some(PyInstruction { pc, raw: inst, asm, cycles }));
         }
+        Ok(None)
     }
 
     /// Run the simulation until exit or cycle limit.
