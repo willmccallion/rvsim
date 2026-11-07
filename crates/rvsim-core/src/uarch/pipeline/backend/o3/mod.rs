@@ -17,6 +17,8 @@ mod squash;
 
 use crate::common::VirtAddr;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
+use crate::isa::rvv::VRegIdx;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit;
@@ -41,10 +43,10 @@ use self::fu_pool::FuPool;
 use self::issue_queue::IssueQueue;
 
 /// Physical registers the integer and floating-point architectural state
-/// holds: slots 0..32 are the GPRs, 32..64 the FPRs.
-const ARCH_SCALAR_REGS: usize = 64;
+/// holds: the GPRs first, then the FPRs.
+const ARCH_SCALAR_REGS: usize = 2 * RegIdx::COUNT;
 /// Physical vector registers the architectural v0..v31 hold.
-const ARCH_VECTOR_REGS: usize = 32;
+const ARCH_VECTOR_REGS: usize = VRegIdx::COUNT;
 
 /// A result a functional unit is still producing. Its dependents wake, and
 /// its ROB entry completes, when `complete_cycle` arrives.
@@ -251,20 +253,16 @@ impl O3Engine {
     /// registers its committed rename map names: at reset, and whenever a
     /// debugger changes a register while nothing is in flight.
     pub fn sync_arch_regs(&mut self, state: &crate::uarch::ctx::CoreCtx<'_>) {
-        use crate::isa::reg::{ArchReg, RegIdx};
-        use crate::isa::rvv::VRegIdx;
-        for i in 1u8..32 {
-            let reg = RegIdx::new(i);
+        use crate::isa::reg::ArchReg;
+        for reg in RegIdx::all().skip(1) {
             let phys = self.committed_rename_map.get(ArchReg::Int(reg));
             self.prf.write(phys, state.hart.regs.read(reg));
         }
-        for i in 0u8..32 {
-            let reg = RegIdx::new(i);
+        for reg in RegIdx::all() {
             let phys = self.committed_rename_map.get(ArchReg::Fp(reg));
             self.prf.write(phys, state.hart.regs.read_f(reg));
         }
-        for i in 0u8..32 {
-            let vreg = VRegIdx::new(i);
+        for vreg in VRegIdx::all() {
             let bytes = state.hart.regs.vpr().read_bytes(vreg);
             self.vec_prf.write_bytes(self.committed_rename_map.get_vec(vreg), bytes);
         }

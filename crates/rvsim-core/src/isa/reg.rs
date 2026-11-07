@@ -35,6 +35,11 @@ impl RegIdx {
         self.0 as usize
     }
 
+    /// Every register index, from 0 up.
+    pub fn all() -> impl Iterator<Item = Self> {
+        (0..Self::COUNT as u8).map(Self)
+    }
+
     /// Returns the raw `u8` value.
     #[inline(always)]
     pub const fn as_u8(self) -> u8 {

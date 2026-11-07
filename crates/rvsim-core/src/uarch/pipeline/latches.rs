@@ -19,6 +19,7 @@ use crate::isa::instruction::InstSize;
 use crate::isa::op::AtomicOp;
 use crate::isa::privileged::Trap;
 use crate::isa::reg::RegIdx;
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, Sew, VectorConfig, VectorRounding};
 use crate::sim::memory::write_log::WriteSeq;
 use crate::uarch::pipeline::backend::shared::vec_mem::VecMemAddrOp;
@@ -316,13 +317,13 @@ pub struct RenameIssueEntry {
     /// The instruction's place in fetch order.
     pub seq: InstSeq,
     /// Physical vector registers for vs1 LMUL group (O3 backend).
-    pub vs1_phys: [VecPhysReg; 8],
+    pub vs1_phys: [VecPhysReg; MAX_GROUP_REGS],
     /// Physical vector registers for vs2 LMUL group (O3 backend).
-    pub vs2_phys: [VecPhysReg; 8],
+    pub vs2_phys: [VecPhysReg; MAX_GROUP_REGS],
     /// Physical vector registers for vs3/vd-as-source LMUL group (O3 backend).
-    pub vs3_phys: [VecPhysReg; 8],
+    pub vs3_phys: [VecPhysReg; MAX_GROUP_REGS],
     /// Physical vector registers for vd destination LMUL group (O3 backend).
-    pub vd_phys: [VecPhysReg; 8],
+    pub vd_phys: [VecPhysReg; MAX_GROUP_REGS],
     /// Number of registers in vs1 LMUL group.
     pub vec_src1_count: u8,
     /// Number of registers in vs2 LMUL group.

@@ -4,6 +4,7 @@ use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses, is_vec_store};
 use crate::isa::extension::Extension;
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
@@ -28,7 +29,7 @@ use super::{O3Engine, PendingResult};
 #[derive(Clone, Copy, Debug)]
 struct VecDest {
     /// Its renamed physical registers.
-    phys: [VecPhysReg; 8],
+    phys: [VecPhysReg; MAX_GROUP_REGS],
     /// How many registers the group has.
     count: u8,
     /// The first architectural register of the group.
@@ -45,7 +46,12 @@ struct IssuedVector<'a> {
 }
 
 /// Points `count` architectural registers from `base` at `regs`.
-fn overlay(mapping: &mut [VecPhysReg; 32], base: VRegIdx, regs: &[VecPhysReg; 8], count: u8) {
+fn overlay(
+    mapping: &mut [VecPhysReg; 32],
+    base: VRegIdx,
+    regs: &[VecPhysReg; MAX_GROUP_REGS],
+    count: u8,
+) {
     let base = base.as_u8() as usize;
     for i in 0..count as usize {
         if base + i < 32 {
@@ -206,7 +212,7 @@ impl O3Engine {
         if result.ctrl.vec_reg_write {
             self.vec_pending.push(VecPendingResult {
                 rob_tag: result.rob_tag,
-                vd_phys: dest.map_or([VecPhysReg::ZERO; 8], |d| d.phys),
+                vd_phys: dest.map_or([VecPhysReg::ZERO; MAX_GROUP_REGS], |d| d.phys),
                 vd_count: dest.map_or(0, |d| d.count),
                 first_group_ready: first_ready,
                 full_complete: complete_cycle,
@@ -229,7 +235,7 @@ impl O3Engine {
         let vec_op = result.ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
         let vd_count = dest.map_or(0, |d| d.count);
-        let vd_phys = dest.map_or([VecPhysReg::ZERO; 8], |d| d.phys);
+        let vd_phys = dest.map_or([VecPhysReg::ZERO; MAX_GROUP_REGS], |d| d.phys);
 
         // Reject illegal EMUL (>8) before element_accesses would panic.
         let vtype = parse_vtype(entry.vector_config.vtype);

@@ -13,6 +13,7 @@ use crate::exec::compute::vector::mem::{
 use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::op::VecOperandGroups;
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{VRegIdx, VectorConfig, VectorRounding, parse_vtype};
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
@@ -149,7 +150,7 @@ impl O3Engine {
             }
             return None;
         };
-        let mut vd_phys = [VecPhysReg::ZERO; 8];
+        let mut vd_phys = [VecPhysReg::ZERO; MAX_GROUP_REGS];
         for (slot, reg) in vd_phys.iter_mut().zip(vd_regs.take()) {
             *slot = reg;
         }
@@ -212,10 +213,10 @@ struct Sources {
     rs1: PhysReg,
     rs2: PhysReg,
     rs3: PhysReg,
-    vs1: [VecPhysReg; 8],
-    vs2: [VecPhysReg; 8],
+    vs1: [VecPhysReg; MAX_GROUP_REGS],
+    vs2: [VecPhysReg; MAX_GROUP_REGS],
     /// The old destination group, for tail and mask merging and as store data.
-    vs3: [VecPhysReg; 8],
+    vs3: [VecPhysReg; MAX_GROUP_REGS],
     vs1_count: u8,
     vs2_count: u8,
     vs3_count: u8,
@@ -229,7 +230,7 @@ struct Destinations {
     rd_phys: PhysReg,
     /// The register `rd` mapped to before, freed when this one commits.
     old_phys_dst: PhysReg,
-    vd_phys: [VecPhysReg; 8],
+    vd_phys: [VecPhysReg; MAX_GROUP_REGS],
 }
 
 /// The issue-queue entry for `id`, renamed to `sources` and `dests`.

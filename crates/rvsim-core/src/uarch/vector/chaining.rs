@@ -6,6 +6,7 @@
 //!
 //! Based on Saturn's "augmented element-group-granularity scoreboarding".
 
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::RobTag;
 
@@ -15,7 +16,7 @@ pub struct VecPendingResult {
     /// ROB tag of the vector instruction.
     pub rob_tag: RobTag,
     /// Physical destination registers for the LMUL group.
-    pub vd_phys: [VecPhysReg; 8],
+    pub vd_phys: [VecPhysReg; MAX_GROUP_REGS],
     /// Number of destination registers in the LMUL group (1/2/4/8).
     pub vd_count: u8,
     /// Cycle at which the first element-group result is ready (chaining wakeup).
@@ -47,7 +48,7 @@ mod tests {
     fn make_pending(first: u64, full: u64) -> VecPendingResult {
         VecPendingResult {
             rob_tag: RobTag::new(1),
-            vd_phys: [VecPhysReg::ZERO; 8],
+            vd_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
             vd_count: 1,
             first_group_ready: first,
             full_complete: full,

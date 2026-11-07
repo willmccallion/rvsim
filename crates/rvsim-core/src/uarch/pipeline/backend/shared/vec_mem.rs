@@ -17,6 +17,7 @@ use crate::exec::signals::ControlSignals;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::{MemWidth, VectorOp};
 use crate::isa::privileged::Trap;
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen, parse_vtype};
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
@@ -45,7 +46,7 @@ pub struct VecMemAddrOp {
 #[must_use]
 pub fn route_to_phys(
     accesses: Vec<ElementAccess>,
-    vd_phys: &[VecPhysReg; 8],
+    vd_phys: &[VecPhysReg; MAX_GROUP_REGS],
     vd_count: u8,
 ) -> Vec<VecMemAddrOp> {
     accesses
@@ -87,7 +88,7 @@ pub struct VecMemInflight {
     /// Number of micro-ops still outstanding (not yet written back).
     pub remaining: usize,
     /// Physical destination registers for the LMUL group (for chaining wakeup).
-    pub vd_phys: [VecPhysReg; 8],
+    pub vd_phys: [VecPhysReg; MAX_GROUP_REGS],
     /// Number of destination registers in the LMUL group.
     pub vd_count: u8,
     /// Whether chaining wakeup has fired (first cache-line returned).
@@ -114,7 +115,7 @@ impl VecMemInflight {
         parent: &ExMem1Entry,
         accesses: Vec<VecMemAddrOp>,
         width: usize,
-        vd_phys: [VecPhysReg; 8],
+        vd_phys: [VecPhysReg; MAX_GROUP_REGS],
         vd_count: u8,
     ) -> Self {
         let vec_op = parent.ctrl.vec_op;

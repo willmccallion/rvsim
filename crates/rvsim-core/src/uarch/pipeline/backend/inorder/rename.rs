@@ -8,6 +8,7 @@
 use super::InOrderEngine;
 use crate::exec::compute::vector::mem::is_vec_store;
 use crate::exec::inst::Inst;
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
@@ -79,10 +80,10 @@ impl InOrderEngine {
             trap: decoded.trap,
             predicted_target: decoded.predicted_target,
             seq: decoded.seq,
-            vs1_phys: [VecPhysReg::ZERO; 8],
-            vs2_phys: [VecPhysReg::ZERO; 8],
-            vs3_phys: [VecPhysReg::ZERO; 8],
-            vd_phys: [VecPhysReg::ZERO; 8],
+            vs1_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
+            vs2_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
+            vs3_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
+            vd_phys: [VecPhysReg::ZERO; MAX_GROUP_REGS],
             vec_src1_count: 0,
             vec_src2_count: 0,
             vec_src3_count: 0,
