@@ -4,7 +4,8 @@
 //! register numbers. Maintained speculatively; the `committed_rename_map`
 //! in `O3Engine` tracks the last committed state for flush recovery.
 
-use crate::isa::reg::ArchReg;
+use crate::isa::reg::{ArchReg, RegIdx};
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::VRegIdx;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 
@@ -14,26 +15,22 @@ use super::prf::PhysReg;
 #[derive(Clone, Debug)]
 pub struct RenameMap {
     /// GPR rename map: gpr[i] = current physical reg for `x_i`
-    gpr: [PhysReg; 32],
+    gpr: [PhysReg; RegIdx::COUNT],
     /// FPR rename map: fpr[i] = current physical reg for `f_i`
-    fpr: [PhysReg; 32],
+    fpr: [PhysReg; RegIdx::COUNT],
     /// VPR rename map: vpr[i] = current physical vec reg for `v_i`
-    vpr: [VecPhysReg; 32],
+    vpr: [VecPhysReg; VRegIdx::COUNT],
 }
 
 impl RenameMap {
     /// Create a new rename map with identity mapping.
     /// GPR i → PhysReg(i), FPR i → PhysReg(32 + i), VPR i → VecPhysReg(i).
     pub fn new() -> Self {
-        let mut gpr = [PhysReg(0); 32];
-        let mut fpr = [PhysReg(0); 32];
-        let mut vpr = [VecPhysReg::ZERO; 32];
-        for i in 0..32 {
-            gpr[i] = PhysReg(i as u16);
-            fpr[i] = PhysReg((32 + i) as u16);
-            vpr[i] = VecPhysReg::new(i as u16);
+        Self {
+            gpr: std::array::from_fn(|i| PhysReg(i as u16)),
+            fpr: std::array::from_fn(|i| PhysReg((RegIdx::COUNT + i) as u16)),
+            vpr: std::array::from_fn(|i| VecPhysReg::new(i as u16)),
         }
-        Self { gpr, fpr, vpr }
     }
 
     /// Get the current physical register for an architectural register.
@@ -73,8 +70,8 @@ impl RenameMap {
 
     /// The physical registers the `count` vector registers from `base` map
     /// to, the rest of the group left as `VecPhysReg::ZERO`.
-    pub fn vec_group(&self, base: VRegIdx, count: u8) -> [VecPhysReg; 8] {
-        let mut group = [VecPhysReg::ZERO; 8];
+    pub fn vec_group(&self, base: VRegIdx, count: u8) -> [VecPhysReg; MAX_GROUP_REGS] {
+        let mut group = [VecPhysReg::ZERO; MAX_GROUP_REGS];
         for (offset, slot) in group.iter_mut().enumerate().take(count as usize) {
             *slot = self.get_vec(VRegIdx::new(base.as_u8() + offset as u8));
         }
@@ -83,7 +80,11 @@ impl RenameMap {
 
     /// Maps the vector registers from `base` to `regs` in order, returning
     /// the group they mapped to before.
-    pub fn rename_vec_group(&mut self, base: VRegIdx, regs: &[VecPhysReg]) -> [VecPhysReg; 8] {
+    pub fn rename_vec_group(
+        &mut self,
+        base: VRegIdx,
+        regs: &[VecPhysReg],
+    ) -> [VecPhysReg; MAX_GROUP_REGS] {
         let old = self.vec_group(base, regs.len() as u8);
         for (offset, &reg) in regs.iter().enumerate() {
             self.set_vec(VRegIdx::new(base.as_u8() + offset as u8), reg);

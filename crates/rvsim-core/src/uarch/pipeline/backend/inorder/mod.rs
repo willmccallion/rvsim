@@ -19,6 +19,7 @@ use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::ElementWrite;
 use crate::exec::execute::illegal_in_current_state;
 use crate::isa::privileged::Trap;
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
 use crate::sim::components::{CacheId, PipelineId};
 use crate::uarch::ctx::CoreCtx;
@@ -220,7 +221,7 @@ impl InOrderEngine {
                 entry.inst.ctrl.vec_nf,
             )
         };
-        let mut vd_regs = [VecPhysReg::ZERO; 8];
+        let mut vd_regs = [VecPhysReg::ZERO; MAX_GROUP_REGS];
         for (offset, reg) in vd_regs.iter_mut().enumerate().take(vd_count as usize) {
             *reg = VecPhysReg::new(u16::from(entry.inst.ctrl.vd.as_u8()) + offset as u16);
         }

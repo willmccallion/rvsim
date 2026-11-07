@@ -10,6 +10,8 @@ use super::{
     Timer,
 };
 use crate::isa::misa::Misa;
+use crate::isa::reg::RegIdx;
+use crate::isa::rvv::{MAX_GROUP_REGS, VRegIdx};
 
 /// The most ways PLRU replacement tracks: one bit per way in a 64-bit word,
 /// with the all-ways-used state one past the last.
@@ -26,10 +28,7 @@ const MAX_LOOP_TABLE_BITS: usize = 20;
 const MAX_WCB_ENTRIES: usize = 1024;
 /// Vector registers rename needs: the 32 architectural ones and one
 /// eight-register group for an LMUL=8 destination.
-const LEAST_VECTOR_REGISTERS: usize = 32 + 8;
-/// Physical integer and floating-point registers the architectural state
-/// occupies.
-const ARCHITECTURAL_REGISTERS: usize = 64;
+const LEAST_VECTOR_REGISTERS: usize = VRegIdx::COUNT + MAX_GROUP_REGS;
 /// Physical registers a 16-bit `PhysReg` or `VecPhysReg` can number.
 const MAX_PHYSICAL_REGISTERS: usize = 1 << u16::BITS;
 /// Checkpoints an 8-bit `CheckpointId` can number.
@@ -245,11 +244,11 @@ fn check_pipeline(pipeline: &PipelineConfig, misa: Misa) -> Result<(), ConfigErr
             ("pipeline.prf_gpr_size", pipeline.prf_gpr_size),
             ("pipeline.prf_fpr_size", pipeline.prf_fpr_size),
         ] {
-            if size < ARCHITECTURAL_REGISTERS / 2 {
+            if size < RegIdx::COUNT {
                 return Err(ConfigError::ArchitecturalRegisters { field, size });
             }
         }
-        if pipeline.prf_gpr_size + pipeline.prf_fpr_size <= ARCHITECTURAL_REGISTERS {
+        if pipeline.prf_gpr_size + pipeline.prf_fpr_size <= 2 * RegIdx::COUNT {
             return Err(ConfigError::NoFreeRegisters {
                 gpr: pipeline.prf_gpr_size,
                 fpr: pipeline.prf_fpr_size,

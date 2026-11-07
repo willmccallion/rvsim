@@ -9,6 +9,7 @@
 
 use crate::isa::op::SystemOp;
 use crate::isa::reg::ArchReg;
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::uarch::mdp::MemDepState;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
@@ -68,7 +69,7 @@ impl OperandState {
 #[derive(Clone, Debug)]
 pub struct VecOperandState {
     /// Physical registers in this LMUL group.
-    pub phys: [VecPhysReg; 8],
+    pub phys: [VecPhysReg; MAX_GROUP_REGS],
     /// Number of registers in this group.
     pub count: u8,
     /// True when ALL registers in the group are ready.
@@ -77,7 +78,7 @@ pub struct VecOperandState {
 
 impl Default for VecOperandState {
     fn default() -> Self {
-        Self { phys: [VecPhysReg::ZERO; 8], count: 0, ready: true }
+        Self { phys: [VecPhysReg::ZERO; MAX_GROUP_REGS], count: 0, ready: true }
     }
 }
 

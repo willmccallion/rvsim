@@ -3,11 +3,23 @@
 
 use crate::isa::rvv::{LmulGroup, Sew, Vlmul};
 
+/// The most registers a register group spans: LMUL=8, or EMUL=8 for a
+/// vector memory access's data.
+pub const MAX_GROUP_REGS: usize = 8;
+
 /// Vector register index (0–31). NOT interchangeable with `RegIdx` (GPR/FPR).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct VRegIdx(u8);
 
 impl VRegIdx {
+    /// Architectural vector registers.
+    pub const COUNT: usize = 32;
+
+    /// Every vector register index, from v0 up.
+    pub fn all() -> impl Iterator<Item = Self> {
+        (0..Self::COUNT as u8).map(Self)
+    }
+
     /// Creates a `VRegIdx` from a raw `u8`.
     ///
     /// # Panics
@@ -15,7 +27,7 @@ impl VRegIdx {
     /// Panics if `val >= 32`.
     #[inline(always)]
     pub const fn new(val: u8) -> Self {
-        assert!(val < 32, "vector register index out of range");
+        assert!((val as usize) < Self::COUNT, "vector register index out of range");
         Self(val)
     }
 

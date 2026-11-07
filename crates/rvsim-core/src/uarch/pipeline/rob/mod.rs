@@ -8,6 +8,7 @@
 //! 4. **Forwarding:** Provides the most recent result for any register from in-flight instructions.
 //! 5. **Flush:** Squashes speculative entries after a misprediction or trap.
 
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::sim::memory::write_log::WriteSeq;
 use crate::uarch::pipeline::squash::SquashScope;
 use std::collections::HashMap;
@@ -218,9 +219,9 @@ pub struct RobEntry {
     /// Checkpoint table slot allocated for this branch/jump (O3 backend).
     pub checkpoint_id: Option<CheckpointId>,
     /// Physical vector registers allocated for destination LMUL group (O3 backend).
-    pub vec_phys_dst: [VecPhysReg; 8],
+    pub vec_phys_dst: [VecPhysReg; MAX_GROUP_REGS],
     /// Previous physical mappings for destination LMUL group (reclaimed at commit).
-    pub vec_old_phys_dst: [VecPhysReg; 8],
+    pub vec_old_phys_dst: [VecPhysReg; MAX_GROUP_REGS],
     /// Number of destination vector registers in the LMUL group (0 for non-vector).
     pub vec_dst_count: u8,
     /// Deferred vxsat (fixed-point saturation) flag from vector execution (applied at commit).
@@ -380,8 +381,8 @@ impl Rob {
             observed: None,
             mem_access: None,
             checkpoint_id: None,
-            vec_phys_dst: [VecPhysReg::ZERO; 8],
-            vec_old_phys_dst: [VecPhysReg::ZERO; 8],
+            vec_phys_dst: [VecPhysReg::ZERO; MAX_GROUP_REGS],
+            vec_old_phys_dst: [VecPhysReg::ZERO; MAX_GROUP_REGS],
             vec_dst_count: 0,
             vxsat: false,
             vec_writes: None,
@@ -631,8 +632,8 @@ impl Rob {
     pub fn set_vec_phys_dst(
         &mut self,
         tag: RobTag,
-        phys_dst: [VecPhysReg; 8],
-        old_phys_dst: [VecPhysReg; 8],
+        phys_dst: [VecPhysReg; MAX_GROUP_REGS],
+        old_phys_dst: [VecPhysReg; MAX_GROUP_REGS],
         count: u8,
     ) {
         if let Some(entry) = self.find_entry_mut(tag) {

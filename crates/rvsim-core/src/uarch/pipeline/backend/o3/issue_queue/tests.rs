@@ -6,6 +6,7 @@ use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
 use crate::isa::reg::RegIdx;
+use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, RobTag};
@@ -38,10 +39,10 @@ fn make_entry(rob_tag: u32) -> RenameIssueEntry {
         trap: None,
         predicted_target: None,
         seq: crate::common::InstSeq::default(),
-        vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
-        vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
-        vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
-        vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; 8],
+        vs1_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
+        vs2_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
+        vs3_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
+        vd_phys: [crate::uarch::pipeline::rename::vec_prf::VecPhysReg::ZERO; MAX_GROUP_REGS],
         vec_src1_count: 0,
         vec_src2_count: 0,
         vec_src3_count: 0,
