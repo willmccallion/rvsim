@@ -83,7 +83,7 @@ the bundled image.
 | `StridePrefetcher`, `TaggedPrefetcher`, stream prefetchers | `Prefetcher.Stride()`, `.Tagged()`, `.Stream()`, `.NextLine()`; `LoadPrefetcher.Stride()` and `StorePrefetcher.Stream()` on the load/store unit |
 | `DDR4_2400_8x8` and the other `DRAMInterface`s, DRAMsim3 | `MemoryController.Ddr5(...)` (channels, ranks, banks, timings, refresh, ECC), `.Dram()`, `.Simple()` |
 | Ruby protocols, directories, `--network=simple|garnet` | the coherence fabric: `HomeAgent.SnoopFilter()` or `.Broadcast()`, `Interconnect.Crossbar()`, `.Ring()`, `.Mesh()`, `.Torus()`, `.Hypercube()` |
-| `clk_domain`, `--cpu-clock` | `cpu_clock_mhz` (devices, DRAM); `clock_hz` (the clock SE mode's time syscalls read) |
+| `clk_domain`, `--cpu-clock` | `cpu_clock_mhz` (SE mode's time, devices, DRAM, a real-time timer) |
 | `RiscvISA` with `enable_rvv`, `enable_Zcd`, `vlen`, `elen` | `Config(isa="rv64gcv_zba_zbb_zbs_zicbom")`, the ISA string as `-march` spells it, which `misa`, the decoder and the device tree all follow; `Config(vlen=...)` |
 
 The coherence protocol is MESI with a home agent, not a SLICC

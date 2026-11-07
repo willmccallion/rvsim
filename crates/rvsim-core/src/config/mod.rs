@@ -40,7 +40,7 @@ pub use pipeline::{
 pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};
 pub use system::{
     CLINT_REGION_BYTES, DeviceRegion, PLIC_BASE, PLIC_REGION_BYTES, RTC_BASE, RTC_REGION_BYTES,
-    SYSCON_REGION_BYTES, SystemConfig, UART_REGION_BYTES, VIRTIO_REGION_BYTES,
+    SYSCON_REGION_BYTES, SystemConfig, Timer, UART_REGION_BYTES, VIRTIO_REGION_BYTES,
 };
 
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
@@ -272,6 +272,17 @@ pub enum ConfigError {
     /// A count or size that must be at least one is zero.
     #[error("{0} must be at least 1")]
     Zero(&'static str),
+    /// A real-time timer ticks a whole number of core cycles apart.
+    #[error(
+        "system.timebase_hz {timebase_hz} must divide the {cpu_clock_hz} Hz core clock for a \
+         real-time timer"
+    )]
+    TimebaseNotDivisor {
+        /// The configured timebase.
+        timebase_hz: u32,
+        /// The core clock.
+        cpu_clock_hz: u64,
+    },
     /// A size the hardware indexes as a power of two is not one.
     #[error("{field} {value} must be a power of two")]
     NotPowerOfTwo {

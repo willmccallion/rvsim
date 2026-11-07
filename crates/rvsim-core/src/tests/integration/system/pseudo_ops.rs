@@ -130,9 +130,8 @@ fn sum_adds_its_arguments_into_a0() {
     }
 }
 
-/// `m5_rpns` reports the simulated time by `clock_hz`: at 1 GHz, the
-/// cycle count in nanoseconds, so a short program exits with a small
-/// non-zero count.
+/// `m5_rpns` reports the simulated time by the core clock, so a short
+/// program exits with a small non-zero count of nanoseconds.
 #[test]
 fn rpns_reports_the_simulated_time_in_nanoseconds() {
     let i = InstructionBuilder::new;

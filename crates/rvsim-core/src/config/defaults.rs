@@ -45,19 +45,17 @@ pub const BUS_WIDTH: u64 = 8;
 /// Fixed overhead for all bus transactions regardless of access type.
 pub const BUS_LATENCY: u64 = 4;
 
-/// CLINT timer divider (mtime increments every N cycles).
-///
-/// Divides the simulation cycle counter to produce the machine timer value.
-pub const CLINT_DIVIDER: u64 = 10;
+/// The timer frequency the device tree reports: 10 MHz, as on QEMU's
+/// `virt` machine.
+pub const TIMEBASE_HZ: u32 = 10_000_000;
 
 /// Wall-clock time the RTC reports at cycle zero: 2026-01-01T00:00:00Z,
 /// so every run reads the same clock.
 pub const RTC_EPOCH_SECONDS: u64 = 1_767_225_600;
 
 /// Core clock in MHz. Fixes the ratio between simulator cycles and
-/// wall-clock time for components with their own clock domain (the DDR5
-/// controller runs at the DRAM command clock). Independent of the CLINT
-/// timebase, which is a functional timer setting.
+/// wall-clock time: SE mode's time, device latencies, the DDR5 command
+/// clock and, in real time, the CLINT's tick.
 pub const CPU_CLOCK_MHZ: u64 = 2400;
 
 /// Time a device takes to answer a register access, in nanoseconds:

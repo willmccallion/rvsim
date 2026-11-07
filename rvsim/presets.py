@@ -48,9 +48,6 @@ __all__ = [
     "rocket",
 ]
 
-#: The device tree's ``timebase-frequency``, in MHz.
-LINUX_TIMEBASE_MHZ = 10
-
 #: The interconnects ``linux()`` builds, by the core's names.
 INTERCONNECTS = ("Crossbar", "Ring", "Mesh", "Torus", "Hypercube")
 
@@ -225,11 +222,11 @@ def linux(
     command-level timing at ``speed_bin``, four channels) or ``Dram`` (the
     core config's own memory controller).
 
-    With ``real_time`` the CLINT ticks at the device tree's 10 MHz
-    timebase, so the guest's clock keeps time with the modelled one.
-    Without it the CLINT ticks every cycle: guest time runs
-    ``cpu_clock_mhz / 10`` times fast, which shortens a boot's sleeps and
-    timeouts but floods measurements with timer interrupts.
+    With ``real_time`` the CLINT ticks at the device tree's timebase, so
+    the guest's clock keeps time with the modelled one. Without it the
+    CLINT ticks every cycle: guest time runs ``cpu_clock_mhz * 10**6 /
+    timebase_hz`` times fast, which shortens a boot's sleeps and timeouts
+    but floods measurements with timer interrupts.
     """
     base = core if core is not None else fast()
     if interconnect not in INTERCONNECTS:
@@ -250,7 +247,7 @@ def linux(
         clint_base=0x02000000,
         syscon_base=0x00100000,
         kernel_offset=0x200000,
-        clint_divider=base.cpu_clock_mhz // LINUX_TIMEBASE_MHZ if real_time else 1,
+        timer="RealTime" if real_time else "EveryCycle",
         hart_count=harts,
         coherence=Coherence(
             home_agent=HomeAgent.SnoopFilter(),
@@ -299,7 +296,6 @@ def rocket() -> Config:
         vlen=128,
         num_vec_lanes=None,
         cpu_clock_mhz=2400,
-        clock_hz=1_000_000_000,
         backend=Backend.InOrder(
             fu_config=Fu(
                 [
@@ -384,7 +380,6 @@ def boom() -> Config:
         vlen=128,
         num_vec_lanes=None,
         cpu_clock_mhz=2400,
-        clock_hz=1_000_000_000,
         fetch_width=4,
         backend=Backend.OutOfOrder(
             rob_size=64,

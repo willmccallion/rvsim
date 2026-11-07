@@ -14,7 +14,7 @@ const T2: u32 = 7;
 const A0: u32 = 10;
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const CHAIN: usize = 40;
-/// The CLINT's `mtime`, which counts every cycle with `clint_divider = 1`.
+/// The CLINT's `mtime`, which counts every cycle with an every-cycle timer.
 const MTIME: u64 = 0x0200_BFF8;
 /// The UART's transmit (write) and receive (read) register share an address.
 const UART_THR_RBR: i32 = 0x1000_0000;
@@ -39,7 +39,7 @@ fn mtime_seen_by_the_load(backend: BackendKind) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.clint_divider = 1;
+    config.system.timer = crate::config::Timer::EveryCycle;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
 

@@ -5,9 +5,9 @@
 
 use super::{
     BackendKind, CacheConfig, CacheHierarchyConfig, CoherenceConfig, Config, ConfigError,
-    GeneralConfig, HomeAgentConfig, InterconnectConfig, LoadPrefetcherConfig, MemoryConfig,
-    MemoryControllerKind, PipelineConfig, PrefetcherKind, ReplacementPolicyKind,
-    StorePrefetcherConfig, SystemConfig,
+    HomeAgentConfig, InterconnectConfig, LoadPrefetcherConfig, MemoryConfig, MemoryControllerKind,
+    PipelineConfig, PrefetcherKind, ReplacementPolicyKind, StorePrefetcherConfig, SystemConfig,
+    Timer,
 };
 use crate::isa::misa::Misa;
 
@@ -48,7 +48,7 @@ const PAGE_BYTES: usize = 4096;
 impl Config {
     /// Checks the machine's structures, sizes and address map.
     pub(super) fn check_machine(&self) -> Result<(), ConfigError> {
-        check_system(&self.system, &self.general, self.memory.ram_size)?;
+        check_system(&self.system, self.memory.ram_size)?;
         check_memory(&self.memory)?;
         check_caches(&self.cache)?;
         check_pipeline(&self.pipeline, self.misa())?;
@@ -73,15 +73,18 @@ const fn at_most(field: &'static str, value: usize, most: usize) -> Result<(), C
     if value > most { Err(ConfigError::TooLarge { field, value, most }) } else { Ok(()) }
 }
 
-fn check_system(
-    system: &SystemConfig,
-    general: &GeneralConfig,
-    ram_size: usize,
-) -> Result<(), ConfigError> {
+fn check_system(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigError> {
     at_least_one("system.hart_count", system.hart_count)?;
     at_least_one_u64("system.cpu_clock_mhz", system.cpu_clock_mhz)?;
-    at_least_one_u64("system.clint_divider", system.clint_divider)?;
-    at_least_one_u64("general.clock_hz", general.clock_hz)?;
+    at_least_one_u64("system.timebase_hz", u64::from(system.timebase_hz))?;
+    if system.timer == Timer::RealTime
+        && !system.cpu_clock_hz().is_multiple_of(u64::from(system.timebase_hz))
+    {
+        return Err(ConfigError::TimebaseNotDivisor {
+            timebase_hz: system.timebase_hz,
+            cpu_clock_hz: system.cpu_clock_hz(),
+        });
+    }
     if !system.bus_width.is_power_of_two() {
         return Err(ConfigError::BusWidth(system.bus_width));
     }

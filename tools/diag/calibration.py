@@ -94,7 +94,6 @@ def cortex_a72():
         btb_ways=4,
         ras_size=31,
         cpu_clock_mhz=1500,  # Raspberry Pi 4
-        clock_hz=1_000_000_000,
         ram_size="256MB",
         tlb_size=32,  # 32-entry L1 DTLB
         l2_tlb_size=1024,
@@ -233,7 +232,6 @@ def p550(
         btb_ways=4,
         ras_size=16,  # 16-entry return stack
         cpu_clock_mhz=1400,  # EIC7700X
-        clock_hz=1_000_000_000,
         misaligned_access_trap=True,  # no hardware misaligned access
         tlb_size=32,  # 32-entry fully associative L1 TLBs
         l2_tlb_size=512,

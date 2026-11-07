@@ -286,7 +286,6 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
     general = {
         "trace_instructions": cfg.trace,
         "page_mode": cfg.page_mode,
-        "clock_hz": cfg.clock_hz,
     }
     system = {
         "ram_base": cfg.ram_base,
@@ -297,7 +296,8 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "kernel_offset": cfg.kernel_offset,
         "bus_width": cfg.bus_width,
         "bus_latency": cfg.bus_latency,
-        "clint_divider": cfg.clint_divider,
+        "timer": cfg.timer,
+        "timebase_hz": cfg.timebase_hz,
         "cpu_clock_mhz": cfg.cpu_clock_mhz,
         "device_latency_ns": cfg.device_latency_ns,
         "device_latency_ns_overrides": cfg.device_latency_ns_overrides,
