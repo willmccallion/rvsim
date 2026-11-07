@@ -231,14 +231,15 @@ pub fn execute_full_rm(
     a: u64,
     b: u64,
     c: u64,
-    is_f16: bool,
-    is32: bool,
+    format: FpFormat,
     rm: RoundingMode,
 ) -> (u64, FpFlags) {
     // Half-precision (Zfh) ops are handled entirely in software.
-    if is_f16 {
-        return execute_f16(op, a, b, c, rm);
-    }
+    let is32 = match format {
+        FpFormat::Half => return execute_f16(op, a, b, c, rm),
+        FpFormat::Single => true,
+        FpFormat::Double => false,
+    };
     // Float-to-integer conversions need rounding-mode-aware handling.
     if let Some(target) = IntTarget::of(op) {
         let val = if is32 { unbox_f32(a) as f64 } else { f64::from_bits(a) };
@@ -344,7 +345,6 @@ pub fn execute_full_rm(
         let flags = read_host_fp_flags();
         restore_host_round_mode(saved);
 
-        let format = if is32 { FpFormat::Single } else { FpFormat::Double };
         let operand = |value: u64| {
             if is32 {
                 Exact::of_f32(unbox_f32(value))

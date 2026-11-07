@@ -19,25 +19,25 @@ pub mod logic;
 
 pub mod shifts;
 
-use crate::isa::op::AluOp;
+use crate::isa::op::{AluOp, IntWidth};
 
 /// Executes an integer ALU operation.
 ///
 /// Dispatches to the appropriate submodule based on the operation type.
-/// Supports both 32-bit and 64-bit operations based on the `is32` flag.
+/// Supports both 32-bit and 64-bit operations by `width`.
 ///
 /// # Arguments
 ///
 /// * `op`   - The ALU operation to perform
 /// * `a`    - First operand (64-bit value)
 /// * `b`    - Second operand (64-bit value, also used as shift amount)
-/// * `is32` - If true, perform 32-bit operation (RV32 mode)
+/// * `width` - `Word` for the 32-bit (W-suffix) variant.
 ///
 /// # Returns
 ///
 /// The 64-bit result of the ALU operation. For 32-bit operations,
 /// the result is sign-extended to 64 bits.
-pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
+pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
     match op {
         AluOp::Add
         | AluOp::Sub
@@ -48,13 +48,13 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
         | AluOp::Div
         | AluOp::Divu
         | AluOp::Rem
-        | AluOp::Remu => arithmetic::execute(op, a, b, is32),
+        | AluOp::Remu => arithmetic::execute(op, a, b, width),
 
         AluOp::Or | AluOp::And | AluOp::Xor | AluOp::Slt | AluOp::Sltu => {
-            logic::execute(op, a, b, is32)
+            logic::execute(op, a, b, width)
         }
 
-        AluOp::Sll | AluOp::Srl | AluOp::Sra => shifts::execute(op, a, b, is32),
+        AluOp::Sll | AluOp::Srl | AluOp::Sra => shifts::execute(op, a, b, width),
 
         AluOp::Sh1Add
         | AluOp::Sh2Add
@@ -92,7 +92,7 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
         | AluOp::Packh
         | AluOp::Packw
         | AluOp::Xperm4
-        | AluOp::Xperm8 => bitmanip::execute(op, a, b, is32),
+        | AluOp::Xperm8 => bitmanip::execute(op, a, b, width),
 
         _ => 0,
     }

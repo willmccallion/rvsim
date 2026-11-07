@@ -5,7 +5,7 @@
 //!
 //! Reference: RISC-V Bitmanip Extension v1.0.0.
 
-use crate::isa::op::AluOp;
+use crate::isa::op::{AluOp, IntWidth};
 
 const SHAMT_MASK_RV64: u32 = 0x3f;
 
@@ -22,13 +22,13 @@ const fn sext32(val: u32) -> u64 {
 /// * `op`   - The ALU operation to perform (must be a B-extension variant).
 /// * `a`    - First operand (rs1, 64-bit value).
 /// * `b`    - Second operand (rs2 or immediate, 64-bit value).
-/// * `is32` - If true, perform the 32-bit (W-suffix) variant.
+/// * `width` - `Word` for the 32-bit (W-suffix) variant.
 ///
 /// # Returns
 ///
 /// The 64-bit result. For 32-bit operations the result is sign-extended
 /// from bit 31. Returns `0` for non-B-extension opcodes.
-pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
+pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
     match op {
         AluOp::Sh1Add => (a << 1).wrapping_add(b),
         AluOp::Sh2Add => (a << 2).wrapping_add(b),
@@ -61,95 +61,96 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
         AluOp::Orn => a | !b,
         AluOp::Xnor => !(a ^ b),
 
-        AluOp::Clz => {
-            if is32 {
-                sext32((a as u32).leading_zeros())
-            } else {
-                a.leading_zeros() as u64
-            }
-        }
-        AluOp::Ctz => {
-            if is32 {
-                sext32((a as u32).trailing_zeros())
-            } else {
-                a.trailing_zeros() as u64
-            }
-        }
-        AluOp::Cpop => {
-            if is32 {
-                sext32((a as u32).count_ones())
-            } else {
-                a.count_ones() as u64
-            }
-        }
+        AluOp::Clz => match width {
+            IntWidth::Word => sext32((a as u32).leading_zeros()),
+            IntWidth::Double => a.leading_zeros() as u64,
+        },
+        AluOp::Ctz => match width {
+            IntWidth::Word => sext32((a as u32).trailing_zeros()),
+            IntWidth::Double => a.trailing_zeros() as u64,
+        },
+        AluOp::Cpop => match width {
+            IntWidth::Word => sext32((a as u32).count_ones()),
+            IntWidth::Double => a.count_ones() as u64,
+        },
 
-        AluOp::Max => {
-            if is32 {
+        AluOp::Max => match width {
+            IntWidth::Word => {
                 let sa = a as i32;
                 let sb = b as i32;
                 sext32(if sa > sb { sa } else { sb } as u32)
-            } else {
+            }
+            IntWidth::Double => {
                 let sa = a as i64;
                 let sb = b as i64;
                 (if sa > sb { sa } else { sb }) as u64
             }
-        }
-        AluOp::Maxu => {
-            if is32 {
+        },
+        AluOp::Maxu => match width {
+            IntWidth::Word => {
                 let ua = a as u32;
                 let ub = b as u32;
                 sext32(if ua > ub { ua } else { ub })
-            } else if a > b {
-                a
-            } else {
-                b
             }
-        }
-        AluOp::Min => {
-            if is32 {
+            IntWidth::Double => {
+                if a > b {
+                    a
+                } else {
+                    b
+                }
+            }
+        },
+        AluOp::Min => match width {
+            IntWidth::Word => {
                 let sa = a as i32;
                 let sb = b as i32;
                 sext32(if sa < sb { sa } else { sb } as u32)
-            } else {
+            }
+            IntWidth::Double => {
                 let sa = a as i64;
                 let sb = b as i64;
                 (if sa < sb { sa } else { sb }) as u64
             }
-        }
-        AluOp::Minu => {
-            if is32 {
+        },
+        AluOp::Minu => match width {
+            IntWidth::Word => {
                 let ua = a as u32;
                 let ub = b as u32;
                 sext32(if ua < ub { ua } else { ub })
-            } else if a < b {
-                a
-            } else {
-                b
             }
-        }
+            IntWidth::Double => {
+                if a < b {
+                    a
+                } else {
+                    b
+                }
+            }
+        },
 
         AluOp::SextB => a as i8 as i64 as u64,
         AluOp::SextH => a as i16 as i64 as u64,
-        AluOp::Rol => {
-            if is32 {
+        AluOp::Rol => match width {
+            IntWidth::Word => {
                 let val = a as u32;
                 let shamt = b as u32 & SHAMT_MASK_RV32;
                 sext32(val.rotate_left(shamt))
-            } else {
+            }
+            IntWidth::Double => {
                 let shamt = b as u32 & SHAMT_MASK_RV64;
                 a.rotate_left(shamt)
             }
-        }
-        AluOp::Ror => {
-            if is32 {
+        },
+        AluOp::Ror => match width {
+            IntWidth::Word => {
                 let val = a as u32;
                 let shamt = b as u32 & SHAMT_MASK_RV32;
                 sext32(val.rotate_right(shamt))
-            } else {
+            }
+            IntWidth::Double => {
                 let shamt = b as u32 & SHAMT_MASK_RV64;
                 a.rotate_right(shamt)
             }
-        }
+        },
 
         AluOp::OrcB => {
             let mut result: u64 = 0;
@@ -201,19 +202,31 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
         }
 
         AluOp::Bclr => {
-            let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
+            let shamt = match width {
+                IntWidth::Word => b as u32 & SHAMT_MASK_RV32,
+                IntWidth::Double => b as u32 & SHAMT_MASK_RV64,
+            };
             a & !(1u64 << shamt)
         }
         AluOp::Bext => {
-            let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
+            let shamt = match width {
+                IntWidth::Word => b as u32 & SHAMT_MASK_RV32,
+                IntWidth::Double => b as u32 & SHAMT_MASK_RV64,
+            };
             (a >> shamt) & 1
         }
         AluOp::Binv => {
-            let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
+            let shamt = match width {
+                IntWidth::Word => b as u32 & SHAMT_MASK_RV32,
+                IntWidth::Double => b as u32 & SHAMT_MASK_RV64,
+            };
             a ^ (1u64 << shamt)
         }
         AluOp::Bset => {
-            let shamt = if is32 { b as u32 & SHAMT_MASK_RV32 } else { b as u32 & SHAMT_MASK_RV64 };
+            let shamt = match width {
+                IntWidth::Word => b as u32 & SHAMT_MASK_RV32,
+                IntWidth::Double => b as u32 & SHAMT_MASK_RV64,
+            };
             a | (1u64 << shamt)
         }
 
@@ -229,17 +242,18 @@ pub const fn execute(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
             result
         }
 
-        AluOp::Pack => {
-            if is32 {
+        AluOp::Pack => match width {
+            IntWidth::Word => {
                 let lo = a as u16 as u32;
                 let hi = b as u16 as u32;
                 sext32(lo | (hi << 16))
-            } else {
+            }
+            IntWidth::Double => {
                 let lo = a as u32 as u64;
                 let hi = b as u32 as u64;
                 lo | (hi << 32)
             }
-        }
+        },
 
         AluOp::Packh => {
             let lo = a & 0xFF;

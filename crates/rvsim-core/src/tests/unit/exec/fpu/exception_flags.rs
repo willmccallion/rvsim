@@ -123,14 +123,13 @@ const F16_QNAN: u16 = 0x7e00;
 
 fn execute_f16(op: AluOp, a: u16, b: u16, c: u16) -> FpFlags {
     use crate::exec::compute::fpu::half::box_f16;
-    use crate::isa::fp::RoundingMode;
+    use crate::isa::fp::{FpFormat, RoundingMode};
     let (_, flags) = fpu::execute_full_rm(
         op,
         box_f16(a),
         box_f16(b),
         box_f16(c),
-        true,
-        false,
+        FpFormat::Half,
         RoundingMode::Rne,
     );
     flags

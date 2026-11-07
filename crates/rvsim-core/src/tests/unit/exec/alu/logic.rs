@@ -14,7 +14,7 @@
 //! operate on full XLEN bits. SLT/SLTU likewise have no *W variants.
 
 use crate::exec::compute::alu;
-use crate::isa::op::AluOp;
+use crate::isa::op::{AluOp, IntWidth};
 
 const ZERO: u64 = 0;
 const ONE: u64 = 1;
@@ -29,148 +29,151 @@ const ALTERNATING_5: u64 = 0x5555_5555_5555_5555;
 const LOW_BYTE: u64 = 0xFF;
 const HIGH_BYTE: u64 = 0xFF00_0000_0000_0000;
 
-fn alu(op: AluOp, a: u64, b: u64, is32: bool) -> u64 {
-    alu::execute(op, a, b, is32)
+fn alu(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+    alu::execute(op, a, b, width)
 }
+
+const W: IntWidth = IntWidth::Word;
+const D: IntWidth = IntWidth::Double;
 
 #[test]
 fn and_identity() {
     // x & 0xFFFF... = x
-    assert_eq!(alu(AluOp::And, 0xDEAD_BEEF_CAFE_BABE, NEG1, false), 0xDEAD_BEEF_CAFE_BABE);
+    assert_eq!(alu(AluOp::And, 0xDEAD_BEEF_CAFE_BABE, NEG1, D), 0xDEAD_BEEF_CAFE_BABE);
 }
 
 #[test]
 fn and_annihilation() {
     // x & 0 = 0
-    assert_eq!(alu(AluOp::And, 0xDEAD_BEEF_CAFE_BABE, ZERO, false), 0);
+    assert_eq!(alu(AluOp::And, 0xDEAD_BEEF_CAFE_BABE, ZERO, D), 0);
 }
 
 #[test]
 fn and_idempotent() {
     // x & x = x
     let x = 0xDEAD_BEEF_CAFE_BABE;
-    assert_eq!(alu(AluOp::And, x, x, false), x);
+    assert_eq!(alu(AluOp::And, x, x, D), x);
 }
 
 #[test]
 fn and_complement() {
     // x & ~x = 0
-    assert_eq!(alu(AluOp::And, ALTERNATING_A, ALTERNATING_5, false), 0);
+    assert_eq!(alu(AluOp::And, ALTERNATING_A, ALTERNATING_5, D), 0);
 }
 
 #[test]
 fn and_single_bit_mask() {
     // Extract bit 31
-    assert_eq!(alu(AluOp::And, 0xFFFF_FFFF, 1 << 31, false), 1 << 31);
-    assert_eq!(alu(AluOp::And, 0x7FFF_FFFF, 1 << 31, false), 0);
+    assert_eq!(alu(AluOp::And, 0xFFFF_FFFF, 1 << 31, D), 1 << 31);
+    assert_eq!(alu(AluOp::And, 0x7FFF_FFFF, 1 << 31, D), 0);
 }
 
 #[test]
 fn and_byte_extraction() {
-    assert_eq!(alu(AluOp::And, 0x1234_5678_9ABC_DEF0, LOW_BYTE, false), 0xF0);
+    assert_eq!(alu(AluOp::And, 0x1234_5678_9ABC_DEF0, LOW_BYTE, D), 0xF0);
 }
 
 #[test]
 fn and_high_byte_extraction() {
-    assert_eq!(alu(AluOp::And, 0xAB00_0000_0000_0000, HIGH_BYTE, false), 0xAB00_0000_0000_0000);
+    assert_eq!(alu(AluOp::And, 0xAB00_0000_0000_0000, HIGH_BYTE, D), 0xAB00_0000_0000_0000);
 }
 
 #[test]
 fn and_commutative() {
     let a = 0x1234_5678;
     let b = 0xFF00_FF00;
-    assert_eq!(alu(AluOp::And, a, b, false), alu(AluOp::And, b, a, false));
+    assert_eq!(alu(AluOp::And, a, b, D), alu(AluOp::And, b, a, D));
 }
 
 #[test]
 fn and_all_ones() {
-    assert_eq!(alu(AluOp::And, NEG1, NEG1, false), NEG1);
+    assert_eq!(alu(AluOp::And, NEG1, NEG1, D), NEG1);
 }
 
 #[test]
 fn and_all_zeros() {
-    assert_eq!(alu(AluOp::And, ZERO, ZERO, false), ZERO);
+    assert_eq!(alu(AluOp::And, ZERO, ZERO, D), ZERO);
 }
 
 #[test]
 fn or_identity() {
     // x | 0 = x
-    assert_eq!(alu(AluOp::Or, 0xDEAD_BEEF_CAFE_BABE, ZERO, false), 0xDEAD_BEEF_CAFE_BABE);
+    assert_eq!(alu(AluOp::Or, 0xDEAD_BEEF_CAFE_BABE, ZERO, D), 0xDEAD_BEEF_CAFE_BABE);
 }
 
 #[test]
 fn or_annihilation() {
     // x | 0xFFFF... = 0xFFFF...
-    assert_eq!(alu(AluOp::Or, 0xDEAD_BEEF_CAFE_BABE, NEG1, false), NEG1);
+    assert_eq!(alu(AluOp::Or, 0xDEAD_BEEF_CAFE_BABE, NEG1, D), NEG1);
 }
 
 #[test]
 fn or_idempotent() {
     let x = 0xDEAD_BEEF_CAFE_BABE;
-    assert_eq!(alu(AluOp::Or, x, x, false), x);
+    assert_eq!(alu(AluOp::Or, x, x, D), x);
 }
 
 #[test]
 fn or_complement_gives_all_ones() {
-    assert_eq!(alu(AluOp::Or, ALTERNATING_A, ALTERNATING_5, false), NEG1);
+    assert_eq!(alu(AluOp::Or, ALTERNATING_A, ALTERNATING_5, D), NEG1);
 }
 
 #[test]
 fn or_single_bit_set() {
-    assert_eq!(alu(AluOp::Or, ZERO, 1 << 63, false), 1 << 63);
+    assert_eq!(alu(AluOp::Or, ZERO, 1 << 63, D), 1 << 63);
 }
 
 #[test]
 fn or_merge_disjoint_fields() {
     let low = 0x0000_0000_FFFF_FFFF_u64;
     let high = 0xFFFF_FFFF_0000_0000_u64;
-    assert_eq!(alu(AluOp::Or, low, high, false), NEG1);
+    assert_eq!(alu(AluOp::Or, low, high, D), NEG1);
 }
 
 #[test]
 fn or_commutative() {
     let a = 0x1234_5678;
     let b = 0xFF00_FF00;
-    assert_eq!(alu(AluOp::Or, a, b, false), alu(AluOp::Or, b, a, false));
+    assert_eq!(alu(AluOp::Or, a, b, D), alu(AluOp::Or, b, a, D));
 }
 
 #[test]
 fn or_all_zeros() {
-    assert_eq!(alu(AluOp::Or, ZERO, ZERO, false), ZERO);
+    assert_eq!(alu(AluOp::Or, ZERO, ZERO, D), ZERO);
 }
 
 #[test]
 fn or_all_ones() {
-    assert_eq!(alu(AluOp::Or, NEG1, NEG1, false), NEG1);
+    assert_eq!(alu(AluOp::Or, NEG1, NEG1, D), NEG1);
 }
 
 #[test]
 fn xor_self_is_zero() {
     let x = 0xDEAD_BEEF_CAFE_BABE;
-    assert_eq!(alu(AluOp::Xor, x, x, false), 0);
+    assert_eq!(alu(AluOp::Xor, x, x, D), 0);
 }
 
 #[test]
 fn xor_identity() {
     // x ^ 0 = x
-    assert_eq!(alu(AluOp::Xor, 0xDEAD_BEEF_CAFE_BABE, ZERO, false), 0xDEAD_BEEF_CAFE_BABE);
+    assert_eq!(alu(AluOp::Xor, 0xDEAD_BEEF_CAFE_BABE, ZERO, D), 0xDEAD_BEEF_CAFE_BABE);
 }
 
 #[test]
 fn xor_all_ones_is_bitwise_not() {
-    assert_eq!(alu(AluOp::Xor, ALTERNATING_A, NEG1, false), ALTERNATING_5);
+    assert_eq!(alu(AluOp::Xor, ALTERNATING_A, NEG1, D), ALTERNATING_5);
 }
 
 #[test]
 fn xor_complement() {
-    assert_eq!(alu(AluOp::Xor, ALTERNATING_A, ALTERNATING_5, false), NEG1);
+    assert_eq!(alu(AluOp::Xor, ALTERNATING_A, ALTERNATING_5, D), NEG1);
 }
 
 #[test]
 fn xor_commutative() {
     let a = 0x1234_5678_9ABC_DEF0;
     let b = 0xFEDC_BA98_7654_3210;
-    assert_eq!(alu(AluOp::Xor, a, b, false), alu(AluOp::Xor, b, a, false));
+    assert_eq!(alu(AluOp::Xor, a, b, D), alu(AluOp::Xor, b, a, D));
 }
 
 #[test]
@@ -178,34 +181,34 @@ fn xor_associative() {
     let a = 0x1111_1111_1111_1111;
     let b = 0x2222_2222_2222_2222;
     let c = 0x3333_3333_3333_3333;
-    let lhs = alu(AluOp::Xor, alu(AluOp::Xor, a, b, false), c, false);
-    let rhs = alu(AluOp::Xor, a, alu(AluOp::Xor, b, c, false), false);
+    let lhs = alu(AluOp::Xor, alu(AluOp::Xor, a, b, D), c, D);
+    let rhs = alu(AluOp::Xor, a, alu(AluOp::Xor, b, c, D), D);
     assert_eq!(lhs, rhs);
 }
 
 #[test]
 fn xor_single_bit_toggle() {
-    assert_eq!(alu(AluOp::Xor, 0b1010, 0b0001, false), 0b1011);
-    assert_eq!(alu(AluOp::Xor, 0b1011, 0b0001, false), 0b1010);
+    assert_eq!(alu(AluOp::Xor, 0b1010, 0b0001, D), 0b1011);
+    assert_eq!(alu(AluOp::Xor, 0b1011, 0b0001, D), 0b1010);
 }
 
 #[test]
 fn xor_double_application_restores() {
     let x = 0xDEAD_BEEF_CAFE_BABE;
     let k = 0x1234_5678_9ABC_DEF0;
-    let encrypted = alu(AluOp::Xor, x, k, false);
-    let decrypted = alu(AluOp::Xor, encrypted, k, false);
+    let encrypted = alu(AluOp::Xor, x, k, D);
+    let decrypted = alu(AluOp::Xor, encrypted, k, D);
     assert_eq!(decrypted, x);
 }
 
 #[test]
 fn xor_all_zeros() {
-    assert_eq!(alu(AluOp::Xor, ZERO, ZERO, false), ZERO);
+    assert_eq!(alu(AluOp::Xor, ZERO, ZERO, D), ZERO);
 }
 
 #[test]
 fn xor_all_ones() {
-    assert_eq!(alu(AluOp::Xor, NEG1, NEG1, false), ZERO);
+    assert_eq!(alu(AluOp::Xor, NEG1, NEG1, D), ZERO);
 }
 
 /// Verify: ~(a & b) == (~a) | (~b)
@@ -213,8 +216,8 @@ fn xor_all_ones() {
 fn de_morgan_and() {
     let a = 0xDEAD_BEEF_CAFE_BABE;
     let b = 0x1234_5678_9ABC_DEF0;
-    let not_and = !alu(AluOp::And, a, b, false);
-    let or_nots = alu(AluOp::Or, !a, !b, false);
+    let not_and = !alu(AluOp::And, a, b, D);
+    let or_nots = alu(AluOp::Or, !a, !b, D);
     assert_eq!(not_and, or_nots);
 }
 
@@ -223,180 +226,180 @@ fn de_morgan_and() {
 fn de_morgan_or() {
     let a = 0xDEAD_BEEF_CAFE_BABE;
     let b = 0x1234_5678_9ABC_DEF0;
-    let not_or = !alu(AluOp::Or, a, b, false);
-    let and_nots = alu(AluOp::And, !a, !b, false);
+    let not_or = !alu(AluOp::Or, a, b, D);
+    let and_nots = alu(AluOp::And, !a, !b, D);
     assert_eq!(not_or, and_nots);
 }
 
 #[test]
 fn slt_rv64_equal_values() {
-    assert_eq!(alu(AluOp::Slt, 42, 42, false), 0);
+    assert_eq!(alu(AluOp::Slt, 42, 42, D), 0);
 }
 
 #[test]
 fn slt_rv64_less_than() {
-    assert_eq!(alu(AluOp::Slt, 5, 10, false), 1);
+    assert_eq!(alu(AluOp::Slt, 5, 10, D), 1);
 }
 
 #[test]
 fn slt_rv64_greater_than() {
-    assert_eq!(alu(AluOp::Slt, 10, 5, false), 0);
+    assert_eq!(alu(AluOp::Slt, 10, 5, D), 0);
 }
 
 #[test]
 fn slt_rv64_negative_less_than_positive() {
-    assert_eq!(alu(AluOp::Slt, NEG1, ONE, false), 1);
+    assert_eq!(alu(AluOp::Slt, NEG1, ONE, D), 1);
 }
 
 #[test]
 fn slt_rv64_positive_not_less_than_negative() {
-    assert_eq!(alu(AluOp::Slt, ONE, NEG1, false), 0);
+    assert_eq!(alu(AluOp::Slt, ONE, NEG1, D), 0);
 }
 
 #[test]
 fn slt_rv64_min_less_than_max() {
-    assert_eq!(alu(AluOp::Slt, I64_MIN, I64_MAX, false), 1);
+    assert_eq!(alu(AluOp::Slt, I64_MIN, I64_MAX, D), 1);
 }
 
 #[test]
 fn slt_rv64_max_not_less_than_min() {
-    assert_eq!(alu(AluOp::Slt, I64_MAX, I64_MIN, false), 0);
+    assert_eq!(alu(AluOp::Slt, I64_MAX, I64_MIN, D), 0);
 }
 
 #[test]
 fn slt_rv64_min_less_than_zero() {
-    assert_eq!(alu(AluOp::Slt, I64_MIN, ZERO, false), 1);
+    assert_eq!(alu(AluOp::Slt, I64_MIN, ZERO, D), 1);
 }
 
 #[test]
 fn slt_rv64_zero_not_less_than_min() {
-    assert_eq!(alu(AluOp::Slt, ZERO, I64_MIN, false), 0);
+    assert_eq!(alu(AluOp::Slt, ZERO, I64_MIN, D), 0);
 }
 
 #[test]
 fn slt_rv64_neg1_less_than_0() {
-    assert_eq!(alu(AluOp::Slt, NEG1, ZERO, false), 1);
+    assert_eq!(alu(AluOp::Slt, NEG1, ZERO, D), 1);
 }
 
 #[test]
 fn slt_rv64_zero_not_less_than_zero() {
-    assert_eq!(alu(AluOp::Slt, ZERO, ZERO, false), 0);
+    assert_eq!(alu(AluOp::Slt, ZERO, ZERO, D), 0);
 }
 
 /// Signed comparison: 0x8000...0 is negative (i64::MIN).
 #[test]
 fn slt_rv64_high_bit_is_negative() {
-    assert_eq!(alu(AluOp::Slt, I64_MIN, ONE, false), 1);
+    assert_eq!(alu(AluOp::Slt, I64_MIN, ONE, D), 1);
 }
 
 /// Adjacent values near zero.
 #[test]
 fn slt_rv64_adjacent_near_zero() {
-    assert_eq!(alu(AluOp::Slt, NEG1, ZERO, false), 1); // -1 < 0
-    assert_eq!(alu(AluOp::Slt, ZERO, ONE, false), 1); // 0 < 1
+    assert_eq!(alu(AluOp::Slt, NEG1, ZERO, D), 1); // -1 < 0
+    assert_eq!(alu(AluOp::Slt, ZERO, ONE, D), 1); // 0 < 1
 }
 
 /// SLT in 32-bit mode should compare as i32 values.
 #[test]
 fn slt_rv32_basic() {
-    assert_eq!(alu(AluOp::Slt, 5, 10, true), 1);
-    assert_eq!(alu(AluOp::Slt, 10, 5, true), 0);
+    assert_eq!(alu(AluOp::Slt, 5, 10, W), 1);
+    assert_eq!(alu(AluOp::Slt, 10, 5, W), 0);
 }
 
 /// In RV32 mode, 0x8000_0000 is i32::MIN (negative).
 #[test]
 fn slt_rv32_high_bit_is_negative() {
-    assert_eq!(alu(AluOp::Slt, 0x8000_0000, ONE, true), 1);
+    assert_eq!(alu(AluOp::Slt, 0x8000_0000, ONE, W), 1);
 }
 
 /// In RV32 mode, upper 32 bits of the 64-bit operand should be ignored.
 #[test]
 fn slt_rv32_ignores_upper_bits() {
-    assert_eq!(alu(AluOp::Slt, 0xFFFF_FFFF_0000_0005, 0x0000_0000_0000_000A, true), 1);
+    assert_eq!(alu(AluOp::Slt, 0xFFFF_FFFF_0000_0005, 0x0000_0000_0000_000A, W), 1);
 }
 
 /// 0xFFFF_FFFF in i32 is -1.
 #[test]
 fn slt_rv32_u32_max_is_negative_one() {
-    assert_eq!(alu(AluOp::Slt, 0xFFFF_FFFF, ZERO, true), 1);
+    assert_eq!(alu(AluOp::Slt, 0xFFFF_FFFF, ZERO, W), 1);
 }
 
 #[test]
 fn sltu_rv64_equal_values() {
-    assert_eq!(alu(AluOp::Sltu, 42, 42, false), 0);
+    assert_eq!(alu(AluOp::Sltu, 42, 42, D), 0);
 }
 
 #[test]
 fn sltu_rv64_less_than() {
-    assert_eq!(alu(AluOp::Sltu, 5, 10, false), 1);
+    assert_eq!(alu(AluOp::Sltu, 5, 10, D), 1);
 }
 
 #[test]
 fn sltu_rv64_greater_than() {
-    assert_eq!(alu(AluOp::Sltu, 10, 5, false), 0);
+    assert_eq!(alu(AluOp::Sltu, 10, 5, D), 0);
 }
 
 /// Unsigned: 0xFFFF... is the largest value, not -1.
 #[test]
 fn sltu_rv64_max_not_less_than_anything() {
-    assert_eq!(alu(AluOp::Sltu, U64_MAX, ONE, false), 0);
+    assert_eq!(alu(AluOp::Sltu, U64_MAX, ONE, D), 0);
 }
 
 #[test]
 fn sltu_rv64_zero_less_than_anything_nonzero() {
-    assert_eq!(alu(AluOp::Sltu, ZERO, ONE, false), 1);
-    assert_eq!(alu(AluOp::Sltu, ZERO, U64_MAX, false), 1);
+    assert_eq!(alu(AluOp::Sltu, ZERO, ONE, D), 1);
+    assert_eq!(alu(AluOp::Sltu, ZERO, U64_MAX, D), 1);
 }
 
 /// Key difference from SLT: 0x8000...0 is a large positive unsigned value.
 #[test]
 fn sltu_rv64_high_bit_is_large_positive() {
-    assert_eq!(alu(AluOp::Sltu, I64_MIN, ONE, false), 0); // 2^63 > 1
-    assert_eq!(alu(AluOp::Sltu, ONE, I64_MIN, false), 1); // 1 < 2^63
+    assert_eq!(alu(AluOp::Sltu, I64_MIN, ONE, D), 0); // 2^63 > 1
+    assert_eq!(alu(AluOp::Sltu, ONE, I64_MIN, D), 1); // 1 < 2^63
 }
 
 #[test]
 fn sltu_rv64_zero_not_less_than_zero() {
-    assert_eq!(alu(AluOp::Sltu, ZERO, ZERO, false), 0);
+    assert_eq!(alu(AluOp::Sltu, ZERO, ZERO, D), 0);
 }
 
 #[test]
 fn sltu_rv64_max_minus_one_less_than_max() {
-    assert_eq!(alu(AluOp::Sltu, U64_MAX - 1, U64_MAX, false), 1);
+    assert_eq!(alu(AluOp::Sltu, U64_MAX - 1, U64_MAX, D), 1);
 }
 
 /// RISC-V idiom: SLTU rd, x0, rs1 sets rd=1 if rs1 != 0 (SNEZ pseudo-op).
 #[test]
 fn sltu_rv64_snez_idiom() {
-    assert_eq!(alu(AluOp::Sltu, ZERO, 42, false), 1);
-    assert_eq!(alu(AluOp::Sltu, ZERO, ZERO, false), 0);
-    assert_eq!(alu(AluOp::Sltu, ZERO, NEG1, false), 1);
+    assert_eq!(alu(AluOp::Sltu, ZERO, 42, D), 1);
+    assert_eq!(alu(AluOp::Sltu, ZERO, ZERO, D), 0);
+    assert_eq!(alu(AluOp::Sltu, ZERO, NEG1, D), 1);
 }
 
 /// SLTU in 32-bit mode should compare as u32 values.
 #[test]
 fn sltu_rv32_basic() {
-    assert_eq!(alu(AluOp::Sltu, 5, 10, true), 1);
-    assert_eq!(alu(AluOp::Sltu, 10, 5, true), 0);
+    assert_eq!(alu(AluOp::Sltu, 5, 10, W), 1);
+    assert_eq!(alu(AluOp::Sltu, 10, 5, W), 0);
 }
 
 /// In RV32 mode, 0x8000_0000 is a large positive u32.
 #[test]
 fn sltu_rv32_high_bit_is_large() {
-    assert_eq!(alu(AluOp::Sltu, 0x8000_0000, ONE, true), 0);
-    assert_eq!(alu(AluOp::Sltu, ONE, 0x8000_0000, true), 1);
+    assert_eq!(alu(AluOp::Sltu, 0x8000_0000, ONE, W), 0);
+    assert_eq!(alu(AluOp::Sltu, ONE, 0x8000_0000, W), 1);
 }
 
 /// RV32 SLTU ignores upper 32 bits.
 #[test]
 fn sltu_rv32_ignores_upper_bits() {
-    assert_eq!(alu(AluOp::Sltu, 0xDEAD_0000_0000_0005, 0xBEEF_0000_0000_000A, true), 1);
+    assert_eq!(alu(AluOp::Sltu, 0xDEAD_0000_0000_0005, 0xBEEF_0000_0000_000A, W), 1);
 }
 
 #[test]
 fn sltu_rv32_u32_max() {
-    assert_eq!(alu(AluOp::Sltu, 0xFFFF_FFFF, ZERO, true), 0);
-    assert_eq!(alu(AluOp::Sltu, ZERO, 0xFFFF_FFFF, true), 1);
+    assert_eq!(alu(AluOp::Sltu, 0xFFFF_FFFF, ZERO, W), 0);
+    assert_eq!(alu(AluOp::Sltu, ZERO, 0xFFFF_FFFF, W), 1);
 }
 
 /// The same bit pattern gives opposite results for SLT vs SLTU
@@ -404,18 +407,18 @@ fn sltu_rv32_u32_max() {
 #[test]
 fn slt_vs_sltu_sign_bit_distinction() {
     // SLT:  i64::MIN < 1 → true (negative < positive)
-    assert_eq!(alu(AluOp::Slt, I64_MIN, ONE, false), 1);
+    assert_eq!(alu(AluOp::Slt, I64_MIN, ONE, D), 1);
     // SLTU: 2^63 < 1 → false (large unsigned > small)
-    assert_eq!(alu(AluOp::Sltu, I64_MIN, ONE, false), 0);
+    assert_eq!(alu(AluOp::Sltu, I64_MIN, ONE, D), 0);
 }
 
 /// NEG1 = 0xFFFF... is -1 signed but u64::MAX unsigned.
 #[test]
 fn slt_vs_sltu_neg1_distinction() {
     // SLT:  -1 < 0 → true
-    assert_eq!(alu(AluOp::Slt, NEG1, ZERO, false), 1);
+    assert_eq!(alu(AluOp::Slt, NEG1, ZERO, D), 1);
     // SLTU: u64::MAX < 0 → false
-    assert_eq!(alu(AluOp::Sltu, NEG1, ZERO, false), 0);
+    assert_eq!(alu(AluOp::Sltu, NEG1, ZERO, D), 0);
 }
 
 /// Verify AND works correctly at every single bit position.
@@ -423,9 +426,9 @@ fn slt_vs_sltu_neg1_distinction() {
 fn and_every_bit_position() {
     for bit in 0..64 {
         let mask = 1u64 << bit;
-        assert_eq!(alu(AluOp::And, NEG1, mask, false), mask, "AND failed at bit position {bit}");
+        assert_eq!(alu(AluOp::And, NEG1, mask, D), mask, "AND failed at bit position {bit}");
         assert_eq!(
-            alu(AluOp::And, !mask, mask, false),
+            alu(AluOp::And, !mask, mask, D),
             0,
             "AND complement failed at bit position {bit}"
         );
@@ -437,7 +440,7 @@ fn and_every_bit_position() {
 fn or_every_bit_position() {
     for bit in 0..64 {
         let mask = 1u64 << bit;
-        assert_eq!(alu(AluOp::Or, ZERO, mask, false), mask, "OR failed at bit position {bit}");
+        assert_eq!(alu(AluOp::Or, ZERO, mask, D), mask, "OR failed at bit position {bit}");
     }
 }
 
@@ -446,6 +449,6 @@ fn or_every_bit_position() {
 fn xor_every_bit_position() {
     for bit in 0..64 {
         let mask = 1u64 << bit;
-        assert_eq!(alu(AluOp::Xor, NEG1, mask, false), !mask, "XOR failed at bit position {bit}");
+        assert_eq!(alu(AluOp::Xor, NEG1, mask, D), !mask, "XOR failed at bit position {bit}");
     }
 }
