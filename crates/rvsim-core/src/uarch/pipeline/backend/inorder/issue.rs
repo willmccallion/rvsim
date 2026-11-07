@@ -47,31 +47,23 @@ pub struct InOrderIssueUnit {
 
 impl InOrderIssueUnit {
     /// Creates a new FIFO issue unit with the given capacity.
-    ///
-    /// The capacity must be at least as large as the ROB, because during
-    /// backend stalls (e.g. M1 cache miss), rename keeps allocating ROB
-    /// entries that accumulate in `rename_output`. When the stall ends,
-    /// all of these are dispatched at once. If the issue queue is smaller
-    /// than the ROB, entries would be silently dropped, leaving ROB slots
-    /// permanently stuck in `Issued` state and deadlocking the pipeline.
     pub fn new(capacity: usize) -> Self {
         Self { queue: VecDeque::with_capacity(capacity), capacity }
     }
 
-    /// Accept dispatched instructions from rename.
+    /// Accept dispatched instructions from rename, which takes no more
+    /// than [`Self::available_slots`] a cycle, so the queue never overflows.
     pub fn dispatch(&mut self, entries: Vec<RenameIssueEntry>) {
         for entry in entries {
             debug_assert!(
                 self.queue.len() < self.capacity,
-                "issue queue overflow: len={} capacity={} — entry rob_tag={} pc={:#x} would be silently dropped",
+                "issue queue overflow: len={} capacity={}, rob_tag={} pc={:#x}",
                 self.queue.len(),
                 self.capacity,
                 entry.rob_tag,
                 entry.inst.pc,
             );
-            if self.queue.len() < self.capacity {
-                self.queue.push_back(entry);
-            }
+            self.queue.push_back(entry);
         }
     }
 
