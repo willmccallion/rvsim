@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use crate::common::VirtAddr;
 use crate::config::{Config, MemDepPredictorKind};
 use crate::uarch::pipeline::rob::{Rob, RobTag};
+use crate::uarch::pipeline::squash::SquashScope;
 
 use super::predictor::{MdpStats, MemPrediction};
 use super::store_set::StoreSetPredictor;
@@ -179,6 +180,15 @@ impl MemDepUnit {
         self.stats.violations += 1;
         if let PredictorKind::StoreSet(predictor) = &mut self.predictor {
             predictor.train(load_pc.val(), store_pc.val());
+        }
+    }
+
+    /// Drops what `scope` squashes. Must follow the ROB's squash, so the
+    /// ROB holds only survivors when the LFST is rebuilt from it.
+    pub fn squash(&mut self, scope: SquashScope, rob: &Rob) {
+        match scope {
+            SquashScope::After(keep) => self.flush_after(keep, rob),
+            SquashScope::All => self.flush(),
         }
     }
 

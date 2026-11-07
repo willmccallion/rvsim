@@ -39,6 +39,7 @@ use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
 use crate::uarch::pipeline::squash::PendingSquash;
+use crate::uarch::pipeline::squash::SquashScope;
 use crate::uarch::pipeline::trace::Departure;
 
 use self::issue::{InOrderIssueUnit, IssuedUnit};
@@ -127,6 +128,27 @@ impl InOrderEngine {
         }
     }
 
+    /// Removes from every structure what `scope` squashes. Everything in
+    /// the issue queue is younger than any executed instruction, so it all
+    /// goes.
+    fn squash_in_flight(&mut self, state: &mut CoreCtx<'_>, scope: SquashScope) {
+        for seq in self.rob.seqs_after(scope.keep_tag()) {
+            state.trace_left(seq, Departure::Squashed);
+        }
+        self.issuer.flush();
+        self.rob.squash(scope);
+        self.store_buffer.squash(scope);
+        self.vec_store_buffer.squash(scope);
+        self.common.squash(scope);
+        self.fu_pool.release_squashed(state.cycle, |tag| !scope.keeps(tag));
+        self.vec_mem_inflight.retain(|m| scope.keeps(m.rob_tag));
+        self.pending.retain(|p| scope.keeps(p.entry.rob_tag));
+        self.execute_mem1.retain(|e| scope.keeps(e.rob_tag));
+        self.mem1_mem2.retain(|e| scope.keeps(e.rob_tag));
+        self.mem2_wb.retain(|e| scope.keeps(e.rob_tag));
+        self.scoreboard.rebuild_from_rob(&self.rob);
+    }
+
     /// Takes a squash: drops everything younger than its kept tag (or the
     /// whole window when that tag has already retired) and redirects fetch.
     fn apply_squash(
@@ -135,36 +157,11 @@ impl InOrderEngine {
         squash: PendingSquash,
         redirect: &mut Option<VirtAddr>,
     ) {
-        // Everything in the issue queue is younger than any executed instruction.
-        self.issuer.flush();
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
-        let squashed = keep_tag.map_or(self.rob.len(), |tag| self.rob.iter_after(tag).count());
-        count_flush(state, squash.redirect.cause.into(), squashed);
+        let scope = SquashScope::keeping(keep_tag);
+        count_flush(state, squash.redirect.cause.into(), self.rob.iter_squashed(scope).count());
         let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
-        for seq in self.rob.seqs_after(keep_tag) {
-            state.trace_left(seq, Departure::Squashed);
-        }
-        if let Some(keep_tag) = keep_tag {
-            self.rob.flush_after(keep_tag);
-            self.store_buffer.flush_after(keep_tag);
-            self.vec_store_buffer.flush_after(keep_tag);
-            self.common.squash_after(keep_tag);
-        } else {
-            self.rob.flush_all();
-            self.store_buffer.flush_speculative();
-            self.vec_store_buffer.flush_speculative();
-            self.common.squash_all();
-        }
-        let survives = |tag: crate::uarch::pipeline::rob::RobTag| {
-            keep_tag.is_some_and(|k| tag.is_older_or_eq(k))
-        };
-        self.fu_pool.release_squashed(state.cycle, |tag| !survives(tag));
-        self.vec_mem_inflight.retain(|m| survives(m.rob_tag));
-        self.pending.retain(|p| survives(p.entry.rob_tag));
-        self.execute_mem1.retain(|e| survives(e.rob_tag));
-        self.mem1_mem2.retain(|e| survives(e.rob_tag));
-        self.mem2_wb.retain(|e| survives(e.rob_tag));
-        self.scoreboard.rebuild_from_rob(&self.rob);
+        self.squash_in_flight(state, scope);
 
         *redirect = Some(squash.redirect.target);
         let now = state.cycle;
@@ -490,22 +487,8 @@ impl ExecutionEngine for InOrderEngine {
     }
 
     fn flush(&mut self, state: &mut CoreCtx<'_>) {
-        for seq in self.rob.seqs_after(None) {
-            state.trace_left(seq, Departure::Squashed);
-        }
-        self.fu_pool.release_squashed(state.cycle, |_| true);
-        self.rob.flush_all();
-        self.store_buffer.flush_speculative();
-        self.vec_store_buffer.flush_speculative();
-        self.vec_mem_inflight.clear();
-        self.scoreboard.flush();
-        self.issuer.flush();
-        self.pending.clear();
-        self.execute_mem1.clear();
-        self.common.squash_all();
+        self.squash_in_flight(state, SquashScope::All);
         self.common.data_cache_flush = DataCacheFlush::Idle;
-        self.mem1_mem2.clear();
-        self.mem2_wb.clear();
         self.common.flush_predictions(&mut state.core.branch_predictor);
     }
 

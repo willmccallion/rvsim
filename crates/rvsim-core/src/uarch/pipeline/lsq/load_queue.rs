@@ -21,6 +21,7 @@ use crate::isa::op::MemWidth;
 use crate::sim::memory::write_log::{WriteLog, WriteSeq};
 use crate::uarch::pipeline::latches::MicroOpIdx;
 use crate::uarch::pipeline::rob::RobTag;
+use crate::uarch::pipeline::squash::SquashScope;
 
 /// A load that read a location before an older store wrote it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -377,6 +378,14 @@ impl LoadQueue {
                 entry.valid = false;
                 self.valid_count -= 1;
             }
+        }
+    }
+
+    /// Removes the loads `scope` squashes.
+    pub fn squash(&mut self, scope: SquashScope) {
+        match scope {
+            SquashScope::After(keep) => self.flush_after(keep),
+            SquashScope::All => self.flush(),
         }
     }
 

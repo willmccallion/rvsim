@@ -41,6 +41,7 @@ use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
 use crate::uarch::pipeline::lsq::store_buffer::ForwardResult;
 use crate::uarch::pipeline::rob::RobTag;
+use crate::uarch::pipeline::squash::SquashScope;
 
 /// Cache-line size used by the VSB. Matches the L1D line width.
 pub const VSB_LINE_BYTES: usize = 64;
@@ -624,6 +625,15 @@ impl VecStoreBuffer {
             if entry.is_finished() {
                 entry.valid = false;
             }
+        }
+    }
+
+    /// Removes the uncommitted stores `scope` squashes; committed stores
+    /// remain to be written.
+    pub fn squash(&mut self, scope: SquashScope) {
+        match scope {
+            SquashScope::After(keep) => self.flush_after(keep),
+            SquashScope::All => self.flush_speculative(),
         }
     }
 

@@ -10,7 +10,7 @@ use crate::uarch::pipeline::backend::shared::commit::{
 use crate::uarch::pipeline::backend::shared::flush_stats::count_flush;
 use crate::uarch::pipeline::engine::ExecutionEngine;
 use crate::uarch::pipeline::lsq::load_queue::OrderViolation;
-use crate::uarch::pipeline::rob::RobTag;
+use crate::uarch::pipeline::squash::SquashScope;
 use crate::uarch::pipeline::squash::{PendingSquash, Redirect, SquashCause};
 use crate::uarch::pipeline::trace::Departure;
 
@@ -138,6 +138,38 @@ impl O3Engine {
         }
     }
 
+    /// Removes from every structure what `scope` squashes, returning the
+    /// squashed instructions' registers to the free lists.
+    pub(super) fn squash_in_flight(&mut self, state: &mut CoreCtx<'_>, scope: SquashScope) {
+        for seq in self.rob.seqs_after(scope.keep_tag()) {
+            state.trace_left(seq, Departure::Squashed);
+        }
+        for entry in self.rob.iter_squashed(scope) {
+            self.free_list.reclaim(entry.phys_dst);
+            for &vec_dst in &entry.vec_phys_dst[..entry.vec_dst_count as usize] {
+                self.vec_free_list.reclaim(vec_dst);
+            }
+        }
+        // Older un-issued IQ entries survive a partial squash, or the
+        // pipeline deadlocks.
+        self.issue_queue.squash(scope);
+        self.rob.squash(scope);
+        self.store_buffer.squash(scope);
+        self.load_queue.squash(scope);
+        self.mdp.squash(scope, &self.rob);
+        self.vec_store_buffer.squash(scope);
+        self.common.squash(scope);
+        self.fu_pool.release_squashed(state.cycle, |tag| !scope.keeps(tag));
+        self.mem1_mem2.retain(|e| scope.keeps(e.rob_tag));
+        self.mem2_wb.retain(|e| scope.keeps(e.rob_tag));
+        self.pending_results.retain(|p| scope.keeps(p.entry.rob_tag));
+        self.pending_addresses.retain(|p| scope.keeps(p.entry.rob_tag));
+        self.vec_pending.retain(|v| scope.keeps(v.rob_tag));
+        self.vec_mem_pending.retain(|m| scope.keeps(m.entry.rob_tag));
+        self.vec_mem_inflight.retain(|m| scope.keeps(m.rob_tag));
+        self.execute_mem1.retain(|e| scope.keeps(e.rob_tag));
+    }
+
     /// Takes a squash: drops everything younger than its kept tag (or the
     /// whole window when that tag has already retired), reclaims their
     /// physical registers, restores the rename map, and redirects fetch.
@@ -149,57 +181,11 @@ impl O3Engine {
     ) {
         self.serialization.squash(|tag| squash.squashes(tag));
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
+        let scope = SquashScope::keeping(keep_tag);
         let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
-        for seq in self.rob.seqs_after(keep_tag) {
-            state.trace_left(seq, Departure::Squashed);
-        }
-        let squashed = if let Some(keep_tag) = keep_tag {
-            for entry in self.rob.iter_after(keep_tag) {
-                self.free_list.reclaim(entry.phys_dst);
-                for i in 0..entry.vec_dst_count as usize {
-                    self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
-                }
-            }
-            self.rob.iter_after(keep_tag).count()
-        } else {
-            for entry in self.rob.iter_all() {
-                self.free_list.reclaim(entry.phys_dst);
-                for i in 0..entry.vec_dst_count as usize {
-                    self.vec_free_list.reclaim(entry.vec_phys_dst[i]);
-                }
-            }
-            self.rob.len()
-        };
+        let squashed = self.rob.iter_squashed(scope).count();
         count_flush(state, squash.redirect.cause.into(), squashed);
-
-        if let Some(keep_tag) = keep_tag {
-            // flush_after, not flush: older un-issued IQ entries must survive or deadlock the pipeline.
-            self.issue_queue.flush_after(keep_tag);
-            self.rob.flush_after(keep_tag);
-            self.store_buffer.flush_after(keep_tag);
-            self.load_queue.flush_after(keep_tag);
-            self.mdp.flush_after(keep_tag, &self.rob);
-            self.vec_store_buffer.flush_after(keep_tag);
-            self.common.squash_after(keep_tag);
-        } else {
-            self.issue_queue.flush();
-            self.rob.flush_all();
-            self.store_buffer.flush_speculative();
-            self.load_queue.flush();
-            self.mdp.flush();
-            self.vec_store_buffer.flush_speculative();
-            self.common.squash_all();
-        }
-        let survives = |tag: RobTag| keep_tag.is_some_and(|keep_tag| tag.is_older_or_eq(keep_tag));
-        self.fu_pool.release_squashed(state.cycle, |tag| !survives(tag));
-        self.mem1_mem2.retain(|e| survives(e.rob_tag));
-        self.mem2_wb.retain(|e| survives(e.rob_tag));
-        self.pending_results.retain(|p| survives(p.entry.rob_tag));
-        self.pending_addresses.retain(|p| survives(p.entry.rob_tag));
-        self.vec_pending.retain(|v| survives(v.rob_tag));
-        self.vec_mem_pending.retain(|m| survives(m.entry.rob_tag));
-        self.vec_mem_inflight.retain(|m| survives(m.rob_tag));
-        self.execute_mem1.retain(|e| survives(e.rob_tag));
+        self.squash_in_flight(state, scope);
 
         let checkpoint = keep_tag
             .filter(|_| self.checkpoints.capacity() > 0)
@@ -210,11 +196,7 @@ impl O3Engine {
             self.rebuild_rename_map();
         }
         self.squash_stall_remaining = self.squash_cycles(squashed);
-        if let Some(keep_tag) = keep_tag {
-            self.checkpoints.flush_after(keep_tag);
-        } else {
-            self.checkpoints.flush_all();
-        }
+        self.checkpoints.squash(scope);
 
         *redirect = Some(squash.redirect.target);
         let now = state.cycle;

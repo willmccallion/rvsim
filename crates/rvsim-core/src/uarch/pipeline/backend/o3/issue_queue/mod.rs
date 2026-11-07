@@ -19,6 +19,7 @@ use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
+use crate::uarch::pipeline::squash::SquashScope;
 
 /// Readiness state of a single source operand.
 #[derive(Clone, Copy, Debug, Default)]
@@ -550,6 +551,14 @@ impl IssueQueue {
     /// Number of free slots available for dispatch.
     pub const fn available_slots(&self) -> usize {
         self.capacity - self.count
+    }
+
+    /// Removes what `scope` squashes.
+    pub fn squash(&mut self, scope: SquashScope) {
+        match scope {
+            SquashScope::After(keep) => self.flush_after(keep),
+            SquashScope::All => self.flush(),
+        }
     }
 
     /// Flush all entries.

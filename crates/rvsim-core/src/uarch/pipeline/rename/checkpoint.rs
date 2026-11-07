@@ -8,6 +8,7 @@
 
 use super::map::RenameMap;
 use crate::uarch::pipeline::rob::RobTag;
+use crate::uarch::pipeline::squash::SquashScope;
 
 /// Index into the checkpoint table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +101,14 @@ impl CheckpointTable {
         if idx < self.slots.len() && self.slots[idx].is_some() {
             self.slots[idx] = None;
             self.count -= 1;
+        }
+    }
+
+    /// Drops the checkpoints of the branches `scope` squashes.
+    pub fn squash(&mut self, scope: SquashScope) {
+        match scope {
+            SquashScope::After(keep) => self.flush_after(keep),
+            SquashScope::All => self.flush_all(),
         }
     }
 
