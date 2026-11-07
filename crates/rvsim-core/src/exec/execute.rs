@@ -65,7 +65,7 @@ pub const fn illegal_in_current_state(hart: &Hart, inst: &Inst) -> bool {
 /// The rounding mode `fcsr.frm` selects, or `None` when it holds a
 /// reserved one.
 const fn frm_mode(hart: &Hart) -> Option<RoundingMode> {
-    RoundingMode::from_bits(hart.csrs.frm as u8)
+    hart.csrs.frm.rounding_mode()
 }
 
 /// True when `inst` rounds by `frm`, as every vector FP instruction does,

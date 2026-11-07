@@ -299,7 +299,10 @@ impl Default for VtypeFields {
 }
 
 /// Fixed-point rounding mode (vxrm CSR).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+#[serde(from = "u8", into = "u8")]
 pub enum Vxrm {
     /// Round-to-nearest-up (vxrm = 0b00).
     #[default]
@@ -333,6 +336,18 @@ impl Vxrm {
             Self::RoundDown => 2,
             Self::RoundToOdd => 3,
         }
+    }
+}
+
+impl From<u8> for Vxrm {
+    fn from(bits: u8) -> Self {
+        Self::from_bits(bits)
+    }
+}
+
+impl From<Vxrm> for u8 {
+    fn from(vxrm: Vxrm) -> Self {
+        vxrm.to_bits()
     }
 }
 

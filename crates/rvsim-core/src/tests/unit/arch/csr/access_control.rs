@@ -179,3 +179,27 @@ fn pmpaddr_index_counts_from_pmpaddr0_through_pmpaddr15() {
     assert_eq!(CsrAddr::new(csr::PMPADDR15.as_u16() + 1).pmpaddr_index(), None);
     assert_eq!(csr::PMPCFG0.pmpaddr_index(), None);
 }
+
+#[test]
+fn typed_fp_and_vector_csrs_serialise_as_their_bits() {
+    let mut csrs = Csrs::default();
+    csrs.write(csr::FCSR, 0b101_10101);
+    csrs.write(csr::VXRM, 0b11);
+
+    let json = serde_json::to_value(&csrs).expect("serialise");
+
+    assert_eq!(json["fflags"], 0b10101);
+    assert_eq!(json["frm"], 0b101);
+    assert_eq!(json["vxrm"], 0b11);
+    let back: Csrs = serde_json::from_value(json).expect("deserialise");
+    assert_eq!(back, csrs);
+}
+
+#[test]
+fn a_reserved_frm_survives_a_write_and_selects_no_rounding_mode() {
+    let mut csrs = Csrs::default();
+    csrs.write(csr::FRM, 0b110);
+
+    assert_eq!(csrs.read(csr::FRM), 0b110);
+    assert_eq!(csrs.frm.rounding_mode(), None);
+}

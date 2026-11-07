@@ -17,8 +17,10 @@ use super::{
 use crate::arch::Hart;
 use crate::common::{CoreId, HartId, PhysAddr, SimError, VirtAddr};
 use crate::isa::csr;
+use crate::isa::fp::{FpFlags, Frm};
 use crate::isa::privileged::{PagingMode, PrivilegeMode};
 use crate::isa::reg::{self, RegIdx};
+use crate::isa::rvv::Vxrm;
 use crate::sim::memory::GlobalMemory;
 use crate::soc::terminal::{InputReader, SharedTerminal};
 use crate::system::state::SystemState;
@@ -219,9 +221,9 @@ pub struct UserContext {
     gprs: [u64; 32],
     fprs: [u64; 32],
     vprs: Vec<u8>,
-    fflags: u64,
-    frm: u64,
-    vxrm: u64,
+    fflags: FpFlags,
+    frm: Frm,
+    vxrm: Vxrm,
     vxsat: u64,
     vl: u64,
     vtype: u64,
