@@ -234,17 +234,7 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
             VecExecResult { scalar_result: result.scalar_result, ..VecExecResult::default() }
         }
         VecClass::Crypto(op) => {
-            crypto::execute_crypto(
-                op,
-                vpr,
-                vd,
-                vs2,
-                vs1,
-                ctx.vstart,
-                ctx.vl,
-                inst.bits,
-                inst.ctrl.vec_broadcast_vs2,
-            );
+            crypto::execute_crypto(op, vpr, &inst.ctrl, &ctx);
             VecExecResult::default()
         }
         VecClass::Alu(op) => vec_execute(op, vpr, vd, vs2, operand1, &ctx),

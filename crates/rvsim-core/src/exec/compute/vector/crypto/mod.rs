@@ -27,7 +27,9 @@ mod sha2;
 mod sm3;
 mod sm4;
 
+use crate::exec::compute::vector::context::VecExecCtx;
 use crate::exec::compute::vector::regfile::VectorRegFile;
+use crate::exec::signals::ControlSignals;
 use crate::isa::op::CryptoOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx};
 use aes::{
@@ -92,18 +94,16 @@ fn write_egs8_u32(vpr: &mut impl VectorRegFile, vreg: VRegIdx, base_elem: usize,
 /// instead of a per-group key.
 ///
 /// Returns nothing; results are written directly to `vd` in `vpr`.
-#[allow(clippy::too_many_arguments)]
 pub fn execute_crypto(
     op: CryptoOp,
     vpr: &mut impl VectorRegFile,
-    vd_idx: VRegIdx,
-    vs2_idx: VRegIdx,
-    vs1_idx: VRegIdx,
-    vstart: usize,
-    vl: usize,
-    inst: u32,
-    broadcast_vs2: bool,
+    ctrl: &ControlSignals,
+    ctx: &VecExecCtx,
 ) {
+    let (vd_idx, vs2_idx, vs1_idx) = (ctrl.vd, ctrl.vs2, ctrl.vs1);
+    // The .vi forms' round number, zimm5, is encoded in the vs1 field.
+    let rnd = u32::from(ctrl.vs1.as_u8());
+    let (vstart, vl) = (ctx.vstart, ctx.vl);
     let egs = match op {
         CryptoOp::Sm3Me | CryptoOp::Sm3C => EGS_SM3,
         CryptoOp::Sha2Ch | CryptoOp::Sha2Cl | CryptoOp::Sha2Ms => EGS_SHA,
@@ -115,7 +115,7 @@ pub fn execute_crypto(
     }
 
     // .vs form: vs2 element group 0 is broadcast across all destination groups.
-    let key_base = |base: usize| if broadcast_vs2 { 0 } else { base };
+    let key_base = |base: usize| if ctrl.vec_broadcast_vs2 { 0 } else { base };
 
     let mut base = (vstart / egs) * egs;
     while base + egs <= vl {
@@ -152,14 +152,11 @@ pub fn execute_crypto(
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
             CryptoOp::AesKf1 => {
-                // zimm5 = vs1 field as round number (1..10 valid).
-                let rnd = (inst >> 15) & 0x1f;
                 let prev = read_egs4_u32(vpr, vs2_idx, base);
                 let r = aes_kf1(prev, rnd);
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
             CryptoOp::AesKf2 => {
-                let rnd = (inst >> 15) & 0x1f;
                 let curr = read_egs4_u32(vpr, vd_idx, base);
                 let prev = read_egs4_u32(vpr, vs2_idx, base);
                 let r = aes_kf2(curr, prev, rnd);
@@ -193,7 +190,6 @@ pub fn execute_crypto(
                 write_egs8_u32(vpr, vd_idx, base, r);
             }
             CryptoOp::Sm3C => {
-                let rnd = (inst >> 15) & 0x1f;
                 let vd = read_egs8_u32(vpr, vd_idx, base);
                 let vs2 = read_egs8_u32(vpr, vs2_idx, base);
                 let r = sm3_c(vd, vs2, rnd);
@@ -206,7 +202,6 @@ pub fn execute_crypto(
                 write_egs4_u32(vpr, vd_idx, base, r);
             }
             CryptoOp::Sm4K => {
-                let rnd = (inst >> 15) & 0x1f;
                 let prev = read_egs4_u32(vpr, vs2_idx, base);
                 let r = sm4_k(prev, rnd);
                 write_egs4_u32(vpr, vd_idx, base, r);
