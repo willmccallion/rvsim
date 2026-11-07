@@ -6,9 +6,7 @@
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::shadow::ShadowVpr;
-use crate::exec::execute::{
-    SystemEffect, evaluate, illegal_in_current_state, operands, system_effect,
-};
+use crate::exec::execute::{evaluate, illegal_in_current_state, operands};
 use crate::isa::extension::Extension;
 use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
@@ -16,12 +14,13 @@ use crate::soc::uncore::commit_log_open;
 use crate::trace_execute;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::execute::{
-    fault, propagate_trap, resolve_control_flow,
+    SystemExecution, execute_system, faulted, propagate_trap, record_vector_flags, refetch_after,
+    resolve_control_flow,
 };
 use crate::uarch::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::uarch::pipeline::latches::{ExMem1Entry, RenameIssueEntry};
 use crate::uarch::pipeline::rob::{Rob, RobTag};
-use crate::uarch::pipeline::squash::{Redirect, SquashCause};
+use crate::uarch::pipeline::squash::Redirect;
 use crate::uarch::pipeline::trace::Stage;
 
 /// What one cycle of in-order execute produced.
@@ -57,19 +56,6 @@ pub fn execute_inorder(
     batch
 }
 
-/// The instruction after `id` squashes and refetches.
-const fn refetch_after(id: &RenameIssueEntry) -> Redirect {
-    Redirect::to(id.inst.next_pc(), SquashCause::System)
-}
-
-fn faulted(
-    state: &StageCtx<'_>,
-    id: &RenameIssueEntry,
-    trap: Trap,
-) -> (ExMem1Entry, Option<Redirect>) {
-    (fault(state, id, trap), None)
-}
-
 fn execute_one(
     state: &mut StageCtx<'_>,
     id: &RenameIssueEntry,
@@ -78,6 +64,11 @@ fn execute_one(
     if let Some(trap) = id.trap.clone() {
         return (propagate_trap(state, id, trap), None);
     }
+
+    if state.check_execute_trigger(id.inst.pc) {
+        return faulted(state, id, Trap::Breakpoint(id.inst.pc.val()));
+    }
+    state.trace_stage(id.seq, Stage::Execute);
 
     trace_execute!(state.config.general.trace_instructions;
         rob_tag  = %id.rob_tag,
@@ -93,17 +84,12 @@ fn execute_one(
         "EX: begin"
     );
 
-    if state.check_execute_trigger(id.inst.pc) {
-        return faulted(state, id, Trap::Breakpoint(id.inst.pc.val()));
-    }
-    state.trace_stage(id.seq, Stage::Execute);
-
-    if let Some(executed) = execute_system(state, id, rob) {
-        return executed;
-    }
-
     if illegal_in_current_state(state.hart(), &id.inst) {
         return faulted(state, id, Trap::IllegalInstruction(id.inst.bits));
+    }
+
+    if let Some(executed) = execute_system_inorder(state, id, rob) {
+        return executed;
     }
 
     if id.inst.ctrl.vec_op.is_config() {
@@ -131,33 +117,20 @@ fn execute_one(
     (ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(id, alu_out, id.inst.rv2) }, redirect)
 }
 
-/// Executes a system instruction; `None` for everything else, FENCE
-/// included (it orders memory in issue and at commit, not here).
-fn execute_system(
+/// Executes a system instruction; `None` for everything else. FENCE.I,
+/// MRET, SRET and WFI take effect at commit, which squashes and refetches
+/// what follows them, as Rocket's WB does; a CSR access is performed at
+/// the head of the ROB, as Rocket's is in WB, so it reads what every older
+/// instruction wrote.
+fn execute_system_inorder(
     state: &StageCtx<'_>,
     id: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
-    Some(match system_effect(state, &id.inst) {
-        SystemEffect::NotSystem => return None,
-        SystemEffect::Trap(trap) => faulted(state, id, trap),
-        // FENCE.I, MRET, SRET and WFI take effect at commit, which squashes
-        // and refetches what follows them, as Rocket's WB does.
-        SystemEffect::AtRetire => (ExMem1Entry::from_issue(id, 0, 0), None),
-        // The TLB flush waits for commit, after the store buffer drains.
-        SystemEffect::SfenceVma(sfence_vma) => {
-            let result = ExMem1Entry {
-                sfence_vma: Some(sfence_vma),
-                ..ExMem1Entry::from_issue(id, 0, id.inst.rv2)
-            };
-            (result, None)
-        }
-        // A CBO passes its operand to memory1, which translates the block;
-        // commit performs it. Younger loads wait for it in issue.
-        SystemEffect::Cbo => (ExMem1Entry::from_issue(id, id.inst.rv1, 0), None),
-        // The access is performed at the head of the ROB, as Rocket's is in
-        // WB, so it reads what every older instruction wrote.
-        SystemEffect::Csr(request) => {
+    Some(match execute_system(state, id)? {
+        SystemExecution::Done(result, redirect) => (result, redirect),
+        SystemExecution::AtRetire => (ExMem1Entry::from_issue(id, 0, 0), None),
+        SystemExecution::Csr(request) => {
             rob.defer_csr(id.rob_tag, request);
             (ExMem1Entry::from_issue(id, 0, id.inst.rv2), None)
         }
@@ -184,11 +157,6 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
         rob.set_vec_agnostic(id.rob_tag, fills);
     }
     rob.set_vec_writes(id.rob_tag, shadow.into_writes());
-    if !result.fp_flags.is_empty() {
-        rob.set_fp_flags(id.rob_tag, result.fp_flags);
-    }
-    if result.vxsat {
-        rob.set_vxsat(id.rob_tag, true);
-    }
+    record_vector_flags(rob, id.rob_tag, &result);
     Ok(result.scalar_result.unwrap_or(0))
 }
