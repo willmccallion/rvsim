@@ -1,8 +1,10 @@
 use crate::exec::compute::fpu;
+use crate::isa::fp::{FpFormat, RoundingMode};
 use crate::isa::op::AluOp;
 
 fn execute(op: AluOp, a: u64, b: u64, c: u64, is32: bool) -> u64 {
-    fpu::execute_full(op, a, b, c, is32).0
+    let format = if is32 { FpFormat::Single } else { FpFormat::Double };
+    fpu::execute_full_rm(op, a, b, c, format, RoundingMode::Rne).0
 }
 
 #[test]

@@ -23,110 +23,86 @@ pub(super) const I64_MIN_F64: f64 = i64::MIN as f64;
 /// `u64::MAX` + 1 as f64 (2^64). Values >= this overflow u64.
 pub(super) const U64_MAX_P1_F64: f64 = 18446744073709551616.0; // 2^64 exactly
 
-// Rust's `f as i32` saturates correctly for ±Inf and out-of-range values,
-// but produces 0 for NaN.  RISC-V requires positive-max for NaN.
+/// The integer type an `fcvt` from floating point produces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum IntTarget {
+    I32,
+    U32,
+    I64,
+    U64,
+}
 
-/// Convert f64 value to i32 per RISC-V spec (NaN → `INT32_MAX`).
-#[inline]
-pub(super) const fn f64_to_i32_rv(v: f64) -> i32 {
-    if v.is_nan() {
-        i32::MAX
-    } else {
-        v as i32 // Rust saturates: +Inf→MAX, -Inf→MIN, out-of-range→saturated
+impl IntTarget {
+    /// The target of `op`, when it converts floating point to an integer.
+    pub(super) const fn of(op: AluOp) -> Option<Self> {
+        match op {
+            AluOp::FCvtWS => Some(Self::I32),
+            AluOp::FCvtWUS => Some(Self::U32),
+            AluOp::FCvtLS => Some(Self::I64),
+            AluOp::FCvtLUS => Some(Self::U64),
+            _ => None,
+        }
+    }
+
+    /// The largest value, as the sign-extended register image RISC-V
+    /// writes for the type.
+    const fn max(self) -> u64 {
+        match self {
+            Self::I32 => i32::MAX as i64 as u64,
+            Self::U32 => sext_word(u32::MAX),
+            Self::I64 => i64::MAX as u64,
+            Self::U64 => u64::MAX,
+        }
+    }
+
+    /// The smallest value, as the register image.
+    const fn min(self) -> u64 {
+        match self {
+            Self::I32 => i32::MIN as i64 as u64,
+            Self::U32 | Self::U64 => 0,
+            Self::I64 => i64::MIN as u64,
+        }
+    }
+
+    /// The integral values that convert without overflow: from the first
+    /// up to but excluding the second.
+    const fn range(self) -> (f64, f64) {
+        match self {
+            Self::I32 => (I32_MIN_F64, I32_MAX_P1_F64),
+            Self::U32 => (0.0, U32_MAX_P1_F64),
+            Self::I64 => (I64_MIN_F64, I64_MAX_P1_F64),
+            Self::U64 => (0.0, U64_MAX_P1_F64),
+        }
+    }
+
+    /// The register image of `integral`, a value within [`Self::range`].
+    const fn image(self, integral: f64) -> u64 {
+        match self {
+            Self::I32 => integral as i32 as i64 as u64,
+            Self::U32 => sext_word(integral as u32),
+            Self::I64 => integral as i64 as u64,
+            Self::U64 => integral as u64,
+        }
     }
 }
 
-/// Convert f64 value to u32 per RISC-V spec (NaN → `UINT32_MAX`).
-#[inline]
-pub(super) const fn f64_to_u32_rv(v: f64) -> u32 {
-    if v.is_nan() { u32::MAX } else { v as u32 }
-}
-
-/// Convert f64 value to i64 per RISC-V spec (NaN → `INT64_MAX`).
-#[inline]
-pub(super) const fn f64_to_i64_rv(v: f64) -> i64 {
-    if v.is_nan() { i64::MAX } else { v as i64 }
-}
-
-/// Convert f64 value to u64 per RISC-V spec (NaN → `UINT64_MAX`).
-#[inline]
-pub(super) const fn f64_to_u64_rv(v: f64) -> u64 {
-    if v.is_nan() { u64::MAX } else { v as u64 }
-}
-
-/// Converts an f64 value to a RISC-V integer result with the given
-/// rounding mode. Used by [`execute_f16`] for f16→int conversions;
-/// mirrors the logic inline in [`execute_full_rm`] for f32/f64→int.
-pub(super) fn fp_to_int_convert(op: AluOp, val: f64, rm: RoundingMode) -> (u64, FpFlags) {
-    let mut flags = FpFlags::NONE;
-    if val.is_nan() {
-        flags = flags | FpFlags::NV;
-        let result = match op {
-            AluOp::FCvtWS => i32::MAX as i64 as u64,
-            AluOp::FCvtWUS => sext_word(u32::MAX),
-            AluOp::FCvtLS => i64::MAX as u64,
-            AluOp::FCvtLUS => u64::MAX,
-            _ => 0,
-        };
-        return (result, flags);
+/// Converts `value` to the integer `target` under `rm`, saturating as
+/// RISC-V does: NaN gives the maximum, and an out-of-range result raises
+/// NV, which takes priority over NX.
+pub(super) fn fp_to_int(value: f64, target: IntTarget, rm: RoundingMode) -> (u64, FpFlags) {
+    if value.is_nan() {
+        return (target.max(), FpFlags::NV);
     }
-    if val.is_infinite() {
-        flags = flags | FpFlags::NV;
-        let result = match (op, val > 0.0) {
-            (AluOp::FCvtWS, true) => i32::MAX as i64 as u64,
-            (AluOp::FCvtWS, false) => i32::MIN as i64 as u64,
-            (AluOp::FCvtWUS, true) => sext_word(u32::MAX),
-            (AluOp::FCvtLS, true) => i64::MAX as u64,
-            (AluOp::FCvtLS, false) => i64::MIN as u64,
-            (AluOp::FCvtLUS, true) => u64::MAX,
-            _ => 0,
-        };
-        return (result, flags);
+    let rounded = round_to_integer(value, rm);
+    let (low, high) = target.range();
+    if rounded < low {
+        return (target.min(), FpFlags::NV);
     }
-
-    let rounded = round_to_integer(val, rm);
-    let inexact = val != rounded;
-
-    let (overflow, result) = match op {
-        AluOp::FCvtWS => {
-            if (I32_MIN_F64..I32_MAX_P1_F64).contains(&rounded) {
-                (false, rounded as i32 as i64 as u64)
-            } else {
-                (true, if rounded > 0.0 { i32::MAX } else { i32::MIN } as i64 as u64)
-            }
-        }
-        AluOp::FCvtWUS => {
-            if (0.0..U32_MAX_P1_F64).contains(&rounded) {
-                (false, sext_word(rounded as u32))
-            } else {
-                (true, if rounded > 0.0 { sext_word(u32::MAX) } else { 0 })
-            }
-        }
-        AluOp::FCvtLS => {
-            if (I64_MIN_F64..I64_MAX_P1_F64).contains(&rounded) {
-                (false, rounded as i64 as u64)
-            } else {
-                (true, if rounded > 0.0 { i64::MAX } else { i64::MIN } as u64)
-            }
-        }
-        AluOp::FCvtLUS => {
-            if rounded < 0.0 {
-                (true, 0u64)
-            } else if rounded >= U64_MAX_P1_F64 {
-                (true, u64::MAX)
-            } else {
-                (false, rounded as u64)
-            }
-        }
-        _ => (false, 0),
-    };
-
-    if overflow {
-        flags = flags | FpFlags::NV;
-    } else if inexact {
-        flags = flags | FpFlags::NX;
+    if rounded >= high {
+        return (target.max(), FpFlags::NV);
     }
-    (result, flags)
+    let flags = if value == rounded { FpFlags::NONE } else { FpFlags::NX };
+    (target.image(rounded), flags)
 }
 
 /// Rounds an f64 value to an integer using the specified RISC-V rounding mode.

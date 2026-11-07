@@ -1,10 +1,8 @@
 //! Single- and double-precision operations and classification.
 
-use crate::isa::bits::sext_word;
 use crate::isa::fp::{FpClass, FpFormat};
 use crate::isa::op::AluOp;
 
-use super::convert::{f64_to_i32_rv, f64_to_i64_rv, f64_to_u32_rv, f64_to_u64_rv};
 use super::nan_handling::{
     box_f32, box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
     unbox_f32,
@@ -61,23 +59,6 @@ pub(super) fn execute_f32(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         AluOp::FLt => (fa < fb) as u64,
         AluOp::FLe => (fa <= fb) as u64,
         AluOp::FClass => FpClass::of(FpFormat::Single, u64::from(fa.to_bits())).mask(),
-        // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
-        // NaN → positive max per RISC-V spec.
-        AluOp::FCvtWS => f64_to_i32_rv(fa as f64) as i64 as u64,
-        AluOp::FCvtWUS => sext_word(f64_to_u32_rv(fa as f64)),
-        AluOp::FCvtLS => f64_to_i64_rv(fa as f64) as u64,
-        AluOp::FCvtLUS => f64_to_u64_rv(fa as f64),
-
-        // Identity in the f32 path.
-        AluOp::FCvtSD => box_f32_canon(fa),
-
-        // The raw `a` holds the integer bits.
-        AluOp::FCvtSW => ((a as i32) as f64).to_bits(),
-        AluOp::FCvtSWU => ((a as u32) as f64).to_bits(),
-        AluOp::FCvtSL => ((a as i64) as f64).to_bits(),
-        AluOp::FCvtSLU => (a as f64).to_bits(),
-        AluOp::FCvtDS => (unbox_f32(a) as f64).to_bits(),
-        AluOp::FMvToF => box_f32(f32::from_bits(a as u32)),
         AluOp::FMvToX => (a as i32) as u64,
 
         _ => 0,
@@ -121,20 +102,9 @@ pub(super) fn execute_f64(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         AluOp::FLt => (fa < fb) as u64,
         AluOp::FLe => (fa <= fb) as u64,
         AluOp::FClass => FpClass::of(FpFormat::Double, fa.to_bits()).mask(),
-        // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
-        // NaN → positive max per RISC-V spec.
-        AluOp::FCvtWS => f64_to_i32_rv(fa) as i64 as u64,
-        AluOp::FCvtWUS => sext_word(f64_to_u32_rv(fa)),
-        AluOp::FCvtLS => f64_to_i64_rv(fa) as u64,
-        AluOp::FCvtLUS => f64_to_u64_rv(fa),
-        AluOp::FCvtSD => box_f32_canon(fa as f32),
-        AluOp::FCvtSW => ((a as i32) as f64).to_bits(),
-        AluOp::FCvtSWU => ((a as u32) as f64).to_bits(),
-        AluOp::FCvtSL => ((a as i64) as f64).to_bits(),
-        AluOp::FCvtSLU => (a as f64).to_bits(),
 
         // No NaN-boxing in the 64-bit path.
-        AluOp::FMvToF | AluOp::FMvToX => a,
+        AluOp::FMvToX => a,
 
         _ => 0,
     }

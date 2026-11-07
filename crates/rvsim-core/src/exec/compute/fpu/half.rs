@@ -6,7 +6,7 @@
 //! (lossless for add/sub/mul/fma of f16 inputs) and then software-rounding
 //! back to f16 with the RISC-V rounding mode.
 
-use super::convert::fp_to_int_convert;
+use super::convert::{IntTarget, fp_to_int};
 use super::exact::{self, Exact};
 use super::host::{restore_host_round_mode, set_host_round_mode};
 use super::nan_handling::{fmax_f32, fmin_f32, is_snan_f32, is_snan_f64, unbox_f32};
@@ -257,6 +257,10 @@ pub(super) fn execute_f16_inner(
     rm: RoundingMode,
 ) -> (u64, FpFlags) {
     let ha = unbox_f16(a);
+    // f16 widens exactly, so it converts to an integer as f64 does.
+    if let Some(target) = IntTarget::of(op) {
+        return fp_to_int(f64::from(f16_to_f32(ha)), target, rm);
+    }
     let hb = unbox_f16(b);
     let hc = unbox_f16(c);
 
@@ -403,13 +407,6 @@ pub(super) fn execute_f16_inner(
         AluOp::FMvToX => (((a as i16) as i64) as u64, FpFlags::NONE),
         // fmv.h.x: take the low 16 bits of the integer operand, NaN-box.
         AluOp::FMvToF => (box_f16(a as u16), FpFlags::NONE),
-
-        // f16 → integer conversions. Upcast f16 to f64, then use the
-        // existing integer-range rounding logic (same as f32/f64 ints).
-        AluOp::FCvtWS | AluOp::FCvtWUS | AluOp::FCvtLS | AluOp::FCvtLUS => {
-            let val = f16_to_f32(ha) as f64;
-            fp_to_int_convert(op, val, rm)
-        }
 
         // Float → f16 conversions (target = half).
         AluOp::FCvtHS => {
