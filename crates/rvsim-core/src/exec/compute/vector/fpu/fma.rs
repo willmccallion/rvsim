@@ -1,14 +1,14 @@
 //! Fused multiply-add.
 
 use super::{elem_to_f32, elem_to_f64};
-use crate::exec::compute::fpu::exact::{self, Exact, Format, on_host_f32, on_host_f64};
+use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, fused_is_invalid, is_snan_f16};
 use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits};
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use std::hint::black_box;
@@ -58,7 +58,7 @@ pub(super) fn compute_fma_f16(
     let (bits, flags) = f64_to_f16(a.mul_add(b, c), rm);
     if flags.contains(FpFlags::NX) && a.is_finite() && b.is_finite() && c.is_finite() {
         let exact = exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c));
-        let (bits, flags) = exact::round(exact, Format::Half, rm);
+        let (bits, flags) = exact::round(exact, FpFormat::Half, rm);
         return (bits, flags | nv);
     }
     (u64::from(bits), flags | nv)

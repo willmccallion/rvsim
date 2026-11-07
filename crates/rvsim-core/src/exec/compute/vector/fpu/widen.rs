@@ -5,7 +5,7 @@ use super::convert::{
     f64_to_i8_frm, f64_to_i16_frm, f64_to_i32_frm, f64_to_u8_frm, f64_to_u16_frm, f64_to_u32_frm,
 };
 use super::{elem_to_f32, elem_to_f64};
-use crate::exec::compute::fpu::exact::{self, Exact, Format, on_host_f32, on_host_f64};
+use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, is_snan_f16};
 use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::exec::compute::fpu::nan_handling::{
@@ -15,7 +15,7 @@ use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1, sign_extend, widen_sew,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use std::hint::black_box;
@@ -333,7 +333,7 @@ pub(super) fn exec_fp_widening_fma(
             let (bits, f) = if host_flags.contains(FpFlags::NX) && !host_flags.contains(FpFlags::NV)
             {
                 let exact = exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c));
-                let (bits, f) = exact::round(exact, Format::Single, ctx.frm);
+                let (bits, f) = exact::round(exact, FpFormat::Single, ctx.frm);
                 (box_f32_canon(f32::from_bits(bits as u32)), f)
             } else {
                 (box_f32_canon(host), host_flags)

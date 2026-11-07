@@ -5,28 +5,28 @@ use std::hint::black_box;
 
 use proptest::prelude::*;
 
-use crate::exec::compute::fpu::exact::{self, Exact, Format};
+use crate::exec::compute::fpu::exact::{self, Exact};
 use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 
 fn single(value: f32) -> Exact {
-    Exact::of(u64::from(value.to_bits()), Format::Single)
+    Exact::of(u64::from(value.to_bits()), FpFormat::Single)
 }
 
 fn double(value: f64) -> Exact {
-    Exact::of(value.to_bits(), Format::Double)
+    Exact::of(value.to_bits(), FpFormat::Double)
 }
 
 fn rmm_single(exact: Exact) -> f32 {
-    f32::from_bits(exact::round(exact, Format::Single, RoundingMode::Rmm).0 as u32)
+    f32::from_bits(exact::round(exact, FpFormat::Single, RoundingMode::Rmm).0 as u32)
 }
 
 fn rmm_double(exact: Exact) -> f64 {
-    f64::from_bits(exact::round(exact, Format::Double, RoundingMode::Rmm).0)
+    f64::from_bits(exact::round(exact, FpFormat::Double, RoundingMode::Rmm).0)
 }
 
 fn rne_double(exact: Exact) -> f64 {
-    f64::from_bits(exact::round(exact, Format::Double, RoundingMode::Rne).0)
+    f64::from_bits(exact::round(exact, FpFormat::Double, RoundingMode::Rne).0)
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn narrowing_a_tie_rounds_away_from_zero() {
 fn half_the_smallest_subnormal_rounds_up_to_it_and_underflows() {
     let tie = exact::mul(single(2f32.powi(-75)), single(2f32.powi(-75)));
 
-    let (bits, flags) = exact::round(tie, Format::Single, RoundingMode::Rmm);
+    let (bits, flags) = exact::round(tie, FpFormat::Single, RoundingMode::Rmm);
 
     assert_eq!(bits, 0x0000_0001);
     assert_eq!(flags.bits(), FpFlags::UF.union(FpFlags::NX).bits());
@@ -81,7 +81,7 @@ fn half_the_smallest_subnormal_rounds_up_to_it_and_underflows() {
 fn half_an_ulp_past_the_largest_finite_number_overflows() {
     let tie = exact::add(single(f32::MAX), single(2f32.powi(103)));
 
-    let (bits, flags) = exact::round(tie, Format::Single, RoundingMode::Rmm);
+    let (bits, flags) = exact::round(tie, FpFormat::Single, RoundingMode::Rmm);
 
     assert_eq!(bits, u64::from(f32::INFINITY.to_bits()));
     assert_eq!(flags.bits(), FpFlags::OF.union(FpFlags::NX).bits());

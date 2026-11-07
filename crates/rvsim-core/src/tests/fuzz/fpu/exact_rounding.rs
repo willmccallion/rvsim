@@ -6,11 +6,11 @@ use std::hint::black_box;
 
 use proptest::prelude::*;
 
-use crate::exec::compute::fpu::exact::{self, Exact, Format};
+use crate::exec::compute::fpu::exact::{self, Exact};
 use crate::exec::compute::fpu::host::{
     clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
 };
-use crate::isa::fp::{FpFlags, RoundingMode};
+use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 
 const HOST_MODES: [RoundingMode; 4] =
     [RoundingMode::Rne, RoundingMode::Rtz, RoundingMode::Rdn, RoundingMode::Rup];
@@ -55,7 +55,7 @@ fn f64_bits() -> impl Strategy<Value = u64> {
 /// `host_flags`, where the host result is finite and came from rounding.
 fn agrees(
     exact: Exact,
-    format: Format,
+    format: FpFormat,
     rm: RoundingMode,
     host_bits: u64,
     host_flags: FpFlags,
@@ -91,9 +91,9 @@ proptest! {
     ) {
         let (x, y, z) = (f32::from_bits(a), f32::from_bits(b), f32::from_bits(c));
         let (ea, eb, ec) = (
-            Exact::of(u64::from(a), Format::Single),
-            Exact::of(u64::from(b), Format::Single),
-            Exact::of(u64::from(c), Format::Single),
+            Exact::of(u64::from(a), FpFormat::Single),
+            Exact::of(u64::from(b), FpFormat::Single),
+            Exact::of(u64::from(c), FpFormat::Single),
         );
         let sign = 1u64 << 31;
         for rm in HOST_MODES {
@@ -118,7 +118,7 @@ proptest! {
             for (host, flags, exact) in cases {
                 let host_bits = u64::from(host.to_bits());
                 if let Some(exact) = exact.filter(|_| rounded(host_bits, flags, sign)) {
-                    agrees(exact, Format::Single, rm, host_bits, flags)?;
+                    agrees(exact, FpFormat::Single, rm, host_bits, flags)?;
                 }
             }
         }
@@ -130,7 +130,7 @@ proptest! {
     ) {
         let (x, y, z) = (f64::from_bits(a), f64::from_bits(b), f64::from_bits(c));
         let (ea, eb, ec) =
-            (Exact::of(a, Format::Double), Exact::of(b, Format::Double), Exact::of(c, Format::Double));
+            (Exact::of(a, FpFormat::Double), Exact::of(b, FpFormat::Double), Exact::of(c, FpFormat::Double));
         let sign = 1u64 << 63;
         for rm in HOST_MODES {
             let cases: [(f64, FpFlags, Option<Exact>); 6] = [
@@ -153,7 +153,7 @@ proptest! {
             for (host, flags, exact) in cases {
                 let host_bits = host.to_bits();
                 if let Some(exact) = exact.filter(|_| rounded(host_bits, flags, sign)) {
-                    agrees(exact, Format::Double, rm, host_bits, flags)?;
+                    agrees(exact, FpFormat::Double, rm, host_bits, flags)?;
                 }
             }
         }
@@ -163,16 +163,16 @@ proptest! {
     fn conversions_round_as_the_host_does(int in any::<i64>(), uint in any::<u64>(), wide in f64_bits()) {
         for rm in HOST_MODES {
             let (h, f) = on_host(rm, || black_box(int) as f32);
-            agrees(Exact::of_integer(i128::from(int)), Format::Single, rm, u64::from(h.to_bits()), f)?;
+            agrees(Exact::of_integer(i128::from(int)), FpFormat::Single, rm, u64::from(h.to_bits()), f)?;
             let (h, f) = on_host(rm, || black_box(int) as f64);
-            agrees(Exact::of_integer(i128::from(int)), Format::Double, rm, h.to_bits(), f)?;
+            agrees(Exact::of_integer(i128::from(int)), FpFormat::Double, rm, h.to_bits(), f)?;
             let (h, f) = on_host(rm, || black_box(uint) as f32);
-            agrees(Exact::of_unsigned(u128::from(uint)), Format::Single, rm, u64::from(h.to_bits()), f)?;
+            agrees(Exact::of_unsigned(u128::from(uint)), FpFormat::Single, rm, u64::from(h.to_bits()), f)?;
             let (h, f) = on_host(rm, || black_box(uint) as f64);
-            agrees(Exact::of_unsigned(u128::from(uint)), Format::Double, rm, h.to_bits(), f)?;
+            agrees(Exact::of_unsigned(u128::from(uint)), FpFormat::Double, rm, h.to_bits(), f)?;
             let (h, f) = on_host(rm, || black_box(f64::from_bits(wide)) as f32);
             if rounded(u64::from(h.to_bits()), f, 1 << 31) {
-                agrees(Exact::of(wide, Format::Double), Format::Single, rm, u64::from(h.to_bits()), f)?;
+                agrees(Exact::of(wide, FpFormat::Double), FpFormat::Single, rm, u64::from(h.to_bits()), f)?;
             }
         }
     }

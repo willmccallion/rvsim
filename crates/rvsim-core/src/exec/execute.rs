@@ -8,7 +8,7 @@ use crate::arch::translation::SfenceVmaInfo;
 use crate::exec::cbo;
 use crate::exec::compute::alu;
 use crate::exec::compute::fpu;
-use crate::exec::compute::fpu::exact::{self, Exact, Format};
+use crate::exec::compute::fpu::exact::{self, Exact};
 use crate::exec::compute::vector::fpu::is_vec_fp;
 use crate::exec::execute::fpu::host::{
     clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
@@ -20,7 +20,7 @@ use crate::exec::state::ArchState;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::encoding::rv64i::{funct3, opcodes};
-use crate::isa::fp::{FpFlags, Rounding, RoundingMode};
+use crate::isa::fp::{FpFlags, FpFormat, Rounding, RoundingMode};
 use crate::isa::op::{AluOp, CsrOp, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
@@ -423,7 +423,7 @@ fn convert_rounded(
 ) -> (u64, FpFlags) {
     use crate::exec::compute::fpu::nan_handling::box_f32_canon;
     let (value, flags) = on_host_fpu(rm, convert);
-    let format = if single { Format::Single } else { Format::Double };
+    let format = if single { FpFormat::Single } else { FpFormat::Double };
     match exact::rmm_correction(rm, flags, format, || Some(exact())) {
         Some((bits, flags)) => {
             let boxed = if single { box_f32_canon(f32::from_bits(bits as u32)) } else { bits };

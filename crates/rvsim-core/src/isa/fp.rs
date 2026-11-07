@@ -36,6 +36,17 @@ impl RoundingMode {
     }
 }
 
+/// An IEEE 754 binary format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpFormat {
+    /// binary16.
+    Half,
+    /// binary32.
+    Single,
+    /// binary64.
+    Double,
+}
+
 /// The `frm` CSR: a rounding mode, or a reserved encoding (5 to 7) under
 /// which every dynamically rounded instruction is illegal.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
