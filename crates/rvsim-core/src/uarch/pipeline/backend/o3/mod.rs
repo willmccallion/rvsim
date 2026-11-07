@@ -22,7 +22,7 @@ use crate::uarch::pipeline::backend::shared::commit;
 use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, VecMemMicroOp};
 use crate::uarch::pipeline::engine::{DataCacheFlush, ExecutionEngine};
 use crate::uarch::pipeline::latches::{ExMem1Entry, Mem1Mem2Entry, Mem2WbEntry, RenameIssueEntry};
-use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
+use crate::uarch::pipeline::lsq::load_queue::{LoadQueue, OrderViolation};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::checkpoint::CheckpointTable;
@@ -38,7 +38,6 @@ use crate::uarch::vector::lane_model::NumLanes;
 
 use self::fu_pool::FuPool;
 use self::issue_queue::IssueQueue;
-use self::squash::older_violation;
 
 /// Physical registers the integer and floating-point architectural state
 /// holds: slots 0..32 are the GPRs, 32..64 the FPRs.
@@ -321,7 +320,11 @@ impl ExecutionEngine for O3Engine {
         self.retire_vector_memory_results();
         let mut writeback_slots = self.writeback_memory_results(state);
         let memory1_violation = self.memory1(state, now);
-        self.squash_on_violation(state, now, older_violation(memory2_violation, memory1_violation));
+        self.squash_on_violation(
+            state,
+            now,
+            OrderViolation::older(memory2_violation, memory1_violation),
+        );
 
         let memory_blocked = self.note_memory_backpressure(state);
         writeback_slots -= self.writeback_forwarded_loads(state, writeback_slots);

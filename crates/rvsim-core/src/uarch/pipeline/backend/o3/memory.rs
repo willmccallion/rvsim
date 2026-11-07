@@ -10,7 +10,7 @@ use crate::uarch::pipeline::latches::Mem2WbEntry;
 
 use super::O3Engine;
 use super::complete::wake_vector_dests;
-use super::squash::OrderViolation;
+use crate::uarch::pipeline::lsq::load_queue::OrderViolation;
 
 impl O3Engine {
     /// Memory2: finalizes loads, which write back in the same cycle as
