@@ -1,5 +1,6 @@
 //! Single- and double-precision operations and classification.
 
+use crate::isa::fp::{FpClass, FpFormat};
 use crate::isa::op::AluOp;
 
 use super::convert::{f64_to_i32_rv, f64_to_i64_rv, f64_to_u32_rv, f64_to_u64_rv};
@@ -7,49 +8,6 @@ use super::nan_handling::{
     box_f32, box_f32_canon, canonicalize_f64_bits, fmax_f32, fmax_f64, fmin_f32, fmin_f64,
     unbox_f32,
 };
-
-/// RISC-V FCLASS result for f32: classify into one of 10 categories.
-pub(super) const fn classify_f32(sign: u32, exp: u32, frac: u32) -> u32 {
-    if exp == 0xFF && frac != 0 {
-        // NaN
-        if frac & 0x0040_0000 != 0 {
-            1 << 9 // qNaN
-        } else {
-            1 << 8 // sNaN
-        }
-    } else if exp == 0xFF && frac == 0 {
-        if sign != 0 { 1 << 0 } else { 1 << 7 } // ±inf
-    } else if exp == 0 && frac == 0 {
-        if sign != 0 { 1 << 3 } else { 1 << 4 } // ±zero
-    } else if exp == 0 {
-        if sign != 0 { 1 << 2 } else { 1 << 5 } // ±subnormal
-    } else if sign != 0 {
-        1 << 1
-    } else {
-        1 << 6
-    } // ±normal
-}
-
-/// RISC-V FCLASS result for f64: classify into one of 10 categories.
-pub(super) const fn classify_f64(sign: u64, exp: u64, frac: u64) -> u64 {
-    if exp == 0x7FF && frac != 0 {
-        if frac & 0x0008_0000_0000_0000 != 0 {
-            1 << 9 // qNaN
-        } else {
-            1 << 8 // sNaN
-        }
-    } else if exp == 0x7FF && frac == 0 {
-        if sign != 0 { 1 << 0 } else { 1 << 7 } // ±inf
-    } else if exp == 0 && frac == 0 {
-        if sign != 0 { 1 << 3 } else { 1 << 4 } // ±zero
-    } else if exp == 0 {
-        if sign != 0 { 1 << 2 } else { 1 << 5 } // ±subnormal
-    } else if sign != 0 {
-        1 << 1
-    } else {
-        1 << 6
-    } // ±normal
-}
 
 /// Bit mask for the sign bit in a 32-bit IEEE 754 float (bit 31).
 pub(super) const F32_SIGN_BIT: u32 = 0x8000_0000;
@@ -101,13 +59,7 @@ pub(super) fn execute_f32(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         AluOp::FEq => (fa == fb) as u64,
         AluOp::FLt => (fa < fb) as u64,
         AluOp::FLe => (fa <= fb) as u64,
-        AluOp::FClass => {
-            let bits = fa.to_bits();
-            let sign = (bits >> 31) & 1;
-            let exp = (bits >> 23) & 0xFF;
-            let frac = bits & 0x007F_FFFF;
-            classify_f32(sign, exp, frac) as u64
-        }
+        AluOp::FClass => FpClass::of(FpFormat::Single, u64::from(fa.to_bits())).mask(),
         // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
         // NaN → positive max per RISC-V spec.
         AluOp::FCvtWS => f64_to_i32_rv(fa as f64) as i64 as u64,
@@ -167,13 +119,7 @@ pub(super) fn execute_f64(op: AluOp, a: u64, b: u64, c: u64) -> u64 {
         AluOp::FEq => (fa == fb) as u64,
         AluOp::FLt => (fa < fb) as u64,
         AluOp::FLe => (fa <= fb) as u64,
-        AluOp::FClass => {
-            let bits = fa.to_bits();
-            let sign = (bits >> 63) & 1;
-            let exp = (bits >> 52) & 0x7FF;
-            let frac = bits & 0x000F_FFFF_FFFF_FFFF;
-            classify_f64(sign, exp, frac)
-        }
+        AluOp::FClass => FpClass::of(FpFormat::Double, fa.to_bits()).mask(),
         // RV64: W-sized results are sign-extended to 64 bits (even unsigned).
         // NaN → positive max per RISC-V spec.
         AluOp::FCvtWS => f64_to_i32_rv(fa) as i64 as u64,

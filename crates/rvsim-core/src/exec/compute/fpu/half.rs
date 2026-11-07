@@ -10,7 +10,7 @@ use super::convert::fp_to_int_convert;
 use super::exact::{self, Exact};
 use super::host::{restore_host_round_mode, set_host_round_mode};
 use super::nan_handling::{fmax_f32, fmin_f32, is_snan_f32, is_snan_f64, unbox_f32};
-use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
+use crate::isa::fp::{FpClass, FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::AluOp;
 
 /// Canonical quiet NaN for IEEE 754 half-precision (sign=0, exp=all-1,
@@ -40,27 +40,6 @@ pub const fn is_snan_f16(bits: u16) -> bool {
     let exp = (bits >> 10) & 0x1F;
     let mant = bits & 0x3FF;
     exp == 0x1F && mant != 0 && (mant & 0x200) == 0
-}
-
-/// RISC-V `FCLASS.H` result for a half-precision value: one-hot in
-/// positions 0..9 identifying the value's class.
-pub const fn classify_f16(bits: u16) -> u64 {
-    let sign = (bits >> 15) & 1;
-    let exp = (bits >> 10) & 0x1F;
-    let mant = bits & 0x3FF;
-    if exp == 0x1F && mant != 0 {
-        if mant & 0x200 != 0 { 1 << 9 } else { 1 << 8 }
-    } else if exp == 0x1F {
-        if sign != 0 { 1 << 0 } else { 1 << 7 }
-    } else if exp == 0 && mant == 0 {
-        if sign != 0 { 1 << 3 } else { 1 << 4 }
-    } else if exp == 0 {
-        if sign != 0 { 1 << 2 } else { 1 << 5 }
-    } else if sign != 0 {
-        1 << 1
-    } else {
-        1 << 6
-    }
 }
 
 /// Upconverts an IEEE 754 half-precision bit pattern to `f32` losslessly.
@@ -415,7 +394,7 @@ pub(super) fn execute_f16_inner(
             ((fa <= fb) as u64, nv)
         }
 
-        AluOp::FClass => (classify_f16(ha), FpFlags::NONE),
+        AluOp::FClass => (FpClass::of(FpFormat::Half, u64::from(ha)).mask(), FpFlags::NONE),
 
         // fmv.x.h: RAW bit-cast of the low 16 bits of the f register,
         // sign-extended to XLEN. Per spec, this is NOT NaN-boxing-aware
