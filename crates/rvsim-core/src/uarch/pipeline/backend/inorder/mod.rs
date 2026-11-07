@@ -44,7 +44,7 @@ use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::squash::SquashScope;
 use crate::uarch::pipeline::trace::Departure;
 
-use self::issue::{InOrderIssueUnit, IssuedUnit};
+use self::issue::{InOrderIssueUnit, IssueContext, IssuedUnit, Selection};
 use crate::uarch::pipeline::backend::o3::fu_pool::FuPool;
 use crate::uarch::pipeline::backend::shared::vec_mem::route_to_phys;
 
@@ -409,17 +409,16 @@ impl InOrderEngine {
     /// results and the units they took. A branch that mispredicted asks
     /// for its squash once its unit finishes.
     fn issue(&mut self, state: &mut CoreCtx<'_>, now: u64) -> (Vec<ExMem1Entry>, Vec<IssuedUnit>) {
-        let (issued, units, held) = self.issuer.select(
-            self.issue_width,
-            &self.rob,
-            self.common.head_at_cycle_start,
-            &self.store_buffer,
-            &self.vec_store_buffer,
-            &state.stage(),
-            &mut self.fu_pool,
+        let ctx = IssueContext {
+            rob: &self.rob,
+            head: self.common.head_at_cycle_start,
+            store_buffer: &self.store_buffer,
+            vec_store_buffer: &self.vec_store_buffer,
+            pending_squash: self.common.pending_squash,
             now,
-            self.common.pending_squash,
-        );
+        };
+        let Selection { issued, units, held } =
+            self.issuer.select(self.issue_width, &ctx, &state.stage(), &mut self.fu_pool);
         count_issue_stalls(state, held == Some(IssueHold::Unit), !issued.is_empty(), held);
         for unit in &units {
             let stat = state.core.stat_paths.fu.all[unit.fu_type as usize];
