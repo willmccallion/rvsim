@@ -451,17 +451,17 @@ impl ExMem1Entry {
 
     /// The result of executing `id`: `alu` and `store_data` for memory1,
     /// with no trap, FP flags or deferred side effects.
-    pub const fn from_issue(id: &RenameIssueEntry, alu: u64, store_data: u64) -> Self {
+    pub const fn from_issue(issued: &RenameIssueEntry, alu: u64, store_data: u64) -> Self {
         Self {
-            rob_tag: id.rob_tag,
-            pc: id.inst.pc,
-            bits: id.inst.bits,
-            inst_size: id.inst.size,
-            rd: id.inst.rd,
-            rd_phys: id.rd_phys,
+            rob_tag: issued.rob_tag,
+            pc: issued.inst.pc,
+            bits: issued.inst.bits,
+            inst_size: issued.inst.size,
+            rd: issued.inst.rd,
+            rd_phys: issued.rd_phys,
             alu,
             store_data,
-            ctrl: id.inst.ctrl,
+            ctrl: issued.inst.ctrl,
             trap: None,
             fp_flags: FpFlags::NONE,
             sfence_vma: None,

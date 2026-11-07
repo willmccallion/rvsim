@@ -25,64 +25,67 @@ use crate::{trace_execute, trace_trap};
 /// [`Redirect`] the engine takes after the redirect latency.
 pub fn execute_one(
     state: &mut StageCtx<'_>,
-    id: &RenameIssueEntry,
+    issued: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> (ExMem1Entry, Option<Redirect>) {
-    if let Some(trap) = id.trap.clone() {
-        return (propagate_trap(state, id, trap), None);
+    if let Some(trap) = issued.trap.clone() {
+        return (propagate_trap(state, issued, trap), None);
     }
 
-    if state.check_execute_trigger(id.inst.pc) {
-        return faulted(state, id, Trap::Breakpoint(id.inst.pc.val()));
+    if state.check_execute_trigger(issued.inst.pc) {
+        return faulted(state, issued, Trap::Breakpoint(issued.inst.pc.val()));
     }
-    state.trace_stage(id.seq, Stage::Execute);
+    state.trace_stage(issued.seq, Stage::Execute);
 
     trace_execute!(state.config.general.trace_instructions;
-        rob_tag  = %id.rob_tag,
-        pc       = %crate::common::trace::Hex(id.inst.pc.val()),
-        inst     = %crate::common::trace::Hex32(id.inst.bits),
-        rd       = id.inst.rd.as_usize(),
-        rd_phys  = id.rd_phys.0,
-        rs1      = id.inst.rs1.as_usize(),
-        rs1_phys = id.rs1_phys.0,
-        rv1      = %crate::common::trace::Hex(id.inst.rv1),
-        rs2      = id.inst.rs2.as_usize(),
-        rs2_phys = id.rs2_phys.0,
-        rv2      = %crate::common::trace::Hex(id.inst.rv2),
-        imm      = id.inst.imm,
-        a_src    = ?id.inst.ctrl.a_src,
-        b_src    = ?id.inst.ctrl.b_src,
-        alu_op   = ?id.inst.ctrl.alu,
-        format   = ?id.inst.ctrl.format,
-        is_fp    = id.inst.ctrl.fp_reg_write,
+        rob_tag  = %issued.rob_tag,
+        pc       = %crate::common::trace::Hex(issued.inst.pc.val()),
+        inst     = %crate::common::trace::Hex32(issued.inst.bits),
+        rd       = issued.inst.rd.as_usize(),
+        rd_phys  = issued.rd_phys.0,
+        rs1      = issued.inst.rs1.as_usize(),
+        rs1_phys = issued.rs1_phys.0,
+        rv1      = %crate::common::trace::Hex(issued.inst.rv1),
+        rs2      = issued.inst.rs2.as_usize(),
+        rs2_phys = issued.rs2_phys.0,
+        rv2      = %crate::common::trace::Hex(issued.inst.rv2),
+        imm      = issued.inst.imm,
+        a_src    = ?issued.inst.ctrl.a_src,
+        b_src    = ?issued.inst.ctrl.b_src,
+        alu_op   = ?issued.inst.ctrl.alu,
+        format   = ?issued.inst.ctrl.format,
+        is_fp    = issued.inst.ctrl.fp_reg_write,
         "EX: begin"
     );
 
-    if illegal_in_current_state(state.hart(), &id.inst) {
-        return faulted(state, id, Trap::IllegalInstruction(id.inst.bits));
+    if illegal_in_current_state(state.hart(), &issued.inst) {
+        return faulted(state, issued, Trap::IllegalInstruction(issued.inst.bits));
     }
 
-    if let Some(executed) = execute_system_o3(state, id, rob) {
+    if let Some(executed) = execute_system_o3(state, issued, rob) {
         return executed;
     }
 
-    let inst = &id.inst;
+    let inst = &issued.inst;
     let (op_a, op_b) = operands(inst);
 
-    if id.inst.ctrl.vec_op != VectorOp::None {
-        if id.inst.ctrl.vec_op.is_config() {
-            let vl = set_vector_config(state, id, id.inst.rv1, id.inst.rv2, rob);
-            return (ExMem1Entry::from_issue(id, vl, 0), None);
+    if issued.inst.ctrl.vec_op != VectorOp::None {
+        if issued.inst.ctrl.vec_op.is_config() {
+            let vl = set_vector_config(state, issued, issued.inst.rv1, issued.inst.rv2, rob);
+            return (ExMem1Entry::from_issue(issued, vl, 0), None);
         }
-        return (ExMem1Entry::from_issue(id, op_a, id.inst.rv2), None);
+        return (ExMem1Entry::from_issue(issued, op_a, issued.inst.rv2), None);
     }
 
     let (alu_out, fp_flags) = evaluate(state, inst, op_a, op_b);
-    let redirect = match resolve_control_flow(state, rob, id, op_a, op_b) {
+    let redirect = match resolve_control_flow(state, rob, issued, op_a, op_b) {
         Ok(redirect) => redirect,
-        Err(trap) => return faulted(state, id, trap),
+        Err(trap) => return faulted(state, issued, trap),
     };
-    (ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(id, alu_out, id.inst.rv2) }, redirect)
+    (
+        ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(issued, alu_out, issued.inst.rv2) },
+        redirect,
+    )
 }
 
 /// Executes a system instruction; `None` for everything else. FENCE.I,
@@ -93,31 +96,31 @@ pub fn execute_one(
 /// instruction wrote, and the write needs no squash.
 fn execute_system_o3(
     state: &StageCtx<'_>,
-    id: &RenameIssueEntry,
+    issued: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
-    Some(match execute_system(state, id)? {
+    Some(match execute_system(state, issued)? {
         SystemExecution::Done(result, redirect) => (result, redirect),
         SystemExecution::AtRetire => {
-            if matches!(id.inst.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
+            if matches!(issued.inst.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
                 trace_trap!(state.config.general.trace_instructions;
                     event     = "return",
-                    pc        = %crate::common::trace::Hex(id.inst.pc.val()),
-                    rob_tag   = %id.rob_tag,
-                    insn      = ?id.inst.ctrl.system_op,
+                    pc        = %crate::common::trace::Hex(issued.inst.pc.val()),
+                    rob_tag   = %issued.rob_tag,
+                    insn      = ?issued.inst.ctrl.system_op,
                     priv_mode = ?state.hart().privilege,
                     mstatus   = %crate::common::trace::Hex(state.hart().csrs.mstatus),
                     "EX: xRET queued (privilege restore deferred to commit)"
                 );
             }
-            (ExMem1Entry::from_issue(id, 0, 0), Some(refetch_after(id)))
+            (ExMem1Entry::from_issue(issued, 0, 0), Some(refetch_after(issued)))
         }
         SystemExecution::Csr(request) => {
             let access = perform_csr_access(state, &request);
             if let Some(update) = access.update {
-                rob.set_csr_update(id.rob_tag, update.into());
+                rob.set_csr_update(issued.rob_tag, update.into());
             }
-            (ExMem1Entry::from_issue(id, access.old, id.inst.rv2), None)
+            (ExMem1Entry::from_issue(issued, access.old, issued.inst.rv2), None)
         }
     })
 }

@@ -48,73 +48,76 @@ pub fn execute_inorder(
 ) -> ExecutedBatch {
     let mut batch =
         ExecutedBatch { results: Vec::with_capacity(entries.len()), redirects: Vec::new() };
-    for id in entries {
-        let (result, redirect) = execute_one(state, id, rob);
+    for issued in entries {
+        let (result, redirect) = execute_one(state, issued, rob);
         batch.results.push(result);
-        batch.redirects.extend(redirect.map(|r| (id.rob_tag, r)));
+        batch.redirects.extend(redirect.map(|r| (issued.rob_tag, r)));
     }
     batch
 }
 
 fn execute_one(
     state: &mut StageCtx<'_>,
-    id: &RenameIssueEntry,
+    issued: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> (ExMem1Entry, Option<Redirect>) {
-    if let Some(trap) = id.trap.clone() {
-        return (propagate_trap(state, id, trap), None);
+    if let Some(trap) = issued.trap.clone() {
+        return (propagate_trap(state, issued, trap), None);
     }
 
-    if state.check_execute_trigger(id.inst.pc) {
-        return faulted(state, id, Trap::Breakpoint(id.inst.pc.val()));
+    if state.check_execute_trigger(issued.inst.pc) {
+        return faulted(state, issued, Trap::Breakpoint(issued.inst.pc.val()));
     }
-    state.trace_stage(id.seq, Stage::Execute);
+    state.trace_stage(issued.seq, Stage::Execute);
 
     trace_execute!(state.config.general.trace_instructions;
-        rob_tag  = %id.rob_tag,
-        pc       = %crate::common::trace::Hex(id.inst.pc.val()),
-        inst     = %crate::common::trace::Hex32(id.inst.bits),
-        rd       = id.inst.rd.as_usize(),
-        rs1      = id.inst.rs1.as_usize(),
-        rv1      = %crate::common::trace::Hex(id.inst.rv1),
-        rs2      = id.inst.rs2.as_usize(),
-        rv2      = %crate::common::trace::Hex(id.inst.rv2),
-        imm      = id.inst.imm,
-        alu_op   = ?id.inst.ctrl.alu,
+        rob_tag  = %issued.rob_tag,
+        pc       = %crate::common::trace::Hex(issued.inst.pc.val()),
+        inst     = %crate::common::trace::Hex32(issued.inst.bits),
+        rd       = issued.inst.rd.as_usize(),
+        rs1      = issued.inst.rs1.as_usize(),
+        rv1      = %crate::common::trace::Hex(issued.inst.rv1),
+        rs2      = issued.inst.rs2.as_usize(),
+        rv2      = %crate::common::trace::Hex(issued.inst.rv2),
+        imm      = issued.inst.imm,
+        alu_op   = ?issued.inst.ctrl.alu,
         "EX: begin"
     );
 
-    if illegal_in_current_state(state.hart(), &id.inst) {
-        return faulted(state, id, Trap::IllegalInstruction(id.inst.bits));
+    if illegal_in_current_state(state.hart(), &issued.inst) {
+        return faulted(state, issued, Trap::IllegalInstruction(issued.inst.bits));
     }
 
-    if let Some(executed) = execute_system_inorder(state, id, rob) {
+    if let Some(executed) = execute_system_inorder(state, issued, rob) {
         return executed;
     }
 
-    if id.inst.ctrl.vec_op.is_config() {
-        let vl = set_vector_config(state, id, id.inst.rv1, id.inst.rv2, rob);
-        rob.complete(id.rob_tag, vl);
-        return (ExMem1Entry::from_issue(id, vl, 0), None);
+    if issued.inst.ctrl.vec_op.is_config() {
+        let vl = set_vector_config(state, issued, issued.inst.rv1, issued.inst.rv2, rob);
+        rob.complete(issued.rob_tag, vl);
+        return (ExMem1Entry::from_issue(issued, vl, 0), None);
     }
 
     // A vector op's registers are read at issue, so what follows one is
     // refetched. Its result is ready when its unit finishes, like any other.
-    if id.inst.ctrl.vec_op != VectorOp::None {
-        return match execute_vector(state, id, rob) {
-            Ok(scalar) => (ExMem1Entry::from_issue(id, scalar, 0), Some(refetch_after(id))),
-            Err(trap) => faulted(state, id, trap),
+    if issued.inst.ctrl.vec_op != VectorOp::None {
+        return match execute_vector(state, issued, rob) {
+            Ok(scalar) => (ExMem1Entry::from_issue(issued, scalar, 0), Some(refetch_after(issued))),
+            Err(trap) => faulted(state, issued, trap),
         };
     }
 
-    let inst = &id.inst;
+    let inst = &issued.inst;
     let (op_a, op_b) = operands(inst);
     let (alu_out, fp_flags) = evaluate(state, inst, op_a, op_b);
-    let redirect = match resolve_control_flow(state, rob, id, op_a, op_b) {
+    let redirect = match resolve_control_flow(state, rob, issued, op_a, op_b) {
         Ok(redirect) => redirect,
-        Err(trap) => return faulted(state, id, trap),
+        Err(trap) => return faulted(state, issued, trap),
     };
-    (ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(id, alu_out, id.inst.rv2) }, redirect)
+    (
+        ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(issued, alu_out, issued.inst.rv2) },
+        redirect,
+    )
 }
 
 /// Executes a system instruction; `None` for everything else. FENCE.I,
@@ -124,22 +127,26 @@ fn execute_one(
 /// instruction wrote.
 fn execute_system_inorder(
     state: &StageCtx<'_>,
-    id: &RenameIssueEntry,
+    issued: &RenameIssueEntry,
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
-    Some(match execute_system(state, id)? {
+    Some(match execute_system(state, issued)? {
         SystemExecution::Done(result, redirect) => (result, redirect),
-        SystemExecution::AtRetire => (ExMem1Entry::from_issue(id, 0, 0), None),
+        SystemExecution::AtRetire => (ExMem1Entry::from_issue(issued, 0, 0), None),
         SystemExecution::Csr(request) => {
-            rob.defer_csr(id.rob_tag, request);
-            (ExMem1Entry::from_issue(id, 0, id.inst.rv2), None)
+            rob.defer_csr(issued.rob_tag, request);
+            (ExMem1Entry::from_issue(issued, 0, issued.inst.rv2), None)
         }
     })
 }
 
 /// Executes a vector instruction against a shadow of the architectural
 /// registers and files what it wrote on its ROB entry for commit.
-fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) -> Result<u64, Trap> {
+fn execute_vector(
+    state: &StageCtx<'_>,
+    issued: &RenameIssueEntry,
+    rob: &mut Rob,
+) -> Result<u64, Trap> {
     let csrs = &state.hart().csrs;
     let vector = &state.config.isa.vector;
     let mut shadow = ShadowVpr::new(state.hart().regs.vpr());
@@ -150,13 +157,13 @@ fn execute_vector(state: &StageCtx<'_>, id: &RenameIssueEntry, rob: &mut Rob) ->
         csrs.vector_rounding(),
         vector.elen,
         state.core().isa.extensions.contains(Extension::Zvfh),
-        &id.inst,
+        &issued.inst,
     )?;
     #[cfg(feature = "commit-log")]
     if let Some(fills) = recorder.into_fills() {
-        rob.set_vec_agnostic(id.rob_tag, fills);
+        rob.set_vec_agnostic(issued.rob_tag, fills);
     }
-    rob.set_vec_writes(id.rob_tag, shadow.into_writes());
-    record_vector_flags(rob, id.rob_tag, &result);
+    rob.set_vec_writes(issued.rob_tag, shadow.into_writes());
+    record_vector_flags(rob, issued.rob_tag, &result);
     Ok(result.scalar_result.unwrap_or(0))
 }
