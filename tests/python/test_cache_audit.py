@@ -25,7 +25,7 @@ class CacheAudit(unittest.TestCase):
         audited = Simulator(Config(uart_quiet=True), binary=FIB)
         audited.audit_caches = True
 
-        codes = [sim.run(stats_sections=None) for sim in (plain, audited)]
+        codes = [sim.run() for sim in (plain, audited)]
 
         self.assertEqual(codes, [0, 0])
         self.assertEqual(audited.stats.cycles, plain.stats.cycles)

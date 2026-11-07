@@ -45,7 +45,7 @@ class PrefetchAccounting(unittest.TestCase):
         for name, preset in presets.PRESETS.items():
             config = preset().replace(uart_quiet=True)
             sim = Simulator(config, binary=QSORT)
-            sim.run(limit=CYCLES, stats_sections=None)
+            sim.run(limit=CYCLES)
 
             caches = prefetch_counts(sim.stats)
 

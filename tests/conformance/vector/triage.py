@@ -119,7 +119,7 @@ def main():
     with open(args.elf, "rb") as f:
         elf_data = f.read()
     cpu = Simulator(_config_to_dict(cfg), elf_data=elf_data)
-    rvsim_exit = cpu.run(limit=10_000_000, stats_sections=None)
+    rvsim_exit = cpu.run(limit=10_000_000)
     rvsim_sig = bytes(cpu.read_phys_bytes(begin, end - begin))
 
     print(f"rvsim exit_code: {rvsim_exit}")

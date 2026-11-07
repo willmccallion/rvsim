@@ -33,7 +33,7 @@ def boot(config):
 
 def finish(sim):
     """Runs to the program's exit; returns what it leaves behind."""
-    exit_code = sim.run(stats_sections=None)
+    exit_code = sim.run()
     return exit_code, sim.instructions_retired
 
 
@@ -63,7 +63,7 @@ class Checkpoint(unittest.TestCase):
                 expected = finish(whole)
                 expected_console = whole.read_console()
                 first = boot(config)
-                first.run(limit=whole.cycle // 2, stats_sections=None)
+                first.run(limit=whole.cycle // 2)
                 path = save(first, self.dir, f"{name}.ckpt")
                 console_before = first.read_console()
 
@@ -79,7 +79,7 @@ class Checkpoint(unittest.TestCase):
         for name, config in configs():
             with self.subTest(config=name):
                 sim = boot(config)
-                sim.run(limit=20_000, stats_sections=None)
+                sim.run(limit=20_000)
                 path = save(sim, self.dir, f"{name}.ckpt")
 
                 runs = []
@@ -94,7 +94,7 @@ class Checkpoint(unittest.TestCase):
         for name, config in configs():
             with self.subTest(config=name):
                 sim = boot(config)
-                sim.run(limit=20_000, stats_sections=None)
+                sim.run(limit=20_000)
                 original = save(sim, self.dir, f"{name}.ckpt")
 
                 resaved = save(
@@ -112,7 +112,7 @@ class Checkpoint(unittest.TestCase):
                 whole = boot(in_order)
                 expected = finish(whole)
                 first = boot(o3)
-                first.run(limit=20_000, stats_sections=None)
+                first.run(limit=20_000)
                 path = save(first, self.dir, f"{name}.ckpt")
 
                 outcome = finish(restored(in_order, path))

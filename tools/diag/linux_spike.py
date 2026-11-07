@@ -189,7 +189,7 @@ def run_rvsim_trace(cycle_limit):
         cpu.open_commit_log(log_path)
 
         start = time.time()
-        cpu.run(limit=cycle_limit, stats_sections=None)
+        cpu.run(limit=cycle_limit)
         elapsed = time.time() - start
         del cpu  # flush BufWriter
 

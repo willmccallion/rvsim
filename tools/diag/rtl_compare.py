@@ -188,7 +188,7 @@ def run_rvsim(
     with tempfile.NamedTemporaryFile(suffix=".log") as log:
         cpu = Simulator(_config_to_dict(config()), elf_data=elf.read_bytes())
         cpu.open_commit_log(log.name)
-        exit_code = cpu.run(limit=max_cycles, stats_sections=None)
+        exit_code = cpu.run(limit=max_cycles)
         del cpu
         if exit_code is None:
             raise RuntimeError(f"rvsim ran {elf.name} past {max_cycles} cycles")

@@ -77,6 +77,19 @@ class ProgramOutput(unittest.TestCase):
 
                 self.assertEqual(result.stdout, "fib(20)=6765\n")
 
+    def test_the_stats_report_follows_the_programs_output(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "rvsim", FIB],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        program_output, report = result.stdout.split("\n", 1)
+        self.assertEqual(program_output, "fib(20)=6765")
+        self.assertIn("instructions_retired", report)
+
 
 class Preset(unittest.TestCase):
     def test_an_unknown_preset_lists_every_registered_preset(self):

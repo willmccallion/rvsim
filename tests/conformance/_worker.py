@@ -93,7 +93,7 @@ def main():
     cpu = Simulator(_config_to_dict(cfg), elf_data=elf_data)
     if args.commit_log:
         cpu.open_commit_log(args.commit_log)
-    exit_code = cpu.run(limit=CYCLE_LIMIT, stats_sections=None)
+    exit_code = cpu.run(limit=CYCLE_LIMIT)
 
     if sig_out:
         begin, end = get_signature_range(elf_path)
