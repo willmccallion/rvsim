@@ -9,6 +9,7 @@ use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::open_pmp;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -58,8 +59,7 @@ fn straddling_context(backend: BackendKind) -> TestContext {
         let hart = &mut ctx.sim.state.harts[0];
         hart.csrs.satp = (csr::SATP_MODE_SV39 << 60) | ROOT_PPN;
         hart.privilege = PrivilegeMode::Supervisor;
-        hart.pmp.set_addr(0, u64::MAX >> 10);
-        hart.pmp.set_cfg(0, 0b0000_1111);
+        open_pmp(&mut hart.pmp);
         hart.pc = VirtAddr::new(CODE_VA + 0xFFE);
     }
     ctx.sim.sync_arch_regs();

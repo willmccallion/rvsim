@@ -3,9 +3,11 @@
 //! Verifies address matching (TOR, NA4, NAPOT), permission checks,
 //! M-mode bypass logic, and locking behaviour per RISC-V spec §3.7.
 
-use crate::arch::pmp::{Pmp, PmpAddrMatch, PmpEntry, PmpResult};
+use crate::arch::pmp::{PMP_COUNT, Pmp, PmpAddrMatch, PmpCfgCsr, PmpEntry, PmpIdx, PmpResult};
 use crate::common::{AccessType, PhysAddr};
+use crate::isa::csr::{self, CsrAddr};
 use crate::isa::privileged::PrivilegeMode;
+use crate::tests::support::pmp_entry;
 
 // Configuration byte helpers
 const R: u8 = 1 << 0;
@@ -70,8 +72,8 @@ fn user_mode_no_match_no_entries() {
 fn tor_permits_access_in_range() {
     let mut pmp = Pmp::new();
     // TOR pmpaddr=0x2000 (byte_addr >> 2) → range [0, 0x8000).
-    pmp.set_addr(0, 0x2000); // byte addr 0x8000
-    pmp.set_cfg(0, A_TOR | R | W | X);
+    pmp.set_addr(pmp_entry(0), 0x2000); // byte addr 0x8000
+    pmp.set_cfg(pmp_entry(0), A_TOR | R | W | X);
 
     // Access at byte addr 0x4000, size 4 → within [0, 0x8000)
     let result = pmp.check(PhysAddr::new(0x4000), 4, AccessType::Read, PrivilegeMode::Supervisor);
@@ -81,8 +83,8 @@ fn tor_permits_access_in_range() {
 #[test]
 fn tor_denies_access_outside_range() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x2000); // range [0, 0x8000)
-    pmp.set_cfg(0, A_TOR | R | W | X);
+    pmp.set_addr(pmp_entry(0), 0x2000); // range [0, 0x8000)
+    pmp.set_cfg(pmp_entry(0), A_TOR | R | W | X);
 
     // Access at byte addr 0x8000 → at the boundary, not inside [0, 0x8000)
     let result = pmp.check(PhysAddr::new(0x8000), 4, AccessType::Read, PrivilegeMode::Supervisor);
@@ -93,12 +95,12 @@ fn tor_denies_access_outside_range() {
 fn tor_range_between_entries() {
     let mut pmp = Pmp::new();
     // Entry 0: addr = 0x1000 (byte 0x4000) — just sets the low bound for entry 1
-    pmp.set_addr(0, 0x1000);
-    pmp.set_cfg(0, 0); // disabled (A = Off)
+    pmp.set_addr(pmp_entry(0), 0x1000);
+    pmp.set_cfg(pmp_entry(0), 0); // disabled (A = Off)
 
     // Entry 1: TOR, addr = 0x2000 → range [0x4000, 0x8000)
-    pmp.set_addr(1, 0x2000);
-    pmp.set_cfg(1, A_TOR | R);
+    pmp.set_addr(pmp_entry(1), 0x2000);
+    pmp.set_cfg(pmp_entry(1), A_TOR | R);
 
     // Inside range
     let result = pmp.check(PhysAddr::new(0x5000), 4, AccessType::Read, PrivilegeMode::Supervisor);
@@ -112,8 +114,8 @@ fn tor_range_between_entries() {
 #[test]
 fn tor_denies_write_when_only_read_permitted() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x2000); // [0, 0x8000)
-    pmp.set_cfg(0, A_TOR | R); // read-only
+    pmp.set_addr(pmp_entry(0), 0x2000); // [0, 0x8000)
+    pmp.set_cfg(pmp_entry(0), A_TOR | R); // read-only
 
     let read_result =
         pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor);
@@ -128,8 +130,8 @@ fn tor_denies_write_when_only_read_permitted() {
 fn na4_matches_exactly_four_bytes() {
     let mut pmp = Pmp::new();
     // pmpaddr = 0x1000 → byte base = 0x4000, size = 4 → [0x4000, 0x4004)
-    pmp.set_addr(0, 0x1000);
-    pmp.set_cfg(0, A_NA4 | R | W);
+    pmp.set_addr(pmp_entry(0), 0x1000);
+    pmp.set_cfg(pmp_entry(0), A_NA4 | R | W);
 
     // Exact match
     let result = pmp.check(PhysAddr::new(0x4000), 4, AccessType::Read, PrivilegeMode::Supervisor);
@@ -152,8 +154,8 @@ fn na4_matches_exactly_four_bytes() {
 fn napot_8_byte_region() {
     let mut pmp = Pmp::new();
     // [0x1000, 0x1008): 8-byte NAPOT → trailing_ones=0, pmpaddr = 0x1000 >> 2 = 0x400.
-    pmp.set_addr(0, 0x400);
-    pmp.set_cfg(0, A_NAPOT | R | W | X);
+    pmp.set_addr(pmp_entry(0), 0x400);
+    pmp.set_cfg(pmp_entry(0), A_NAPOT | R | W | X);
 
     // Inside [0x1000, 0x1008)
     let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor);
@@ -171,8 +173,8 @@ fn napot_8_byte_region() {
 fn napot_larger_region() {
     let mut pmp = Pmp::new();
     // [0x1000, 0x1020): 32-byte NAPOT → trailing_ones=2, pmpaddr = (0x1000>>2) | 0b11 = 0x403.
-    pmp.set_addr(0, 0x403);
-    pmp.set_cfg(0, A_NAPOT | R);
+    pmp.set_addr(pmp_entry(0), 0x403);
+    pmp.set_cfg(pmp_entry(0), A_NAPOT | R);
 
     let result = pmp.check(PhysAddr::new(0x1000), 1, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
@@ -187,8 +189,8 @@ fn napot_larger_region() {
 #[test]
 fn read_only_denies_write_and_exec() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x2000);
-    pmp.set_cfg(0, A_TOR | R);
+    pmp.set_addr(pmp_entry(0), 0x2000);
+    pmp.set_cfg(pmp_entry(0), A_TOR | R);
 
     assert_eq!(
         pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor),
@@ -207,8 +209,8 @@ fn read_only_denies_write_and_exec() {
 #[test]
 fn execute_only_denies_read_and_write() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x2000);
-    pmp.set_cfg(0, A_TOR | X);
+    pmp.set_addr(pmp_entry(0), 0x2000);
+    pmp.set_cfg(pmp_entry(0), A_TOR | X);
 
     assert_eq!(
         pmp.check(PhysAddr::new(0x1000), 4, AccessType::Fetch, PrivilegeMode::Supervisor),
@@ -227,8 +229,8 @@ fn execute_only_denies_read_and_write() {
 #[test]
 fn rwx_permits_all() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x2000);
-    pmp.set_cfg(0, A_TOR | R | W | X);
+    pmp.set_addr(pmp_entry(0), 0x2000);
+    pmp.set_cfg(pmp_entry(0), A_TOR | R | W | X);
 
     assert_eq!(
         pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor),
@@ -247,8 +249,8 @@ fn rwx_permits_all() {
 #[test]
 fn locked_entry_applies_to_machine_mode() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x2000); // [0, 0x8000)
-    pmp.set_cfg(0, A_TOR | R | L); // read-only + locked
+    pmp.set_addr(pmp_entry(0), 0x2000); // [0, 0x8000)
+    pmp.set_cfg(pmp_entry(0), A_TOR | R | L); // read-only + locked
 
     // M-mode write should be denied because entry is locked
     let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Machine);
@@ -262,8 +264,8 @@ fn locked_entry_applies_to_machine_mode() {
 #[test]
 fn unlocked_entry_m_mode_bypasses() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x2000); // [0, 0x8000)
-    pmp.set_cfg(0, A_TOR | R); // read-only, NOT locked
+    pmp.set_addr(pmp_entry(0), 0x2000); // [0, 0x8000)
+    pmp.set_cfg(pmp_entry(0), A_TOR | R); // read-only, NOT locked
 
     // M-mode write should be allowed because entry is not locked
     let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Machine);
@@ -273,28 +275,28 @@ fn unlocked_entry_m_mode_bypasses() {
 #[test]
 fn locked_entry_cannot_be_modified() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x2000);
-    pmp.set_cfg(0, A_TOR | R | L); // locked
+    pmp.set_addr(pmp_entry(0), 0x2000);
+    pmp.set_cfg(pmp_entry(0), A_TOR | R | L); // locked
 
     // Attempt to change cfg — should be ignored
-    pmp.set_cfg(0, A_TOR | R | W | X);
-    assert_eq!(pmp.get_cfg(0), A_TOR | R | L);
+    pmp.set_cfg(pmp_entry(0), A_TOR | R | W | X);
+    assert_eq!(pmp.get_cfg(pmp_entry(0)), A_TOR | R | L);
 
     // Attempt to change addr — should be ignored
-    pmp.set_addr(0, 0x4000);
-    assert_eq!(pmp.get_addr(0), 0x2000);
+    pmp.set_addr(pmp_entry(0), 0x4000);
+    assert_eq!(pmp.get_addr(pmp_entry(0)), 0x2000);
 }
 
 #[test]
 fn first_matching_entry_wins() {
     let mut pmp = Pmp::new();
     // Entry 0: [0, 0x8000) — read only
-    pmp.set_addr(0, 0x2000);
-    pmp.set_cfg(0, A_TOR | R);
+    pmp.set_addr(pmp_entry(0), 0x2000);
+    pmp.set_cfg(pmp_entry(0), A_TOR | R);
 
     // Entry 1: [0, 0x10000) — read/write
-    pmp.set_addr(1, 0x4000);
-    pmp.set_cfg(1, A_TOR | R | W);
+    pmp.set_addr(pmp_entry(1), 0x4000);
+    pmp.set_cfg(pmp_entry(1), A_TOR | R | W);
 
     // Address 0x1000 matches entry 0 first — write should be denied
     let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Supervisor);
@@ -335,16 +337,16 @@ fn pmp_entry_match_mode_accessor() {
 fn pmpaddr_reads_bits_63_to_54_as_zero() {
     let mut pmp = Pmp::new();
 
-    pmp.set_addr(0, u64::MAX);
+    pmp.set_addr(pmp_entry(0), u64::MAX);
 
-    assert_eq!(pmp.get_addr(0), 0x003f_ffff_ffff_ffff);
+    assert_eq!(pmp.get_addr(pmp_entry(0)), 0x003f_ffff_ffff_ffff);
 }
 
 #[test]
 fn an_all_ones_napot_entry_still_covers_all_of_physical_memory() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, u64::MAX);
-    pmp.set_cfg(0, R | W | X | A_NAPOT);
+    pmp.set_addr(pmp_entry(0), u64::MAX);
+    pmp.set_cfg(pmp_entry(0), R | W | X | A_NAPOT);
 
     let top_of_physical_memory = pmp.check(
         PhysAddr::new(0x00ff_ffff_ffff_fff8),
@@ -361,33 +363,57 @@ fn an_all_ones_napot_entry_still_covers_all_of_physical_memory() {
 #[test]
 fn a_locked_tor_entry_ignores_writes_to_the_address_below_it() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x1000 >> 2);
-    pmp.set_addr(1, 0x2000 >> 2);
-    pmp.set_cfg(1, L | A_TOR | R);
+    pmp.set_addr(pmp_entry(0), 0x1000 >> 2);
+    pmp.set_addr(pmp_entry(1), 0x2000 >> 2);
+    pmp.set_cfg(pmp_entry(1), L | A_TOR | R);
 
-    pmp.set_addr(0, 0);
+    pmp.set_addr(pmp_entry(0), 0);
 
-    assert_eq!(pmp.get_addr(0), 0x1000 >> 2);
+    assert_eq!(pmp.get_addr(pmp_entry(0)), 0x1000 >> 2);
 }
 
 #[test]
 fn a_locked_napot_entry_leaves_the_address_below_it_writable() {
     let mut pmp = Pmp::new();
-    pmp.set_addr(0, 0x1000 >> 2);
-    pmp.set_cfg(1, L | A_NAPOT | R);
+    pmp.set_addr(pmp_entry(0), 0x1000 >> 2);
+    pmp.set_cfg(pmp_entry(1), L | A_NAPOT | R);
 
-    pmp.set_addr(0, 0);
+    pmp.set_addr(pmp_entry(0), 0);
 
-    assert_eq!(pmp.get_addr(0), 0);
+    assert_eq!(pmp.get_addr(pmp_entry(0)), 0);
 }
 
 #[test]
 fn a_cfg_word_packs_eight_entries_low_byte_first() {
     let mut pmp = Pmp::new();
-    pmp.set_cfg_word(8, 0x0F0E_0D0C_0B0A_0908);
+    pmp.set_cfg_word(PmpCfgCsr::Pmpcfg2, 0x0F0E_0D0C_0B0A_0908);
 
-    assert_eq!(pmp.get_cfg(8), 0x08);
-    assert_eq!(pmp.get_cfg(15), 0x0F);
-    assert_eq!(pmp.cfg_word(8), 0x0F0E_0D0C_0B0A_0908);
-    assert_eq!(pmp.cfg_word(0), 0);
+    assert_eq!(pmp.get_cfg(pmp_entry(8)), 0x08);
+    assert_eq!(pmp.get_cfg(pmp_entry(15)), 0x0F);
+    assert_eq!(pmp.cfg_word(PmpCfgCsr::Pmpcfg2), 0x0F0E_0D0C_0B0A_0908);
+    assert_eq!(pmp.cfg_word(PmpCfgCsr::Pmpcfg0), 0);
+}
+
+#[test]
+fn a_cfg_word_write_skips_locked_entries() {
+    let mut pmp = Pmp::new();
+    pmp.set_cfg(pmp_entry(1), L);
+
+    pmp.set_cfg_word(PmpCfgCsr::Pmpcfg0, u64::MAX);
+
+    assert_eq!(pmp.cfg_word(PmpCfgCsr::Pmpcfg0), 0xFFFF_FFFF_FFFF_80FF);
+}
+
+#[test]
+fn pmpaddr_registers_name_entries_0_through_15() {
+    assert_eq!(PmpIdx::of_pmpaddr(csr::PMPADDR0), Some(pmp_entry(0)));
+    assert_eq!(PmpIdx::of_pmpaddr(csr::PMPADDR15), Some(pmp_entry(15)));
+    assert_eq!(PmpIdx::of_pmpaddr(CsrAddr::new(csr::PMPADDR15.as_u16() + 1)), None);
+    assert_eq!(PmpIdx::of_pmpaddr(csr::PMPCFG0), None);
+}
+
+#[test]
+fn entry_numbers_stop_at_the_unit_size() {
+    assert!(PmpIdx::new(PMP_COUNT - 1).is_some());
+    assert_eq!(PmpIdx::new(PMP_COUNT), None);
 }

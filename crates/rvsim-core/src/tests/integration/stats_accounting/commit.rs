@@ -11,6 +11,7 @@ use crate::isa::csr::MSTATUS_MPP;
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, MRET};
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::open_pmp;
 
 const LOOPS: i32 = 5;
 /// A width at which three or more instructions can retire in a cycle.
@@ -20,8 +21,6 @@ const WIDE: usize = 4;
 const STRAIGHT_LINE: u32 = 160;
 const BODY: u64 = PROGRAM_BASE + 0x100;
 const _: () = assert!(BODY + 4 * (STRAIGHT_LINE as u64 + 1) <= HANDLER);
-/// PMP entry 0 covering all memory with read, write and execute.
-const PMP_TOR_RWX: u8 = 0b0000_1111;
 
 /// `fld ft1, 0(a1)`.
 const FLD: u32 = 0x0005_b087;
@@ -163,8 +162,7 @@ fn run_in(backend: BackendKind, width: usize, mode: PrivilegeMode) -> TestContex
     store_words(&mut ctx, BODY, &spin);
     let hart = &mut ctx.sim.state.harts[0];
     hart.csrs.mstatus = (hart.csrs.mstatus & !MSTATUS_MPP) | (u64::from(mode.to_u8()) << 11);
-    hart.pmp.set_addr(0, u64::MAX >> 10);
-    hart.pmp.set_cfg(0, PMP_TOR_RWX);
+    open_pmp(&mut hart.pmp);
     ctx
 }
 

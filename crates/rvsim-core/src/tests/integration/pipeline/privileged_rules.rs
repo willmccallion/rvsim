@@ -6,6 +6,7 @@ use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_DIRTY, MSTATUS_FS_INIT};
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::open_pmp;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -20,7 +21,6 @@ const FFLAGS: u32 = 0x001;
 const HPMCOUNTER3: u32 = 0xC03;
 const ILLEGAL_INSTRUCTION: u64 = 2;
 const RAN: u64 = 99;
-const PMP_TOR_RWX: u8 = 0b0000_1111;
 /// `sfence.vma x0, x0`.
 const SFENCE_VMA: u32 = 0x1200_0073;
 /// `c.fld f8, 0(x8)` then `c.nop`: an RV64C encoding of a D instruction.
@@ -73,8 +73,7 @@ fn run_at(backend: BackendKind, privilege: PrivilegeMode, inst: u32) -> Outcome 
     let program = [inst, i().addi(A1, 0, RAN as i32).build(), i().jal(0, 0).build()];
     let mut ctx = context(backend, None, &program);
     let hart = &mut ctx.sim.state.harts[0];
-    hart.pmp.set_addr(0, u64::MAX >> 10);
-    hart.pmp.set_cfg(0, PMP_TOR_RWX);
+    open_pmp(&mut hart.pmp);
     hart.privilege = privilege;
     run(ctx)
 }

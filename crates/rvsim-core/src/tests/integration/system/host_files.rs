@@ -4,6 +4,7 @@
 //! alike, reaching the memory through the hart's own translation.
 
 use crate::tests::support::harness::build_simulator;
+use crate::tests::support::open_pmp;
 use std::fs;
 
 use tempfile::TempDir;
@@ -220,8 +221,7 @@ fn run_paged(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext
         hart.csrs.satp = (csr::SATP_MODE_SV39 << 60) | ROOT_PPN;
         hart.csrs.mtvec = CODE_PA;
         hart.privilege = PrivilegeMode::Supervisor;
-        hart.pmp.set_addr(0, u64::MAX >> 10);
-        hart.pmp.set_cfg(0, 0b0000_1111);
+        open_pmp(&mut hart.pmp);
         hart.pc = VirtAddr::new(CODE_VA);
     }
     ctx.sim.sync_arch_regs();

@@ -12,6 +12,7 @@ use crate::system::checkpoint::CheckpointError;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
+use crate::tests::support::pmp_entry;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x1000;
@@ -108,8 +109,8 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
     }
     hart.csrs.vxrm = Vxrm::RoundToOdd;
     hart.csrs.set_fcsr(0b101_10101);
-    hart.pmp.set_addr(0, 0x2000_0000 >> 2);
-    hart.pmp.set_cfg(0, 0x9f);
+    hart.pmp.set_addr(pmp_entry(0), 0x2000_0000 >> 2);
+    hart.pmp.set_cfg(pmp_entry(0), 0x9f);
     hart.privilege = PrivilegeMode::Supervisor;
     let vector: Vec<u8> = (0..hart.regs.vpr().bytes().len()).map(|i| i as u8).collect();
     hart.regs.vpr_mut().set_bytes(&vector);

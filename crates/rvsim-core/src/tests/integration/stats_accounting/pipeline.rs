@@ -8,6 +8,7 @@ use super::{Recorder, accounting_checks};
 use crate::config::{BackendKind, Config};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::open_pmp;
 
 const LOOPS: i32 = 5;
 const MIE: u32 = 0x304;
@@ -349,8 +350,6 @@ fn fetch_waits_longer_on_slower_memory(rec: &mut Recorder) {
 const PAGE_TABLE: u64 = super::program::PROGRAM_BASE + 0x3000;
 /// A valid, readable, writable, executable leaf with A and D set.
 const LEAF_RWXAD: u64 = 0xCF;
-/// PMP entry 0 covering all memory with read, write and execute.
-const PMP_TOR_RWX: u8 = 0b0000_1111;
 
 /// Loads from the data page in supervisor mode, entered by an `mret`, with
 /// Sv39 on when `paged`: then the gigapage holding everything maps to
@@ -383,8 +382,7 @@ fn supervisor_loads(backend: BackendKind, paged: bool) -> (TestContext, u64) {
     if paged {
         hart.csrs.satp = (SATP_MODE_SV39 << 60) | (PAGE_TABLE >> 12);
     }
-    hart.pmp.set_addr(0, u64::MAX >> 10);
-    hart.pmp.set_cfg(0, PMP_TOR_RWX);
+    open_pmp(&mut hart.pmp);
     (ctx, end)
 }
 

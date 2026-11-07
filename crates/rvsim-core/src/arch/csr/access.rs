@@ -1,6 +1,7 @@
 //! Which CSR addresses this hart implements.
 
 use crate::arch::Hart;
+use crate::arch::pmp::PmpIdx;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 
@@ -64,7 +65,7 @@ impl Hart {
                 | csr::TINFO
                 | csr::TCONTROL
         ) || matches!(addr, csr::PMPCFG0 | csr::PMPCFG2 | csr::MCOUNTINHIBIT)
-            || addr.pmpaddr_index().is_some()
+            || PmpIdx::of_pmpaddr(addr).is_some()
             || addr.is_within(csr::MHPMEVENT3, csr::MHPMEVENT31)
             || addr.is_within(csr::MHPMCOUNTER3, csr::MHPMCOUNTER31)
             || addr.is_within(csr::HPMCOUNTER3, csr::HPMCOUNTER31)

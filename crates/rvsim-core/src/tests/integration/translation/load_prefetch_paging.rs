@@ -17,6 +17,7 @@ use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::{open_pmp, pmp_entry};
 use crate::uarch::mmu::tlb::PageSize;
 
 const RAM_BASE: u64 = 0x8000_0000;
@@ -252,13 +253,12 @@ pub fn run_system(
         hart.csrs.satp = (mode.satp_mode() << 60) | tables.root;
         hart.privilege = PrivilegeMode::Supervisor;
         if matches!(data, Data::PmpDeniedSecondPage) {
-            hart.pmp.set_addr(0, napot(SECOND_FRAME, 0x1000));
-            hart.pmp.set_cfg(0, PMP_NAPOT);
-            hart.pmp.set_addr(1, u64::MAX >> 10);
-            hart.pmp.set_cfg(1, PMP_NAPOT | PMP_RWX);
+            hart.pmp.set_addr(pmp_entry(0), napot(SECOND_FRAME, 0x1000));
+            hart.pmp.set_cfg(pmp_entry(0), PMP_NAPOT);
+            hart.pmp.set_addr(pmp_entry(1), u64::MAX >> 10);
+            hart.pmp.set_cfg(pmp_entry(1), PMP_NAPOT | PMP_RWX);
         } else {
-            hart.pmp.set_addr(0, u64::MAX >> 10);
-            hart.pmp.set_cfg(0, 0b0000_1111);
+            open_pmp(&mut hart.pmp);
         }
         hart.pc = VirtAddr::new(CODE);
     }
