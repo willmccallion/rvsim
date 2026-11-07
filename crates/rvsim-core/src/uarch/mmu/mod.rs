@@ -150,11 +150,7 @@ impl Mmu {
         let va = vaddr.val();
         if !is_canonical_va(va, paging) {
             return TranslateOutcome::Ready(TranslationResult::fault(
-                match access {
-                    AccessType::Fetch => Trap::InstructionPageFault(va),
-                    AccessType::Read => Trap::LoadPageFault(va),
-                    AccessType::Write => Trap::StorePageFault(va),
-                },
+                Trap::page_fault(access, va),
                 0,
             ));
         }
