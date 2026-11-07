@@ -111,9 +111,6 @@ pub struct InOrderEngine {
     pub mem2_wb: Vec<Mem2WbEntry>,
     /// In-flight memory bookkeeping: mailbox + outstanding tables + routing IDs.
     pub common: BackendCommon,
-    /// Current cycle counter (used for debug stats; the simulator's cycle
-    /// drives all timing).
-    cycle: u64,
     /// Cycles from a result that redirects to the squash being taken.
     redirect_latency: u64,
     /// Whether a renamed bundle issues the cycle it reaches the backend
@@ -171,7 +168,7 @@ impl InOrderEngine {
         let survives = |tag: crate::uarch::pipeline::rob::RobTag| {
             keep_tag.is_some_and(|k| tag.is_older_or_eq(k))
         };
-        self.fu_pool.release_squashed(self.cycle, |tag| !survives(tag));
+        self.fu_pool.release_squashed(state.cycle, |tag| !survives(tag));
         self.vec_mem_inflight.retain(|m| survives(m.rob_tag));
         self.pending.retain(|p| survives(p.entry.rob_tag));
         self.execute_mem1.retain(|e| survives(e.rob_tag));
@@ -347,7 +344,6 @@ impl InOrderEngine {
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
             common,
-            cycle: 0,
             redirect_latency: config.pipeline.redirect_latency(),
             dispatch_before_issue: config.pipeline.rename_issue_latency == 1,
             redirected_at_commit: false,
@@ -362,8 +358,7 @@ impl ExecutionEngine for InOrderEngine {
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect: &mut Option<u64>,
     ) {
-        self.cycle += 1;
-        let now = self.cycle;
+        let now = state.cycle;
         self.redirected_at_commit = false;
 
         if let Some(squash) = self.common.take_due_squash(now) {
@@ -508,7 +503,7 @@ impl ExecutionEngine for InOrderEngine {
         for seq in self.rob.seqs_after(None) {
             state.trace_left(seq, Departure::Squashed);
         }
-        self.fu_pool.release_squashed(self.cycle, |_| true);
+        self.fu_pool.release_squashed(state.cycle, |_| true);
         self.rob.flush_all();
         self.store_buffer.flush_speculative();
         self.vec_store_buffer.flush_speculative();

@@ -115,8 +115,6 @@ pub struct O3Engine {
     pub mem1_mem2: Vec<Mem1Mem2Entry>,
     /// Memory2 -> Writeback latch.
     pub mem2_wb: Vec<Mem2WbEntry>,
-    /// Current simulation cycle (for FU latency tracking).
-    pub cycle: u64,
     /// Memory dependence unit for load-store ordering speculation.
     pub mdp: MemDepUnit,
     /// Checkpoint table for O(1) branch misprediction recovery.
@@ -214,7 +212,6 @@ impl O3Engine {
             execute_mem1: Vec::with_capacity(config.pipeline.width),
             mem1_mem2: Vec::with_capacity(config.pipeline.width),
             mem2_wb: Vec::with_capacity(config.pipeline.width),
-            cycle: 0,
             mdp: MemDepUnit::new(config),
             checkpoints: CheckpointTable::new(config.pipeline.checkpoint_count),
             squash_width: config.pipeline.squash_width,
@@ -303,8 +300,7 @@ impl ExecutionEngine for O3Engine {
         rename_output: &mut Vec<RenameIssueEntry>,
         redirect: &mut Option<u64>,
     ) {
-        self.cycle += 1;
-        let now = self.cycle;
+        let now = state.cycle;
 
         self.take_rename_view(rename_output.len());
         self.count_squash_stall(state);
@@ -354,7 +350,7 @@ impl ExecutionEngine for O3Engine {
             state.trace_left(seq, Departure::Squashed);
         }
         self.serialization = serialize::Serialization::Off;
-        self.fu_pool.release_squashed(self.cycle, |_| true);
+        self.fu_pool.release_squashed(state.cycle, |_| true);
         self.common.data_cache_flush = DataCacheFlush::Idle;
 
         for entry in self.rob.iter_all() {
