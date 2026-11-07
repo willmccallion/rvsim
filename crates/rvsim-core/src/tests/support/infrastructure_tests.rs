@@ -238,8 +238,7 @@ fn ifid_builder_defaults_and_setters() {
     let entry = IfIdBuilder::new().pc(0x1000).inst(0xDEADBEEF).predicted(0x2000).build();
     assert_eq!(entry.pc, 0x1000);
     assert_eq!(entry.inst, 0xDEADBEEF);
-    assert!(entry.pred_taken);
-    assert_eq!(entry.pred_target, 0x2000);
+    assert_eq!(entry.predicted_target, Some(0x2000));
 }
 
 #[test]
@@ -247,8 +246,7 @@ fn ifid_builder_defaults_are_zero() {
     let entry = IfIdBuilder::new().build();
     assert_eq!(entry.pc, 0);
     assert_eq!(entry.inst, 0);
-    assert!(!entry.pred_taken);
-    assert_eq!(entry.pred_target, 0);
+    assert_eq!(entry.predicted_target, None);
 }
 
 #[test]

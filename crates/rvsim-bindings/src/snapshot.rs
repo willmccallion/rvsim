@@ -187,7 +187,8 @@ impl PyPipelineSnapshot {
     /// Fetch1 → Fetch2 latch, holding addresses whose instructions are
     /// not read yet.
     ///
-    /// Each slot: ``{pc, pred_taken, pred_target}``.
+    /// Each slot: ``{pc, pred_taken, pred_target}``; ``pred_target`` is
+    /// ``None`` unless predicted taken.
     #[getter]
     fn fetch1_fetch2(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let items: Vec<_> = self
@@ -197,8 +198,8 @@ impl PyPipelineSnapshot {
             .map(|e| -> PyResult<_> {
                 let d = PyDict::new(py);
                 d.set_item("pc", e.pc)?;
-                d.set_item("pred_taken", e.pred_taken)?;
-                d.set_item("pred_target", e.pred_target)?;
+                d.set_item("pred_taken", e.predicted_target.is_some())?;
+                d.set_item("pred_target", e.predicted_target)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
@@ -207,7 +208,8 @@ impl PyPipelineSnapshot {
 
     /// Fetch2 → Decode latch.
     ///
-    /// Each slot: ``{pc, raw, asm, pred_taken, pred_target}``.
+    /// Each slot: ``{pc, raw, asm, pred_taken, pred_target}``;
+    /// ``pred_target`` is ``None`` unless predicted taken.
     #[getter]
     fn fetch2_decode(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
         let items: Vec<_> = self
@@ -216,8 +218,8 @@ impl PyPipelineSnapshot {
             .iter()
             .map(|e| -> PyResult<_> {
                 let d = slot_dict(py, e.pc, e.raw)?;
-                d.set_item("pred_taken", e.pred_taken)?;
-                d.set_item("pred_target", e.pred_target)?;
+                d.set_item("pred_taken", e.predicted_target.is_some())?;
+                d.set_item("pred_target", e.predicted_target)?;
                 Ok(d.into_any().unbind())
             })
             .collect::<PyResult<_>>()?;
