@@ -10,7 +10,7 @@ use crate::isa::csr::{
     MSTATUS_FS, MSTATUS_FS_DIRTY, MSTATUS_SD, MSTATUS_VS, MSTATUS_VS_DIRTY, MTVAL, MTVEC, SATP,
     SATP_MODE_BARE, SATP_MODE_MASK, SATP_MODE_SHIFT, SCAUSE, SCOUNTEREN, SENVCFG, SENVCFG_CBCFE,
     SENVCFG_CBZE, SEPC, SIE, SIP, SSCRATCH, SSTATUS, SSTATUS_VISIBLE, SSTATUS_WRITABLE, STVAL,
-    STVEC, VCSR, VL, VLENB, VSTART, VTYPE, VXRM, VXSAT,
+    STVEC, VCSR, VL, VLENB, VSTART, VTYPE, VXRM, VXSAT, VXSAT_BIT,
 };
 use crate::isa::fp::{FpFlags, Frm};
 use crate::isa::misa::Misa;
@@ -145,6 +145,13 @@ pub const fn with_state_dirty(status: u64) -> u64 {
     if fs_dirty || vs_dirty { val | MSTATUS_SD } else { val }
 }
 
+/// `mtvec`/`stvec` as a write leaves them: the reserved modes 2 and 3 fall
+/// back to Direct.
+#[must_use]
+pub const fn legalize_tvec(val: u64) -> u64 {
+    if val & 3 >= 2 { val & !3 } else { val }
+}
+
 /// The low PC bits IALIGN keeps clear: bit 0 with the C extension
 /// (IALIGN=16), bits 1:0 without it (IALIGN=32).
 #[must_use]
@@ -275,6 +282,17 @@ impl Csrs {
         crate::isa::rvv::VectorConfig { vtype: self.vtype, vl: self.vl, vstart: self.vstart }
     }
 
+    /// Marks the FP state dirty, as every write to it does.
+    pub const fn mark_fs_dirty(&mut self) {
+        self.mstatus = (self.mstatus & !MSTATUS_FS) | MSTATUS_FS_DIRTY;
+    }
+
+    /// `mepc`/`sepc` as a write of `val` leaves them: IALIGN's low bits clear.
+    #[must_use]
+    pub const fn legal_epc(&self, val: u64) -> u64 {
+        val & !ialign_low_bits(self.misa)
+    }
+
     /// `fflags` as the CSR reads.
     #[must_use]
     pub const fn fflags_bits(&self) -> u64 {
@@ -302,12 +320,12 @@ impl Csrs {
     /// `vcsr`: `vxrm` above `vxsat`.
     #[must_use]
     pub const fn vcsr(&self) -> u64 {
-        (self.vxsat & 0x1) | (self.vxrm_bits() << 1)
+        (self.vxsat & VXSAT_BIT) | (self.vxrm_bits() << 1)
     }
 
     /// Writes `vcsr`, which sets both `vxrm` and `vxsat`.
     pub const fn set_vcsr(&mut self, val: u64) {
-        self.vxsat = val & 0x1;
+        self.vxsat = val & VXSAT_BIT;
         self.vxrm = Vxrm::from_bits((val >> 1) as u8);
     }
 
@@ -383,7 +401,7 @@ impl Csrs {
             MENVCFG => self.menvcfg,
             SENVCFG => self.senvcfg,
             VSTART => self.vstart,
-            VXSAT => self.vxsat & 0x1,
+            VXSAT => self.vxsat & VXSAT_BIT,
             VXRM => self.vxrm_bits(),
             VCSR => self.vcsr(),
             VL => self.vl,
@@ -435,7 +453,7 @@ impl Csrs {
             MENVCFG => self.menvcfg = val,
             SENVCFG => self.senvcfg = val,
             VSTART => self.vstart = val,
-            VXSAT => self.vxsat = val & 0x1,
+            VXSAT => self.vxsat = val & VXSAT_BIT,
             VXRM => self.vxrm = Vxrm::from_bits(val as u8),
             VCSR => self.set_vcsr(val),
             _ => {}

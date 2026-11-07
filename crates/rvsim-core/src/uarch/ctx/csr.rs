@@ -2,10 +2,12 @@
 
 use super::CoreCtx;
 use crate::arch::Hart;
+use crate::arch::csr::legalize_tvec;
 use crate::arch::trigger;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::fp::{FpFlags, Frm};
+use crate::isa::privileged::cause::exception;
 use crate::isa::privileged::{Satp, Trap};
 use crate::isa::rvv::Vxrm;
 use crate::soc::uncore::Uncore;
@@ -61,30 +63,12 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
         csr::TIME => uncore.bus.mtime(),
         csr::INSTRET | csr::MINSTRET => hart.csrs.minstret,
         csr::MCOUNTINHIBIT => hart.csrs.mcountinhibit,
-        csr::PMPCFG0 => {
-            hart.pmp.get_cfg(0) as u64
-                | ((hart.pmp.get_cfg(1) as u64) << 8)
-                | ((hart.pmp.get_cfg(2) as u64) << 16)
-                | ((hart.pmp.get_cfg(3) as u64) << 24)
-                | ((hart.pmp.get_cfg(4) as u64) << 32)
-                | ((hart.pmp.get_cfg(5) as u64) << 40)
-                | ((hart.pmp.get_cfg(6) as u64) << 48)
-                | ((hart.pmp.get_cfg(7) as u64) << 56)
-        }
-        csr::PMPCFG2 => {
-            hart.pmp.get_cfg(8) as u64
-                | ((hart.pmp.get_cfg(9) as u64) << 8)
-                | ((hart.pmp.get_cfg(10) as u64) << 16)
-                | ((hart.pmp.get_cfg(11) as u64) << 24)
-                | ((hart.pmp.get_cfg(12) as u64) << 32)
-                | ((hart.pmp.get_cfg(13) as u64) << 40)
-                | ((hart.pmp.get_cfg(14) as u64) << 48)
-                | ((hart.pmp.get_cfg(15) as u64) << 56)
-        }
+        csr::PMPCFG0 => hart.pmp.cfg_word(0),
+        csr::PMPCFG2 => hart.pmp.cfg_word(8),
         _ if let Some(index) = addr.pmpaddr_index() => hart.pmp.get_addr(index),
         // Vector CSRs (read-only: VL, VTYPE, VLENB; read-write: VSTART, VXSAT, VXRM, VCSR)
         csr::VSTART => hart.csrs.vstart,
-        csr::VXSAT => hart.csrs.vxsat & 0x1,
+        csr::VXSAT => hart.csrs.vxsat & csr::VXSAT_BIT,
         csr::VXRM => hart.csrs.vxrm_bits(),
         csr::VCSR => hart.csrs.vcsr(),
         csr::VL => hart.csrs.vl,
@@ -100,9 +84,9 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
             let i = hart.csrs.tselect as usize;
             hart.csrs.tdata2[i]
         }
-        csr::TINFO => 1 << 2,                       // mcontrol supported
-        csr::TCONTROL => hart.csrs.tcontrol & 0x88, // mte=bit3, mpte=bit7
-        _ => 0,                                     // TDATA3 among them: not implemented
+        csr::TINFO => csr::TINFO_MCONTROL,
+        csr::TCONTROL => hart.csrs.tcontrol & csr::TCONTROL_WRITABLE,
+        _ => 0, // TDATA3 among them: not implemented
     }
 }
 
@@ -124,18 +108,15 @@ impl CoreCtx<'_> {
         match addr {
             csr::FFLAGS => {
                 self.hart.csrs.fflags = FpFlags::from_bits(val as u8);
-                self.hart.csrs.mstatus =
-                    (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.mark_fs_dirty();
             }
             csr::FRM => {
                 self.hart.csrs.frm = Frm::from_bits(val);
-                self.hart.csrs.mstatus =
-                    (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.mark_fs_dirty();
             }
             csr::FCSR => {
                 self.hart.csrs.set_fcsr(val);
-                self.hart.csrs.mstatus =
-                    (self.hart.csrs.mstatus & !csr::MSTATUS_FS) | csr::MSTATUS_FS_DIRTY;
+                self.hart.csrs.mark_fs_dirty();
             }
             csr::CSR_SIM_PANIC => {
                 self.trap(&Trap::RequestedTrap(val), self.hart.pc);
@@ -169,8 +150,8 @@ impl CoreCtx<'_> {
                 }
             }
             csr::MEDELEG => {
-                // Bit 11 (ecall from M-mode) cannot be delegated
-                self.hart.csrs.medeleg = val & !(1 << 11);
+                // An ecall from M-mode cannot be delegated.
+                self.hart.csrs.medeleg = val & !(1 << exception::ENVIRONMENT_CALL_FROM_M_MODE);
             }
             csr::MIDELEG => {
                 // Only S-level interrupts can be delegated (not M-level)
@@ -187,19 +168,12 @@ impl CoreCtx<'_> {
                     | csr::MIE_MEIP;
                 self.hart.csrs.mie = val & mask;
             }
-            csr::MTVEC => {
-                // WARL: mode field (bits 1:0) only supports 0 (Direct) and 1 (Vectored).
-                // Reserved modes (2, 3) are clamped to Direct by clearing both mode bits.
-                let mode = val & 3;
-                self.hart.csrs.mtvec = if mode >= 2 { val & !3 } else { val };
-            }
+            csr::MTVEC => self.hart.csrs.mtvec = legalize_tvec(val),
             csr::MISA => {
                 // MISA is WARL: writes are silently ignored (extensions are hardwired).
             }
             csr::MSCRATCH => self.hart.csrs.mscratch = val,
-            csr::MEPC => {
-                self.hart.csrs.mepc = val & !crate::arch::csr::ialign_low_bits(self.hart.csrs.misa);
-            }
+            csr::MEPC => self.hart.csrs.mepc = self.hart.csrs.legal_epc(val),
             csr::MCAUSE => self.hart.csrs.mcause = val,
             csr::MTVAL => self.hart.csrs.mtval = val,
             csr::MIP => {
@@ -216,28 +190,17 @@ impl CoreCtx<'_> {
                 let mask = self.hart.csrs.mideleg;
                 self.hart.csrs.mie = (self.hart.csrs.mie & !mask) | (val & mask);
             }
-            csr::STVEC => {
-                // WARL: mode field (bits 1:0) only supports 0 (Direct) and 1 (Vectored).
-                let mode = val & 3;
-                self.hart.csrs.stvec = if mode >= 2 { val & !3 } else { val };
-            }
+            csr::STVEC => self.hart.csrs.stvec = legalize_tvec(val),
             csr::SSCRATCH => self.hart.csrs.sscratch = val,
-            csr::SEPC => {
-                self.hart.csrs.sepc = val & !crate::arch::csr::ialign_low_bits(self.hart.csrs.misa);
-            }
+            csr::SEPC => self.hart.csrs.sepc = self.hart.csrs.legal_epc(val),
             csr::SCAUSE => self.hart.csrs.scause = val,
             csr::STVAL => self.hart.csrs.stval = val,
             csr::SIP => {
                 let mask = self.hart.csrs.mideleg & (csr::MIP_SSIP);
                 self.hart.csrs.mip = (self.hart.csrs.mip & !mask) | (val & mask);
             }
-            csr::MCOUNTEREN => {
-                // Only CY(0), TM(1), IR(2) are implemented
-                self.hart.csrs.mcounteren = val & 0x7;
-            }
-            csr::SCOUNTEREN => {
-                self.hart.csrs.scounteren = val & 0x7;
-            }
+            csr::MCOUNTEREN => self.hart.csrs.mcounteren = val & csr::COUNTEREN_WRITABLE,
+            csr::SCOUNTEREN => self.hart.csrs.scounteren = val & csr::COUNTEREN_WRITABLE,
             csr::MENVCFG => {
                 let svadu = if self.config.isa.svadu { csr::MENVCFG_ADUE } else { 0 };
                 let writable = csr::MENVCFG_WRITABLE | svadu;
@@ -252,16 +215,8 @@ impl CoreCtx<'_> {
             csr::MCOUNTINHIBIT => {
                 self.hart.csrs.mcountinhibit = val & csr::MCOUNTINHIBIT_WRITABLE;
             }
-            csr::PMPCFG0 => {
-                for i in 0..8 {
-                    self.hart.pmp.set_cfg(i, ((val >> (i * 8)) & 0xFF) as u8);
-                }
-            }
-            csr::PMPCFG2 => {
-                for i in 0..8 {
-                    self.hart.pmp.set_cfg(8 + i, ((val >> (i * 8)) & 0xFF) as u8);
-                }
-            }
+            csr::PMPCFG0 => self.hart.pmp.set_cfg_word(0, val),
+            csr::PMPCFG2 => self.hart.pmp.set_cfg_word(8, val),
             _ if let Some(index) = addr.pmpaddr_index() => self.hart.pmp.set_addr(index, val),
             csr::STIMECMP => {
                 self.hart.csrs.stimecmp = val;
@@ -280,7 +235,7 @@ impl CoreCtx<'_> {
             }
             // Writable vector CSRs
             csr::VSTART => self.hart.csrs.vstart = val,
-            csr::VXSAT => self.hart.csrs.vxsat = val & 0x1,
+            csr::VXSAT => self.hart.csrs.vxsat = val & csr::VXSAT_BIT,
             csr::VXRM => self.hart.csrs.vxrm = Vxrm::from_bits(val as u8),
             csr::VCSR => self.hart.csrs.set_vcsr(val),
             // VL, VTYPE, VLENB are read-only (writes silently ignored)
@@ -296,9 +251,7 @@ impl CoreCtx<'_> {
                 let i = self.hart.csrs.tselect as usize;
                 self.hart.csrs.tdata2[i] = val;
             }
-            csr::TCONTROL => {
-                self.hart.csrs.tcontrol = val & 0x88; // only mte (bit3) and mpte (bit7)
-            }
+            csr::TCONTROL => self.hart.csrs.tcontrol = val & csr::TCONTROL_WRITABLE,
             _ => {} // TDATA3 (not implemented) and TINFO (read-only) among them
         }
     }

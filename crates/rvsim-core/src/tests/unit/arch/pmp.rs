@@ -380,3 +380,14 @@ fn a_locked_napot_entry_leaves_the_address_below_it_writable() {
 
     assert_eq!(pmp.get_addr(0), 0);
 }
+
+#[test]
+fn a_cfg_word_packs_eight_entries_low_byte_first() {
+    let mut pmp = Pmp::new();
+    pmp.set_cfg_word(8, 0x0F0E_0D0C_0B0A_0908);
+
+    assert_eq!(pmp.get_cfg(8), 0x08);
+    assert_eq!(pmp.get_cfg(15), 0x0F);
+    assert_eq!(pmp.cfg_word(8), 0x0F0E_0D0C_0B0A_0908);
+    assert_eq!(pmp.cfg_word(0), 0);
+}
