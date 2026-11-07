@@ -107,3 +107,16 @@ fn cbo_inval_reserved_encoding_is_illegal() {
         CboInvalAction::Illegal
     );
 }
+
+#[test]
+fn cbo_inval_user_flushes_when_a_reserved_field_meets_a_flush() {
+    let cbie_reserved = 0b10 << MENVCFG_CBIE_SHIFT;
+    assert_eq!(
+        cbo_inval_action(cbie_reserved, CBIE_FLUSH, PrivilegeMode::User),
+        CboInvalAction::Flush
+    );
+    assert_eq!(
+        cbo_inval_action(cbie_reserved, CBIE_INVAL, PrivilegeMode::User),
+        CboInvalAction::Illegal
+    );
+}
