@@ -37,7 +37,7 @@ use crate::isa::op::{AluOp, IntWidth};
 ///
 /// The 64-bit result of the ALU operation. For 32-bit operations,
 /// the result is sign-extended to 64 bits.
-pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+pub fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
     match op {
         AluOp::Add
         | AluOp::Sub

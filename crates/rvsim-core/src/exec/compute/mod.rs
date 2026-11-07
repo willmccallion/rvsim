@@ -4,6 +4,8 @@ pub mod alu;
 
 pub mod amo;
 
+pub mod clmul;
+
 pub mod fpu;
 
 pub mod misaligned;
