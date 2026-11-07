@@ -148,14 +148,16 @@ mod tests {
 
         let tag = rob
             .allocate(
-                VirtAddr::new(0x1000),
-                0,
-                InstSize::Standard,
-                RegIdx::new(1),
-                ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                &crate::exec::inst::Inst {
+                    pc: VirtAddr::new(0x1000),
+                    bits: 0,
+                    size: InstSize::Standard,
+                    rd: RegIdx::new(1),
+                    ctrl: ControlSignals::default(),
+                    ..Default::default()
+                },
                 crate::common::InstSeq::default(),
+                crate::uarch::pipeline::rob::RenamedDst::NONE,
             )
             .unwrap();
 
@@ -198,14 +200,16 @@ mod tests {
 
         let tag = rob
             .allocate(
-                VirtAddr::new(0x1000),
-                0,
-                InstSize::Standard,
-                RegIdx::new(1),
-                ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                &crate::exec::inst::Inst {
+                    pc: VirtAddr::new(0x1000),
+                    bits: 0,
+                    size: InstSize::Standard,
+                    rd: RegIdx::new(1),
+                    ctrl: ControlSignals::default(),
+                    ..Default::default()
+                },
                 crate::common::InstSeq::default(),
+                crate::uarch::pipeline::rob::RenamedDst::NONE,
             )
             .unwrap();
 
@@ -250,14 +254,16 @@ mod tests {
 
         let tag = rob
             .allocate(
-                VirtAddr::new(0x1000),
-                0,
-                InstSize::Standard,
-                RegIdx::new(1),
-                ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                &crate::exec::inst::Inst {
+                    pc: VirtAddr::new(0x1000),
+                    bits: 0,
+                    size: InstSize::Standard,
+                    rd: RegIdx::new(1),
+                    ctrl: ControlSignals::default(),
+                    ..Default::default()
+                },
                 crate::common::InstSeq::default(),
+                crate::uarch::pipeline::rob::RenamedDst::NONE,
             )
             .unwrap();
 
@@ -302,14 +308,16 @@ mod tests {
 
         let tag = rob
             .allocate(
-                VirtAddr::new(0x1000),
-                0,
-                InstSize::Standard,
-                RegIdx::new(1),
-                ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                &crate::exec::inst::Inst {
+                    pc: VirtAddr::new(0x1000),
+                    bits: 0,
+                    size: InstSize::Standard,
+                    rd: RegIdx::new(1),
+                    ctrl: ControlSignals::default(),
+                    ..Default::default()
+                },
                 crate::common::InstSeq::default(),
+                crate::uarch::pipeline::rob::RenamedDst::NONE,
             )
             .unwrap();
 
@@ -357,14 +365,16 @@ mod tests {
 
         let tag = rob
             .allocate(
-                VirtAddr::new(0x1000),
-                0,
-                InstSize::Standard,
-                RegIdx::new(1),
-                ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                &crate::exec::inst::Inst {
+                    pc: VirtAddr::new(0x1000),
+                    bits: 0,
+                    size: InstSize::Standard,
+                    rd: RegIdx::new(1),
+                    ctrl: ControlSignals::default(),
+                    ..Default::default()
+                },
                 crate::common::InstSeq::default(),
+                crate::uarch::pipeline::rob::RenamedDst::NONE,
             )
             .unwrap();
 
@@ -416,14 +426,16 @@ mod tests {
 
         let tag = rob
             .allocate(
-                VirtAddr::new(0x1000),
-                0,
-                InstSize::Standard,
-                RegIdx::new(1),
-                ControlSignals::default(),
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                &crate::exec::inst::Inst {
+                    pc: VirtAddr::new(0x1000),
+                    bits: 0,
+                    size: InstSize::Standard,
+                    rd: RegIdx::new(1),
+                    ctrl: ControlSignals::default(),
+                    ..Default::default()
+                },
                 crate::common::InstSeq::default(),
+                crate::uarch::pipeline::rob::RenamedDst::NONE,
             )
             .unwrap();
 

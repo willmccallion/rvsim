@@ -119,7 +119,7 @@ impl CommitRegisters<'_> {
     /// backend's dependents read the architectural file commit writes.
     fn write_result(&mut self, entry: &RobEntry, value: u64) {
         if let Self::Renamed { prf, .. } = self {
-            prf.write(entry.phys_dst, value);
+            prf.write(entry.dst.phys, value);
         }
     }
 
@@ -127,10 +127,10 @@ impl CommitRegisters<'_> {
         match self {
             Self::Scoreboard(scoreboard) => scoreboard.clear_if_match(dest, entry.tag),
             Self::Renamed { rename_map, free_list, .. } => {
-                if entry.old_phys_dst != entry.phys_dst {
-                    free_list.reclaim(entry.old_phys_dst);
+                if entry.dst.old != entry.dst.phys {
+                    free_list.reclaim(entry.dst.old);
                 }
-                rename_map.set(dest, entry.phys_dst);
+                rename_map.set(dest, entry.dst.phys);
             }
         }
     }
@@ -156,8 +156,8 @@ impl CommitRegisters<'_> {
         let Self::Renamed { free_list, vec_free_list, .. } = self else {
             return;
         };
-        if entry.phys_dst != PhysReg::ZERO {
-            free_list.reclaim(entry.phys_dst);
+        if entry.dst.phys != PhysReg::ZERO {
+            free_list.reclaim(entry.dst.phys);
         }
         for i in 0..entry.vec_dst_count as usize {
             vec_free_list.reclaim(entry.vec_phys_dst[i]);
@@ -279,14 +279,19 @@ mod tests {
 
         let tag = rob
             .allocate(
-                VirtAddr::new(0x1000),
-                0,
-                InstSize::Standard,
-                RegIdx::new(1),
-                ctrl,
-                crate::uarch::pipeline::rename::prf::PhysReg::new(1),
-                crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                &crate::exec::inst::Inst {
+                    pc: VirtAddr::new(0x1000),
+                    bits: 0,
+                    size: InstSize::Standard,
+                    rd: RegIdx::new(1),
+                    ctrl,
+                    ..Default::default()
+                },
                 crate::common::InstSeq::default(),
+                crate::uarch::pipeline::rob::RenamedDst {
+                    phys: crate::uarch::pipeline::rename::prf::PhysReg::new(1),
+                    old: crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
+                },
             )
             .unwrap();
         rob.complete(tag, 42);

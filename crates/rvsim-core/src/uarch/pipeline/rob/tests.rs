@@ -6,7 +6,6 @@ use super::*;
 use crate::exec::signals::ControlSignals;
 use crate::isa::csr::CsrAddr;
 use crate::isa::reg::RegIdx;
-use crate::uarch::pipeline::rename::prf::PhysReg;
 
 fn make_ctrl(reg_write: bool, fp_reg_write: bool) -> ControlSignals {
     ControlSignals { reg_write, fp_reg_write, ..Default::default() }
@@ -14,14 +13,16 @@ fn make_ctrl(reg_write: bool, fp_reg_write: bool) -> ControlSignals {
 
 fn alloc(rob: &mut Rob, pc: u64, rd: u8, ctrl: ControlSignals) -> Option<RobTag> {
     rob.allocate(
-        VirtAddr::new(pc),
-        0,
-        InstSize::Standard,
-        RegIdx::new(rd),
-        ctrl,
-        PhysReg::ZERO,
-        PhysReg::ZERO,
+        &crate::exec::inst::Inst {
+            pc: VirtAddr::new(pc),
+            bits: 0,
+            size: InstSize::Standard,
+            rd: RegIdx::new(rd),
+            ctrl,
+            ..Default::default()
+        },
         crate::common::InstSeq::default(),
+        crate::uarch::pipeline::rob::RenamedDst::NONE,
     )
 }
 
@@ -33,14 +34,16 @@ fn test_allocate_and_commit() {
 
     let tag = rob
         .allocate(
-            VirtAddr::new(0x1000),
-            0x13,
-            InstSize::Standard,
-            RegIdx::new(1),
-            make_ctrl(true, false),
-            PhysReg::ZERO,
-            PhysReg::ZERO,
+            &crate::exec::inst::Inst {
+                pc: VirtAddr::new(0x1000),
+                bits: 0x13,
+                size: InstSize::Standard,
+                rd: RegIdx::new(1),
+                ctrl: make_ctrl(true, false),
+                ..Default::default()
+            },
             crate::common::InstSeq::default(),
+            crate::uarch::pipeline::rob::RenamedDst::NONE,
         )
         .unwrap();
     assert_eq!(rob.len(), 1);
@@ -158,14 +161,16 @@ fn encode_fence(pred: u8, succ: u8) -> u32 {
 
 fn alloc_with_inst(rob: &mut Rob, inst: u32, ctrl: ControlSignals) -> Option<RobTag> {
     rob.allocate(
-        VirtAddr::new(0x1000),
-        inst,
-        InstSize::Standard,
-        RegIdx::new(0),
-        ctrl,
-        PhysReg::ZERO,
-        PhysReg::ZERO,
+        &crate::exec::inst::Inst {
+            pc: VirtAddr::new(0x1000),
+            bits: inst,
+            size: InstSize::Standard,
+            rd: RegIdx::new(0),
+            ctrl,
+            ..Default::default()
+        },
         crate::common::InstSeq::default(),
+        crate::uarch::pipeline::rob::RenamedDst::NONE,
     )
 }
 
