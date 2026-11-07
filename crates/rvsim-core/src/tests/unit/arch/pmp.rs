@@ -4,6 +4,8 @@
 //! M-mode bypass logic, and locking behaviour per RISC-V spec §3.7.
 
 use crate::arch::pmp::{Pmp, PmpAddrMatch, PmpEntry, PmpResult};
+use crate::common::{AccessType, PhysAddr};
+use crate::isa::privileged::PrivilegeMode;
 
 // Configuration byte helpers
 const R: u8 = 1 << 0;
@@ -38,28 +40,29 @@ fn addr_match_napot() {
 fn machine_mode_full_access_no_entries() {
     let pmp = Pmp::new();
     // M-mode should have full access when no PMP entries are active.
-    let result = pmp.check(0x8000_0000, 4, true, false, false, true);
+    let result = pmp.check(PhysAddr::new(0x8000_0000), 4, AccessType::Read, PrivilegeMode::Machine);
     assert_eq!(result, PmpResult::Allow);
 }
 
 #[test]
 fn machine_mode_write_no_entries() {
     let pmp = Pmp::new();
-    let result = pmp.check(0x1000, 8, false, true, false, true);
+    let result = pmp.check(PhysAddr::new(0x1000), 8, AccessType::Write, PrivilegeMode::Machine);
     assert_eq!(result, PmpResult::Allow);
 }
 
 #[test]
 fn machine_mode_exec_no_entries() {
     let pmp = Pmp::new();
-    let result = pmp.check(0x0, 4, false, false, true, true);
+    let result = pmp.check(PhysAddr::new(0x0), 4, AccessType::Fetch, PrivilegeMode::Machine);
     assert_eq!(result, PmpResult::Allow);
 }
 
 #[test]
 fn user_mode_no_match_no_entries() {
     let pmp = Pmp::new();
-    let result = pmp.check(0x8000_0000, 4, true, false, false, false);
+    let result =
+        pmp.check(PhysAddr::new(0x8000_0000), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::NoMatch);
 }
 
@@ -71,7 +74,7 @@ fn tor_permits_access_in_range() {
     pmp.set_cfg(0, A_TOR | R | W | X);
 
     // Access at byte addr 0x4000, size 4 → within [0, 0x8000)
-    let result = pmp.check(0x4000, 4, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x4000), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
 }
 
@@ -82,7 +85,7 @@ fn tor_denies_access_outside_range() {
     pmp.set_cfg(0, A_TOR | R | W | X);
 
     // Access at byte addr 0x8000 → at the boundary, not inside [0, 0x8000)
-    let result = pmp.check(0x8000, 4, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x8000), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::NoMatch);
 }
 
@@ -98,11 +101,11 @@ fn tor_range_between_entries() {
     pmp.set_cfg(1, A_TOR | R);
 
     // Inside range
-    let result = pmp.check(0x5000, 4, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x5000), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
 
     // Below range
-    let result = pmp.check(0x3000, 4, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x3000), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::NoMatch);
 }
 
@@ -112,10 +115,12 @@ fn tor_denies_write_when_only_read_permitted() {
     pmp.set_addr(0, 0x2000); // [0, 0x8000)
     pmp.set_cfg(0, A_TOR | R); // read-only
 
-    let read_result = pmp.check(0x1000, 4, true, false, false, false);
+    let read_result =
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(read_result, PmpResult::Allow);
 
-    let write_result = pmp.check(0x1000, 4, false, true, false, false);
+    let write_result =
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Supervisor);
     assert_eq!(write_result, PmpResult::Deny);
 }
 
@@ -127,19 +132,19 @@ fn na4_matches_exactly_four_bytes() {
     pmp.set_cfg(0, A_NA4 | R | W);
 
     // Exact match
-    let result = pmp.check(0x4000, 4, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x4000), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
 
     // One byte inside
-    let result = pmp.check(0x4000, 1, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x4000), 1, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
 
     // Just outside
-    let result = pmp.check(0x4004, 1, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x4004), 1, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::NoMatch);
 
     // Overlapping the end — partial match must deny per spec §3.7.1.
-    let result = pmp.check(0x4002, 4, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x4002), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Deny);
 }
 
@@ -151,14 +156,14 @@ fn napot_8_byte_region() {
     pmp.set_cfg(0, A_NAPOT | R | W | X);
 
     // Inside [0x1000, 0x1008)
-    let result = pmp.check(0x1000, 4, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
 
-    let result = pmp.check(0x1004, 4, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x1004), 4, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
 
     // Outside
-    let result = pmp.check(0x1008, 1, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x1008), 1, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::NoMatch);
 }
 
@@ -169,13 +174,13 @@ fn napot_larger_region() {
     pmp.set_addr(0, 0x403);
     pmp.set_cfg(0, A_NAPOT | R);
 
-    let result = pmp.check(0x1000, 1, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x1000), 1, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
 
-    let result = pmp.check(0x101F, 1, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x101F), 1, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Allow);
 
-    let result = pmp.check(0x1020, 1, true, false, false, false);
+    let result = pmp.check(PhysAddr::new(0x1020), 1, AccessType::Read, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::NoMatch);
 }
 
@@ -185,9 +190,18 @@ fn read_only_denies_write_and_exec() {
     pmp.set_addr(0, 0x2000);
     pmp.set_cfg(0, A_TOR | R);
 
-    assert_eq!(pmp.check(0x1000, 4, true, false, false, false), PmpResult::Allow);
-    assert_eq!(pmp.check(0x1000, 4, false, true, false, false), PmpResult::Deny);
-    assert_eq!(pmp.check(0x1000, 4, false, false, true, false), PmpResult::Deny);
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor),
+        PmpResult::Allow
+    );
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Supervisor),
+        PmpResult::Deny
+    );
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Fetch, PrivilegeMode::Supervisor),
+        PmpResult::Deny
+    );
 }
 
 #[test]
@@ -196,9 +210,18 @@ fn execute_only_denies_read_and_write() {
     pmp.set_addr(0, 0x2000);
     pmp.set_cfg(0, A_TOR | X);
 
-    assert_eq!(pmp.check(0x1000, 4, false, false, true, false), PmpResult::Allow);
-    assert_eq!(pmp.check(0x1000, 4, true, false, false, false), PmpResult::Deny);
-    assert_eq!(pmp.check(0x1000, 4, false, true, false, false), PmpResult::Deny);
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Fetch, PrivilegeMode::Supervisor),
+        PmpResult::Allow
+    );
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor),
+        PmpResult::Deny
+    );
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Supervisor),
+        PmpResult::Deny
+    );
 }
 
 #[test]
@@ -207,9 +230,18 @@ fn rwx_permits_all() {
     pmp.set_addr(0, 0x2000);
     pmp.set_cfg(0, A_TOR | R | W | X);
 
-    assert_eq!(pmp.check(0x1000, 4, true, false, false, false), PmpResult::Allow);
-    assert_eq!(pmp.check(0x1000, 4, false, true, false, false), PmpResult::Allow);
-    assert_eq!(pmp.check(0x1000, 4, false, false, true, false), PmpResult::Allow);
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Supervisor),
+        PmpResult::Allow
+    );
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Supervisor),
+        PmpResult::Allow
+    );
+    assert_eq!(
+        pmp.check(PhysAddr::new(0x1000), 4, AccessType::Fetch, PrivilegeMode::Supervisor),
+        PmpResult::Allow
+    );
 }
 
 #[test]
@@ -219,11 +251,11 @@ fn locked_entry_applies_to_machine_mode() {
     pmp.set_cfg(0, A_TOR | R | L); // read-only + locked
 
     // M-mode write should be denied because entry is locked
-    let result = pmp.check(0x1000, 4, false, true, false, true);
+    let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Machine);
     assert_eq!(result, PmpResult::Deny);
 
     // M-mode read should still work
-    let result = pmp.check(0x1000, 4, true, false, false, true);
+    let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Read, PrivilegeMode::Machine);
     assert_eq!(result, PmpResult::Allow);
 }
 
@@ -234,7 +266,7 @@ fn unlocked_entry_m_mode_bypasses() {
     pmp.set_cfg(0, A_TOR | R); // read-only, NOT locked
 
     // M-mode write should be allowed because entry is not locked
-    let result = pmp.check(0x1000, 4, false, true, false, true);
+    let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Machine);
     assert_eq!(result, PmpResult::Allow);
 }
 
@@ -265,7 +297,7 @@ fn first_matching_entry_wins() {
     pmp.set_cfg(1, A_TOR | R | W);
 
     // Address 0x1000 matches entry 0 first — write should be denied
-    let result = pmp.check(0x1000, 4, false, true, false, false);
+    let result = pmp.check(PhysAddr::new(0x1000), 4, AccessType::Write, PrivilegeMode::Supervisor);
     assert_eq!(result, PmpResult::Deny);
 }
 
@@ -314,7 +346,12 @@ fn an_all_ones_napot_entry_still_covers_all_of_physical_memory() {
     pmp.set_addr(0, u64::MAX);
     pmp.set_cfg(0, R | W | X | A_NAPOT);
 
-    let top_of_physical_memory = pmp.check(0x00ff_ffff_ffff_fff8, 8, true, false, false, false);
+    let top_of_physical_memory = pmp.check(
+        PhysAddr::new(0x00ff_ffff_ffff_fff8),
+        8,
+        AccessType::Read,
+        PrivilegeMode::Supervisor,
+    );
 
     assert_eq!(top_of_physical_memory, PmpResult::Allow);
 }

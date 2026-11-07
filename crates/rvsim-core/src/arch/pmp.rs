@@ -10,6 +10,9 @@
 //! - **NA4**: Naturally aligned 4-byte region.
 //! - **NAPOT**: Naturally aligned power-of-two region.
 
+use crate::common::{AccessType, PhysAddr};
+use crate::isa::privileged::PrivilegeMode;
+
 /// Maximum number of PMP entries (RISC-V spec allows up to 64).
 pub const PMP_COUNT: usize = 16;
 
@@ -201,27 +204,24 @@ impl Pmp {
     ///
     /// # Arguments
     ///
-    /// * `byte_addr` - Physical byte address of the access.
+    /// * `addr` - Physical byte address of the access.
     /// * `size` - Number of bytes being accessed.
-    /// * `is_read` - True for load operations.
-    /// * `is_write` - True for store operations.
-    /// * `is_exec` - True for instruction fetch.
-    /// * `is_machine_mode` - True if the current privilege is M-mode.
+    /// * `access` - What the access does.
+    /// * `privilege` - The privilege it is made at.
     ///
     /// # Returns
     ///
     /// `PmpResult::Allow` if the access is permitted, `PmpResult::Deny`
     /// if denied, `PmpResult::NoMatch` if no entry matched.
-    #[allow(clippy::fn_params_excessive_bools)]
     pub fn check(
         &self,
-        byte_addr: u64,
+        addr: PhysAddr,
         size: u64,
-        is_read: bool,
-        is_write: bool,
-        is_exec: bool,
-        is_machine_mode: bool,
+        access: AccessType,
+        privilege: PrivilegeMode,
     ) -> PmpResult {
+        let byte_addr = addr.val();
+        let is_machine_mode = privilege == PrivilegeMode::Machine;
         // Saturate: an access past u64::MAX can't physically fit, and
         // clamping still gives correct partial-overlap / no-match behavior.
         let access_end = byte_addr.saturating_add(size);
@@ -253,9 +253,11 @@ impl Pmp {
                     return PmpResult::Allow;
                 }
 
-                let permitted = (!is_read || entry.is_readable())
-                    && (!is_write || entry.is_writable())
-                    && (!is_exec || entry.is_executable());
+                let permitted = match access {
+                    AccessType::Fetch => entry.is_executable(),
+                    AccessType::Read => entry.is_readable(),
+                    AccessType::Write => entry.is_writable(),
+                };
 
                 return if permitted { PmpResult::Allow } else { PmpResult::Deny };
             }
