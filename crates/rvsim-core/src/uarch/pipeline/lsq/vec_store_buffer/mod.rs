@@ -39,7 +39,7 @@ use crate::common::PhysAddr;
 use crate::config::VecStoreForwarding;
 use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
-use crate::uarch::pipeline::lsq::store_buffer::{ForwardResult, width_to_bytes};
+use crate::uarch::pipeline::lsq::store_buffer::ForwardResult;
 use crate::uarch::pipeline::rob::RobTag;
 
 /// Cache-line size used by the VSB. Matches the L1D line width.
@@ -277,7 +277,7 @@ impl VecStoreBuffer {
         data: u64,
         width: MemWidth,
     ) {
-        let bytes = width_to_bytes(width);
+        let bytes = width.bytes() as usize;
         if bytes == 0 {
             return;
         }
@@ -403,7 +403,7 @@ impl VecStoreBuffer {
         width: MemWidth,
         load_rob_tag: RobTag,
     ) -> ForwardResult {
-        let bytes = width_to_bytes(width);
+        let bytes = width.bytes() as usize;
         if bytes == 0 {
             return ForwardResult::Miss;
         }
@@ -488,7 +488,7 @@ impl VecStoreBuffer {
         width: MemWidth,
         load_rob_tag: RobTag,
     ) -> ForwardResult {
-        let bytes = width_to_bytes(width) as u64;
+        let bytes = width.bytes();
         let load_lo = paddr.val();
         let load_hi = load_lo + bytes;
         let line_a = load_lo & !(VSB_LINE_BYTES as u64 - 1);

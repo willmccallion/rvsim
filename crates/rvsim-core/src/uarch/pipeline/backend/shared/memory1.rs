@@ -204,7 +204,7 @@ fn process_entry<E: ExecutionEngine>(
     }
 
     // 2. Alignment.
-    let size = misaligned::width_to_bytes(ex.ctrl.width);
+    let size = ex.ctrl.width.bytes();
     let is_atomic = ex.ctrl.atomic_op.is_some();
     if !misaligned::is_aligned(ex.alu, size)
         && (state.config.memory.misaligned_access_trap || is_atomic)

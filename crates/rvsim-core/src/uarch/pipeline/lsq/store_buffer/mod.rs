@@ -90,7 +90,7 @@ impl StoreData {
         let start = paddr.val();
         match data {
             Some(Self::Block(_)) => (start, start + CBOZ_BLOCK_SIZE),
-            Some(Self::Bytes(_)) | None => (start, start + width_to_bytes(width) as u64),
+            Some(Self::Bytes(_)) | None => (start, start + width.bytes()),
         }
     }
 }
@@ -366,7 +366,7 @@ impl StoreBuffer {
         let Some(store) = self.youngest_older_overlap(paddr, width, load_rob_tag) else {
             return ForwardResult::Miss;
         };
-        let load_size = width_to_bytes(width);
+        let load_size = width.bytes() as usize;
         let load_start = paddr.val();
         let load_end = load_start + load_size as u64;
         let covers = store.start <= load_start && store.end >= load_end;
@@ -401,7 +401,7 @@ impl StoreBuffer {
         load_rob_tag: RobTag,
     ) -> Option<OverlappingStore> {
         let load_start = paddr.val();
-        let load_end = load_start + width_to_bytes(width) as u64;
+        let load_end = load_start + width.bytes();
         self.youngest_first().filter(|entry| entry.rob_tag.is_older_than(load_rob_tag)).find_map(
             |entry| {
                 let (store_paddr, data) = entry.resolution.address()?;
@@ -495,7 +495,7 @@ impl StoreBuffer {
         if self.count == 0 {
             return false;
         }
-        let load_size = width_to_bytes(width) as u64;
+        let load_size = width.bytes();
         let load_start = paddr.val();
         let load_end = load_start + load_size;
         let cap = self.entries.len();
@@ -743,17 +743,6 @@ impl StoreBuffer {
             idx = (idx + 1) % cap;
         }
         None
-    }
-}
-
-/// Converts a `MemWidth` to byte count.
-pub const fn width_to_bytes(w: MemWidth) -> usize {
-    match w {
-        MemWidth::Byte => 1,
-        MemWidth::Half => 2,
-        MemWidth::Word => 4,
-        MemWidth::Double => 8,
-        MemWidth::Nop => 0,
     }
 }
 

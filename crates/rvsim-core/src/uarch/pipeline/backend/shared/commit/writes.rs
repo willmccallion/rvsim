@@ -12,7 +12,7 @@ use crate::sim::packet::{AccessSize, Maintenance, MemOp, Packet, WriteData, Writ
 use crate::trace_commit;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::BackendCommon;
-use crate::uarch::pipeline::lsq::store_buffer::{StoreBuffer, StoreData, width_to_bytes};
+use crate::uarch::pipeline::lsq::store_buffer::{StoreBuffer, StoreData};
 use crate::uarch::pipeline::lsq::vec_store_buffer::{VSB_LINE_BYTES, VecStoreBuffer};
 use crate::uarch::pipeline::lsq::write_buffer::WcbLine;
 use crate::uarch::pipeline::outstanding::{OutstandingStore, StoreOwner};
@@ -30,7 +30,7 @@ pub(super) fn try_drain_one_store(
 ) -> bool {
     let Some(write) = store_buffer.begin_write() else { return false };
     let bytes = match write.data {
-        StoreData::Bytes(_) => width_to_bytes(write.width),
+        StoreData::Bytes(_) => write.width.bytes() as usize,
         StoreData::Block(_) => CBOZ_BLOCK_SIZE as usize,
     };
     if vec_store_buffer.has_unsent_older_line_to(write.paddr, bytes, write.rob_tag) {
@@ -76,7 +76,7 @@ pub(super) fn send_data_store(
         return emit_store_write_packet(state, common, paddr, data, width, store);
     }
     let span = state.core.wcb.entry_bytes();
-    for (part_paddr, part_data, part_bytes) in span_parts(paddr, data, width_to_bytes(width), span)
+    for (part_paddr, part_data, part_bytes) in span_parts(paddr, data, width.bytes() as usize, span)
     {
         if state.core.wcb.holds_entry_for(part_paddr) {
             state.uncore.stats.counter(state.core.stat_paths.wcb.coalesces).inc();

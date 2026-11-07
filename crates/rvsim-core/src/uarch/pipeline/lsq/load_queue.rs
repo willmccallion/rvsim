@@ -291,7 +291,7 @@ impl LoadQueue {
         store_width: MemWidth,
         store_rob_tag: RobTag,
     ) -> Option<RobTag> {
-        let store_bytes = width_to_bytes(store_width) as u64;
+        let store_bytes = store_width.bytes();
         self.check_ordering_violation_over(store_paddr, store_bytes, store_rob_tag)
     }
 
@@ -489,17 +489,6 @@ mod coherence_tests {
             lq.check_coherence_violation(RobTag::new(1), PhysAddr::new(0x8000_0100), &log, H0),
             None
         );
-    }
-}
-
-/// Converts a `MemWidth` to byte count.
-const fn width_to_bytes(w: MemWidth) -> usize {
-    match w {
-        MemWidth::Byte => 1,
-        MemWidth::Half => 2,
-        MemWidth::Word => 4,
-        MemWidth::Double => 8,
-        MemWidth::Nop => 0,
     }
 }
 
