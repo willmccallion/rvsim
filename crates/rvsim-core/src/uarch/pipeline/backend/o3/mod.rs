@@ -429,6 +429,22 @@ impl ExecutionEngine for O3Engine {
         &mut self.mem1_mem2
     }
 
+    fn issue_snapshot(&self) -> Vec<RenameIssueEntry> {
+        self.issue_queue.queue_snapshot()
+    }
+
+    fn execute_mem1(&self) -> &[crate::uarch::pipeline::latches::ExMem1Entry] {
+        &self.execute_mem1
+    }
+
+    fn mem1_mem2(&self) -> &[crate::uarch::pipeline::latches::Mem1Mem2Entry] {
+        &self.mem1_mem2
+    }
+
+    fn mem2_wb(&self) -> &[Mem2WbEntry] {
+        &self.mem2_wb
+    }
+
     fn common(&self) -> &crate::uarch::pipeline::engine::BackendCommon {
         &self.common
     }

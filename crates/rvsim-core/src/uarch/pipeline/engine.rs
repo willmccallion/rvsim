@@ -123,6 +123,18 @@ pub trait ExecutionEngine {
     /// matching `MemResp` arrives.
     fn mem1_mem2_mut(&mut self) -> &mut Vec<crate::uarch::pipeline::latches::Mem1Mem2Entry>;
 
+    /// The issue queue's entries, oldest first.
+    fn issue_snapshot(&self) -> Vec<RenameIssueEntry>;
+
+    /// The Execute→Memory1 latch.
+    fn execute_mem1(&self) -> &[crate::uarch::pipeline::latches::ExMem1Entry];
+
+    /// The Memory1→Memory2 latch.
+    fn mem1_mem2(&self) -> &[crate::uarch::pipeline::latches::Mem1Mem2Entry];
+
+    /// The Memory2→Writeback latch.
+    fn mem2_wb(&self) -> &[crate::uarch::pipeline::latches::Mem2WbEntry];
+
     /// Shared in-flight memory bookkeeping (mailbox + outstanding tables +
     /// routing IDs).
     fn common(&self) -> &BackendCommon;
@@ -519,6 +531,32 @@ pub struct Pipeline<E: ExecutionEngine> {
 }
 
 impl<E: ExecutionEngine> Pipeline<E> {
+    /// A pipeline around `engine`, fetching from `pc`.
+    fn new(engine: E, config: &Config, pc: VirtAddr) -> Self {
+        Self {
+            frontend: Frontend::new(pc, &config.pipeline),
+            engine,
+            rename_output: Latch::new(config.pipeline.rename_issue_latency - 1),
+            redirect: None,
+            recovering_from_redirect: false,
+        }
+    }
+
+    /// A point-in-time copy of every inter-stage latch.
+    fn snapshot(&self, width: usize) -> LatchSnapshot {
+        LatchSnapshot {
+            fetch1_fetch2: self.frontend.fetch1_fetch2.entries().cloned().collect(),
+            fetch2_decode: self.frontend.fetch2_decode.entries().cloned().collect(),
+            decode_rename: self.frontend.decode_rename.entries().cloned().collect(),
+            rename_issue: self.rename_output.entries().cloned().collect(),
+            issue_queue: self.engine.issue_snapshot(),
+            execute_mem1: self.engine.execute_mem1().to_vec(),
+            mem1_mem2: self.engine.mem1_mem2().to_vec(),
+            mem2_wb: self.engine.mem2_wb().to_vec(),
+            width,
+        }
+    }
+
     /// Places an inbound packet into the engine's mailbox.
     pub fn deliver(&mut self, source: ComponentId, packet: Packet) {
         self.engine.common_mut().mailbox.push((source, packet));
@@ -660,36 +698,40 @@ pub enum PipelineDispatch {
     OutOfOrder(Box<Pipeline<crate::uarch::pipeline::backend::o3::O3Engine>>),
 }
 
+/// Runs `$body` with `$p` bound to whichever pipeline `$dispatch` holds.
+macro_rules! on_pipeline {
+    ($dispatch:expr, $p:ident => $body:expr) => {
+        match $dispatch {
+            PipelineDispatch::InOrder($p) => $body,
+            PipelineDispatch::OutOfOrder($p) => $body,
+        }
+    };
+}
+
 impl PipelineDispatch {
     /// Builds the configured backend for `core`, fetching from `pc`.
     pub fn new(config: &Config, core: &CoreTopology, pc: VirtAddr) -> Self {
         let l1i = core.cache(PrivateCache::L1I);
         let l1d = core.cache(PrivateCache::L1D);
         match config.pipeline.backend {
-            BackendKind::InOrder => Self::InOrder(Box::new(Pipeline {
-                frontend: Frontend::new(pc, &config.pipeline),
-                engine: InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
-                rename_output: Latch::new(config.pipeline.rename_issue_latency - 1),
-                redirect: None,
-                recovering_from_redirect: false,
-            })),
-            BackendKind::OutOfOrder => Self::OutOfOrder(Box::new(Pipeline {
-                frontend: Frontend::new(pc, &config.pipeline),
-                engine: O3Engine::new(config, core.pipeline_id, l1i, l1d),
-                rename_output: Latch::new(config.pipeline.rename_issue_latency - 1),
-                redirect: None,
-                recovering_from_redirect: false,
-            })),
+            BackendKind::InOrder => Self::InOrder(Box::new(Pipeline::new(
+                InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
+                config,
+                pc,
+            ))),
+            BackendKind::OutOfOrder => Self::OutOfOrder(Box::new(Pipeline::new(
+                O3Engine::new(config, core.pipeline_id, l1i, l1d),
+                config,
+                pc,
+            ))),
         }
     }
 
     /// Whether a committed store has yet to finish writing: one in the
     /// store buffer, the vector store buffer or the write-combining buffer.
     pub fn has_committed_writes(&self, units: &crate::uarch::CoreUnits) -> bool {
-        let (store_buffer, vec_store_buffer) = match self {
-            Self::InOrder(p) => (p.engine.store_buffer(), p.engine.vec_store_buffer()),
-            Self::OutOfOrder(p) => (p.engine.store_buffer(), p.engine.vec_store_buffer()),
-        };
+        let (store_buffer, vec_store_buffer) =
+            on_pipeline!(self, p => (p.engine.store_buffer(), p.engine.vec_store_buffer()));
         store_buffer.has_committed_stores()
             || vec_store_buffer.has_committed_stores()
             || units.wcb.has_pending()
@@ -697,108 +739,58 @@ impl PipelineDispatch {
 
     /// See [`Pipeline::is_idle`].
     pub fn is_idle(&self, hart: &crate::arch::Hart, units: &crate::uarch::CoreUnits) -> bool {
-        match self {
-            Self::InOrder(p) => p.is_idle(hart, units),
-            Self::OutOfOrder(p) => p.is_idle(hart, units),
-        }
+        on_pipeline!(self, p => p.is_idle(hart, units))
     }
 
     /// Run one cycle.
     pub fn tick(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
-        match self {
-            Self::InOrder(p) => p.tick(state),
-            Self::OutOfOrder(p) => p.tick(state),
-        }
+        on_pipeline!(self, p => p.tick(state));
     }
 
     /// Places an inbound packet into the pipeline's mailbox.
     pub fn deliver(&mut self, source: ComponentId, packet: Packet) {
-        match self {
-            Self::InOrder(p) => p.deliver(source, packet),
-            Self::OutOfOrder(p) => p.deliver(source, packet),
-        }
+        on_pipeline!(self, p => p.deliver(source, packet));
     }
 
     #[cfg(test)]
     /// The PC fetch continues from.
     #[must_use]
     pub const fn fetch_pc(&self) -> VirtAddr {
-        match self {
-            Self::InOrder(p) => p.frontend.fetch_pc,
-            Self::OutOfOrder(p) => p.frontend.fetch_pc,
-        }
+        on_pipeline!(self, p => p.frontend.fetch_pc)
     }
 
     #[cfg(test)]
     /// Whether a device read has been sent and not yet answered.
     pub fn device_read_in_flight(&self) -> bool {
-        let common = match self {
-            Self::InOrder(p) => p.engine.common(),
-            Self::OutOfOrder(p) => p.engine.common(),
-        };
+        let common = on_pipeline!(self, p => p.engine.common());
         common.outstanding_loads.values().any(|load| load.side_effecting)
     }
 
     #[cfg(test)]
     /// Makes the empty ROB allocate tags from `next` on.
     pub fn start_rob_tags_at(&mut self, next: RobTag) {
-        match self {
-            Self::InOrder(p) => p.engine.rob.start_tags_at(next),
-            Self::OutOfOrder(p) => p.engine.rob.start_tags_at(next),
-        }
+        on_pipeline!(self, p => p.engine.rob.start_tags_at(next));
     }
 
     /// Points fetch at `pc` without disturbing anything in flight; for
     /// initialisation, after the hart's architectural PC has been set.
     pub const fn restart_fetch_at(&mut self, pc: VirtAddr) {
-        match self {
-            Self::InOrder(p) => p.frontend.fetch_pc = pc,
-            Self::OutOfOrder(p) => p.frontend.fetch_pc = pc,
-        }
+        on_pipeline!(self, p => p.frontend.fetch_pc = pc);
     }
 
     /// Flush.
     pub fn flush(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) {
-        match self {
-            Self::InOrder(p) => p.flush(state),
-            Self::OutOfOrder(p) => p.flush(state),
-        }
+        on_pipeline!(self, p => p.flush(state));
     }
 
     /// See [`Pipeline::drain_writes`].
     pub fn drain_writes(&mut self, state: &mut crate::uarch::ctx::CoreCtx<'_>) -> bool {
-        match self {
-            Self::InOrder(p) => p.drain_writes(state),
-            Self::OutOfOrder(p) => p.drain_writes(state),
-        }
+        on_pipeline!(self, p => p.drain_writes(state))
     }
 
     /// Capture a point-in-time snapshot of all inter-stage latch contents.
     pub fn snapshot(&self, width: usize) -> LatchSnapshot {
-        match self {
-            Self::InOrder(p) => LatchSnapshot {
-                fetch1_fetch2: p.frontend.fetch1_fetch2.entries().cloned().collect(),
-                fetch2_decode: p.frontend.fetch2_decode.entries().cloned().collect(),
-                decode_rename: p.frontend.decode_rename.entries().cloned().collect(),
-                rename_issue: p.rename_output.entries().cloned().collect(),
-                issue_queue: p.engine.issuer.queue_snapshot(),
-                execute_mem1: p.engine.execute_mem1.clone(),
-                mem1_mem2: p.engine.mem1_mem2.clone(),
-                mem2_wb: p.engine.mem2_wb.clone(),
-                width,
-            },
-            Self::OutOfOrder(p) => LatchSnapshot {
-                fetch1_fetch2: p.frontend.fetch1_fetch2.entries().cloned().collect(),
-                fetch2_decode: p.frontend.fetch2_decode.entries().cloned().collect(),
-                decode_rename: p.frontend.decode_rename.entries().cloned().collect(),
-                rename_issue: p.rename_output.entries().cloned().collect(),
-                issue_queue: p.engine.issue_queue.queue_snapshot(),
-                execute_mem1: p.engine.execute_mem1.clone(),
-                mem1_mem2: p.engine.mem1_mem2.clone(),
-                mem2_wb: p.engine.mem2_wb.clone(),
-                width,
-            },
-        }
+        on_pipeline!(self, p => p.snapshot(width))
     }
 }
 
