@@ -229,25 +229,9 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
             let r = bit_reverse(v, bits);
             (r & mask, false)
         }
-        IntOp::Brev8 => {
-            let mut out: u64 = 0;
-            let nbytes = bits / 8;
-            for i in 0..nbytes {
-                let b = ((vs2 >> (i * 8)) & 0xff) as u8;
-                out |= u64::from(b.reverse_bits()) << (i * 8);
-            }
-            (out & mask, false)
-        }
-        IntOp::Rev8 => {
-            let mut out: u64 = 0;
-            let nbytes = bits / 8;
-            for i in 0..nbytes {
-                let b = (vs2 >> (i * 8)) & 0xff;
-                let dst = nbytes - 1 - i;
-                out |= b << (dst * 8);
-            }
-            (out & mask, false)
-        }
+        // Reversing every bit, then the bytes, reverses each byte in place.
+        IntOp::Brev8 => ((vs2 & mask).reverse_bits().swap_bytes() & mask, false),
+        IntOp::Rev8 => ((vs2 & mask).swap_bytes() >> (64 - bits), false),
         IntOp::Clz => {
             let v = vs2 & mask;
             let lz = if v == 0 { bits as u32 } else { v.leading_zeros() - (64 - bits as u32) };
