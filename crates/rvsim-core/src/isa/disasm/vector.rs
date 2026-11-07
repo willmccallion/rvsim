@@ -131,12 +131,12 @@ fn disasm_cfg(inst: u32) -> String {
 
     if bit31 == 0 {
         let zimm = encoding::zimm_vsetvli(inst);
-        let vt = vtype_str(zimm);
+        let vt = vtype_str(u64::from(zimm));
         format!("vsetvli {}, {}, {vt}", xreg(rd), xreg(rs1))
     } else if bit30 == 1 {
         let uimm = encoding::uimm_vsetivli(inst);
         let zimm = encoding::zimm_vsetivli(inst);
-        let vt = vtype_str(zimm);
+        let vt = vtype_str(u64::from(zimm));
         format!("vsetivli {}, {uimm}, {vt}", xreg(rd))
     } else {
         let rs2 = encoding::vs2(inst);

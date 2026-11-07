@@ -2,7 +2,6 @@
 
 use crate::exec::compute::vector::vsetvl::execute_vsetvl;
 use crate::exec::inst::Inst;
-use crate::isa::encoding::rvv::encoding as v_enc;
 use crate::isa::op::VectorOp;
 use crate::isa::rvv::{VectorConfig, Vlen};
 
@@ -18,10 +17,8 @@ pub fn vector_config(
     current_vl: u64,
 ) -> VectorConfig {
     let (avl, requested_vtype, rs1_is_zero) = match inst.ctrl.vec_op {
-        VectorOp::Vsetvli => (rs1_value, v_enc::zimm_vsetvli(inst.bits), inst.rs1.is_zero()),
-        VectorOp::Vsetivli => {
-            (v_enc::uimm_vsetivli(inst.bits), v_enc::zimm_vsetivli(inst.bits), false)
-        }
+        VectorOp::Vsetvli { vtype } => (rs1_value, u64::from(vtype), inst.rs1.is_zero()),
+        VectorOp::Vsetivli { avl, vtype } => (u64::from(avl), u64::from(vtype), false),
         _ => (rs1_value, rs2_value, inst.rs1.is_zero()),
     };
     let (vl, vtype) = execute_vsetvl(

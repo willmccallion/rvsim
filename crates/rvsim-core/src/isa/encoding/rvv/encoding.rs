@@ -80,20 +80,20 @@ pub const fn uimm5(inst: u32) -> u64 {
 
 /// Extract zimm for vsetvli (bits 30:20): 11-bit unsigned immediate.
 #[inline(always)]
-pub const fn zimm_vsetvli(inst: u32) -> u64 {
-    ((inst >> 20) & 0x7FF) as u64
+pub const fn zimm_vsetvli(inst: u32) -> u16 {
+    ((inst >> 20) & 0x7FF) as u16
 }
 
 /// Extract zimm for vsetivli (bits 29:20): 10-bit unsigned immediate.
 #[inline(always)]
-pub const fn zimm_vsetivli(inst: u32) -> u64 {
-    ((inst >> 20) & 0x3FF) as u64
+pub const fn zimm_vsetivli(inst: u32) -> u16 {
+    ((inst >> 20) & 0x3FF) as u16
 }
 
 /// Extract uimm for vsetivli (bits 19:15): 5-bit unsigned AVL immediate.
 #[inline(always)]
-pub const fn uimm_vsetivli(inst: u32) -> u64 {
-    ((inst >> 15) & 0x1F) as u64
+pub const fn uimm_vsetivli(inst: u32) -> u8 {
+    ((inst >> 15) & 0x1F) as u8
 }
 
 #[cfg(test)]

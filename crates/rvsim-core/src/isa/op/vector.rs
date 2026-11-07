@@ -40,7 +40,7 @@ impl VectorOp {
         use VectorOp::*;
         match self {
             None => VecOpGroup::NotVector,
-            Vsetvli | Vsetivli | Vsetvl => VecOpGroup::Config,
+            Vsetvli { .. } | Vsetivli { .. } | Vsetvl => VecOpGroup::Config,
             VLoadUnit | VLoadFF | VLoadMask | VLoadWholeReg | VLoadStride | VLoadIndexOrd
             | VLoadIndexUnord => VecOpGroup::Load,
             VStoreUnit | VStoreMask | VStoreWholeReg | VStoreStride | VStoreIndexOrd
@@ -89,9 +89,17 @@ pub enum VectorOp {
     None,
 
     /// `vsetvli` — set vl/vtype from rs1 and immediate.
-    Vsetvli,
+    Vsetvli {
+        /// The requested `vtype`.
+        vtype: u16,
+    },
     /// `vsetivli` — set vl/vtype from uimm and immediate.
-    Vsetivli,
+    Vsetivli {
+        /// The application vector length.
+        avl: u8,
+        /// The requested `vtype`.
+        vtype: u16,
+    },
     /// `vsetvl` — set vl/vtype from rs1 and rs2.
     Vsetvl,
 
@@ -607,7 +615,7 @@ impl VectorOp {
     /// a vector register.
     #[must_use]
     pub const fn is_config(self) -> bool {
-        matches!(self, Self::Vsetvli | Self::Vsetivli | Self::Vsetvl)
+        matches!(self, Self::Vsetvli { .. } | Self::Vsetivli { .. } | Self::Vsetvl)
     }
 
     /// True for every vector op `vtype` governs, which therefore traps
@@ -618,8 +626,8 @@ impl VectorOp {
         !matches!(
             self,
             Self::None
-                | Self::Vsetvli
-                | Self::Vsetivli
+                | Self::Vsetvli { .. }
+                | Self::Vsetivli { .. }
                 | Self::Vsetvl
                 | Self::VLoadWholeReg
                 | Self::VStoreWholeReg
@@ -694,7 +702,9 @@ impl VectorOp {
         let vs2_crypto = if broadcast_vs2 { 1 } else { lmul };
 
         match self {
-            None | Vsetvli | Vsetivli | Vsetvl => VecOperandGroups { vd: 0, vs1: 0, vs2: 0 },
+            None | Vsetvli { .. } | Vsetivli { .. } | Vsetvl => {
+                VecOperandGroups { vd: 0, vs1: 0, vs2: 0 }
+            }
 
             VAdd | VSub | VRsub | VAnd | VOr | VXor | VSll | VSrl | VSra | VMinU | VMin | VMaxU
             | VMax | VMul | VMulh | VMulhu | VMulhsu | VMacc | VNMSac | VMadd | VNMSub | VDivU
@@ -1253,7 +1263,7 @@ impl VectorOp {
         use VectorOp::*;
         match self {
             None => VecClass::None,
-            Vsetvli | Vsetivli | Vsetvl => VecClass::Config,
+            Vsetvli { .. } | Vsetivli { .. } | Vsetvl => VecClass::Config,
 
             VLoadUnit | VLoadFF | VLoadMask | VLoadWholeReg | VLoadStride | VLoadIndexOrd
             | VLoadIndexUnord => VecClass::Load,
