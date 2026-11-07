@@ -2,9 +2,7 @@
 
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
-use crate::exec::compute::vector::mem::{
-    check_vec_mem_emul, element_accesses, is_vec_store, vec_mem_dst_count,
-};
+use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses, is_vec_store};
 use crate::isa::extension::Extension;
 use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::soc::uncore::commit_log_open;
@@ -22,6 +20,7 @@ use crate::uarch::vector::lane_model;
 use super::execute;
 use super::fu_pool::FuType;
 use super::issue_queue::{IssueBudget, SelectedEntry};
+use super::rename::vector_operand_groups;
 use super::{O3Engine, PendingResult};
 
 /// A vector instruction's destination register group.
@@ -92,7 +91,7 @@ impl O3Engine {
         let is_vec_config = entry.inst.ctrl.vec_op.is_config();
         let is_vec_arith = fu_type.is_vector() && fu_type != FuType::VecMem && !is_vec_config;
         let is_vec_mem = fu_type == FuType::VecMem;
-        let dest = vector_dest(&entry, is_vec_mem);
+        let dest = vector_dest(&entry);
 
         let complete_cycle = if is_vec_arith {
             let latency = self.fu_pool.vector_op_latency(
@@ -320,24 +319,10 @@ impl O3Engine {
 }
 
 /// The destination register group of a vector instruction that writes
-/// vector registers; a vector memory instruction's group is its
-/// `nf × EMUL` data registers.
-fn vector_dest(entry: &RenameIssueEntry, is_vec_mem: bool) -> Option<VecDest> {
+/// vector registers, as rename sized it.
+fn vector_dest(entry: &RenameIssueEntry) -> Option<VecDest> {
     let ctrl = &entry.inst.ctrl;
-    let mut groups = ctrl.vec_op.operand_groups(
-        ctrl.vec_lmul_regs,
-        ctrl.vec_lmul_is_fractional,
-        ctrl.vec_src_encoding,
-        ctrl.vec_nf,
-        ctrl.vec_broadcast_vs2,
-    );
-    if is_vec_mem {
-        let vtype = parse_vtype(entry.vector_config.vtype);
-        if !vtype.vill || !ctrl.vec_op.depends_on_vtype() {
-            groups.vd =
-                vec_mem_dst_count(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
-        }
-    }
+    let groups = vector_operand_groups(ctrl, &entry.vector_config);
     (ctrl.vec_reg_write && groups.vd > 0).then_some(VecDest {
         phys: entry.vd_phys,
         count: groups.vd,

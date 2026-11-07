@@ -11,7 +11,8 @@ use crate::exec::compute::vector::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
 use crate::exec::inst::Inst;
-use crate::exec::signals::ControlFlow;
+use crate::exec::signals::{ControlFlow, ControlSignals};
+use crate::isa::op::VecOperandGroups;
 use crate::isa::rvv::{VRegIdx, VectorConfig, parse_vtype};
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
@@ -69,38 +70,7 @@ impl O3Engine {
 
         // Capture vector source mappings before vd is renamed.
         let lmul = id.inst.ctrl.vec_lmul_regs;
-        let mut grp = id.inst.ctrl.vec_op.operand_groups(
-            lmul,
-            id.inst.ctrl.vec_lmul_is_fractional,
-            id.inst.ctrl.vec_src_encoding,
-            id.inst.ctrl.vec_nf,
-            id.inst.ctrl.vec_broadcast_vs2,
-        );
-        // operand_groups doesn't have EEW/SEW for vec mem; override grp.vd / grp.vs2 here.
-        let is_mem = is_vec_load(id.inst.ctrl.vec_op) || is_vec_store(id.inst.ctrl.vec_op);
-        if is_mem {
-            let vtype = parse_vtype(vector.vtype);
-            if !vtype.vill || !id.inst.ctrl.vec_op.depends_on_vtype() {
-                grp.vd = vec_mem_dst_count(
-                    id.inst.ctrl.vec_op,
-                    id.inst.ctrl.vec_eew,
-                    vtype.vsew,
-                    vtype.vlmul,
-                    id.inst.ctrl.vec_nf,
-                );
-                let (_, idx_emul) = vec_mem_emul_regs(
-                    id.inst.ctrl.vec_op,
-                    id.inst.ctrl.vec_eew,
-                    vtype.vsew,
-                    vtype.vlmul,
-                );
-                if idx_emul > 0 {
-                    grp.vs2 = idx_emul;
-                } else {
-                    grp.vs2 = 0;
-                }
-            }
-        }
+        let grp = vector_operand_groups(&id.inst.ctrl, &vector);
         let mut vs1_phys = [VecPhysReg::ZERO; 8];
         let mut vs2_phys = [VecPhysReg::ZERO; 8];
         let mut vs3_phys = [VecPhysReg::ZERO; 8];
@@ -359,4 +329,29 @@ impl BackendSlots<'_> {
         let register = !needs_dst || self.free_list.available() > 0;
         store_slot && load_slot && register
     }
+}
+
+/// The register-group sizes of a vector instruction's operands. A vector
+/// memory instruction's data and index groups depend on its EEW against
+/// the current SEW and LMUL, which `operand_groups` doesn't see, so they
+/// are sized here.
+pub(super) fn vector_operand_groups(
+    ctrl: &ControlSignals,
+    vector: &VectorConfig,
+) -> VecOperandGroups {
+    let mut groups = ctrl.vec_op.operand_groups(
+        ctrl.vec_lmul_regs,
+        ctrl.vec_lmul_is_fractional,
+        ctrl.vec_src_encoding,
+        ctrl.vec_nf,
+        ctrl.vec_broadcast_vs2,
+    );
+    let is_mem = is_vec_load(ctrl.vec_op) || is_vec_store(ctrl.vec_op);
+    let vtype = parse_vtype(vector.vtype);
+    if is_mem && (!vtype.vill || !ctrl.vec_op.depends_on_vtype()) {
+        groups.vd =
+            vec_mem_dst_count(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
+        groups.vs2 = vec_mem_emul_regs(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul).1;
+    }
+    groups
 }
