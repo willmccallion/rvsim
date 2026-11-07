@@ -115,10 +115,9 @@ fn execute_one(
         Ok(redirect) => redirect,
         Err(trap) => return faulted(state, issued, trap),
     };
-    (
-        ExMem1Entry { fp_flags, ..ExMem1Entry::from_issue(issued, alu_out, issued.inst.rv2) },
-        redirect,
-    )
+    let mut result = ExMem1Entry::from_issue(issued, alu_out, issued.inst.rv2);
+    result.op.fp_flags = fp_flags;
+    (result, redirect)
 }
 
 /// Executes a system instruction; `None` for everything else. FENCE.I,

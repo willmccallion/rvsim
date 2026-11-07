@@ -160,14 +160,14 @@ impl O3Engine {
         self.vec_store_buffer.squash(scope);
         self.common.squash(scope);
         self.fu_pool.release_squashed(state.cycle, |tag| !scope.keeps(tag));
-        self.mem1_mem2.retain(|e| scope.keeps(e.rob_tag));
-        self.mem2_wb.retain(|e| scope.keeps(e.rob_tag));
-        self.pending_results.retain(|p| scope.keeps(p.entry.rob_tag));
-        self.pending_addresses.retain(|p| scope.keeps(p.entry.rob_tag));
+        self.mem1_mem2.retain(|e| scope.keeps(e.op.rob_tag));
+        self.mem2_wb.retain(|e| scope.keeps(e.op.rob_tag));
+        self.pending_results.retain(|p| scope.keeps(p.entry.op.rob_tag));
+        self.pending_addresses.retain(|p| scope.keeps(p.entry.op.rob_tag));
         self.vec_pending.retain(|v| scope.keeps(v.rob_tag));
-        self.vec_mem_pending.retain(|m| scope.keeps(m.entry.rob_tag));
+        self.vec_mem_pending.retain(|m| scope.keeps(m.entry.op.rob_tag));
         self.vec_mem_inflight.retain(|m| scope.keeps(m.rob_tag));
-        self.execute_mem1.retain(|e| scope.keeps(e.rob_tag));
+        self.execute_mem1.retain(|e| scope.keeps(e.op.rob_tag));
     }
 
     /// Takes a squash: drops everything younger than its kept tag (or the

@@ -65,17 +65,17 @@ pub fn memory2_stage(
     // Stores and younger loads need to be visible to each other in program
     // order so the SB resolve in this cycle still flags an ordering violation
     // against a load that already executed.
-    entries.sort_by(|a, b| a.rob_tag.age_cmp(b.rob_tag));
+    entries.sort_by(|a, b| a.op.rob_tag.age_cmp(b.op.rob_tag));
 
     output.clear();
 
     for mem in entries {
-        if let Some(ref trap) = mem.trap {
+        if let Some(ref trap) = mem.op.trap {
             trace_trap!(state.trace_trap_enabled(trap);
                 event   = "propagate",
                 stage   = "M2",
-                pc      = %crate::common::trace::Hex(mem.pc.val()),
-                rob_tag = %mem.rob_tag,
+                pc      = %crate::common::trace::Hex(mem.op.pc.val()),
+                rob_tag = %mem.op.rob_tag,
                 trap    = ?trap,
                 "M2: trap propagated through memory2"
             );
@@ -83,7 +83,7 @@ pub fn memory2_stage(
             continue;
         }
 
-        if mem.ctrl.atomic_op.is_none() && mem.ctrl.mem_read {
+        if mem.op.ctrl.atomic_op.is_none() && mem.op.ctrl.mem_read {
             output.push(finalize_load(state, mem, load_queue.as_deref_mut(), "M2"));
             continue;
         }
@@ -91,50 +91,52 @@ pub fn memory2_stage(
         let mut load_data = 0u64;
         let mut lr_sc: Option<LrScRecord> = None;
 
-        if mem.ctrl.atomic_op == Some(AtomicOp::Lr) {
-            load_data = load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, false);
+        if mem.op.ctrl.atomic_op == Some(AtomicOp::Lr) {
+            load_data =
+                load_result(mem.load_data, mem.op.ctrl.width, mem.op.ctrl.signed_load, false);
             lr_sc = Some(LrScRecord::Lr { paddr: mem.paddr });
-        } else if mem.ctrl.atomic_op.is_some() {
+        } else if mem.op.ctrl.atomic_op.is_some() {
             // The cache has performed the SC or AMO: `load_data` is the SC's
             // result or the AMO's old value, and nothing is left for the
             // store buffer to write. A younger load that already read the
             // location read it too early.
-            store_buffer.remove_performed(mem.rob_tag);
+            store_buffer.remove_performed(mem.op.rob_tag);
             if let Some(ref lq) = load_queue
                 && let Some(violating_tag) =
-                    lq.check_ordering_violation(mem.paddr, mem.ctrl.width, mem.rob_tag)
+                    lq.check_ordering_violation(mem.paddr, mem.op.ctrl.width, mem.op.rob_tag)
             {
-                let found = OrderViolation { load: violating_tag, store_pc: mem.pc };
+                let found = OrderViolation { load: violating_tag, store_pc: mem.op.pc };
                 violation = OrderViolation::older(violation, Some(found));
             }
-            load_data = load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, false);
-        } else if mem.ctrl.mem_write {
+            load_data =
+                load_result(mem.load_data, mem.op.ctrl.width, mem.op.ctrl.signed_load, false);
+        } else if mem.op.ctrl.mem_write {
             // A scalar store resolved in memory1; a vector store element
             // resolves here and checks the load queue for ordering violations.
             for (paddr, data, width) in vector_store_elements(&mem) {
-                vec_store_buffer.resolve_element(mem.rob_tag, paddr, data, width);
+                vec_store_buffer.resolve_element(mem.op.rob_tag, paddr, data, width);
                 if let Some(ref lq) = load_queue
                     && let Some(violating_tag) =
-                        lq.check_ordering_violation(paddr, width, mem.rob_tag)
+                        lq.check_ordering_violation(paddr, width, mem.op.rob_tag)
                 {
                     trace_fwd!(state.config.general.trace_instructions;
                         event           = "violation",
-                        store_pc        = %crate::common::trace::Hex(mem.pc.val()),
-                        store_tag       = %mem.rob_tag,
+                        store_pc        = %crate::common::trace::Hex(mem.op.pc.val()),
+                        store_tag       = %mem.op.rob_tag,
                         paddr           = %crate::common::trace::Hex(paddr.val()),
                         width           = ?width,
                         violation_flush = %violating_tag,
                         "M2: memory ordering VIOLATION — younger load executed with stale data"
                     );
-                    let found = OrderViolation { load: violating_tag, store_pc: mem.pc };
+                    let found = OrderViolation { load: violating_tag, store_pc: mem.op.pc };
                     violation = OrderViolation::older(violation, Some(found));
                 }
             }
         } else {
             trace_mem!(state.config.general.trace_instructions;
                 stage   = "M2",
-                rob_tag = %mem.rob_tag,
-                pc      = %crate::common::trace::Hex(mem.pc.val()),
+                rob_tag = %mem.op.rob_tag,
+                pc      = %crate::common::trace::Hex(mem.op.pc.val()),
                 op      = "passthrough",
                 "M2: non-memory instruction pass-through"
             );
@@ -156,35 +158,39 @@ pub fn finalize_load(
     load_queue: Option<&mut LoadQueue>,
     stage: &'static str,
 ) -> Mem2WbEntry {
-    let load_data =
-        load_result(mem.load_data, mem.ctrl.width, mem.ctrl.signed_load, mem.ctrl.fp_reg_write);
+    let load_data = load_result(
+        mem.load_data,
+        mem.op.ctrl.width,
+        mem.op.ctrl.signed_load,
+        mem.op.ctrl.fp_reg_write,
+    );
     if mem.sb_forwarded {
         trace_fwd!(state.config.general.trace_instructions;
             event         = "forward",
             stage         = stage,
-            load_pc       = %crate::common::trace::Hex(mem.pc.val()),
-            load_tag      = %mem.rob_tag,
+            load_pc       = %crate::common::trace::Hex(mem.op.pc.val()),
+            load_tag      = %mem.op.rob_tag,
             paddr         = %crate::common::trace::Hex(mem.paddr.val()),
-            width         = ?mem.ctrl.width,
-            signed        = mem.ctrl.signed_load,
+            width         = ?mem.op.ctrl.width,
+            signed        = mem.op.ctrl.signed_load,
             forwarded_val = %crate::common::trace::Hex(load_data),
             "load satisfied from store buffer (memory1 hit)"
         );
     } else {
         trace_mem!(state.config.general.trace_instructions;
             stage         = stage,
-            rob_tag   = %mem.rob_tag,
-            pc        = %crate::common::trace::Hex(mem.pc.val()),
+            rob_tag   = %mem.op.rob_tag,
+            pc        = %crate::common::trace::Hex(mem.op.pc.val()),
             op        = "load",
             paddr     = %crate::common::trace::Hex(mem.paddr.val()),
-            width     = ?mem.ctrl.width,
+            width     = ?mem.op.ctrl.width,
             load_data = %crate::common::trace::Hex(load_data),
             "load value finalized"
         );
     }
     if let Some(lq) = load_queue {
-        let micro_op = mem.vec_mem.as_ref().map(|v| v.micro_op);
-        lq.fill_data(mem.rob_tag, micro_op, load_data, mem.observed);
+        let micro_op = mem.op.vec_mem.as_ref().map(|v| v.micro_op);
+        lq.fill_data(mem.op.rob_tag, micro_op, load_data, mem.observed);
     }
     Mem2WbEntry::from_memory2(mem, load_data, None)
 }
@@ -192,9 +198,9 @@ pub fn finalize_load(
 /// The element writes a vector store micro-op resolves: its own, or each
 /// of its span's at its place in the span. A scalar store has none here.
 fn vector_store_elements(mem: &Mem1Mem2Entry) -> Vec<(PhysAddr, u64, MemWidth)> {
-    let Some(access) = mem.vec_mem.as_ref() else { return Vec::new() };
+    let Some(access) = mem.op.vec_mem.as_ref() else { return Vec::new() };
     match &access.target {
-        VecMemTarget::Element { .. } => vec![(mem.paddr, mem.store_data, mem.ctrl.width)],
+        VecMemTarget::Element { .. } => vec![(mem.paddr, mem.store_data, mem.op.ctrl.width)],
         VecMemTarget::Span(span) => span
             .elements
             .iter()

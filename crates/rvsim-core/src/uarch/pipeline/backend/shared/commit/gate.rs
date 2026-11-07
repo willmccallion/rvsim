@@ -306,7 +306,10 @@ fn take_pending_trap(state: &mut CoreCtx<'_>, pending: PendingTrap) -> Option<Co
 /// instruction must retire before an interrupt can pre-empt it.
 fn device_access_in_flight(common: &BackendCommon, rob: &Rob) -> bool {
     rob.peek_head().is_some_and(|head| {
-        common.outstanding_loads.values().any(|l| l.side_effecting && l.entry.rob_tag == head.tag)
+        common
+            .outstanding_loads
+            .values()
+            .any(|l| l.side_effecting && l.entry.op.rob_tag == head.tag)
     })
 }
 

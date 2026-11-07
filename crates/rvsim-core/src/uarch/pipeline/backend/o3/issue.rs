@@ -122,7 +122,7 @@ impl O3Engine {
         result.store_data_follows = data_follows;
         if let Some(redirect) = redirect {
             self.common.request_squash(PendingSquash {
-                keep_tag: Some(result.rob_tag),
+                keep_tag: Some(result.op.rob_tag),
                 redirect,
                 apply_at: complete_cycle + self.redirect_latency,
             });
@@ -131,7 +131,7 @@ impl O3Engine {
             self.common.vector_config_unresolved = false;
         }
 
-        if (is_vec_arith || is_vec_mem) && result.trap.is_none() {
+        if (is_vec_arith || is_vec_mem) && result.op.trap.is_none() {
             let issued = IssuedVector { entry: &entry, result, fu_type, dest, complete_cycle };
             if is_vec_arith {
                 self.execute_vector_arith(state, issued, now);
@@ -142,7 +142,7 @@ impl O3Engine {
         }
 
         let pending = PendingResult { entry: result, complete_cycle };
-        if pending.entry.ctrl.uses_memory_pipeline() {
+        if pending.entry.op.ctrl.uses_memory_pipeline() {
             self.pending_addresses.push(pending);
         } else {
             self.pending_results.push(pending);
@@ -199,20 +199,20 @@ impl O3Engine {
         let vec_result = match executed {
             Ok(r) => r,
             Err(trap) => {
-                self.rob.fault(result.rob_tag, trap);
+                self.rob.fault(result.op.rob_tag, trap);
                 return;
             }
         };
         #[cfg(feature = "commit-log")]
         if let Some(fills) = fills {
-            self.rob.set_vec_agnostic(result.rob_tag, fills);
+            self.rob.set_vec_agnostic(result.op.rob_tag, fills);
         }
-        record_vector_flags(&mut self.rob, result.rob_tag, &vec_result);
+        record_vector_flags(&mut self.rob, result.op.rob_tag, &vec_result);
 
         let first_ready = lane_model::first_group_ready(now, self.fu_pool.startup_latency(fu_type));
-        if result.ctrl.vec_reg_write {
+        if result.op.ctrl.vec_reg_write {
             self.vec_pending.push(VecPendingResult {
-                rob_tag: result.rob_tag,
+                rob_tag: result.op.rob_tag,
                 vd_phys: dest.map_or([VecPhysReg::ZERO; MAX_GROUP_REGS], |d| d.phys),
                 vd_count: dest.map_or(0, |d| d.count),
                 first_group_ready: first_ready,
@@ -222,7 +222,7 @@ impl O3Engine {
         } else {
             // Scalar-result ops (vmv.x.s, vcpop.m, vfirst.m) take the scalar path.
             let mut scalar = result;
-            scalar.alu = vec_result.scalar_result.unwrap_or(0);
+            scalar.op.alu = vec_result.scalar_result.unwrap_or(0);
             self.pending_results.push(PendingResult { entry: scalar, complete_cycle });
         }
     }
@@ -233,15 +233,15 @@ impl O3Engine {
     fn start_vector_memory(&mut self, state: &CoreCtx<'_>, issued: IssuedVector<'_>, now: u64) {
         let IssuedVector { entry, result, fu_type, dest, complete_cycle } = issued;
         let ctrl = &entry.inst.ctrl;
-        let vec_op = result.ctrl.vec_op;
+        let vec_op = result.op.ctrl.vec_op;
         let is_store = is_vec_store(vec_op);
         let vd_count = dest.map_or(0, |d| d.count);
         let vd_phys = dest.map_or([VecPhysReg::ZERO; MAX_GROUP_REGS], |d| d.phys);
 
         // Reject illegal EMUL (>8) before element_accesses would panic.
         let vtype = parse_vtype(entry.vector_config.vtype);
-        if let Err(trap) = check_vec_mem_emul(result.bits, vec_op, ctrl, vtype) {
-            self.rob.fault(result.rob_tag, trap);
+        if let Err(trap) = check_vec_mem_emul(result.op.bits, vec_op, ctrl, vtype) {
+            self.rob.fault(result.op.rob_tag, trap);
             return;
         }
 
@@ -253,7 +253,7 @@ impl O3Engine {
         }
         let micro_ops = element_accesses(
             &VecPrfView::new(&mut self.vec_prf, mapping),
-            result.alu,
+            result.op.alu,
             result.store_data as i64,
             ctrl,
             entry.vector_config,
@@ -269,14 +269,14 @@ impl O3Engine {
         }
 
         if is_store {
-            self.vec_store_buffer.set_expected_elements(result.rob_tag, micro_ops.len());
+            self.vec_store_buffer.set_expected_elements(result.op.rob_tag, micro_ops.len());
         }
         if micro_ops.is_empty() {
             // VL=0 / vill=1: route through vec_pending so destination physregs surface ready.
             let first_ready =
                 lane_model::first_group_ready(now, self.fu_pool.startup_latency(fu_type));
             self.vec_pending.push(VecPendingResult {
-                rob_tag: result.rob_tag,
+                rob_tag: result.op.rob_tag,
                 vd_phys,
                 vd_count,
                 first_group_ready: first_ready,

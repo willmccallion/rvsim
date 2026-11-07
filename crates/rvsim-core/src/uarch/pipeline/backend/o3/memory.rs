@@ -31,9 +31,9 @@ impl O3Engine {
             },
         );
         for entry in &memory2_results {
-            if entry.ctrl.mem_write
-                && (entry.ctrl.atomic_op.is_some() || entry.vec_mem.is_some())
-                && let Some(store_tag) = self.mdp.store_resolved(entry.rob_tag)
+            if entry.op.ctrl.mem_write
+                && (entry.op.ctrl.atomic_op.is_some() || entry.op.vec_mem.is_some())
+                && let Some(store_tag) = self.mdp.store_resolved(entry.op.rob_tag)
             {
                 self.issue_queue.wakeup_mem_dep(&[store_tag]);
             }
@@ -48,19 +48,19 @@ impl O3Engine {
     pub(super) fn retire_vector_memory_results(&mut self) {
         let mut scalar_wb = Vec::with_capacity(self.mem2_wb.len());
         for wb in std::mem::take(&mut self.mem2_wb) {
-            let Some(ref vme) = wb.vec_mem else {
+            let Some(ref vme) = wb.op.vec_mem else {
                 scalar_wb.push(wb);
                 continue;
             };
             if !vme.is_store {
-                self.load_queue.mark_written_back(wb.rob_tag, vme.micro_op);
+                self.load_queue.mark_written_back(wb.op.rob_tag, vme.micro_op);
             }
             let retired = retire_access(&wb, vme, &mut self.vec_mem_inflight, &mut self.rob);
             let vlen_bits = self.vec_prf.vlen().bits();
             let vd_phys = self
                 .vec_mem_inflight
                 .iter()
-                .find(|m| m.rob_tag == wb.rob_tag)
+                .find(|m| m.rob_tag == wb.op.rob_tag)
                 .map_or([VecPhysReg::ZERO; MAX_GROUP_REGS], |parent| parent.vd_phys);
             for write in retired.writes {
                 let elems_per_reg = (vlen_bits / (write.eew.bytes() * 8)).max(1);
@@ -70,7 +70,7 @@ impl O3Engine {
             // Dependents bulk-read all elements, so they wake on full completion only.
             if retired.completed
                 && let Some(parent) =
-                    self.vec_mem_inflight.iter_mut().find(|m| m.rob_tag == wb.rob_tag)
+                    self.vec_mem_inflight.iter_mut().find(|m| m.rob_tag == wb.op.rob_tag)
                 && !parent.wakeup_fired
             {
                 wake_vector_dests(
@@ -119,8 +119,8 @@ impl O3Engine {
         // Taken before writeback consumes the entries, so dependents wake via the PRF.
         let wakeups: Vec<_> = entries
             .iter()
-            .filter(|wb| wb.trap.is_none())
-            .map(|wb| (wb.rd_phys, wb.written_value()))
+            .filter(|wb| wb.op.trap.is_none())
+            .map(|wb| (wb.op.rd_phys, wb.written_value()))
             .collect();
 
         writeback::writeback_stage(&mut state.stage(), &mut entries, &mut self.rob);
@@ -141,7 +141,7 @@ impl O3Engine {
         let resolved = memory1::memory1_stage(&mut state.stage(), self, &mut input);
         self.execute_mem1.extend(input);
         for span in resolved.expanded_spans {
-            let (rob_tag, is_load) = (span.rob_tag, span.ctrl.mem_read);
+            let (rob_tag, is_load) = (span.op.rob_tag, span.op.ctrl.mem_read);
             if let Some(micro_op) = expand_span(&span, &mut self.vec_mem_inflight)
                 && is_load
             {
@@ -195,7 +195,7 @@ impl O3Engine {
             }
             while let Some(front) = inflight.pending_micro_ops.front() {
                 if !front.is_store
-                    && !self.load_queue.claim(front.entry.rob_tag, front.micro_op, front.bytes)
+                    && !self.load_queue.claim(front.entry.op.rob_tag, front.micro_op, front.bytes)
                 {
                     inflight.outgrew_load_slots = true;
                     break;

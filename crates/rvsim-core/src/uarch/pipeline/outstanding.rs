@@ -67,7 +67,7 @@ impl OutstandingLoad {
     /// Gives a vector span load the bytes its access read.
     pub fn set_span_data(&mut self, bytes: Box<[u8]>) {
         if let Some(VecMemAccess { target: VecMemTarget::Span(span), .. }) =
-            self.entry.vec_mem.as_mut()
+            self.entry.op.vec_mem.as_mut()
         {
             span.data = Some(bytes);
         }

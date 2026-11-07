@@ -342,17 +342,17 @@ impl BackendCommon {
         {
             self.pending_squash = None;
         }
-        self.outstanding_loads.retain(|_, load| load.entry.rob_tag.is_older_or_eq(keep_tag));
+        self.outstanding_loads.retain(|_, load| load.entry.op.rob_tag.is_older_or_eq(keep_tag));
         self.outstanding_walks.retain(|_, walk| match &walk.continuation {
             crate::uarch::pipeline::outstanding::WalkContinuation::LoadStore { entry, .. } => {
-                entry.rob_tag.is_older_or_eq(keep_tag)
+                entry.op.rob_tag.is_older_or_eq(keep_tag)
             }
             crate::uarch::pipeline::outstanding::WalkContinuation::Fetch { .. } => true,
         });
-        self.mem1_replay.retain(|entry| entry.rob_tag.is_older_or_eq(keep_tag));
-        self.mem1_delayed.retain(|access| access.entry.rob_tag.is_older_or_eq(keep_tag));
-        self.forwarded_loads.retain(|load| load.entry.rob_tag.is_older_or_eq(keep_tag));
-        self.forwarded_results.retain(|load| load.rob_tag.is_older_or_eq(keep_tag));
+        self.mem1_replay.retain(|entry| entry.op.rob_tag.is_older_or_eq(keep_tag));
+        self.mem1_delayed.retain(|access| access.entry.op.rob_tag.is_older_or_eq(keep_tag));
+        self.forwarded_loads.retain(|load| load.entry.op.rob_tag.is_older_or_eq(keep_tag));
+        self.forwarded_results.retain(|load| load.op.rob_tag.is_older_or_eq(keep_tag));
         let loads = &self.outstanding_loads;
         self.load_parts.retain(|_, primary| loads.contains_key(primary));
         if self.coherence_violation.is_some_and(|tag| tag.is_newer_than(keep_tag)) {
