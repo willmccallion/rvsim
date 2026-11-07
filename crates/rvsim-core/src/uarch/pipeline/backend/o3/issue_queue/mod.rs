@@ -2,15 +2,13 @@
 //!
 //! Instructions dispatched from rename sit in the issue queue until all source
 //! operands are ready. The wakeup/select logic allows out-of-order issue:
-//! - **Wakeup (PRF path)**: when an instruction completes, its `PhysReg` is broadcast
+//! - **Wakeup**: when an instruction completes, its `PhysReg` is broadcast
 //!   to all waiting entries, marking matching source operands as ready.
-//! - **Wakeup (legacy path)**: when an instruction completes, its ROB tag is broadcast.
 //! - **Select**: each cycle, the oldest entries with all operands ready are
 //!   selected for execution (up to `width`).
 
 use crate::isa::op::SystemOp;
 use crate::isa::reg::RegIdx;
-use crate::uarch::ctx::StageCtx;
 use crate::uarch::mdp::MemDepState;
 use crate::uarch::pipeline::backend::o3::fu_pool::{FU_TYPE_COUNT, FreeUnit, FuPool, FuType};
 use crate::uarch::pipeline::backend::shared::issue_stats::IssueHold;
@@ -19,7 +17,7 @@ use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
-use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobState, RobTag};
+use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 
 /// Readiness state of a single source operand.
 #[derive(Clone, Copy, Debug, Default)]
@@ -259,65 +257,25 @@ impl IssueQueue {
         Self { slots, capacity, count: 0 }
     }
 
-    /// Dispatch an instruction from rename into the first free slot.
-    ///
-    /// For the O3 (PRF) path, resolves operands via the PRF.
-    /// For the legacy (scoreboard) path, resolves operands via the ROB.
+    /// Dispatch an instruction from rename into the first free slot,
+    /// reading each source operand that is ready from the register files.
     pub fn dispatch(
         &mut self,
         entry: RenameIssueEntry,
-        rob: &Rob,
-        state: &StageCtx<'_>,
-        prf: Option<&PhysRegFile>,
-        vec_prf: Option<&VecPhysRegFile>,
+        prf: &PhysRegFile,
+        vec_prf: &VecPhysRegFile,
         mem_dep: MemDepState,
     ) -> bool {
         let Some(free) = self.slots.iter().position(Option::is_none) else {
             return false;
         };
 
-        let (src1, src2, src3) = if let Some(prf) = prf {
-            let s1 = resolve_operand_prf(
-                entry.inst.rs1,
-                entry.inst.ctrl.rs1_fp,
-                entry.rs1_phys,
-                prf,
-                state,
-            );
-            let s2 = resolve_operand_prf(
-                entry.inst.rs2,
-                entry.inst.ctrl.rs2_fp,
-                entry.rs2_phys,
-                prf,
-                state,
-            );
-            let s3 = if entry.inst.ctrl.rs3_fp {
-                resolve_operand_prf(entry.inst.rs3, true, entry.rs3_phys, prf, state)
-            } else {
-                OperandState::ready(PhysReg(0), 0)
-            };
-            (s1, s2, s3)
+        let src1 = resolve_operand(entry.inst.rs1, entry.inst.ctrl.rs1_fp, entry.rs1_phys, prf);
+        let src2 = resolve_operand(entry.inst.rs2, entry.inst.ctrl.rs2_fp, entry.rs2_phys, prf);
+        let src3 = if entry.inst.ctrl.rs3_fp {
+            resolve_operand(entry.inst.rs3, true, entry.rs3_phys, prf)
         } else {
-            let s1 = resolve_operand_legacy(
-                entry.inst.rs1,
-                entry.inst.ctrl.rs1_fp,
-                entry.rs1_tag,
-                rob,
-                state,
-            );
-            let s2 = resolve_operand_legacy(
-                entry.inst.rs2,
-                entry.inst.ctrl.rs2_fp,
-                entry.rs2_tag,
-                rob,
-                state,
-            );
-            let s3 = if entry.inst.ctrl.rs3_fp {
-                resolve_operand_legacy(entry.inst.rs3, true, entry.rs3_tag, rob, state)
-            } else {
-                OperandState::ready(PhysReg(0), 0)
-            };
-            (s1, s2, s3)
+            OperandState::ready(PhysReg(0), 0)
         };
 
         let mut vec_src1 = VecOperandState {
@@ -336,14 +294,11 @@ impl IssueQueue {
             ready: entry.vec_src3_count == 0,
         };
 
-        if let Some(vprf) = vec_prf {
-            vec_src1.check_ready(vprf);
-            vec_src2.check_ready(vprf);
-            vec_src3.check_ready(vprf);
-        }
+        vec_src1.check_ready(vec_prf);
+        vec_src2.check_ready(vec_prf);
+        vec_src3.check_ready(vec_prf);
 
-        let mask_ready =
-            entry.mask.is_none_or(|mask| vec_prf.is_none_or(|vprf| vprf.is_ready(mask)));
+        let mask_ready = entry.mask.is_none_or(|mask| vec_prf.is_ready(mask));
 
         let store_issue = if entry.inst.ctrl.splits_store() && entry.trap.is_none() {
             StoreIssue::Unissued
@@ -660,59 +615,17 @@ impl IssueQueue {
     }
 }
 
-/// Resolve an operand via the PRF (O3 path).
-fn resolve_operand_prf(
-    reg: RegIdx,
-    is_fp: bool,
-    phys: PhysReg,
-    prf: &PhysRegFile,
-    _state: &StageCtx<'_>,
-) -> OperandState {
+/// An operand's state at dispatch: its value if the register holding it is
+/// ready, else the register to wait for.
+fn resolve_operand(reg: RegIdx, is_fp: bool, phys: PhysReg, prf: &PhysRegFile) -> OperandState {
     if !is_fp && reg.is_zero() {
         return OperandState::ready(PhysReg(0), 0);
     }
-
     if prf.is_ready(phys) {
         OperandState::ready(phys, prf.read(phys))
     } else {
-        if phys.0 == 0 {
-            return OperandState::ready(PhysReg(0), 0);
-        }
         OperandState::not_ready(phys)
     }
-}
-
-/// Resolve an operand's initial state at dispatch time (legacy scoreboard path).
-fn resolve_operand_legacy(
-    reg: RegIdx,
-    is_fp: bool,
-    tag: Option<RobTag>,
-    rob: &Rob,
-    state: &StageCtx<'_>,
-) -> OperandState {
-    if !is_fp && reg.is_zero() {
-        return OperandState::ready(PhysReg(0), 0);
-    }
-
-    tag.map_or_else(
-        || {
-            let value =
-                if is_fp { state.hart().regs.read_f(reg) } else { state.hart().regs.read(reg) };
-            OperandState::ready(PhysReg(0), value)
-        },
-        |t| match rob.find_entry(t) {
-            Some(entry) if entry.state == RobState::Completed => {
-                OperandState::ready(PhysReg(0), entry.result.unwrap_or(0))
-            }
-            Some(_) => OperandState::not_ready(PhysReg(0)),
-            None => {
-                // ROB entry already committed — read from register file.
-                let value =
-                    if is_fp { state.hart().regs.read_f(reg) } else { state.hart().regs.read(reg) };
-                OperandState::ready(PhysReg(0), value)
-            }
-        },
-    )
 }
 
 #[cfg(test)]
