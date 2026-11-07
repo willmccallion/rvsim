@@ -10,11 +10,9 @@
 use crate::arch::csr::Csrs;
 use crate::arch::pmp::{Pmp, PmpResult};
 use crate::arch::translation::{PteUpdate, TranslationResult};
-use crate::common::{AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, VPN_MASK, VirtAddr, Vpn};
-use crate::isa::csr::{
-    MENVCFG_ADUE, MSTATUS_MXR, MSTATUS_SUM, SATP_ASID_MASK, SATP_ASID_SHIFT, SATP_PPN_MASK,
-};
-use crate::isa::privileged::PagingMode;
+use crate::common::{AccessType, Asid, PAGE_SHIFT, PhysAddr, Ppn, VirtAddr};
+use crate::isa::csr::{MENVCFG_ADUE, MSTATUS_MXR, MSTATUS_SUM, SATP_PPN_MASK};
+use crate::isa::privileged::{PagingMode, Satp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::uarch::mmu::Mmu;
 use crate::uarch::mmu::tlb::PageSize;
@@ -190,9 +188,9 @@ pub fn start_walk(
     csrs: &Csrs,
     pmp: Option<&Pmp>,
 ) -> WalkStep {
-    let satp = csrs.satp;
-    let ppn_raw = satp & SATP_PPN_MASK;
-    let asid = Asid::new(((satp >> SATP_ASID_SHIFT) & SATP_ASID_MASK) as u16);
+    let satp = Satp::new(csrs.satp);
+    let ppn_raw = satp.root_ppn();
+    let asid = satp.asid();
 
     let state = WalkState {
         vaddr,
@@ -269,7 +267,7 @@ pub fn continue_walk(
 
     let final_paddr = leaf_address(&state, pte);
     let specific_4kb_ppn = Ppn::new(final_paddr >> PAGE_SHIFT);
-    let vpn = Vpn::new((state.vaddr.val() >> PAGE_SHIFT) & VPN_MASK);
+    let vpn = state.vaddr.page_number();
 
     let pte_raw = pte.raw();
     let Some(size) = PageSize::from_level(state.level) else {

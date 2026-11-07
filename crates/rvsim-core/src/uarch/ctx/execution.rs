@@ -1,10 +1,10 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
 use super::CoreCtx;
-use crate::common::{Asid, PAGE_SHIFT, PhysAddr, VPN_MASK, Vpn};
+use crate::common::PhysAddr;
 use crate::isa::csr;
 use crate::isa::encoding::privileged::WFI;
-use crate::isa::privileged::PrivilegeMode;
+use crate::isa::privileged::{PrivilegeMode, Satp};
 use crate::isa::reg;
 use crate::soc::bus::HartIrqs;
 use crate::trace_trap;
@@ -55,22 +55,16 @@ impl CoreCtx<'_> {
         if self.hart.pc == debug.last_pc {
             debug.same_pc_count += 1;
             if debug.same_pc_count == HANG_DETECTION_THRESHOLD {
-                let asid = Asid::new(
-                    ((self.hart.csrs.satp >> csr::SATP_ASID_SHIFT) & csr::SATP_ASID_MASK) as u16,
-                );
+                let asid = Satp::new(self.hart.csrs.satp).asid();
                 // Hang detection reads the instruction at the stuck PC for
                 // tracing straight from the memory image (bench-side
                 // observability — no cache modelling needed).
-                let paddr_raw = if let Some(hit) = self
-                    .core
-                    .mmu
-                    .dtlb
-                    .peek(Vpn::new((self.hart.pc.val() >> PAGE_SHIFT) & VPN_MASK), asid)
-                {
-                    hit.ppn.to_addr() | self.hart.pc.page_offset()
-                } else {
-                    self.hart.pc.val()
-                };
+                let paddr_raw =
+                    if let Some(hit) = self.core.mmu.dtlb.peek(self.hart.pc.page_number(), asid) {
+                        hit.ppn.to_addr() | self.hart.pc.page_offset()
+                    } else {
+                        self.hart.pc.val()
+                    };
                 let inst = self.memory.read(PhysAddr::new(paddr_raw), 4).unwrap_or(0) as u32;
 
                 if inst == WFI {

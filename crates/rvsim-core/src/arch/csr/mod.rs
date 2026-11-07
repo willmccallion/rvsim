@@ -14,7 +14,7 @@ use crate::isa::csr::{
 };
 use crate::isa::fp::{FpFlags, Frm};
 use crate::isa::misa::Misa;
-use crate::isa::privileged::PagingMode;
+use crate::isa::privileged::{PagingMode, Satp};
 use crate::isa::rvv::Vxrm;
 
 /// The value a write of `val` leaves in an envcfg register whose
@@ -421,7 +421,7 @@ impl Csrs {
             STVAL => self.stval = val,
             SIP => self.sip = val,
             SATP => {
-                let mode = (val >> SATP_MODE_SHIFT) & SATP_MODE_MASK;
+                let mode = Satp::new(val).mode_field();
                 let new_mode =
                     if PagingMode::from_satp_mode(mode).is_some() { mode } else { SATP_MODE_BARE };
                 let mask = !(SATP_MODE_MASK << SATP_MODE_SHIFT);
