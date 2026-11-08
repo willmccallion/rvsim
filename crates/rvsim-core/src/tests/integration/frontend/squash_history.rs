@@ -39,7 +39,7 @@ fn mispredicts(backend: BackendKind) -> f64 {
     let retired = ctx.sim.state.harts[0].instructions_retired;
     assert!(retired > 3 * CALLS as u64, "{backend:?}: the calls ran, {retired} retired");
     let path = ctx.sim.state.cores[0].units.stat_paths.bp.spec_mispredicts;
-    ctx.sim.state.uncore.stats.get(path).unwrap_or(0.0)
+    ctx.sim.state.uncore.kernel.stats.get(path).unwrap_or(0.0)
 }
 
 #[test]

@@ -66,6 +66,7 @@ fn every_hart_starts_at_the_entry_with_its_id_and_the_device_tree() {
     let magic = sim
         .state
         .uncore
+        .kernel
         .memory
         .read_bytes(PhysAddr::new(dtb_addr), 4)
         .expect("the device tree is in RAM");

@@ -38,7 +38,7 @@ fn translate_sync(
         match outcome {
             TranslateOutcome::Ready(r) => return r,
             TranslateOutcome::NeedPte { pte_addr, state } => {
-                let raw_pte = uncore.memory.read(pte_addr, 8).unwrap_or(0);
+                let raw_pte = uncore.kernel.memory.read(pte_addr, 8).unwrap_or(0);
                 let cycles = uncore.bus.transit_cycles(8);
                 outcome = mmu.continue_walk(state, raw_pte, csrs, None, cycles);
             }
@@ -152,11 +152,16 @@ fn sv39_4kb_page_walk() {
     let target_ppn = ROOT_PPN + 10;
 
     // L2 -> points to L1 table
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(l1_table_ppn, 0)); // Valid, no perms = pointer
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(l1_table_ppn, 0)); // Valid, no perms = pointer
     // L1 -> points to L0 table
-    write_pte(&mut uncore.memory, l1_table_ppn, l1_idx, make_pte(l0_table_ppn, 0));
+    write_pte(&mut uncore.kernel.memory, l1_table_ppn, l1_idx, make_pte(l0_table_ppn, 0));
     // L0 -> leaf (R/W/X)
-    write_pte(&mut uncore.memory, l0_table_ppn, l0_idx, make_pte(target_ppn, R | W | X | A | D));
+    write_pte(
+        &mut uncore.kernel.memory,
+        l0_table_ppn,
+        l0_idx,
+        make_pte(target_ppn, R | W | X | A | D),
+    );
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -178,9 +183,14 @@ fn sv39_megapage_walk() {
     let target_ppn = ROOT_PPN + 0x200; // Aligned 2MB PPN
 
     // L2 -> points to L1
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(l1_table_ppn, 0));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(l1_table_ppn, 0));
     // L1 -> leaf (megapage)
-    write_pte(&mut uncore.memory, l1_table_ppn, l1_idx, make_pte(target_ppn, R | W | X | A | D));
+    write_pte(
+        &mut uncore.kernel.memory,
+        l1_table_ppn,
+        l1_idx,
+        make_pte(target_ppn, R | W | X | A | D),
+    );
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -200,7 +210,7 @@ fn sv39_gigapage_walk() {
     let target_ppn = ROOT_PPN + 0x40000; // Aligned 1GB PPN
 
     // L2 -> leaf (gigapage)
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -235,10 +245,10 @@ fn pointer_at_level_0_causes_fault() {
     let l1_ppn = ROOT_PPN + 1;
     let l0_ppn = ROOT_PPN + 2;
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(l1_ppn, 0));
-    write_pte(&mut uncore.memory, l1_ppn, l1_idx, make_pte(l0_ppn, 0));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(l1_ppn, 0));
+    write_pte(&mut uncore.kernel.memory, l1_ppn, l1_idx, make_pte(l0_ppn, 0));
     // Level 0 PTE without R/W/X permissions -> pointer, but L0 can't have pointers
-    write_pte(&mut uncore.memory, l0_ppn, l0_idx, make_pte(ROOT_PPN + 10, 0)); // V=1, others 0
+    write_pte(&mut uncore.kernel.memory, l0_ppn, l0_idx, make_pte(ROOT_PPN + 10, 0)); // V=1, others 0
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -258,9 +268,9 @@ fn misaligned_superpage_causes_fault() {
     // Megapages require PPN[0..8]=0; this PPN is misaligned.
     let misaligned_target_ppn = (ROOT_PPN + 100) | 0x1;
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(l1_ppn, 0));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(l1_ppn, 0));
     write_pte(
-        &mut uncore.memory,
+        &mut uncore.kernel.memory,
         l1_ppn,
         l1_idx,
         make_pte(misaligned_target_ppn, R | W | X | A | D),
@@ -281,7 +291,7 @@ fn write_to_clean_page_sets_dirty() {
 
     // Leaf PTE, Accessed=1, Dirty=0
     let pte_val = make_pte(target_ppn, R | W | X | A);
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, pte_val);
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, pte_val);
 
     let res = translate_sync(
         &mut mmu,
@@ -308,7 +318,7 @@ fn read_from_unaccessed_page_sets_accessed() {
 
     // Leaf PTE, Accessed=0
     let pte_val = make_pte(target_ppn, R | W | X);
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, pte_val);
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, pte_val);
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -329,7 +339,7 @@ fn write_permission_check() {
     let target_ppn = ROOT_PPN + 0x40000;
 
     // Read-only page
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | A | D));
 
     let res = translate_sync(
         &mut mmu,
@@ -351,7 +361,7 @@ fn execute_permission_check() {
     let target_ppn = ROOT_PPN + 0x40000;
 
     // RW page (NX)
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | A | D));
 
     let res = translate_sync(
         &mut mmu,
@@ -373,7 +383,7 @@ fn user_cannot_access_supervisor_page() {
     let target_ppn = ROOT_PPN + 0x40000;
 
     // Supervisor page (U=0)
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | A | D));
 
     let res = translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::User, &csrs, uncore);
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
@@ -388,7 +398,12 @@ fn supervisor_access_user_page_needs_sum() {
     let target_ppn = ROOT_PPN + 0x40000;
 
     // User page (U=1)
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | W | X | U | A | D));
+    write_pte(
+        &mut uncore.kernel.memory,
+        ROOT_PPN,
+        l2_idx,
+        make_pte(target_ppn, R | W | X | U | A | D),
+    );
 
     // Disable SUM
     csrs.write(csr::SSTATUS, 0);
@@ -410,7 +425,7 @@ fn an_execute_only_page_is_readable_only_with_mxr() {
     let uncore = &mut tc.cpu_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(ROOT_PPN + 0x40000, X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(ROOT_PPN + 0x40000, X | A | D));
 
     csrs.write(csr::SSTATUS, csr::MSTATUS_SUM);
     let res =
@@ -432,7 +447,7 @@ fn supervisor_cannot_fetch_user_page() {
     let target_ppn = ROOT_PPN + 0x40000;
 
     // User page (U=1) with Execute
-    write_pte(&mut uncore.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | X | U | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(target_ppn, R | X | U | A | D));
 
     // Even with SUM, Supervisor cannot execute User pages
     let res = translate_sync(
@@ -502,10 +517,10 @@ fn sv48_4kb_page_walk() {
     let l0_table = ROOT_PPN + 3;
     let target = ROOT_PPN + 10;
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
-    write_pte(&mut uncore.memory, l2_table, l2, make_pte(l1_table, 0));
-    write_pte(&mut uncore.memory, l1_table, l1, make_pte(l0_table, 0));
-    write_pte(&mut uncore.memory, l0_table, l0, make_pte(target, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
+    write_pte(&mut uncore.kernel.memory, l2_table, l2, make_pte(l1_table, 0));
+    write_pte(&mut uncore.kernel.memory, l1_table, l1, make_pte(l0_table, 0));
+    write_pte(&mut uncore.kernel.memory, l0_table, l0, make_pte(target, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -527,9 +542,9 @@ fn sv48_megapage_walk() {
     let l1_table = ROOT_PPN + 2;
     let target = ROOT_PPN + 0x200; // aligned for 2 MiB superpage (PPN[0]=0)
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
-    write_pte(&mut uncore.memory, l2_table, l2, make_pte(l1_table, 0));
-    write_pte(&mut uncore.memory, l1_table, l1, make_pte(target, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
+    write_pte(&mut uncore.kernel.memory, l2_table, l2, make_pte(l1_table, 0));
+    write_pte(&mut uncore.kernel.memory, l1_table, l1, make_pte(target, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -549,8 +564,8 @@ fn sv48_gigapage_walk() {
     let l2_table = ROOT_PPN + 1;
     let target = ROOT_PPN + 0x40000; // aligned for 1 GiB superpage (PPN[0..18]=0)
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
-    write_pte(&mut uncore.memory, l2_table, l2, make_pte(target, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
+    write_pte(&mut uncore.kernel.memory, l2_table, l2, make_pte(target, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -571,7 +586,7 @@ fn sv48_terapage_walk() {
     // Aligned for 512 GiB: PPN[0..27]=0, i.e. multiple of 1 << 27.
     let target = 1u64 << 27;
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l3, make_pte(target, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l3, make_pte(target, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -595,9 +610,9 @@ fn sv48_misaligned_superpage_causes_fault() {
     let l1_table = ROOT_PPN + 2;
     let misaligned = (ROOT_PPN + 100) | 0x1; // L1 leaf must have PPN[0..8]=0
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
-    write_pte(&mut uncore.memory, l2_table, l2, make_pte(l1_table, 0));
-    write_pte(&mut uncore.memory, l1_table, l1, make_pte(misaligned, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
+    write_pte(&mut uncore.kernel.memory, l2_table, l2, make_pte(l1_table, 0));
+    write_pte(&mut uncore.kernel.memory, l1_table, l1, make_pte(misaligned, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -619,11 +634,11 @@ fn sv48_pointer_at_level_0_causes_fault() {
     let l1_table = ROOT_PPN + 2;
     let l0_table = ROOT_PPN + 3;
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
-    write_pte(&mut uncore.memory, l2_table, l2, make_pte(l1_table, 0));
-    write_pte(&mut uncore.memory, l1_table, l1, make_pte(l0_table, 0));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l3, make_pte(l2_table, 0));
+    write_pte(&mut uncore.kernel.memory, l2_table, l2, make_pte(l1_table, 0));
+    write_pte(&mut uncore.kernel.memory, l1_table, l1, make_pte(l0_table, 0));
     // L0 with no R/W/X is a pointer encoding, illegal at the leaf level.
-    write_pte(&mut uncore.memory, l0_table, l0, make_pte(ROOT_PPN + 10, 0));
+    write_pte(&mut uncore.kernel.memory, l0_table, l0, make_pte(ROOT_PPN + 10, 0));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -688,11 +703,11 @@ fn sv57_4kb_page_walk() {
     let l0_table = ROOT_PPN + 4;
     let target = ROOT_PPN + 20;
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l4, make_pte(l3_table, 0));
-    write_pte(&mut uncore.memory, l3_table, l3, make_pte(l2_table, 0));
-    write_pte(&mut uncore.memory, l2_table, l2, make_pte(l1_table, 0));
-    write_pte(&mut uncore.memory, l1_table, l1, make_pte(l0_table, 0));
-    write_pte(&mut uncore.memory, l0_table, l0, make_pte(target, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l4, make_pte(l3_table, 0));
+    write_pte(&mut uncore.kernel.memory, l3_table, l3, make_pte(l2_table, 0));
+    write_pte(&mut uncore.kernel.memory, l2_table, l2, make_pte(l1_table, 0));
+    write_pte(&mut uncore.kernel.memory, l1_table, l1, make_pte(l0_table, 0));
+    write_pte(&mut uncore.kernel.memory, l0_table, l0, make_pte(target, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -713,7 +728,7 @@ fn sv57_petapage_walk() {
     // Aligned for 256 TiB: PPN[0..36]=0.
     let target = 1u64 << 36;
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l4, make_pte(target, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l4, make_pte(target, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -732,7 +747,7 @@ fn sv57_misaligned_superpage_causes_fault() {
 
     // L4 leaf needs PPN[0..36]=0; set bit 0 to misalign.
     let misaligned = (1u64 << 36) | 0x1;
-    write_pte(&mut uncore.memory, ROOT_PPN, l4, make_pte(misaligned, R | W | X | A | D));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l4, make_pte(misaligned, R | W | X | A | D));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -756,11 +771,11 @@ fn sv57_pointer_at_level_0_causes_fault() {
     let l1_table = ROOT_PPN + 3;
     let l0_table = ROOT_PPN + 4;
 
-    write_pte(&mut uncore.memory, ROOT_PPN, l4, make_pte(l3_table, 0));
-    write_pte(&mut uncore.memory, l3_table, l3, make_pte(l2_table, 0));
-    write_pte(&mut uncore.memory, l2_table, l2, make_pte(l1_table, 0));
-    write_pte(&mut uncore.memory, l1_table, l1, make_pte(l0_table, 0));
-    write_pte(&mut uncore.memory, l0_table, l0, make_pte(ROOT_PPN + 10, 0));
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l4, make_pte(l3_table, 0));
+    write_pte(&mut uncore.kernel.memory, l3_table, l3, make_pte(l2_table, 0));
+    write_pte(&mut uncore.kernel.memory, l2_table, l2, make_pte(l1_table, 0));
+    write_pte(&mut uncore.kernel.memory, l1_table, l1, make_pte(l0_table, 0));
+    write_pte(&mut uncore.kernel.memory, l0_table, l0, make_pte(ROOT_PPN + 10, 0));
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -794,12 +809,17 @@ fn walk_with(pointer_extra: u64, leaf_extra: u64) -> TranslationResult {
     let l1_ppn = ROOT_PPN + 1;
     let leaf_ppn = ROOT_PPN + 0x200;
     write_pte(
-        &mut uncore.memory,
+        &mut uncore.kernel.memory,
         ROOT_PPN,
         (0x4000_0000 >> 30) & 0x1FF,
         make_pte(l1_ppn, 0) | pointer_extra,
     );
-    write_pte(&mut uncore.memory, l1_ppn, 0, make_pte(leaf_ppn, R | W | X | A | D) | leaf_extra);
+    write_pte(
+        &mut uncore.kernel.memory,
+        l1_ppn,
+        0,
+        make_pte(leaf_ppn, R | W | X | A | D) | leaf_extra,
+    );
 
     translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore)
 }
@@ -841,7 +861,7 @@ fn with_adue_clear_a_write_to_a_clean_page_raises_a_page_fault() {
     let uncore = &mut tc.cpu_mut().uncore;
     let target_ppn = ROOT_PPN + 0x40000;
     write_pte(
-        &mut uncore.memory,
+        &mut uncore.kernel.memory,
         ROOT_PPN,
         (0x8000_0000 >> 30) & 0x1FF,
         make_pte(target_ppn, R | W | X | A),

@@ -46,13 +46,13 @@ fn system() -> TestContext {
 #[test]
 fn a_cycle_count_stops_on_that_cycle() {
     let mut ctx = system();
-    let start = ctx.sim.state.uncore.cycle;
+    let start = ctx.sim.state.uncore.kernel.cycle;
 
     let reason =
         ctx.sim.run_to(&StopAt { cycles: Some(50), ..StopAt::default() }).expect("the run ticks");
 
     assert_eq!(reason, StopReason::Cycles);
-    assert_eq!(ctx.sim.state.uncore.cycle - start, 50);
+    assert_eq!(ctx.sim.state.uncore.kernel.cycle - start, 50);
 }
 
 #[test]

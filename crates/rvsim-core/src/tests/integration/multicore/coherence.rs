@@ -159,7 +159,7 @@ fn run_audited(system: &mut MultiHart, max_cycles: u64) -> Option<u64> {
 }
 
 fn fabric_stat(system: &MultiHart, path: &str) -> u64 {
-    system.sim.state.uncore.stats.get(path).unwrap_or(0.0) as u64
+    system.sim.state.uncore.kernel.stats.get(path).unwrap_or(0.0) as u64
 }
 
 fn check_all_programs(config: &Config, label: &str) {
@@ -486,7 +486,7 @@ fn contended_streams(harts: i32, rounds: i32) -> Vec<u32> {
 }
 
 fn core_stat(system: &MultiHart, path: &str) -> u64 {
-    system.sim.state.uncore.stats.get(path).unwrap_or(0.0) as u64
+    system.sim.state.uncore.kernel.stats.get(path).unwrap_or(0.0) as u64
 }
 
 #[test]

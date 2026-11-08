@@ -156,7 +156,7 @@ fn resolve_branch<R: IssueRegisters>(
         BpOutcome { taken, mispredicted },
         taken.then_some(actual_target),
     );
-    trace_branch!(state.config.general.trace_instructions;
+    trace_branch!(state.kernel.config.general.trace_instructions;
         event          = "resolve",
         pc             = %Hex(issued.inst.pc.val()),
         rob_tag        = %issued.rob_tag,
@@ -194,7 +194,7 @@ fn resolve_jump<R: IssueRegisters>(
     let rd_link = issued.inst.rd == reg::REG_RA || issued.inst.rd == reg::REG_T0;
     let rs1_link = kind == JumpKind::Jalr
         && (issued.inst.rs1 == reg::REG_RA || issued.inst.rs1 == reg::REG_T0);
-    trace_branch!(state.config.general.trace_instructions;
+    trace_branch!(state.kernel.config.general.trace_instructions;
         event          = "resolve",
         pc             = %Hex(issued.inst.pc.val()),
         rob_tag        = %issued.rob_tag,

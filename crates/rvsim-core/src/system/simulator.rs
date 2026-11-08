@@ -199,8 +199,8 @@ impl Simulator {
     ///
     /// Returns [`SimError::NotAnElf`] when `data` is not an ELF image.
     pub fn load_elf_with_args(&mut self, data: &[u8], args: &ProcessArgs) -> Result<(), SimError> {
-        let loaded =
-            loader::try_load_elf(data, &mut self.state.uncore.memory).ok_or(SimError::NotAnElf)?;
+        let loaded = loader::try_load_elf(data, &mut self.state.uncore.kernel.memory)
+            .ok_or(SimError::NotAnElf)?;
         if let Some(tohost) = loaded.tohost_addr {
             if loaded.fromhost_addr.is_some_and(|fromhost| fromhost != tohost + 8) {
                 tracing::warn!(target: "rvsim::htif", tohost, fromhost = ?loaded.fromhost_addr,
@@ -218,7 +218,7 @@ impl Simulator {
     /// `a1`. The tree describes this system and sits in the last
     /// [`DTB_RESERVE`] bytes of RAM.
     fn reset_bare_metal(&mut self, entry: u64) {
-        let config = self.state.uncore.config.clone();
+        let config = self.state.uncore.kernel.config.clone();
         let dtb_addr = config.system.ram_base + config.memory.ram_size as u64 - DTB_RESERVE;
         self.state.uncore.load_binary_at(&dtb::generate_dtb(&config), PhysAddr::new(dtb_addr));
         for hart in &mut self.state.harts {
@@ -255,7 +255,7 @@ impl Simulator {
     /// programs than harts, among other things) or
     /// [`SimError::ProcessMemory`].
     pub fn load_processes(&mut self, programs: &[ProgramImage<'_>]) -> Result<(), SimError> {
-        let config = &self.state.uncore.config;
+        let config = &self.state.uncore.kernel.config;
         let (mode, clock_hz) =
             (config.general.page_mode.paging_mode(), config.system.cpu_clock_hz());
         process::loader::load_processes(&mut self.state, programs, mode, clock_hz)?;
@@ -282,7 +282,7 @@ impl Simulator {
         data: &[u8],
         args: &ProcessArgs,
     ) -> Result<ProgramKind, SimError> {
-        let kind = ProgramKind::of(data, self.state.uncore.config.system.ram_base)?;
+        let kind = ProgramKind::of(data, self.state.uncore.kernel.config.system.ram_base)?;
         match kind {
             ProgramKind::Process => self.load_process(data, args)?,
             ProgramKind::BareMetal => self.load_elf_with_args(data, args)?,
@@ -297,7 +297,7 @@ impl Simulator {
     ///
     /// Returns [`SimError::FileRead`] when an image cannot be read.
     pub fn boot_kernel(&mut self, boot: &loader::KernelBoot) -> Result<(), SimError> {
-        let config = self.state.uncore.config.clone();
+        let config = self.state.uncore.kernel.config.clone();
         loader::setup_kernel_load(&mut self.state, &config, boot)?;
         self.sync_arch_regs();
         Ok(())
@@ -452,7 +452,7 @@ impl Simulator {
     /// The stats tree.
     #[must_use]
     pub const fn stats(&self) -> &Stats {
-        &self.state.uncore.stats
+        &self.state.uncore.kernel.stats
     }
 
     /// Cycles and instructions retired since the stats were last reset.
@@ -569,7 +569,7 @@ impl Simulator {
     /// The `len` bytes of RAM at `paddr`; `None` outside RAM.
     #[must_use]
     pub fn read_phys_bytes(&self, paddr: PhysAddr, len: usize) -> Option<Box<[u8]>> {
-        self.state.uncore.memory.read_bytes(paddr, len)
+        self.state.uncore.kernel.memory.read_bytes(paddr, len)
     }
 
     /// What the guest has printed to a captured console since the last
@@ -597,7 +597,7 @@ impl Simulator {
     /// Panics if `core` is not a core index.
     #[must_use]
     pub fn pipeline_snapshot(&self, core: usize) -> PipelineSnapshot {
-        let width = self.state.uncore.config.pipeline.width;
+        let width = self.state.uncore.kernel.config.pipeline.width;
         PipelineSnapshot::from(&self.state.cores[core].pipeline.snapshot(width))
     }
 
@@ -616,7 +616,7 @@ impl Simulator {
     pub fn drain(&mut self) {
         self.complete_committed_writes();
         let uncore = &mut self.state.uncore;
-        uncore.bus.drain_devices(&mut uncore.memory);
+        uncore.bus.drain_devices(&mut uncore.kernel.memory);
     }
 
     /// Discards every core's speculative work and runs the memory system
@@ -788,17 +788,17 @@ impl Simulator {
         if let Some(code) = self.take_exit() {
             return Ok(StopReason::Exited(code));
         }
-        let start_cycle = self.state.uncore.cycle;
+        let start_cycle = self.state.uncore.kernel.cycle;
         let start_instructions = self.state.instructions_retired();
         loop {
-            let before = self.state.uncore.cycle;
+            let before = self.state.uncore.kernel.cycle;
             let limit = stop.cycles.map_or(u64::MAX, |n| start_cycle + n - before);
             self.advance(stop, limit)?;
             if let Some(reason) = self.stop_reason(stop, start_cycle, start_instructions) {
                 return Ok(reason);
             }
             let polled =
-                before / CANCEL_POLL_CYCLES != self.state.uncore.cycle / CANCEL_POLL_CYCLES;
+                before / CANCEL_POLL_CYCLES != self.state.uncore.kernel.cycle / CANCEL_POLL_CYCLES;
             if polled && !keep_going() {
                 return Ok(StopReason::Cancelled);
             }
@@ -823,13 +823,13 @@ impl Simulator {
     /// ticking would stop it.
     fn quiet_cycles(&mut self, stop: &StopAt) -> u64 {
         let state = &mut self.state;
-        let now = state.uncore.cycle;
+        let now = state.uncore.kernel.cycle;
         let settled = self.skip_idle_cores
             && !state.uncore.trace.armed
-            && !state.uncore.config.general.trace_instructions
+            && !state.uncore.kernel.config.general.trace_instructions
             && state.uncore.peek_exit().is_none()
             && state.uncore.panic_detected_at_cycle.is_none()
-            && state.uncore.event_queue.is_empty()
+            && state.uncore.kernel.event_queue.is_empty()
             && state.uncore.coherence.as_ref().is_none_or(|fabric| fabric.is_quiet(now + 1))
             && !(stop.guest_breaks && state.uncore.pending_break.is_some())
             && !(stop.console_output && state.uncore.console_has_output())
@@ -857,16 +857,9 @@ impl Simulator {
         for core in 0..self.core_count() {
             self.state.core_ctx(core).skip_quiet_cycles(cycles);
         }
-        self.state.uncore.cycle += cycles;
+        self.state.uncore.kernel.cycle += cycles;
         let uncore = &mut self.state.uncore;
-        let mut ctx = HandleCtx {
-            scheduler: &mut uncore.event_queue,
-            stats: &mut uncore.stats,
-            memory: &mut uncore.memory,
-            config: &uncore.config,
-            cycle: uncore.cycle,
-            self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
-        };
+        let mut ctx = uncore.kernel.ctx(ComponentId::MemCtrl(MemCtrlId::new(0)));
         uncore.mem_controller.skip_quiet(&mut ctx);
     }
 
@@ -910,7 +903,7 @@ impl Simulator {
         {
             return Some(StopReason::Instructions);
         }
-        if stop.cycles.is_some_and(|n| self.state.uncore.cycle - start_cycle >= n) {
+        if stop.cycles.is_some_and(|n| self.state.uncore.kernel.cycle - start_cycle >= n) {
             return Some(StopReason::Cycles);
         }
         None
@@ -977,7 +970,7 @@ impl Simulator {
         for op in std::mem::take(&mut self.state.uncore.pending_sim_ops) {
             self.state.apply_sim_op(op);
         }
-        let cycle = self.state.uncore.cycle;
+        let cycle = self.state.uncore.kernel.cycle;
         self.state.uncore.processes.expire_waits(cycle);
         self.wake_threads();
         let progress = if run_cycle { self.check_progress() } else { Ok(()) };
@@ -1029,8 +1022,8 @@ impl Simulator {
     /// hart, so every event it emits is tagged and filtered per hart.
     fn scoped_to_hart(&mut self, core: usize, f: impl FnOnce(&mut Self)) {
         let hart = self.state.uncore.topology.cores[core].hart_ids[0];
-        let cycle = self.state.uncore.cycle;
-        self.state.uncore.config.general.trace_instructions =
+        let cycle = self.state.uncore.kernel.cycle;
+        self.state.uncore.kernel.config.general.trace_instructions =
             self.state.uncore.trace.applies(Some(hart), cycle);
         let span = tracing::trace_span!(target: "rvsim::hart", "hart", id = hart.val(), cycle);
         let _entered = span.enter();
@@ -1038,28 +1031,21 @@ impl Simulator {
     }
 
     fn leave_hart_scope(&mut self) {
-        let cycle = self.state.uncore.cycle;
-        self.state.uncore.config.general.trace_instructions =
+        let cycle = self.state.uncore.kernel.cycle;
+        self.state.uncore.kernel.config.general.trace_instructions =
             self.state.uncore.trace.applies(None, cycle);
     }
 
     fn tick_mem_controller(&mut self) {
         let uncore = &mut self.state.uncore;
-        let mut ctx = HandleCtx {
-            scheduler: &mut uncore.event_queue,
-            stats: &mut uncore.stats,
-            memory: &mut uncore.memory,
-            config: &uncore.config,
-            cycle: uncore.cycle,
-            self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
-        };
+        let mut ctx = uncore.kernel.ctx(ComponentId::MemCtrl(MemCtrlId::new(0)));
         uncore.mem_controller.tick(&mut ctx);
     }
 
-    /// Dispatches every event with `fire_at <= self.state.cycle`.
+    /// Dispatches every event due by the current cycle.
     fn drain_events(&mut self) {
-        let cycle = self.state.uncore.cycle;
-        while let Some(event) = self.state.uncore.event_queue.pop_ready(cycle) {
+        let cycle = self.state.uncore.kernel.cycle;
+        while let Some(event) = self.state.uncore.kernel.event_queue.pop_ready(cycle) {
             self.dispatch(event);
             if self.audit_caches && self.broken_invariant.is_none() {
                 self.broken_invariant = self.first_cache_violation();
@@ -1070,7 +1056,7 @@ impl Simulator {
     /// The first cache invariant broken now, as the error a tick returns.
     fn first_cache_violation(&self) -> Option<SimError> {
         let violation = cache_audit::audit(&self.state).into_iter().next()?;
-        Some(SimError::CacheInvariant { cycle: self.state.uncore.cycle, violation })
+        Some(SimError::CacheInvariant { cycle: self.state.uncore.kernel.cycle, violation })
     }
 
     /// Routes a single event to its target component.
@@ -1087,52 +1073,24 @@ impl Simulator {
             }
             ComponentId::Bus => {
                 let uncore = &mut self.state.uncore;
-                let mut ctx = HandleCtx {
-                    scheduler: &mut uncore.event_queue,
-                    stats: &mut uncore.stats,
-                    memory: &mut uncore.memory,
-                    config: &uncore.config,
-                    cycle: uncore.cycle,
-                    self_id: ComponentId::Bus,
-                };
+                let mut ctx = uncore.kernel.ctx(ComponentId::Bus);
                 uncore.bus.handle(packet, source, &mut ctx);
             }
             ComponentId::MemCtrl(id) => {
                 let uncore = &mut self.state.uncore;
-                let mut ctx = HandleCtx {
-                    scheduler: &mut uncore.event_queue,
-                    stats: &mut uncore.stats,
-                    memory: &mut uncore.memory,
-                    config: &uncore.config,
-                    cycle: uncore.cycle,
-                    self_id: ComponentId::MemCtrl(id),
-                };
+                let mut ctx = uncore.kernel.ctx(ComponentId::MemCtrl(id));
                 uncore.mem_controller.handle(packet, source, &mut ctx);
             }
             ComponentId::Fabric => {
                 let uncore = &mut self.state.uncore;
                 if let Some(fabric) = uncore.coherence.as_mut() {
-                    let mut ctx = HandleCtx {
-                        scheduler: &mut uncore.event_queue,
-                        stats: &mut uncore.stats,
-                        memory: &mut uncore.memory,
-                        config: &uncore.config,
-                        cycle: uncore.cycle,
-                        self_id: ComponentId::Fabric,
-                    };
+                    let mut ctx = uncore.kernel.ctx(ComponentId::Fabric);
                     fabric.handle(packet, source, &mut ctx);
                 }
             }
             ComponentId::Device(id) => {
                 let uncore = &mut self.state.uncore;
-                let mut ctx = HandleCtx {
-                    scheduler: &mut uncore.event_queue,
-                    stats: &mut uncore.stats,
-                    memory: &mut uncore.memory,
-                    config: &uncore.config,
-                    cycle: uncore.cycle,
-                    self_id: ComponentId::Device(id),
-                };
+                let mut ctx = uncore.kernel.ctx(ComponentId::Device(id));
                 uncore.bus.handle_device(id, packet, source, &mut ctx);
             }
         }
@@ -1143,14 +1101,7 @@ impl Simulator {
     fn tick_fabric(&mut self) {
         let uncore = &mut self.state.uncore;
         let Some(fabric) = uncore.coherence.as_mut() else { return };
-        let mut ctx = HandleCtx {
-            scheduler: &mut uncore.event_queue,
-            stats: &mut uncore.stats,
-            memory: &mut uncore.memory,
-            config: &uncore.config,
-            cycle: uncore.cycle,
-            self_id: ComponentId::Fabric,
-        };
+        let mut ctx = uncore.kernel.ctx(ComponentId::Fabric);
         fabric.tick(&mut ctx);
     }
 
@@ -1160,7 +1111,7 @@ impl Simulator {
     /// stay at the exit until the run is resumed.
     pub fn take_exit(&mut self) -> Option<u64> {
         let code = self.state.uncore.take_exit()?;
-        self.state.uncore.exited_at = Some(self.state.uncore.cycle);
+        self.state.uncore.exited_at = Some(self.state.uncore.kernel.cycle);
         self.complete_committed_writes();
         Some(code)
     }
@@ -1177,7 +1128,7 @@ impl Simulator {
     /// through the global event queue and consume responses via the
     /// mailbox-drain stage.
     pub fn probe_mem_load(&mut self, paddr: crate::common::PhysAddr, width: u8) -> u64 {
-        if let Some(value) = self.state.uncore.memory.read(paddr, usize::from(width)) {
+        if let Some(value) = self.state.uncore.kernel.memory.read(paddr, usize::from(width)) {
             return value;
         }
         self.probe_mmio(paddr, width, crate::sim::packet::MemOp::Read)
@@ -1188,8 +1139,20 @@ impl Simulator {
     /// dispatched through the bus's `Handle` impl so the device's side
     /// effect runs.
     pub fn probe_mem_store(&mut self, paddr: crate::common::PhysAddr, value: u64, width: u8) {
-        if self.state.uncore.memory.ram().is_some_and(|ram| ram.contains(paddr, u64::from(width))) {
-            self.state.uncore.memory.write(Writer::External, paddr, value, usize::from(width));
+        if self
+            .state
+            .uncore
+            .kernel
+            .memory
+            .ram()
+            .is_some_and(|ram| ram.contains(paddr, u64::from(width)))
+        {
+            self.state.uncore.kernel.memory.write(
+                Writer::External,
+                paddr,
+                value,
+                usize::from(width),
+            );
             return;
         }
         let op = crate::sim::packet::MemOp::Write {
@@ -1209,7 +1172,6 @@ impl Simulator {
     ) -> u64 {
         use crate::sim::components::{ComponentId, PipelineId, ReqId};
         use crate::sim::events::EventQueue;
-        use crate::sim::handle::HandleCtx;
         use crate::sim::packet::{AccessSize, MemRespData, Packet};
         use crate::sim::stats::Stats;
 
@@ -1226,9 +1188,9 @@ impl Simulator {
         let mut ctx = HandleCtx {
             scheduler: &mut local_queue,
             stats: &mut local_stats,
-            memory: &mut uncore.memory,
-            config: &uncore.config,
-            cycle: uncore.cycle,
+            memory: &mut uncore.kernel.memory,
+            config: &uncore.kernel.config,
+            cycle: uncore.kernel.cycle,
             self_id: ComponentId::Bus,
         };
         let _ = uncore.bus.probe_device(
@@ -1254,19 +1216,9 @@ impl Simulator {
 fn dispatch_to_cache(state: &mut SystemState, id: CacheId, packet: Packet, source: ComponentId) {
     let self_id = ComponentId::Cache(id);
     let Some(slot) = state.uncore.topology.locate_cache(id) else { return };
-    // Split-borrow: the HandleCtx borrows the uncore's event queue, stats
-    // and config while the cache itself comes from a core or from the
-    // uncore's LLC field.
+    // The cache comes from a core or the LLC field, disjoint from the kernel.
     let SystemState { cores, uncore, .. } = state;
-    let cycle = uncore.cycle;
-    let mut ctx = HandleCtx {
-        scheduler: &mut uncore.event_queue,
-        stats: &mut uncore.stats,
-        memory: &mut uncore.memory,
-        config: &uncore.config,
-        cycle,
-        self_id,
-    };
+    let mut ctx = uncore.kernel.ctx(self_id);
     match slot {
         CacheSlot::Private { core, which } => {
             let core = &mut cores[core.as_index()].units;

@@ -72,7 +72,7 @@ fn execute_one(
     }
     state.trace_stage(issued.seq, Stage::Execute);
 
-    trace_execute!(state.config.general.trace_instructions;
+    trace_execute!(state.kernel.config.general.trace_instructions;
         rob_tag  = %issued.rob_tag,
         pc       = %Hex(issued.inst.pc.val()),
         inst     = %Hex32(issued.inst.bits),
@@ -145,7 +145,7 @@ fn execute_system_inorder(
 /// registers and files what it wrote on its ROB entry for commit.
 fn execute_vector(state: &StageCtx<'_>, issued: &InOrderEntry, rob: &mut Rob) -> Result<u64, Trap> {
     let csrs = &state.hart().csrs;
-    let vector = &state.config.isa.vector;
+    let vector = &state.kernel.config.isa.vector;
     let mut shadow = ShadowVpr::new(state.hart().regs.vpr());
     let mut recorder = AgnosticRecorder::new(&mut shadow, commit_log_open(state));
     let result = execute_vec_op_on(

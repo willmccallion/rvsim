@@ -72,7 +72,7 @@ fn l1d_accesses(config: &Config, with_load: bool) -> (u64, TestContext) {
     }
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     ctx.run(200);
-    let stats = &ctx.sim.state.uncore.stats;
+    let stats = &ctx.sim.state.uncore.kernel.stats;
     let accesses = ["core0.cache.l1d.hits", "core0.cache.l1d.misses"]
         .iter()
         .map(|path| stats.get(path).unwrap_or(0.0))

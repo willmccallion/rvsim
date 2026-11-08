@@ -41,9 +41,9 @@ pub fn decode_stage(
     let mut consumed_count = 0;
     let mut ended_at_vsetvl = false;
     let mut redirect = None;
-    let mut bundle_writes: Vec<ArchReg> = Vec::with_capacity(state.config.pipeline.width);
+    let mut bundle_writes: Vec<ArchReg> = Vec::with_capacity(state.kernel.config.pipeline.width);
 
-    for if_entry in input.iter().take(state.config.pipeline.decode_width()) {
+    for if_entry in input.iter().take(state.kernel.config.pipeline.decode_width()) {
         if let Some(trap) = &if_entry.trap {
             state.trace_decoded(if_entry.seq, if_entry.bits);
             state.trace_stage(if_entry.seq, Stage::Decode);
@@ -72,7 +72,7 @@ pub fn decode_stage(
             fault = Some(DecodeFault::ExtensionNotImplemented);
         }
         if let Some(fault) = fault {
-            trace_decode!(state.config.general.trace_instructions;
+            trace_decode!(state.kernel.config.general.trace_instructions;
                 event  = "trap",
                 pc     = %Hex(if_entry.pc.val()),
                 inst   = %Hex32(inst),

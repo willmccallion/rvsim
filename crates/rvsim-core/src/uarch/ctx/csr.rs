@@ -205,7 +205,7 @@ impl CoreCtx<'_> {
             csr::MCOUNTEREN => self.hart.csrs.mcounteren = val & csr::COUNTEREN_WRITABLE,
             csr::SCOUNTEREN => self.hart.csrs.scounteren = val & csr::COUNTEREN_WRITABLE,
             csr::MENVCFG => {
-                let svadu = if self.config.isa.svadu { csr::MENVCFG_ADUE } else { 0 };
+                let svadu = if self.kernel.config.isa.svadu { csr::MENVCFG_ADUE } else { 0 };
                 let writable = csr::MENVCFG_WRITABLE | svadu;
                 self.hart.csrs.menvcfg = legalize_envcfg(val, writable);
             }

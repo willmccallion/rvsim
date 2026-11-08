@@ -37,7 +37,7 @@ const SIGNAL_EXIT_BASE: u64 = 128;
 /// What a pipeline works on: its hart, its core, and the uncore.
 ///
 /// Built by [`crate::system::SystemState::core_ctx`] from disjoint borrows. Derefs to
-/// [`Uncore`] so uncore fields read as `ctx.bus`, `ctx.event_queue`.
+/// [`Uncore`] so uncore fields read as `ctx.bus`, `ctx.kernel.event_queue`.
 #[derive(Debug)]
 pub struct CoreCtx<'a> {
     /// The hart the pipeline is executing.
@@ -119,20 +119,20 @@ impl CoreCtx<'_> {
     #[inline]
     pub fn set_reservation(&mut self, addr: PhysAddr) {
         let hart = self.hart.hart_id;
-        self.uncore.memory.reservations_mut().set(hart, addr);
+        self.uncore.kernel.memory.reservations_mut().set(hart, addr);
     }
 
     /// Returns `true` when this hart holds a reservation covering `addr`.
     #[inline]
     pub fn check_reservation(&self, addr: PhysAddr) -> bool {
-        self.uncore.memory.reservations().check(self.hart.hart_id, addr)
+        self.uncore.kernel.memory.reservations().check(self.hart.hart_id, addr)
     }
 
     /// Clears this hart's load reservation.
     #[inline]
     pub fn clear_reservation(&mut self) {
         let hart = self.hart.hart_id;
-        self.uncore.memory.reservations_mut().clear(hart);
+        self.uncore.kernel.memory.reservations_mut().clear(hart);
     }
 
     /// Makes `data` visible at `paddr` as a write by this hart. See

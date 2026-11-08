@@ -22,7 +22,7 @@ impl O3Engine {
     pub(super) fn count_squash_stall(&mut self, state: &mut CoreCtx<'_>) {
         if self.squash_stall_remaining > 0 {
             self.squash_stall_remaining -= 1;
-            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_squash).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.pipeline.stalls_squash).inc();
         }
     }
 
@@ -111,7 +111,7 @@ impl O3Engine {
             self.mdp.violation(violation_pc, store_pc);
             SquashCause::MemoryOrder
         } else {
-            state.uncore.stats.counter(state.core.stat_paths.lsq.coherence_violations).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.lsq.coherence_violations).inc();
             SquashCause::Coherence
         };
         self.common.request_squash(PendingSquash {
@@ -156,7 +156,7 @@ impl O3Engine {
         self.mdp.squash(scope, &self.rob);
         self.vec_store_buffer.squash(scope);
         self.common.squash(scope);
-        self.fu_pool.release_squashed(state.cycle, |tag| !scope.keeps(tag));
+        self.fu_pool.release_squashed(state.kernel.cycle, |tag| !scope.keeps(tag));
         self.mem1_mem2.retain(|e| scope.keeps(e.op.rob_tag));
         self.mem2_wb.retain(|e| scope.keeps(e.op.rob_tag));
         self.pending_results.retain(|p| scope.keeps(p.entry.op.rob_tag));
@@ -196,7 +196,7 @@ impl O3Engine {
         self.checkpoints.squash(scope);
 
         *redirect = Some(squash.redirect.target);
-        let now = state.cycle;
+        let now = state.kernel.cycle;
         self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
         self.debug_assert_registers_conserved();
     }

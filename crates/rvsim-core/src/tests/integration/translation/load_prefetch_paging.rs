@@ -283,7 +283,7 @@ pub fn run_system(
 fn run(backend: BackendKind, mode: Mode, page_boundary: PageBoundary, data: Data) -> Outcome {
     let ctx = run_system(backend, mode, page_boundary, data);
     let held = ctx.sim.state.cores[0].units.l1_d_cache.held_lines();
-    let stats = &ctx.sim.state.uncore.stats;
+    let stats = &ctx.sim.state.uncore.kernel.stats;
     let stat =
         |name: &str| stats.get(format!("core0.prefetch.loads.dropped.{name}")).unwrap_or(0.0);
     Outcome {

@@ -117,7 +117,7 @@ fn every_flush_counts_the_rob_entries_it_dropped(rec: &mut Recorder) {
 
         let flushes = rec.read(&ctx.sim, "core0.pipeline.flushes.total");
         let dropped = rec.read(&ctx.sim, "core0.pipeline.flushes.squashed_insns");
-        let rob = ctx.sim.state.uncore.config.pipeline.rob_size as u64;
+        let rob = ctx.sim.state.uncore.kernel.config.pipeline.rob_size as u64;
         assert!(dropped <= flushes * rob, "{context}: {dropped} from {flushes} flushes");
         assert!(dropped > 0, "{context}");
     }
@@ -150,7 +150,7 @@ fn divides(dependent: bool) -> Vec<u32> {
 }
 
 fn divide_latency(ctx: &TestContext) -> u64 {
-    ctx.sim.state.uncore.config.pipeline.fu_config.int_div_latency
+    ctx.sim.state.uncore.kernel.config.pipeline.fu_config.int_div_latency
 }
 
 fn a_dependent_divide_chain_stalls_issue_on_data_and_independent_ops_do_not(rec: &mut Recorder) {
@@ -441,7 +441,7 @@ fn a_wfi_counts_the_cycles_it_waited_with_or_without_idle_skipping(rec: &mut Rec
             run_to_pc(&mut ctx, end, &context);
 
             let wfi = rec.read(&ctx.sim, "core0.pipeline.cycles.wfi");
-            let due = WAKE_AT * ctx.sim.state.uncore.config.system.clint_divider();
+            let due = WAKE_AT * ctx.sim.state.uncore.kernel.config.system.clint_divider();
             assert!((due - 100..=due).contains(&wfi), "{context}: {wfi} cycles, due at {due}");
             let total = rec.read(&ctx.sim, "core0.pipeline.cycles.total");
             let by_width: u64 = ["zero", "one", "two", "three_plus"]

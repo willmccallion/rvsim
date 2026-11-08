@@ -38,7 +38,7 @@ fn retire_and_issue_cycles(backend: BackendKind) -> (Option<u64>, u64) {
 
     for _ in 0..500 {
         ctx.run(1);
-        let cycle = ctx.sim.state.uncore.cycle;
+        let cycle = ctx.sim.state.uncore.kernel.cycle;
         if last_add_retired.is_none() && ctx.sim.state.harts[0].instructions_retired == ADDS {
             last_add_retired = Some(cycle);
         }

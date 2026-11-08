@@ -78,7 +78,7 @@ fn the_run_ends_on_the_cycle_of_the_exit() {
         assert_eq!(code, Some(EXIT_CODE as u64), "{backend:?}");
         let exited_at = exited_at.expect("the guest exits");
         assert!(
-            ctx.sim.state.uncore.cycle > exited_at,
+            ctx.sim.state.uncore.kernel.cycle > exited_at,
             "{backend:?}: finishing the stores takes cycles"
         );
         assert_eq!(ctx.sim.cycle(), exited_at, "{backend:?}");
@@ -94,5 +94,5 @@ fn a_run_resumed_after_the_exit_counts_the_cycles_since() {
 
     ctx.sim.tick().expect("the run ticks");
 
-    assert_eq!(ctx.sim.cycle(), ctx.sim.state.uncore.cycle);
+    assert_eq!(ctx.sim.cycle(), ctx.sim.state.uncore.kernel.cycle);
 }

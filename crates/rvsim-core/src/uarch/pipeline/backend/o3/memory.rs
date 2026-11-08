@@ -158,7 +158,12 @@ impl O3Engine {
     pub(super) fn note_memory_backpressure(&self, state: &mut CoreCtx<'_>) -> bool {
         let backpressured = !self.execute_mem1.is_empty();
         if backpressured {
-            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
+            state
+                .uncore
+                .kernel
+                .stats
+                .counter(state.core.stat_paths.pipeline.stalls_backpressure)
+                .inc();
         }
         backpressured
     }

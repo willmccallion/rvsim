@@ -120,7 +120,7 @@ impl CoreCtx<'_> {
     ///
     /// The fault the access would take.
     pub fn translate_now(&self, vaddr: VirtAddr, access: AccessType) -> Result<PhysAddr, Trap> {
-        let memory = &self.uncore.memory;
+        let memory = &self.uncore.kernel.memory;
         mmu::translate_now(vaddr, access, data_privilege(self.hart), &self.hart.csrs, |pte_addr| {
             memory.read(pte_addr, 8)
         })
@@ -139,8 +139,12 @@ impl CoreCtx<'_> {
         while left > 0 {
             let paddr = self.translate_now(VirtAddr::new(cursor), AccessType::Read)?;
             let chunk = left.min(bytes_to_page_end(cursor));
-            let bytes =
-                self.uncore.memory.read_bytes(paddr, chunk).ok_or(Trap::LoadAccessFault(cursor))?;
+            let bytes = self
+                .uncore
+                .kernel
+                .memory
+                .read_bytes(paddr, chunk)
+                .ok_or(Trap::LoadAccessFault(cursor))?;
             out.extend_from_slice(&bytes);
             cursor = cursor.wrapping_add(chunk as u64);
             left -= chunk;
@@ -188,7 +192,7 @@ impl CoreCtx<'_> {
             if !self.uncore.bus.is_ram(paddr, chunk.len() as u64) {
                 return Err(Trap::StoreAccessFault(cursor));
             }
-            self.uncore.memory.write_bytes(Writer::External, paddr, chunk);
+            self.uncore.kernel.memory.write_bytes(Writer::External, paddr, chunk);
             cursor = cursor.wrapping_add(chunk.len() as u64);
             rest = tail;
         }

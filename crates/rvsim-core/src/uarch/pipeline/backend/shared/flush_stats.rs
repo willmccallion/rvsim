@@ -56,7 +56,7 @@ pub fn count_flush(state: &mut CoreCtx<'_>, cause: FlushCause, squashed: usize) 
         FlushCause::Trap => paths.flushes_trap,
     };
     let (total, squashed_insns) = (paths.flushes_total, paths.flushes_squashed_insns);
-    let stats = &mut state.uncore.stats;
+    let stats = &mut state.uncore.kernel.stats;
     stats.counter(total).inc();
     stats.counter(by_cause).inc();
     stats.counter(squashed_insns).add(squashed as u64);

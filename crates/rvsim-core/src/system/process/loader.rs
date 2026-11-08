@@ -111,13 +111,13 @@ pub fn load_processes(
     let images =
         programs.iter().map(|program| Image::parse(program.data)).collect::<Result<Vec<_>, _>>()?;
 
-    let ram_base = state.uncore.config.system.ram_base;
-    let ram_end = ram_base + state.uncore.config.memory.ram_size as u64;
+    let ram_base = state.uncore.kernel.config.system.ram_base;
+    let ram_end = ram_base + state.uncore.kernel.config.memory.ram_size as u64;
     let mut frames = FrameAllocator::new(PhysAddr::new(ram_base), PhysAddr::new(ram_end));
     let mut loaded = Vec::with_capacity(programs.len());
     for (program, image) in programs.iter().zip(&images) {
         let terminal = state.uncore.terminal.clone();
-        let memory = &mut state.uncore.memory;
+        let memory = &mut state.uncore.kernel.memory;
         let (process, sp) =
             place(image, program.args, mode, clock_hz, terminal, memory, &mut frames)?;
         loaded.push((process, sp, image.entry));

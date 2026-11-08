@@ -55,6 +55,7 @@ fn lines_on_their_way(state: &SystemState) -> Vec<LineAddr> {
         state.cores.first().map_or(64, |core| core.units.l1_d_cache.line_bytes()) as u64;
     state
         .uncore
+        .kernel
         .event_queue
         .pending()
         .filter_map(|event| match &event.packet {

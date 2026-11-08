@@ -40,7 +40,7 @@ fn decode_redirects(backend: BackendKind, btb_size: usize) -> u64 {
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &looping_jumps());
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     let path = ctx.sim.state.cores[0].units.stat_paths.bp.decode_redirects;
-    ctx.sim.state.uncore.stats.get(path).unwrap_or(0.0) as u64
+    ctx.sim.state.uncore.kernel.stats.get(path).unwrap_or(0.0) as u64
 }
 
 #[test]

@@ -25,7 +25,7 @@ fn table(harts: usize) -> (SystemState, Processes, ThreadRef) {
     let mut sys = SystemState::build(&config);
     let split = PhysAddr::new(RAM_BASE + (1 << 20));
     let mut frames = FrameAllocator::new(PhysAddr::new(RAM_BASE), split);
-    let space = AddressSpace::new(PagingMode::Sv39, &mut sys.uncore.memory, &mut frames)
+    let space = AddressSpace::new(PagingMode::Sv39, &mut sys.uncore.kernel.memory, &mut frames)
         .expect("the address space builds");
     let process = Process::new(space, VirtAddr::new(0x2_0000), 1, Terminal::shared(Console::Quiet));
     let mut processes =

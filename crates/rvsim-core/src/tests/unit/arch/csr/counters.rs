@@ -44,13 +44,13 @@ fn mcycle_counts_the_cycles_the_hart_runs() {
 fn writing_mcycle_leaves_the_simulator_clock_alone() {
     let mut ctx = context();
     ctx.run(10);
-    let clock = ctx.sim.state.uncore.cycle;
+    let clock = ctx.sim.state.uncore.kernel.cycle;
 
     ctx.sim.state.core_ctx(0).csr_write(csr::MCYCLE, 1_000);
 
-    assert_eq!(ctx.sim.state.uncore.cycle, clock);
+    assert_eq!(ctx.sim.state.uncore.kernel.cycle, clock);
     ctx.run(5);
-    assert_eq!(ctx.sim.state.uncore.cycle, clock + 5);
+    assert_eq!(ctx.sim.state.uncore.kernel.cycle, clock + 5);
     assert_eq!(ctx.sim.state.core_ctx(0).csr_read(csr::MCYCLE), 1_005);
 }
 
@@ -119,7 +119,7 @@ fn mcountinhibit_ir_freezes_minstret() {
 #[test]
 fn the_time_csr_reads_the_clint_counter() {
     let mut ctx = context();
-    let one_tick = ctx.sim.state.uncore.config.system.clint_divider();
+    let one_tick = ctx.sim.state.uncore.kernel.config.system.clint_divider();
 
     ctx.run(one_tick + 1);
 
