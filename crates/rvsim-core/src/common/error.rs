@@ -86,13 +86,11 @@ pub enum SimError {
     },
 
     /// With the cache audit on, an event left a cache invariant broken.
-    #[error("cache invariant broken at cycle {cycle}, line {line:#x}: {what}")]
+    #[error("cache invariant broken at cycle {cycle}: {violation}")]
     CacheInvariant {
         /// Simulator cycle of the event.
         cycle: u64,
-        /// Physical address of the line concerned.
-        line: u64,
-        /// What was wrong.
-        what: String,
+        /// The invariant and the line it broke for.
+        violation: crate::system::coherence_audit::Violation,
     },
 }

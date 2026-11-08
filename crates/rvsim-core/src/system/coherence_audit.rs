@@ -99,6 +99,12 @@ pub enum InclusionFault {
     UnrecordedCopy,
 }
 
+impl fmt::Display for Violation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "line {:#x}: {}", self.line.val(), self.kind)
+    }
+}
+
 impl fmt::Display for ViolationKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
