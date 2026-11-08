@@ -12,7 +12,7 @@ use rvsim_core::system::simulator::ProbeWidth;
 
 use crate::simulator::PySimulator;
 
-/// CSR names accepted by `cpu.csrs[...]`, with their addresses.
+/// CSR names accepted by `sim.csrs[...]`, with their addresses.
 const CSR_NAMES: &[(&str, u32)] = &[
     ("fflags", 0x001),
     ("frm", 0x002),
@@ -65,15 +65,15 @@ fn csr_name_to_addr(name: &str) -> Option<u32> {
     CSR_NAMES.iter().find(|(n, _)| *n == name).map(|(_, addr)| *addr)
 }
 
-/// Subscript register access returned by `cpu.regs` and `cpu.harts[n].regs`.
+/// Subscript register access returned by `sim.regs` and `sim.harts[n].regs`.
 ///
-/// ``cpu.harts[0].regs[10]`` reads x10. ``cpu.harts[0].regs[10] = v`` writes x10
+/// ``sim.harts[0].regs[10]`` reads x10. ``sim.harts[0].regs[10] = v`` writes x10
 /// and drops what the pipeline has in flight, as setting the PC does.
 #[pyclass(name = "Registers", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Registers {
     /// The simulator the registers belong to.
-    pub(crate) cpu: Py<PySimulator>,
+    pub(crate) sim: Py<PySimulator>,
     /// The hart whose registers these are.
     pub(crate) hart: usize,
 }
@@ -93,19 +93,19 @@ fn register_index(idx: usize) -> PyResult<RegIdx> {
 #[pymethods]
 impl Registers {
     fn __getitem__(&self, py: Python<'_>, idx: usize) -> PyResult<u64> {
-        Ok(self.cpu.borrow(py).inner.hart(self.hart).regs.read(register_index(idx)?))
+        Ok(self.sim.borrow(py).inner.hart(self.hart).regs.read(register_index(idx)?))
     }
 
     fn __setitem__(&self, py: Python<'_>, idx: usize, value: u64) -> PyResult<()> {
-        self.cpu.borrow_mut(py).inner.set_reg(self.hart, register_index(idx)?, value);
+        self.sim.borrow_mut(py).inner.set_reg(self.hart, register_index(idx)?, value);
         Ok(())
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
-        let cpu = self.cpu.borrow(py);
+        let sim = self.sim.borrow(py);
         let vals: Vec<String> = (0u8..32)
             .filter_map(|i| {
-                let v = cpu.inner.hart(self.hart).regs.read(RegIdx::new(i));
+                let v = sim.inner.hart(self.hart).regs.read(RegIdx::new(i));
                 if v != 0 { Some(format!("x{i}={v:#x}")) } else { None }
             })
             .collect();
@@ -113,14 +113,14 @@ impl Registers {
     }
 }
 
-/// Subscript CSR access returned by `cpu.csrs` and `cpu.harts[n].csrs`.
+/// Subscript CSR access returned by `sim.csrs` and `sim.harts[n].csrs`.
 ///
-/// ``cpu.harts[0].csrs["mstatus"]`` or ``cpu.harts[0].csrs[0x300]``.
+/// ``sim.harts[0].csrs["mstatus"]`` or ``sim.harts[0].csrs[0x300]``.
 #[pyclass(name = "Csrs", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Csrs {
     /// The simulator the CSRs belong to.
-    pub(crate) cpu: Py<PySimulator>,
+    pub(crate) sim: Py<PySimulator>,
     /// The hart whose CSRs these are.
     pub(crate) hart: usize,
 }
@@ -136,7 +136,7 @@ impl Csrs {
         } else {
             return Err(PyTypeError::new_err("CSR key must be a str or int"));
         };
-        self.cpu
+        self.sim
             .borrow_mut(py)
             .inner
             .read_csr(self.hart, CsrAddr::from_u32(addr))
@@ -148,12 +148,12 @@ impl Csrs {
     }
 }
 
-/// One hart's architectural state, returned by `cpu.harts[n]`.
+/// One hart's architectural state, returned by `sim.harts[n]`.
 #[pyclass(name = "Hart", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Hart {
     /// The simulator the hart belongs to.
-    pub(crate) cpu: Py<PySimulator>,
+    pub(crate) sim: Py<PySimulator>,
     /// The hart's index.
     pub(crate) index: usize,
 }
@@ -170,62 +170,62 @@ impl Hart {
     /// drops everything in flight and restarts fetch there.
     #[getter]
     fn pc(&self, py: Python<'_>) -> u64 {
-        self.cpu.borrow(py).inner.hart(self.index).pc.val()
+        self.sim.borrow(py).inner.hart(self.index).pc.val()
     }
 
     #[setter]
     fn set_pc(&self, py: Python<'_>, value: u64) {
-        self.cpu.borrow_mut(py).inner.set_pc(self.index, VirtAddr::new(value));
+        self.sim.borrow_mut(py).inner.set_pc(self.index, VirtAddr::new(value));
     }
 
     /// Current privilege level: ``"M"``, ``"S"``, or ``"U"``.
     #[getter]
     fn privilege(&self, py: Python<'_>) -> &'static str {
-        self.cpu.borrow(py).privilege_str(self.index)
+        self.sim.borrow(py).privilege_str(self.index)
     }
 
     /// Instructions this hart has retired.
     #[getter]
     fn instructions_retired(&self, py: Python<'_>) -> u64 {
-        self.cpu.borrow(py).inner.hart(self.index).instructions_retired
+        self.sim.borrow(py).inner.hart(self.index).instructions_retired
     }
 
-    /// Register file — ``cpu.harts[n].regs[10]``.
+    /// Register file — ``sim.harts[n].regs[10]``.
     #[getter]
     fn regs(&self, py: Python<'_>) -> Registers {
-        Registers { cpu: self.cpu.clone_ref(py), hart: self.index }
+        Registers { sim: self.sim.clone_ref(py), hart: self.index }
     }
 
-    /// CSRs — ``cpu.harts[n].csrs["mstatus"]``.
+    /// CSRs — ``sim.harts[n].csrs["mstatus"]``.
     #[getter]
     fn csrs(&self, py: Python<'_>) -> Csrs {
-        Csrs { cpu: self.cpu.clone_ref(py), hart: self.index }
+        Csrs { sim: self.sim.clone_ref(py), hart: self.index }
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
-        let cpu = self.cpu.borrow(py);
-        let hart = cpu.inner.hart(self.index);
+        let sim = self.sim.borrow(py);
+        let hart = sim.inner.hart(self.index);
         format!(
             "Hart(id={}, pc={:#x}, privilege={})",
             self.index,
             hart.pc,
-            cpu.privilege_str(self.index)
+            sim.privilege_str(self.index)
         )
     }
 }
 
-/// The system's harts, returned by `cpu.harts`.
+/// The system's harts, returned by `sim.harts`.
 #[pyclass(name = "Harts", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Harts {
     /// The simulator the harts belong to.
-    pub(crate) cpu: Py<PySimulator>,
+    pub(crate) sim: Py<PySimulator>,
 }
 
 #[pymethods]
 impl Harts {
     fn __len__(&self, py: Python<'_>) -> usize {
-        self.cpu.borrow(py).inner.hart_count()
+        self.sim.borrow(py).inner.hart_count()
     }
 
     fn __getitem__(&self, py: Python<'_>, index: isize) -> PyResult<Hart> {
@@ -237,7 +237,7 @@ impl Harts {
                 count - 1
             )));
         }
-        Ok(Hart { cpu: self.cpu.clone_ref(py), index: resolved.cast_unsigned() })
+        Ok(Hart { sim: self.sim.clone_ref(py), index: resolved.cast_unsigned() })
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
@@ -270,15 +270,15 @@ impl Width {
     }
 }
 
-/// Subscript memory access returned by `cpu.mem32` or `cpu.mem64`.
+/// Subscript memory access returned by `sim.mem32` or `sim.mem64`.
 ///
-/// ``cpu.mem32[addr]`` reads a u32. ``cpu.mem64[addr]`` reads a u64.
+/// ``sim.mem32[addr]`` reads a u32. ``sim.mem64[addr]`` reads a u64.
 /// These use **physical** addresses — no MMU translation.
 #[pyclass(name = "Memory", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Memory {
     /// The simulator whose memory this reads.
-    pub(crate) cpu: Py<PySimulator>,
+    pub(crate) sim: Py<PySimulator>,
     /// Bits per read.
     pub(crate) width: Width,
 }
@@ -286,8 +286,8 @@ pub struct Memory {
 #[pymethods]
 impl Memory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> u64 {
-        let mut cpu = self.cpu.borrow_mut(py);
-        cpu.inner.probe_mem_load(PhysAddr::new(addr), self.width.probe_width())
+        let mut sim = self.sim.borrow_mut(py);
+        sim.inner.probe_mem_load(PhysAddr::new(addr), self.width.probe_width())
     }
 
     fn __repr__(&self) -> String {
@@ -297,14 +297,14 @@ impl Memory {
 
 /// Subscript memory access with virtual-to-physical translation via the MMU.
 ///
-/// ``cpu.vmem64[addr]`` translates `addr` through hart 0's page tables
+/// ``sim.vmem64[addr]`` translates `addr` through hart 0's page tables
 /// (its SATP), then reads the resulting physical address. A failed
 /// translation raises ``ValueError``.
 #[pyclass(name = "VirtualMemory", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct VirtualMemory {
     /// The simulator whose memory this reads.
-    pub(crate) cpu: Py<PySimulator>,
+    pub(crate) sim: Py<PySimulator>,
     /// Bits per read.
     pub(crate) width: Width,
 }
@@ -312,13 +312,13 @@ pub struct VirtualMemory {
 #[pymethods]
 impl VirtualMemory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> PyResult<u64> {
-        let mut cpu = self.cpu.borrow_mut(py);
-        let paddr = cpu.inner.translate_now(0, VirtAddr::new(addr)).map_err(|trap| {
+        let mut sim = self.sim.borrow_mut(py);
+        let paddr = sim.inner.translate_now(0, VirtAddr::new(addr)).map_err(|trap| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "translation failed for VA {addr:#x}: {trap:?}"
             ))
         })?;
-        Ok(cpu.inner.probe_mem_load(paddr, self.width.probe_width()))
+        Ok(sim.inner.probe_mem_load(paddr, self.width.probe_width()))
     }
 
     fn __repr__(&self) -> String {

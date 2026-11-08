@@ -212,7 +212,7 @@ fn render_inner(snap: &PipelineSnapshot) -> String {
 
 /// Point-in-time snapshot of all pipeline inter-stage latches.
 ///
-/// Obtained via ``cpu.pipeline_snapshot()`` after any ``tick()`` or ``step()``.
+/// Obtained via ``sim.pipeline_snapshot()`` after any ``tick()`` or ``step()``.
 ///
 /// Each stage attribute is a list of slot dicts (length ≤ ``width``).
 /// An empty list means the stage is idle or stalled this cycle.

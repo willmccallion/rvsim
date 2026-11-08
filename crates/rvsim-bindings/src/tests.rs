@@ -38,12 +38,12 @@ fn copied_after_python_write(backend: BackendKind) -> u64 {
             );
         }
         inner.set_pc(0, VirtAddr::new(PROGRAM_BASE));
-        let cpu = Py::new(py, PySimulator { inner }).expect("simulator object");
-        let regs = Py::new(py, Registers { cpu: cpu.clone_ref(py), hart: 0 }).expect("view");
+        let sim = Py::new(py, PySimulator { inner }).expect("simulator object");
+        let regs = Py::new(py, Registers { sim: sim.clone_ref(py), hart: 0 }).expect("view");
         regs.bind(py).set_item(A0, WRITTEN).expect("regs[10] = 42");
 
         for _ in 0..200 {
-            cpu.borrow_mut(py).inner.tick().expect("tick");
+            sim.borrow_mut(py).inner.tick().expect("tick");
         }
 
         regs.bind(py).get_item(A1).and_then(|v| v.extract::<u64>()).expect("regs[11]")

@@ -1,8 +1,5 @@
-//! CPU Python binding.
-//!
-//! Exposes the full simulation interface as a single `Cpu` class. All properties
-//! and methods that users interact with live here — nothing leaks through a Python
-//! wrapper layer.
+//! Simulator Python binding: the `Simulator` class the Python package
+//! subclasses, with every run, inspection and checkpoint method.
 
 use crate::conversion::config_from_py;
 use crate::instruction::PyInstruction;
@@ -231,7 +228,7 @@ impl PySimulator {
 impl PySimulator {
     /// Build a fully-configured CPU from a config dict and optional binary/kernel.
     ///
-    /// This is the sole entry point for creating a Cpu. All system setup (ELF loading,
+    /// This is the sole entry point for creating a simulator. All system setup (ELF loading,
     /// HTIF registration, kernel loading) happens inside Rust — nothing leaks to Python.
     ///
     /// Args:
@@ -378,9 +375,9 @@ impl PySimulator {
     ///
     /// Example:
     ///     ```python
-    ///     start = cpu.stats
-    ///     cpu.run(limit=1_000_000)
-    ///     region = cpu.stats - start
+    ///     start = sim.stats
+    ///     sim.run(limit=1_000_000)
+    ///     region = sim.stats - start
     ///     print(region.ipc, region["core0.bp.committed.accuracy"])
     ///     ```
     #[getter]
@@ -475,23 +472,23 @@ impl PySimulator {
         later.since(&dumps[first].1)
     }
 
-    /// Hart 0's register file — ``cpu.regs[10]``, ``cpu.regs[10] = v``.
+    /// Hart 0's register file — ``sim.regs[10]``, ``sim.regs[10] = v``.
     #[getter]
     fn regs(slf: Bound<'_, Self>) -> Registers {
-        Registers { cpu: slf.unbind(), hart: 0 }
+        Registers { sim: slf.unbind(), hart: 0 }
     }
 
-    /// Hart 0's CSRs — ``cpu.csrs["mstatus"]`` or ``cpu.csrs[0x300]``.
+    /// Hart 0's CSRs — ``sim.csrs["mstatus"]`` or ``sim.csrs[0x300]``.
     #[getter]
     fn csrs(slf: Bound<'_, Self>) -> Csrs {
-        Csrs { cpu: slf.unbind(), hart: 0 }
+        Csrs { sim: slf.unbind(), hart: 0 }
     }
 
-    /// Every hart — ``cpu.harts[1].pc``, ``cpu.harts[1].regs[10]``,
-    /// ``len(cpu.harts)``.
+    /// Every hart — ``sim.harts[1].pc``, ``sim.harts[1].regs[10]``,
+    /// ``len(sim.harts)``.
     #[getter]
     fn harts(slf: Bound<'_, Self>) -> Harts {
-        Harts { cpu: slf.unbind() }
+        Harts { sim: slf.unbind() }
     }
 
     /// Cycles since the system started, carried across checkpoints.
@@ -513,34 +510,34 @@ impl PySimulator {
         self.inner.hart_count()
     }
 
-    /// Memory view for 32-bit reads — ``cpu.mem32[addr]``.
+    /// Memory view for 32-bit reads — ``sim.mem32[addr]``.
     #[getter]
     fn mem32(slf: Bound<'_, Self>) -> Memory {
-        Memory { cpu: slf.unbind(), width: Width::Bits32 }
+        Memory { sim: slf.unbind(), width: Width::Bits32 }
     }
 
-    /// Memory view for 64-bit reads — ``cpu.mem64[addr]``.
+    /// Memory view for 64-bit reads — ``sim.mem64[addr]``.
     #[getter]
     fn mem64(slf: Bound<'_, Self>) -> Memory {
-        Memory { cpu: slf.unbind(), width: Width::Bits64 }
+        Memory { sim: slf.unbind(), width: Width::Bits64 }
     }
 
-    /// Virtual memory view for 32-bit reads — ``cpu.vmem32[vaddr]``.
+    /// Virtual memory view for 32-bit reads — ``sim.vmem32[vaddr]``.
     ///
     /// Translates the virtual address through the current page tables (SATP)
     /// before reading. Raises ``ValueError`` if translation fails.
     #[getter]
     fn vmem32(slf: Bound<'_, Self>) -> VirtualMemory {
-        VirtualMemory { cpu: slf.unbind(), width: Width::Bits32 }
+        VirtualMemory { sim: slf.unbind(), width: Width::Bits32 }
     }
 
-    /// Virtual memory view for 64-bit reads — ``cpu.vmem64[vaddr]``.
+    /// Virtual memory view for 64-bit reads — ``sim.vmem64[vaddr]``.
     ///
     /// Translates the virtual address through the current page tables (SATP)
     /// before reading. Raises ``ValueError`` if translation fails.
     #[getter]
     fn vmem64(slf: Bound<'_, Self>) -> VirtualMemory {
-        VirtualMemory { cpu: slf.unbind(), width: Width::Bits64 }
+        VirtualMemory { sim: slf.unbind(), width: Width::Bits64 }
     }
 
     /// Committed PC trace from the pipeline as a list of ``(pc, raw_inst)`` pairs.
@@ -713,7 +710,7 @@ impl PySimulator {
     /// Run until a predicate is satisfied or the simulation exits.
     ///
     /// Args:
-    ///     predicate: ``lambda cpu: bool`` — stop when it returns ``True``.
+    ///     predicate: ``lambda sim: bool`` — stop when it returns ``True``.
     ///     pc: Stop when the program counter equals this value.
     ///     privilege: Stop when the privilege level equals this (``"M"``, ``"S"``, ``"U"``).
     ///     limit: Maximum total cycles (``None`` = unlimited).
@@ -746,9 +743,9 @@ impl PySimulator {
                 return Ok(Some(code));
             }
             let stop = {
-                let cpu = slf_py.borrow(py);
-                pc.is_some_and(|p| cpu.inner.hart(0).pc == VirtAddr::new(p))
-                    || privilege.is_some_and(|mode| cpu.inner.hart(0).privilege == mode)
+                let sim = slf_py.borrow(py);
+                pc.is_some_and(|p| sim.inner.hart(0).pc == VirtAddr::new(p))
+                    || privilege.is_some_and(|mode| sim.inner.hart(0).privilege == mode)
             };
             if stop {
                 return Ok(None);
