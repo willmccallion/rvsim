@@ -34,7 +34,7 @@ fn access_size_for(width: u8) -> AccessSize {
 
 /// Dispatches a `MemReq::Read` to `device` and returns the response payload.
 pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
-    let req_id = ReqId::new(u64::MAX);
+    let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
@@ -74,7 +74,7 @@ pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
 
 /// Dispatches a `MemReq::Write` to `device` for its side effect.
 pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) {
-    let req_id = ReqId::new(u64::MAX);
+    let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
@@ -119,7 +119,7 @@ pub fn write_and_run_dma<H: Handle>(
     let config = Config::minimal();
     let mut cycle = 0;
     let mut pending = vec![Packet::MemReq {
-        req_id: ReqId::new(u64::MAX),
+        req_id: ReqId::HOST_PROBE,
         paddr,
         vaddr: None,
         pc: None,

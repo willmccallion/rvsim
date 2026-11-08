@@ -21,7 +21,7 @@ use std::num::NonZeroU64;
 /// Issues a `MemReq::Read` at `paddr` at `cycle` and returns the latency the
 /// controller computed (fire_at − cycle of the scheduled `MemResp`).
 fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
-    let req_id = ReqId::new(u64::MAX);
+    let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
@@ -57,7 +57,7 @@ fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
 }
 
 fn write_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
-    let req_id = ReqId::new(u64::MAX);
+    let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);
@@ -108,7 +108,7 @@ fn simple(latency: u64) -> SimpleController {
 
 /// The latency of a line read issued at `cycle`.
 fn line_read_latency(ctrl: &mut SimpleController, paddr: u64, cycle: u64) -> u64 {
-    let req_id = ReqId::new(u64::MAX);
+    let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
     let mut memory = GlobalMemory::new(None, 1, 64);

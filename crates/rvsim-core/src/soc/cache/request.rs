@@ -307,7 +307,7 @@ impl Cache {
     ) {
         let Some(downstream @ ComponentId::Cache(_)) = self.downstream else { return };
         let packet = Packet::MemReq {
-            req_id: ReqId::new(0),
+            req_id: ReqId::UNTRACKED,
             paddr,
             vaddr: None,
             pc: None,
