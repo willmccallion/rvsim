@@ -5,21 +5,18 @@
 //! [`PhysReg::ZERO`] is hardwired zero: always ready, value always 0.
 
 use super::free_list::PhysRegister;
+use crate::common::ids::impl_id_from_index;
 
 /// A physical register identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct PhysReg(u16);
 
+impl_id_from_index!(PhysReg, u16);
+
 impl PhysReg {
     /// x0's register, hardwired to zero and always ready. An instruction
     /// with no destination writes it, which discards the result.
     pub const ZERO: Self = Self(0);
-
-    /// The physical register numbered `index`.
-    #[must_use]
-    pub(crate) const fn new(index: u16) -> Self {
-        Self(index)
-    }
 
     /// Its number, as the register file indexes it.
     #[must_use]
@@ -32,11 +29,6 @@ impl PhysRegister for PhysReg {
     #[inline]
     fn is_hardwired(self) -> bool {
         self.0 == 0
-    }
-
-    #[inline]
-    fn from_index(idx: u16) -> Self {
-        Self(idx)
     }
 }
 
@@ -131,7 +123,7 @@ mod tests {
     #[test]
     fn test_write_read_lifecycle() {
         let mut prf = PhysRegFile::new(64);
-        let p = PhysReg::new(5);
+        let p = PhysReg::from_index(5);
         // Initially not ready
         assert!(!prf.is_ready(p));
         // Write marks ready
@@ -143,7 +135,7 @@ mod tests {
     #[test]
     fn test_allocate_marks_not_ready() {
         let mut prf = PhysRegFile::new(64);
-        let p = PhysReg::new(10);
+        let p = PhysReg::from_index(10);
         prf.write(p, 99);
         assert!(prf.is_ready(p));
         prf.allocate(p);

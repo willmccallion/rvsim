@@ -2,7 +2,6 @@
 //! pending squash, and squashing a load that read memory too early.
 
 use crate::common::VirtAddr;
-use crate::isa::rvv::VRegIdx;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
     self, CommitEvent, CommitRegisters, CommitResources,
@@ -128,9 +127,8 @@ impl O3Engine {
             if let Some(dest) = entry.ctrl.dest(entry.rd) {
                 self.rename_map.set(dest, entry.dst.phys);
             }
-            let vd_base = entry.ctrl.vd.as_u8();
             for (offset, &reg) in entry.vec_dst.as_slice().iter().enumerate() {
-                self.rename_map.set_vec(VRegIdx::new(vd_base + offset as u8), reg);
+                self.rename_map.set_vec(entry.ctrl.vd.offset(offset), reg);
             }
         }
     }

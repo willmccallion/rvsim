@@ -28,9 +28,9 @@ impl RenameMap {
     /// vector register `i` to vector physical register `i`.
     pub fn new() -> Self {
         Self {
-            gpr: std::array::from_fn(|i| PhysReg::new(i as u16)),
-            fpr: std::array::from_fn(|i| PhysReg::new((RegIdx::COUNT + i) as u16)),
-            vpr: std::array::from_fn(|i| VecPhysReg::new(i as u16)),
+            gpr: std::array::from_fn(PhysReg::from_index),
+            fpr: std::array::from_fn(|i| PhysReg::from_index(RegIdx::COUNT + i)),
+            vpr: std::array::from_fn(VecPhysReg::from_index),
         }
     }
 
@@ -74,7 +74,7 @@ impl RenameMap {
     pub fn vec_group(&self, base: VRegIdx, count: u8) -> VecRegGroup {
         let mut regs = [VecPhysReg::ZERO; MAX_GROUP_REGS];
         for (offset, slot) in regs.iter_mut().enumerate().take(count as usize) {
-            *slot = self.get_vec(VRegIdx::new(base.as_u8() + offset as u8));
+            *slot = self.get_vec(base.offset(offset));
         }
         VecRegGroup::from_slice(&regs[..count as usize])
     }
@@ -84,7 +84,7 @@ impl RenameMap {
     pub fn rename_vec_group(&mut self, base: VRegIdx, group: VecRegGroup) -> VecRegGroup {
         let old = self.vec_group(base, group.len());
         for (offset, &reg) in group.as_slice().iter().enumerate() {
-            self.set_vec(VRegIdx::new(base.as_u8() + offset as u8), reg);
+            self.set_vec(base.offset(offset), reg);
         }
         old
     }
@@ -105,8 +105,11 @@ mod tests {
     fn test_identity_mapping() {
         let rm = RenameMap::new();
         for i in 0u8..32 {
-            assert_eq!(rm.get(ArchReg::Int(RegIdx::new(i))), PhysReg::new(u16::from(i)));
-            assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(i))), PhysReg::new(u16::from(32 + i)));
+            assert_eq!(rm.get(ArchReg::Int(RegIdx::new(i))), PhysReg::from_index(usize::from(i)));
+            assert_eq!(
+                rm.get(ArchReg::Fp(RegIdx::new(i))),
+                PhysReg::from_index(usize::from(32 + i))
+            );
         }
     }
 
@@ -114,32 +117,32 @@ mod tests {
     fn test_x0_always_phys_zero() {
         let mut rm = RenameMap::new();
         // x0 set is a no-op
-        rm.set(ArchReg::Int(RegIdx::new(0)), PhysReg::new(99));
+        rm.set(ArchReg::Int(RegIdx::new(0)), PhysReg::from_index(99));
         assert_eq!(rm.get(ArchReg::Int(RegIdx::new(0))), PhysReg::ZERO);
     }
 
     #[test]
     fn test_set_get_roundtrip() {
         let mut rm = RenameMap::new();
-        rm.set(ArchReg::Int(RegIdx::new(5)), PhysReg::new(100));
-        assert_eq!(rm.get(ArchReg::Int(RegIdx::new(5))), PhysReg::new(100));
+        rm.set(ArchReg::Int(RegIdx::new(5)), PhysReg::from_index(100));
+        assert_eq!(rm.get(ArchReg::Int(RegIdx::new(5))), PhysReg::from_index(100));
         // FPR unaffected
-        assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(5))), PhysReg::new(37));
+        assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(5))), PhysReg::from_index(37));
     }
 
     #[test]
     fn test_fp_set_get() {
         let mut rm = RenameMap::new();
-        rm.set(ArchReg::Fp(RegIdx::new(3)), PhysReg::new(200));
-        assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(3))), PhysReg::new(200));
-        assert_eq!(rm.get(ArchReg::Int(RegIdx::new(3))), PhysReg::new(3)); // GPR unaffected
+        rm.set(ArchReg::Fp(RegIdx::new(3)), PhysReg::from_index(200));
+        assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(3))), PhysReg::from_index(200));
+        assert_eq!(rm.get(ArchReg::Int(RegIdx::new(3))), PhysReg::from_index(3)); // GPR unaffected
     }
 
     #[test]
     fn test_vec_identity_mapping() {
         let rm = RenameMap::new();
         for i in 0u8..32 {
-            assert_eq!(rm.get_vec(VRegIdx::new(i)), VecPhysReg::new(u16::from(i)));
+            assert_eq!(rm.get_vec(VRegIdx::new(i)), VecPhysReg::from_index(usize::from(i)));
         }
     }
 
@@ -147,11 +150,11 @@ mod tests {
     fn test_vec_set_get() {
         let mut rm = RenameMap::new();
         let v5 = VRegIdx::new(5);
-        rm.set_vec(v5, VecPhysReg::new(40));
-        assert_eq!(rm.get_vec(v5), VecPhysReg::new(40));
+        rm.set_vec(v5, VecPhysReg::from_index(40));
+        assert_eq!(rm.get_vec(v5), VecPhysReg::from_index(40));
         // v0 can be remapped (no hardwired zero for vectors)
         let v0 = VRegIdx::new(0);
-        rm.set_vec(v0, VecPhysReg::new(50));
-        assert_eq!(rm.get_vec(v0), VecPhysReg::new(50));
+        rm.set_vec(v0, VecPhysReg::from_index(50));
+        assert_eq!(rm.get_vec(v0), VecPhysReg::from_index(50));
     }
 }

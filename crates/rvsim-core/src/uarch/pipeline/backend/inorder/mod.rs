@@ -19,7 +19,7 @@ use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::ElementWrite;
 use crate::exec::execute::illegal_in_current_state;
 use crate::isa::privileged::Trap;
-use crate::isa::rvv::{ElemIdx, VRegIdx, parse_vtype};
+use crate::isa::rvv::{ElemIdx, parse_vtype};
 use crate::sim::components::{CacheId, PipelineId};
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::ctx::StageCtx;
@@ -273,7 +273,7 @@ impl InOrderEngine {
             for value in retired.writes {
                 let elems_per_reg = (vlen_bits / (value.eew.bytes() * 8)).max(1);
                 let write = ElementWrite {
-                    reg: VRegIdx::new(wb.op.ctrl.vd.as_u8() + value.dest_slot as u8),
+                    reg: wb.op.ctrl.vd.offset(value.dest_slot),
                     index: ElemIdx::new(value.elem_idx.as_usize() % elems_per_reg),
                     eew: value.eew,
                     data: value.value,

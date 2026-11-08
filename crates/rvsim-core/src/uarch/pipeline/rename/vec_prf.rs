@@ -9,6 +9,7 @@
 //! execution functions to operate transparently on physical registers.
 
 use crate::arch::regs::vec_storage::VecRegStorage;
+use crate::common::ids::impl_id_from_index;
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::rvv::{ElemIdx, MAX_GROUP_REGS, Sew, VRegIdx, Vlen};
 use crate::uarch::pipeline::rename::free_list::PhysRegister;
@@ -18,16 +19,12 @@ use crate::uarch::pipeline::rename::free_list::PhysRegister;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct VecPhysReg(u16);
 
+impl_id_from_index!(VecPhysReg, u16);
+
 impl VecPhysReg {
     /// Physical register 0, which also fills the unused slots of a
     /// register group.
     pub const ZERO: Self = Self(0);
-
-    /// Create a new vector physical register index.
-    #[inline(always)]
-    pub const fn new(val: u16) -> Self {
-        Self(val)
-    }
 
     /// Returns the index as `usize`.
     #[inline(always)]
@@ -86,11 +83,6 @@ impl PhysRegister for VecPhysReg {
     #[inline]
     fn is_hardwired(self) -> bool {
         false
-    }
-
-    #[inline]
-    fn from_index(idx: u16) -> Self {
-        Self(idx)
     }
 }
 
@@ -226,7 +218,7 @@ impl<'a> VecPrfView<'a> {
     fn locate(&self, vreg: VRegIdx, index: ElemIdx, sew: Sew) -> (VecPhysReg, ElemIdx) {
         let elems_per_reg = (self.prf.vlen().bytes() / sew.bytes()).max(1);
         let reg_in_group = index.as_usize() / elems_per_reg;
-        let member = VRegIdx::new(vreg.as_u8() + reg_in_group as u8);
+        let member = vreg.offset(reg_in_group);
         (self.translate(member), ElemIdx::new(index.as_usize() % elems_per_reg))
     }
 }
@@ -276,7 +268,7 @@ mod tests {
     #[test]
     fn test_element_lifecycle() {
         let mut prf = make_prf();
-        let p5 = VecPhysReg::new(5);
+        let p5 = VecPhysReg::from_index(5);
 
         prf.write_element(p5, ElemIdx::new(0), Sew::E32, 0xCAFEBABE);
         assert_eq!(prf.read_element(p5, ElemIdx::new(0), Sew::E32), 0xCAFEBABE);
@@ -286,7 +278,7 @@ mod tests {
     #[test]
     fn test_mask_bits() {
         let mut prf = make_prf();
-        let p3 = VecPhysReg::new(3);
+        let p3 = VecPhysReg::from_index(3);
 
         prf.write_mask_bit(p3, ElemIdx::new(7), true);
         assert!(prf.read_mask_bit(p3, ElemIdx::new(7)));
@@ -299,7 +291,7 @@ mod tests {
     #[test]
     fn test_ready_bits() {
         let mut prf = make_prf();
-        let p10 = VecPhysReg::new(10);
+        let p10 = VecPhysReg::from_index(10);
 
         assert!(!prf.is_ready(p10));
         prf.mark_ready(p10);
@@ -313,15 +305,15 @@ mod tests {
         let mut prf = make_prf();
         prf.mark_arch_ready(32);
         for i in 0..32 {
-            assert!(prf.is_ready(VecPhysReg::new(i)));
+            assert!(prf.is_ready(VecPhysReg::from_index(i)));
         }
-        assert!(!prf.is_ready(VecPhysReg::new(32)));
+        assert!(!prf.is_ready(VecPhysReg::from_index(32)));
     }
 
     #[test]
     fn test_read_write_bytes() {
         let mut prf = make_prf();
-        let p1 = VecPhysReg::new(1);
+        let p1 = VecPhysReg::from_index(1);
         let data: Vec<u8> = (0..16).collect();
         prf.write_bytes(p1, &data);
         assert_eq!(prf.read_bytes(p1), &data[..]);
@@ -330,8 +322,8 @@ mod tests {
     #[test]
     fn test_copy_reg() {
         let mut prf = make_prf();
-        let p1 = VecPhysReg::new(1);
-        let p2 = VecPhysReg::new(2);
+        let p1 = VecPhysReg::from_index(1);
+        let p2 = VecPhysReg::from_index(2);
         prf.write_element(p1, ElemIdx::new(0), Sew::E64, 0x1234_5678_9ABC_DEF0);
         prf.copy_reg(p2, p1);
         assert_eq!(prf.read_element(p2, ElemIdx::new(0), Sew::E64), 0x1234_5678_9ABC_DEF0);
@@ -340,13 +332,13 @@ mod tests {
     #[test]
     fn test_vec_prf_view() {
         let mut prf = make_prf();
-        let p40 = VecPhysReg::new(40);
-        let p41 = VecPhysReg::new(41);
+        let p40 = VecPhysReg::from_index(40);
+        let p41 = VecPhysReg::from_index(41);
 
         // Set up mapping: v1 → p40, v2 → p41
         let mut mapping = [VecPhysReg::ZERO; 32];
         for (i, slot) in mapping.iter_mut().enumerate() {
-            *slot = VecPhysReg::new(i as u16); // identity
+            *slot = VecPhysReg::from_index(i); // identity
         }
         mapping[1] = p40;
         mapping[2] = p41;
@@ -385,7 +377,7 @@ mod tests {
         // Identity mapping for VecPrfView
         let mut mapping = [VecPhysReg::ZERO; 32];
         for (i, slot) in mapping.iter_mut().enumerate() {
-            *slot = VecPhysReg::new(i as u16);
+            *slot = VecPhysReg::from_index(i);
         }
 
         // Write same data to both
