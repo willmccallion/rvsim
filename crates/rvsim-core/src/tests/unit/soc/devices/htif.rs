@@ -1,6 +1,10 @@
+use crate::common::PhysAddr;
 use crate::config::Console;
+use crate::sim::memory::write_log::Writer;
+use crate::sim::memory::{GlobalMemory, Ram};
 use crate::soc::devices::{Device, Htif};
 use crate::soc::terminal::{SharedTerminal, Terminal};
+use crate::tests::support::probe;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -158,4 +162,27 @@ fn a_checkpoint_with_host_files_open_is_refused() {
     let refused = htif.check_restore(&state);
 
     assert!(refused.is_err(), "{refused:?}");
+}
+
+/// fesvr's `getcwd` is the host's, which fails with `ERANGE` when the
+/// buffer cannot hold the path.
+#[test]
+fn getcwd_into_a_buffer_too_small_for_the_path_fails_with_erange() {
+    const RAM_BASE: u64 = 0x8000_0000;
+    const BLOCK: u64 = RAM_BASE + 0x100;
+    const SYS_GETCWD: u64 = 17;
+    const ERANGE: i64 = 34;
+    let mut memory =
+        GlobalMemory::new(Some(Ram::new(RAM_BASE, 0x1000).expect("test RAM maps")), 1, 64);
+    let block: Vec<u8> = [SYS_GETCWD, RAM_BASE + 0x200, 1, 0, 0, 0, 0, 0]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
+    memory.write_bytes(Writer::External, PhysAddr::new(BLOCK), &block);
+    let mut htif = Htif::new(0x1000, Arc::new(AtomicU64::new(0)), Vec::new(), quiet());
+
+    probe::write_and_run_dma(&mut htif, &mut memory, PhysAddr::new(0x1000), BLOCK, 8);
+
+    let result = memory.read(PhysAddr::new(BLOCK), 8).expect("the block is in RAM");
+    assert_eq!(result as i64, -ERANGE);
 }

@@ -221,7 +221,7 @@ impl Htif {
                     .map_err(|e| io_errno(&e))?;
                 cwd.push(0);
                 if cwd.len() as u64 > a[1] {
-                    return Err(-errno::ENOMEM);
+                    return Err(-errno::ERANGE);
                 }
                 host.write_bytes(a[0], &cwd);
                 Ok(cwd.len() as u64)
