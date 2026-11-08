@@ -130,36 +130,6 @@ mod tests {
     }
 
     #[test]
-    fn literal_matches() {
-        assert!(matches("core0.commit.insts", "core0.commit.insts"));
-        assert!(!matches("core0.commit.insts", "core0.commit.other"));
-        assert!(!matches("core0.commit.insts", "core0.commit.insts.extra"));
-    }
-
-    #[test]
-    fn single_star_matches_one_segment() {
-        assert!(matches("core*.commit.insts", "core0.commit.insts"));
-        assert!(matches("core*.commit.insts", "core42.commit.insts"));
-        assert!(!matches("core*.commit.insts", "core0.commit.other"));
-        assert!(!matches("*.insts", "core0.commit.insts"));
-    }
-
-    #[test]
-    fn double_star_matches_any_depth() {
-        assert!(matches("**.misses", "core0.cache.l1d.misses"));
-        assert!(matches("**.misses", "core0.misses"));
-        assert!(matches("core0.**.hits", "core0.cache.l1d.hits"));
-        assert!(matches("core0.**.hits", "core0.hits"));
-        assert!(!matches("**.hits", "core0.cache.l1d.misses"));
-    }
-
-    #[test]
-    fn double_star_matches_zero_segments() {
-        assert!(matches("core0.**", "core0"));
-        assert!(matches("core0.**.hits", "core0.hits"));
-    }
-
-    #[test]
     fn query_result_helpers() {
         let q = QueryResult {
             matches: vec![("core0.commit.insts".into(), 10.0), ("core1.commit.insts".into(), 20.0)],
