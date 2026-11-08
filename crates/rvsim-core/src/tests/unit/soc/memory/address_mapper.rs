@@ -6,7 +6,8 @@
 
 use crate::common::PhysAddr;
 use crate::config::AddressMappingKind;
-use crate::soc::memory::address::{AddressMapper, CACHE_LINE_OFFSET_BITS};
+use crate::config::ddr5::CACHE_LINE_OFFSET_BITS;
+use crate::soc::memory::address::AddressMapper;
 
 /// A standard-ish DDR5 topology used by most tests below:
 /// 2 channels, 2 subchannels, 2 ranks, 4 bank groups, 4 banks/group,

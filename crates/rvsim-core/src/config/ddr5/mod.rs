@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 use crate::config::AddressMappingKind;
 pub use timing::{Constraint, Ddr5SpeedBin, Ddr5Timing, Ddr5TimingField};
 
+/// Number of low-order address bits that are the intra-cache-line byte offset.
+/// 64-byte lines → 6 bits.
+pub const CACHE_LINE_OFFSET_BITS: u8 = 6;
+
 /// Static topology and policy parameters for a DDR5 memory subsystem.
 ///
 /// Every count except the row/column bit widths must be a power of two so that
@@ -261,7 +265,8 @@ impl Ddr5Params {
             banks_per_group: raw.banks_per_group,
             row_bits: raw.row_bits,
             column_bits: raw.column_bits,
-            row_size_bytes: 1u32 << (u32::from(raw.column_bits) + 6),
+            row_size_bytes: 1u32
+                << (u32::from(raw.column_bits) + u32::from(CACHE_LINE_OFFSET_BITS)),
             read_queue_entries: raw.read_queue_entries,
             write_queue_entries: raw.write_queue_entries,
             write_high_watermark: raw.write_high_watermark,
