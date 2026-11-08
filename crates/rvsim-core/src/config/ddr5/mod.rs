@@ -169,9 +169,10 @@ impl From<Ddr5Params> for Ddr5ParamsRaw {
 }
 
 /// Why a DDR5 parameter block was rejected.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Ddr5ParamsError {
     /// A topology count must be a power of two for the address mapper.
+    #[error("ddr5.{field} must be a power of two, got {value}")]
     NotPowerOfTwo {
         /// Name of the offending field.
         field: &'static str,
@@ -179,32 +180,18 @@ pub enum Ddr5ParamsError {
         value: u8,
     },
     /// A topology count was zero.
+    #[error("ddr5.{field} must be non-zero")]
     Zero {
         /// Name of the offending field.
         field: &'static str,
     },
     /// The write watermarks or queue sizes are inconsistent.
+    #[error("ddr5 write watermarks must satisfy low < high <= write_queue_entries")]
     WriteQueue,
     /// A rank has more than 64 banks, which the refresh masks cannot cover.
+    #[error("ddr5 supports at most 64 banks per rank")]
     TooManyBanks,
 }
-
-impl std::fmt::Display for Ddr5ParamsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotPowerOfTwo { field, value } => {
-                write!(f, "ddr5.{field} must be a power of two, got {value}")
-            }
-            Self::Zero { field } => write!(f, "ddr5.{field} must be non-zero"),
-            Self::WriteQueue => {
-                write!(f, "ddr5 write watermarks must satisfy low < high <= write_queue_entries")
-            }
-            Self::TooManyBanks => write!(f, "ddr5 supports at most 64 banks per rank"),
-        }
-    }
-}
-
-impl std::error::Error for Ddr5ParamsError {}
 
 impl TryFrom<Ddr5ParamsRaw> for Ddr5Params {
     type Error = Ddr5ParamsError;
