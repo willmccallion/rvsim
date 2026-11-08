@@ -9,6 +9,8 @@ import tempfile
 import unittest
 from unittest import mock
 
+from _programs import bundled, needs
+
 from rvsim import (
     LOGIN_SHELL,
     AnyOf,
@@ -26,9 +28,8 @@ from rvsim import (
 )
 from rvsim.session.session import _typed_command_output
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-REGIONS = os.path.join(ROOT, "software", "bin", "programs", "regions.elf")
-FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
+REGIONS = bundled("programs", "regions")
+FIB = bundled("programs", "fib")
 
 RESUME_POINT = 1
 WORK_START, WORK_END = 10, 11
@@ -54,7 +55,7 @@ class SessionTestCase(unittest.TestCase):
         )
 
 
-@unittest.skipUnless(os.path.exists(REGIONS), "regions.elf not built")
+@needs(REGIONS)
 class StopPoints(SessionTestCase):
     def test_a_marker_stops_at_the_guest_break(self):
         s = self.session()
@@ -150,7 +151,7 @@ class StopPoints(SessionTestCase):
             AnyOf(LOGIN_SHELL, Cycles(10))._primitives()
 
 
-@unittest.skipUnless(os.path.exists(REGIONS), "regions.elf not built")
+@needs(REGIONS)
 class FastForwardCache(SessionTestCase):
     def test_the_second_fast_forward_restores_the_first_ones_checkpoint(self):
         first = self.session().fast_forward(Marker(RESUME_POINT))
@@ -235,7 +236,7 @@ class FastForwardCache(SessionTestCase):
             s.fast_forward(Marker(99))
 
 
-@unittest.skipUnless(os.path.exists(REGIONS), "regions.elf not built")
+@needs(REGIONS)
 class SwitchForkResume(SessionTestCase):
     def test_a_switch_carries_the_run_onto_the_new_config(self):
         s = self.session(in_order())
@@ -295,7 +296,7 @@ class SwitchForkResume(SessionTestCase):
             Session.resume(path, cache_dir=self.cache_dir)
 
 
-@unittest.skipUnless(os.path.exists(REGIONS), "regions.elf not built")
+@needs(REGIONS)
 class Measurement(SessionTestCase):
     def test_a_measured_run_has_only_its_own_stats(self):
         s = self.session()

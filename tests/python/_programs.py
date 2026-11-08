@@ -4,7 +4,28 @@ a few hand-encoded instructions, and the programs several tests share.
 Standalone (no rvsim import), so a wheel can be checked against them.
 """
 
+import os
 import struct
+import unittest
+from collections.abc import Callable
+from typing import TypeVar
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+_Test = TypeVar("_Test")
+
+
+def bundled(kind: str, name: str) -> str:
+    """The path of bundled program ``name`` in ``software/bin/<kind>``."""
+    return os.path.join(ROOT, "software", "bin", kind, f"{name}.elf")
+
+
+def needs(path: str) -> Callable[[_Test], _Test]:
+    """Skips the test or class unless ``path`` has been built."""
+    return unittest.skipUnless(
+        os.path.exists(path), f"{os.path.basename(path)} not built"
+    )
+
 
 LOAD_ADDRESS = 0x1_0000
 CODE_OFFSET = 0x80

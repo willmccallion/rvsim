@@ -3,16 +3,16 @@
 Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
-import os
 import unittest
+
+from _programs import bundled, needs
 
 from rvsim import Backend, Config, Environment, MemoryController, Simulator
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
+FIB = bundled("programs", "fib")
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class EnvironmentRun(unittest.TestCase):
     def test_run_returns_exit_zero_and_stats(self):
         result = Environment(binary=FIB, config=Config(console="Quiet")).run(
@@ -43,7 +43,7 @@ class EnvironmentRun(unittest.TestCase):
         self.assertGreater(sim.stats.cycles, 0)
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class SimpleControllerLatency(unittest.TestCase):
     def cycles_with_memory_latency(self, latency):
         config = Config(

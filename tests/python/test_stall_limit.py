@@ -4,19 +4,19 @@ cycles outside WFI, and None turns the check off.
 Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
-import os
 import unittest
+
+from _programs import bundled, needs
 
 from rvsim import Config, Simulator, Stalled
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
+FIB = bundled("programs", "fib")
 DEFAULT_STALL_LIMIT = 1_000_000
 # Fewer cycles than the first instruction takes to fetch from cold caches.
 SHORTER_THAN_A_COLD_FETCH = 10
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class StallLimit(unittest.TestCase):
     def test_it_defaults_to_a_million_cycles(self):
         sim = Simulator(Config(console="Quiet"), binary=FIB)

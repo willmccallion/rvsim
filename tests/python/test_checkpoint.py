@@ -13,10 +13,11 @@ import os
 import tempfile
 import unittest
 
+from _programs import bundled, needs
+
 from rvsim import Backend, Simulator, presets
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
+FIB = bundled("programs", "fib")
 
 
 def configs():
@@ -49,7 +50,7 @@ def restored(config, path):
     return sim
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class Checkpoint(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
