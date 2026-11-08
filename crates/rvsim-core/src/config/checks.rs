@@ -213,6 +213,8 @@ fn check_caches(cache: &CacheHierarchyConfig) -> Result<(), ConfigError> {
         [("l1_i", &cache.l1_i), ("l1_d", &cache.l1_d), ("l2", &cache.l2), ("l3", &cache.l3)];
     let mut first_enabled: Option<(&'static str, usize)> = None;
     for (level, config) in levels {
+        // The write log tracks lines of the L1D's size even when it is off.
+        check_line_bytes(config.line_bytes)?;
         if !config.enabled {
             continue;
         }
@@ -242,13 +244,16 @@ fn check_caches(cache: &CacheHierarchyConfig) -> Result<(), ConfigError> {
 
 /// An enabled level holds a whole number of sets and its prefetcher has
 /// something to do.
-fn check_cache_level(level: &'static str, cache: &CacheConfig) -> Result<(), ConfigError> {
-    if !cache.line_bytes.is_power_of_two() {
-        return Err(ConfigError::NotPowerOfTwo {
-            field: "cache line_bytes",
-            value: cache.line_bytes,
-        });
+/// A line size the caches and the write log can index by: a power of two.
+const fn check_line_bytes(line_bytes: usize) -> Result<(), ConfigError> {
+    if line_bytes.is_power_of_two() {
+        Ok(())
+    } else {
+        Err(ConfigError::NotPowerOfTwo { field: "cache line_bytes", value: line_bytes })
     }
+}
+
+fn check_cache_level(level: &'static str, cache: &CacheConfig) -> Result<(), ConfigError> {
     if (cache.line_bytes as u64) < CBOZ_BLOCK_SIZE {
         return Err(ConfigError::LineSmallerThanCacheBlock { level, line_bytes: cache.line_bytes });
     }
