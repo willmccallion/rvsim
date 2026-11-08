@@ -20,6 +20,7 @@ use crate::isa::rvv::VRegIdx;
 use crate::soc::uncore::SimOp;
 use crate::soc::uncore::debug::PC_TRACE_MAX;
 use crate::system::host_files;
+use crate::system::process::errno::Errno;
 use crate::system::process::syscall::{self, Outcome};
 use crate::trace_branch;
 use crate::trace_commit;
@@ -113,8 +114,8 @@ pub(super) fn perform_pseudo_result(state: &mut CoreCtx<'_>, entry: &mut RobEntr
         return;
     }
     let result = match op {
-        PseudoOp::ReadFile => host_files::read_file(state) as u64,
-        PseudoOp::WriteFile => host_files::write_file(state) as u64,
+        PseudoOp::ReadFile => host_files::read_file(state).unwrap_or_else(Errno::return_value),
+        PseudoOp::WriteFile => host_files::write_file(state).unwrap_or_else(Errno::return_value),
         PseudoOp::Rpns => simulated_nanoseconds(state),
         PseudoOp::Sum => {
             (10..16).map(|reg| state.hart.regs.read(RegIdx::new(reg))).fold(0, u64::wrapping_add)

@@ -15,7 +15,7 @@ use crate::common::VirtAddr;
 use crate::common::trace::Hex;
 use crate::isa::reg;
 use crate::sim::memory::GlobalMemory;
-use crate::system::process::files::errno;
+use crate::system::process::errno::Errno;
 use crate::system::process::loader::UserContext;
 use crate::system::process::{Process, Processes, ThreadRef, Tid};
 
@@ -106,8 +106,8 @@ impl ThreadCall<'_> {
     /// The caller's process, and RAM.
     fn process_and_memory(
         &mut self,
-    ) -> std::result::Result<(&mut Process, &mut GlobalMemory), i64> {
-        let process = self.processes.process_mut(self.caller.tgid).ok_or(-errno::ESRCH)?;
+    ) -> std::result::Result<(&mut Process, &mut GlobalMemory), Errno> {
+        let process = self.processes.process_mut(self.caller.tgid).ok_or(Errno::ESRCH)?;
         Ok((process, &mut *self.memory))
     }
 
@@ -137,13 +137,13 @@ impl ThreadCall<'_> {
     ) -> Result {
         let has = |flag: u64| flags & flag != 0;
         if has(CLONE_THREAD) && !has(CLONE_SIGHAND) || has(CLONE_SIGHAND) && !has(CLONE_VM) {
-            return Err(-errno::EINVAL);
+            return Err(Errno::EINVAL);
         }
         if flags & CLONE_THREAD_SHARES != CLONE_THREAD_SHARES || flags & !CLONE_SERVED != 0 {
             tracing::warn!(target: "rvsim::syscall", flags = %Hex(flags),
                 "clone that is not a thread sharing its process's memory, files and signal \
                  handlers: SE mode starts threads only; returning ENOSYS");
-            return Err(-errno::ENOSYS);
+            return Err(Errno::ENOSYS);
         }
         let mut context = UserContext::of(self.hart, self.pc.wrapping_add(4));
         context.set(reg::REG_A0, 0);
@@ -158,7 +158,7 @@ impl ThreadCall<'_> {
         let Some(tid) = self.processes.spawn_thread(self.caller, context, clear_child_tid) else {
             tracing::warn!(target: "rvsim::syscall", harts = self.processes.hart_count(),
                 "clone with no hart free: SE mode runs one thread per hart; returning EAGAIN");
-            return Err(-errno::EAGAIN);
+            return Err(Errno::EAGAIN);
         };
         let tid_word = tid.as_u64() as u32;
         if has(CLONE_PARENT_SETTID) {
@@ -202,7 +202,7 @@ impl ThreadCall<'_> {
             _ => None,
         };
         if realtime && cmd != FUTEX_WAIT_BITSET {
-            return Err(-errno::ENOSYS);
+            return Err(Errno::ENOSYS);
         }
         let shared = op & FUTEX_PRIVATE_FLAG == 0;
         let bitset = val3 as u32;
@@ -214,7 +214,7 @@ impl ThreadCall<'_> {
             _ => {
                 tracing::warn!(target: "rvsim::syscall", cmd,
                     "futex operation SE mode does not serve; returning ENOSYS");
-                Err(-errno::ENOSYS)
+                Err(Errno::ENOSYS)
             }
         }
     }
@@ -228,14 +228,14 @@ impl ThreadCall<'_> {
         cmd: u32,
         realtime: bool,
         timeout: VirtAddr,
-    ) -> std::result::Result<u64, i64> {
+    ) -> std::result::Result<u64, Errno> {
         let cycle = self.cycle;
         let (process, memory) = self.process_and_memory()?;
-        let read = |at: VirtAddr| process.space.read_u64(memory, at).map_err(|_| -errno::EFAULT);
+        let read = |at: VirtAddr| process.space.read_u64(memory, at).map_err(|_| Errno::EFAULT);
         let seconds = read(timeout)? as i64;
         let nanos = read(timeout.wrapping_add(8))? as i64;
         if seconds < 0 || !(0..NANOS_PER_SECOND as i64).contains(&nanos) {
-            return Err(-errno::EINVAL);
+            return Err(Errno::EINVAL);
         }
         let ns = seconds as u128 * u128::from(NANOS_PER_SECOND) + nanos as u128;
         let monotonic = if cmd == FUTEX_WAIT {
@@ -258,16 +258,16 @@ impl ThreadCall<'_> {
         deadline: Option<u64>,
     ) -> Result {
         if bitset == 0 || !addr.val().is_multiple_of(4) {
-            return Err(-errno::EINVAL);
+            return Err(Errno::EINVAL);
         }
         let (process, memory) = self.process_and_memory()?;
-        let bytes = process.space.read(memory, addr, 4).map_err(|_| -errno::EFAULT)?;
+        let bytes = process.space.read(memory, addr, 4).map_err(|_| Errno::EFAULT)?;
         let word = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         if word != expected {
-            return Err(-errno::EAGAIN);
+            return Err(Errno::EAGAIN);
         }
         if deadline.is_some_and(|deadline| deadline <= self.cycle) {
-            return Err(-errno::ETIMEDOUT);
+            return Err(Errno::ETIMEDOUT);
         }
         self.processes.wait(self.caller, addr, bitset, deadline);
         Ok(Reply::Wait)
@@ -278,10 +278,10 @@ impl ThreadCall<'_> {
     /// or less. A shared futex must be mapped.
     fn futex_wake(&mut self, addr: VirtAddr, count: u32, bitset: u32, shared: bool) -> Result {
         if bitset == 0 || !addr.val().is_multiple_of(4) {
-            return Err(-errno::EINVAL);
+            return Err(Errno::EINVAL);
         }
         if shared && self.process_and_memory()?.0.space.translate(addr).is_none() {
-            return Err(-errno::EFAULT);
+            return Err(Errno::EFAULT);
         }
         let count = (count as i32).max(1) as usize;
         ok(self.processes.wake(self.caller.tgid, addr, count, bitset) as u64)
@@ -305,15 +305,15 @@ impl ThreadCall<'_> {
             }
         };
         if targets.is_empty() {
-            return Err(-errno::ESRCH);
+            return Err(Errno::ESRCH);
         }
         self.signal(&targets, signal)
     }
 
     /// `tkill(tid, signal)`: to the process of thread `tid`.
     fn tkill(&mut self, tid: i32, signal: u64) -> Result {
-        let tid = u32::try_from(tid).ok().filter(|&tid| tid > 0).ok_or(-errno::EINVAL)?;
-        let thread = self.processes.find_thread(Tid::new(tid)).ok_or(-errno::ESRCH)?;
+        let tid = u32::try_from(tid).ok().filter(|&tid| tid > 0).ok_or(Errno::EINVAL)?;
+        let thread = self.processes.find_thread(Tid::new(tid)).ok_or(Errno::ESRCH)?;
         self.signal(&[thread.tgid], signal)
     }
 
@@ -322,13 +322,13 @@ impl ThreadCall<'_> {
     fn tgkill(&mut self, tgid: i32, tid: i32, signal: u64) -> Result {
         let positive = |id: i32| u32::try_from(id).ok().filter(|&id| id > 0).map(Tid::new);
         let (Some(tgid), Some(tid)) = (positive(tgid), positive(tid)) else {
-            return Err(-errno::EINVAL);
+            return Err(Errno::EINVAL);
         };
         let thread = self
             .processes
             .find_thread(tid)
             .filter(|thread| thread.tgid == tgid)
-            .ok_or(-errno::ESRCH)?;
+            .ok_or(Errno::ESRCH)?;
         self.signal(&[thread.tgid], signal)
     }
 
@@ -338,7 +338,7 @@ impl ThreadCall<'_> {
     /// each process with the shell's status for it, 128 plus the signal.
     fn signal(&mut self, targets: &[Tid], signal: u64) -> Result {
         if signal > MAX_SIGNAL {
-            return Err(-errno::EINVAL);
+            return Err(Errno::EINVAL);
         }
         if signal == 0 || IGNORED_BY_DEFAULT.contains(&signal) {
             return ok(0);
@@ -360,13 +360,13 @@ impl ThreadCall<'_> {
         let harts = self.processes.hart_count();
         let len = len as usize;
         if len * 8 < harts || !len.is_multiple_of(size_of::<u64>()) {
-            return Err(-errno::EINVAL);
+            return Err(Errno::EINVAL);
         }
         let known = pid == 0
             || u32::try_from(pid)
                 .is_ok_and(|tid| self.processes.find_thread(Tid::new(tid)).is_some());
         if !known {
-            return Err(-errno::ESRCH);
+            return Err(Errno::ESRCH);
         }
         let bytes = len.min(harts.max(NR_CPUS).div_ceil(64) * size_of::<u64>());
         let mut bits = vec![0u8; bytes];
@@ -374,7 +374,7 @@ impl ThreadCall<'_> {
             bits[hart / 8] |= 1 << (hart % 8);
         }
         let (process, memory) = self.process_and_memory()?;
-        process.space.write(memory, mask, &bits).map_err(|_| -errno::EFAULT)?;
+        process.space.write(memory, mask, &bits).map_err(|_| Errno::EFAULT)?;
         ok(bytes as u64)
     }
 }

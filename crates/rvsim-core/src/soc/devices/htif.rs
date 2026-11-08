@@ -27,7 +27,8 @@ use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
 use crate::soc::terminal::SharedTerminal;
-use crate::system::process::files::{FileTable, PATH_MAX, Stat, errno, io_errno};
+use crate::system::process::errno::Errno;
+use crate::system::process::files::{FileTable, PATH_MAX, Stat};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -122,10 +123,7 @@ impl Htif {
             bytes.as_chunks::<8>().0.iter().map(|word| u64::from_le_bytes(*word)).collect();
         let number = words[0];
         let a: [u64; 6] = std::array::from_fn(|i| words[i + 1]);
-        let result = match self.dispatch(number, a, memory) {
-            Ok(value) => value,
-            Err(negated_errno) => negated_errno as u64,
-        };
+        let result = self.dispatch(number, a, memory).unwrap_or_else(Errno::return_value);
         tracing::trace!(target: "rvsim::htif", number, a0 = a[0], a1 = a[1], a2 = a[2], result, "syscall");
         memory.write_bytes(Writer::External, PhysAddr::new(block), &result.to_le_bytes());
     }
@@ -135,7 +133,7 @@ impl Htif {
         number: u64,
         a: [u64; 6],
         memory: &mut GlobalMemory,
-    ) -> Result<u64, i64> {
+    ) -> Result<u64, Errno> {
         let mut host = Host { files: &mut self.files, memory };
         match number {
             SYS_EXIT => {
@@ -161,9 +159,7 @@ impl Htif {
             }
             SYS_FSTATAT => {
                 let path = host.path(a[1], a[2])?;
-                let stat = std::fs::metadata(&path)
-                    .map(|m| Stat::from_metadata(&m))
-                    .map_err(|e| io_errno(&e))?;
+                let stat = std::fs::metadata(&path).map(|m| Stat::from_metadata(&m))?;
                 {
                     host.write_bytes(a[3], &stat.to_bytes());
                     Ok(0)
@@ -171,9 +167,7 @@ impl Htif {
             }
             SYS_LSTAT => {
                 let path = host.path(a[0], a[1])?;
-                let stat = std::fs::symlink_metadata(&path)
-                    .map(|m| Stat::from_metadata(&m))
-                    .map_err(|e| io_errno(&e))?;
+                let stat = std::fs::symlink_metadata(&path).map(|m| Stat::from_metadata(&m))?;
                 {
                     host.write_bytes(a[2], &stat.to_bytes());
                     Ok(0)
@@ -182,12 +176,12 @@ impl Htif {
             SYS_FTRUNCATE => host.files.truncate(a[0] as i64, a[1]).map(|()| 0),
             SYS_FACCESSAT => {
                 let path = host.path(a[1], a[2])?;
-                std::fs::metadata(&path).map(drop).map_err(|e| io_errno(&e))?;
+                std::fs::metadata(&path).map(drop)?;
                 Ok(0)
             }
             SYS_MKDIRAT => {
                 let path = host.path(a[1], a[2])?;
-                std::fs::create_dir(&path).map_err(|e| io_errno(&e))?;
+                std::fs::create_dir(&path)?;
                 Ok(0)
             }
             SYS_UNLINKAT => {
@@ -197,46 +191,43 @@ impl Htif {
                 } else {
                     std::fs::remove_file(&path)
                 };
-                removed.map_err(|e| io_errno(&e))?;
+                removed?;
                 Ok(0)
             }
             SYS_RENAMEAT => {
                 let from = host.path(a[1], a[2])?;
                 let to = host.path(a[4], a[5])?;
-                std::fs::rename(&from, &to).map_err(|e| io_errno(&e))?;
+                std::fs::rename(&from, &to)?;
                 Ok(0)
             }
             SYS_READLINKAT => {
                 let path = host.path(a[1], a[2])?;
                 let target = std::fs::read_link(&path)
-                    .map(|p| p.to_string_lossy().into_owned().into_bytes())
-                    .map_err(|e| io_errno(&e))?;
-                let len = target.len().min(usize::try_from(a[4]).map_err(|_| -errno::EINVAL)?);
+                    .map(|p| p.to_string_lossy().into_owned().into_bytes())?;
+                let len = target.len().min(usize::try_from(a[4]).map_err(|_| Errno::EINVAL)?);
                 host.write_bytes(a[3], &target[..len]);
                 Ok(len as u64)
             }
             SYS_GETCWD => {
                 let mut cwd = std::env::current_dir()
-                    .map(|p| p.to_string_lossy().into_owned().into_bytes())
-                    .map_err(|e| io_errno(&e))?;
+                    .map(|p| p.to_string_lossy().into_owned().into_bytes())?;
                 cwd.push(0);
                 if cwd.len() as u64 > a[1] {
-                    return Err(-errno::ERANGE);
+                    return Err(Errno::ERANGE);
                 }
                 host.write_bytes(a[0], &cwd);
                 Ok(cwd.len() as u64)
             }
             SYS_CHDIR => {
                 let path = host.cstr(a[0])?;
-                std::env::set_current_dir(String::from_utf8_lossy(&path).as_ref())
-                    .map_err(|e| io_errno(&e))?;
+                std::env::set_current_dir(String::from_utf8_lossy(&path).as_ref())?;
                 Ok(0)
             }
             SYS_FCNTL => Ok(0),
             SYS_GETMAINVARS => host.getmainvars(&self.args, a[0], a[1]),
             _ => {
                 tracing::warn!(target: "rvsim::htif", number, "unimplemented HTIF syscall; returning ENOSYS");
-                Err(-errno::ENOSYS)
+                Err(Errno::ENOSYS)
             }
         }
     }
@@ -249,9 +240,9 @@ struct Host<'a> {
 }
 
 impl Host<'_> {
-    fn read_bytes(&self, addr: u64, len: u64) -> Result<Vec<u8>, i64> {
-        let len = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
-        self.memory.read_bytes(PhysAddr::new(addr), len).map(Vec::from).ok_or(-errno::EFAULT)
+    fn read_bytes(&self, addr: u64, len: u64) -> Result<Vec<u8>, Errno> {
+        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
+        self.memory.read_bytes(PhysAddr::new(addr), len).map(Vec::from).ok_or(Errno::EFAULT)
     }
 
     fn write_bytes(&mut self, addr: u64, bytes: &[u8]) {
@@ -262,7 +253,7 @@ impl Host<'_> {
 
     /// A path the target passed as an address and a length that includes
     /// its NUL, as fesvr's callers pass them.
-    fn path(&mut self, addr: u64, len: u64) -> Result<std::path::PathBuf, i64> {
+    fn path(&mut self, addr: u64, len: u64) -> Result<std::path::PathBuf, Errno> {
         let mut bytes = self.read_bytes(addr, len)?;
         if let Some(nul) = bytes.iter().position(|&b| b == 0) {
             bytes.truncate(nul);
@@ -271,11 +262,11 @@ impl Host<'_> {
     }
 
     /// A NUL-terminated string at `addr`.
-    fn cstr(&self, addr: u64) -> Result<Vec<u8>, i64> {
+    fn cstr(&self, addr: u64) -> Result<Vec<u8>, Errno> {
         let mut out = Vec::new();
         let mut cursor = addr;
         loop {
-            let byte = self.memory.read(PhysAddr::new(cursor), 1).ok_or(-errno::EFAULT)? as u8;
+            let byte = self.memory.read(PhysAddr::new(cursor), 1).ok_or(Errno::EFAULT)? as u8;
             if byte == 0 || out.len() >= PATH_MAX {
                 return Ok(out);
             }
@@ -284,33 +275,33 @@ impl Host<'_> {
         }
     }
 
-    fn write(&mut self, fd: i64, buf: u64, len: u64) -> Result<u64, i64> {
+    fn write(&mut self, fd: i64, buf: u64, len: u64) -> Result<u64, Errno> {
         let bytes = self.read_bytes(buf, len)?;
         self.files.write(fd, &bytes).map(|n| n as u64)
     }
 
-    fn read(&mut self, fd: i64, buf: u64, len: u64) -> Result<u64, i64> {
-        let len = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
+    fn read(&mut self, fd: i64, buf: u64, len: u64) -> Result<u64, Errno> {
+        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let bytes = self.files.read(fd, len)?;
         self.write_bytes(buf, &bytes);
         Ok(bytes.len() as u64)
     }
 
-    fn pread(&mut self, fd: i64, buf: u64, len: u64, offset: u64) -> Result<u64, i64> {
-        let len = usize::try_from(len).map_err(|_| -errno::EINVAL)?;
+    fn pread(&mut self, fd: i64, buf: u64, len: u64, offset: u64) -> Result<u64, Errno> {
+        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let bytes = self.files.pread(fd, len, offset)?;
         self.write_bytes(buf, &bytes);
         Ok(bytes.len() as u64)
     }
 
-    fn pwrite(&mut self, fd: i64, buf: u64, len: u64, offset: u64) -> Result<u64, i64> {
+    fn pwrite(&mut self, fd: i64, buf: u64, len: u64, offset: u64) -> Result<u64, Errno> {
         let bytes = self.read_bytes(buf, len)?;
         self.files.pwrite(fd, &bytes, offset).map(|n| n as u64)
     }
 
     /// `argc`, the `argv` pointers, a NULL, an empty `envp`, then the
     /// strings, written at `pbuf` when they fit in `limit` bytes.
-    fn getmainvars(&mut self, args: &[String], pbuf: u64, limit: u64) -> Result<u64, i64> {
+    fn getmainvars(&mut self, args: &[String], pbuf: u64, limit: u64) -> Result<u64, Errno> {
         let mut words: Vec<u64> = vec![args.len() as u64];
         let mut size = (args.len() as u64 + 3) * 8;
         for arg in args {
@@ -325,7 +316,7 @@ impl Host<'_> {
             bytes.push(0);
         }
         if bytes.len() as u64 > limit {
-            return Err(-errno::ENOMEM);
+            return Err(Errno::ENOMEM);
         }
         self.write_bytes(pbuf, &bytes);
         Ok(0)

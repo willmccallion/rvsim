@@ -7,7 +7,7 @@ use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 
 use crate::isa::reg::{REG_A0, REG_A1, REG_A2, REG_A3};
-use crate::system::process::files::{errno, io_errno};
+use crate::system::process::errno::Errno;
 use crate::uarch::ctx::CoreCtx;
 
 /// The longest file name writefile reads from the guest.
@@ -56,19 +56,18 @@ impl HostFiles {
     ///
     /// # Errors
     ///
-    /// The negated `errno`: `ENOENT` without an output directory, `EACCES`
+    /// `ENOENT` without an output directory, `EACCES`
     /// for a name that would leave it, and the host's error otherwise.
-    pub fn write_output(&self, name: &str, offset: u64, bytes: &[u8]) -> Result<usize, i64> {
-        let Some(dir) = &self.output_dir else { return Err(-errno::ENOENT) };
-        let path = dir.join(within_directory(name).ok_or(-errno::EACCES)?);
+    pub fn write_output(&self, name: &str, offset: u64, bytes: &[u8]) -> Result<usize, Errno> {
+        let Some(dir) = &self.output_dir else { return Err(Errno::ENOENT) };
+        let path = dir.join(within_directory(name).ok_or(Errno::EACCES)?);
         let mut file = if offset == 0 {
             fs::File::create(&path)
         } else {
             OpenOptions::new().read(true).write(true).open(&path)
-        }
-        .map_err(|e| io_errno(&e))?;
-        let _ = file.seek(SeekFrom::Start(offset)).map_err(|e| io_errno(&e))?;
-        file.write_all(bytes).map_err(|e| io_errno(&e))?;
+        }?;
+        let _ = file.seek(SeekFrom::Start(offset))?;
+        file.write_all(bytes)?;
         Ok(bytes.len())
     }
 }
@@ -84,17 +83,20 @@ fn within_directory(name: &str) -> Option<&Path> {
 /// Performs readfile, now that every older store has been written.
 ///
 /// The arguments are in `state`'s `a0` to `a2`: the buffer, its length
-/// and the offset into the script. Returns what `a0` gets: how many bytes
-/// were copied in, or `-EFAULT` when the buffer is not mapped.
-pub fn read_file(state: &mut CoreCtx<'_>) -> i64 {
+/// and the offset into the script. Returns how many bytes were copied in.
+///
+/// # Errors
+///
+/// `EFAULT` when the buffer is not mapped.
+pub fn read_file(state: &mut CoreCtx<'_>) -> Result<u64, Errno> {
     let [buffer, len, offset] = [REG_A0, REG_A1, REG_A2].map(|reg| state.hart.regs.read(reg));
     let bytes = state.host_files.script_bytes(offset, len_as_usize(len)).to_vec();
     match state.write_now(buffer, &bytes) {
-        Ok(()) => bytes.len() as i64,
+        Ok(()) => Ok(bytes.len() as u64),
         Err(trap) => {
             tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc.val()),
                 buffer = %crate::common::trace::Hex(buffer), ?trap, "readfile: the buffer is not mapped");
-            -errno::EFAULT
+            Err(Errno::EFAULT)
         }
     }
 }
@@ -102,9 +104,14 @@ pub fn read_file(state: &mut CoreCtx<'_>) -> i64 {
 /// Performs writefile, now that every older store has been written.
 ///
 /// The arguments are in `state`'s `a0` to `a3`: the buffer, its length,
-/// the offset in the file and the file's name. Returns what `a0` gets: how
-/// many bytes were written, or the negated `errno`.
-pub fn write_file(state: &mut CoreCtx<'_>) -> i64 {
+/// the offset in the file and the file's name. Returns how many bytes were
+/// written.
+///
+/// # Errors
+///
+/// `EFAULT` when the buffer or name is not mapped, or why the host file
+/// could not be written.
+pub fn write_file(state: &mut CoreCtx<'_>) -> Result<u64, Errno> {
     let [buffer, len, offset, name] =
         [REG_A0, REG_A1, REG_A2, REG_A3].map(|reg| state.hart.regs.read(reg));
     let result = state
@@ -113,19 +120,16 @@ pub fn write_file(state: &mut CoreCtx<'_>) -> i64 {
         .map_err(|trap| {
             tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc.val()),
                 buffer = %crate::common::trace::Hex(buffer), ?trap, "writefile: the buffer or name is not mapped");
-            -errno::EFAULT
+            Errno::EFAULT
         })
         .and_then(|(name, bytes)| {
             let name = String::from_utf8_lossy(&name);
-            state.host_files.write_output(&name, offset, &bytes).inspect_err(|code| {
+            state.host_files.write_output(&name, offset, &bytes).inspect_err(|errno| {
                 tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc.val()),
-                    name = %name, errno = -code, "writefile: the host file could not be written");
+                    name = %name, ?errno, "writefile: the host file could not be written");
             })
         });
-    match result {
-        Ok(written) => written as i64,
-        Err(negated_errno) => negated_errno,
-    }
+    result.map(|written| written as u64)
 }
 
 /// A guest length as a host count.
@@ -177,13 +181,13 @@ mod tests {
         let mut files = HostFiles::default();
         files.set_output_dir(dir.path()).unwrap();
 
-        assert_eq!(files.write_output("../escape", 0, b"x"), Err(-errno::EACCES));
-        assert_eq!(files.write_output("/etc/escape", 0, b"x"), Err(-errno::EACCES));
-        assert_eq!(files.write_output("", 0, b"x"), Err(-errno::EACCES));
+        assert_eq!(files.write_output("../escape", 0, b"x"), Err(Errno::EACCES));
+        assert_eq!(files.write_output("/etc/escape", 0, b"x"), Err(Errno::EACCES));
+        assert_eq!(files.write_output("", 0, b"x"), Err(Errno::EACCES));
     }
 
     #[test]
     fn without_an_output_directory_nothing_is_written() {
-        assert_eq!(HostFiles::default().write_output("a", 0, b"x"), Err(-errno::ENOENT));
+        assert_eq!(HostFiles::default().write_output("a", 0, b"x"), Err(Errno::ENOENT));
     }
 }
