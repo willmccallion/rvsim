@@ -21,7 +21,7 @@ use crate::exec::state::ArchState;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::fp::{FpFlags, FpFormat, Rounding, RoundingMode};
-use crate::isa::op::{AluOp, CsrOp, OperandFormat, SystemOp, VectorOp};
+use crate::isa::op::{AluOp, CsrOp, FpOp, IntWidth, OperandFormat, Signedness, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
 
@@ -414,119 +414,104 @@ pub fn compute_alu(
     format: OperandFormat,
     fp_rm: Option<RoundingMode>,
 ) -> (u64, FpFlags) {
+    match alu_op {
+        AluOp::Int(op) => (alu::execute(op, op_a, op_b, format.int_width()), FpFlags::NONE),
+        AluOp::Fp(op) => {
+            let rm = fp_rm.unwrap_or(RoundingMode::Rne);
+            execute_fp(op, [op_a, op_b, op_c], format.fp_format(), rm)
+        }
+    }
+}
+
+/// Executes the floating-point `op` in `format`: conversions into single
+/// and double precision and register moves here, the rest in the FPU.
+fn execute_fp(op: FpOp, [a, b, c]: [u64; 3], format: FpFormat, rm: RoundingMode) -> (u64, FpFlags) {
     use crate::exec::compute::fpu::half::{box_f16, f16_to_f32, unbox_f16};
     use crate::exec::compute::fpu::nan_handling::{
         box_f32_canon, canonicalize_f64_bits, unbox_f32,
     };
     use std::hint::black_box;
 
-    let rm = fp_rm.unwrap_or(RoundingMode::Rne);
-    let fp = format.fp_format();
-    let half = fp == FpFormat::Half;
-    let single = fp == FpFormat::Single;
-    match alu_op {
-        AluOp::FCvtSW if !half => convert_rounded(
-            rm,
-            fp,
-            || {
-                let v = black_box(op_a as i32);
-                if single { box_f32(v as f32) } else { f64::from(v).to_bits() }
-            },
-            || Exact::of_integer(i128::from(op_a as i32)),
-        ),
-        AluOp::FCvtSWU if !half => convert_rounded(
-            rm,
-            fp,
-            || {
-                let v = black_box(op_a as u32);
-                if single { box_f32(v as f32) } else { f64::from(v).to_bits() }
-            },
-            || Exact::of_unsigned(u128::from(op_a as u32)),
-        ),
-        AluOp::FCvtSL if !half => convert_rounded(
-            rm,
-            fp,
-            || {
-                let v = black_box(op_a as i64);
-                if single { box_f32(v as f32) } else { (v as f64).to_bits() }
-            },
-            || Exact::of_integer(i128::from(op_a as i64)),
-        ),
-        AluOp::FCvtSLU if !half => convert_rounded(
-            rm,
-            fp,
-            || {
-                let v = black_box(op_a);
-                if single { box_f32(v as f32) } else { (v as f64).to_bits() }
-            },
-            || Exact::of_unsigned(u128::from(op_a)),
-        ),
-        AluOp::FCvtSD if !half => convert_rounded(
+    match (op, format) {
+        (FpOp::FromInt(width, signedness), FpFormat::Single | FpFormat::Double) => {
+            int_to_float((width, signedness), a, format, rm)
+        }
+        (FpOp::FromFloat(FpFormat::Double), FpFormat::Single) => convert_rounded(
             rm,
             FpFormat::Single,
-            || box_f32_canon(black_box(f64::from_bits(op_a)) as f32),
-            || Exact::of_f64(f64::from_bits(op_a)),
+            || box_f32_canon(black_box(f64::from_bits(a)) as f32),
+            || Exact::of_f64(f64::from_bits(a)),
         ),
-        AluOp::FCvtDS if !half => {
-            on_host_fpu(rm, || canonicalize_f64_bits(f64::from(black_box(unbox_f32(op_a)))))
+        (FpOp::FromFloat(FpFormat::Single), FpFormat::Double) => {
+            on_host_fpu(rm, || canonicalize_f64_bits(f64::from(black_box(unbox_f32(a)))))
         }
-        AluOp::FCvtSH if !half => on_host_fpu(rm, || box_f32_canon(f16_to_f32(unbox_f16(op_a)))),
-        AluOp::FCvtDH if !half => on_host_fpu(rm, || {
-            canonicalize_f64_bits(f64::from(black_box(f16_to_f32(unbox_f16(op_a)))))
+        (FpOp::FromFloat(FpFormat::Half), FpFormat::Single) => {
+            on_host_fpu(rm, || box_f32_canon(f16_to_f32(unbox_f16(a))))
+        }
+        (FpOp::FromFloat(FpFormat::Half), FpFormat::Double) => on_host_fpu(rm, || {
+            canonicalize_f64_bits(f64::from(black_box(f16_to_f32(unbox_f16(a)))))
         }),
-        AluOp::FMvToF => {
-            let value = match fp {
-                FpFormat::Half => box_f16(op_a as u16),
-                FpFormat::Single => box_f32(f32::from_bits(op_a as u32)),
-                FpFormat::Double => op_a,
+        (FpOp::MoveFromInt, _) => {
+            let value = match format {
+                FpFormat::Half => box_f16(a as u16),
+                FpFormat::Single => box_f32(f32::from_bits(a as u32)),
+                FpFormat::Double => a,
             };
             (value, FpFlags::NONE)
         }
-        _ if is_fp_op(alu_op) => {
-            let (result, fp_flags) = fpu::execute_full_rm(alu_op, op_a, op_b, op_c, fp, rm);
-            (result, fp_flags)
-        }
-        _ => (alu::execute(alu_op, op_a, op_b, format.int_width()), FpFlags::NONE),
+        _ => fpu::execute_full_rm(op, a, b, c, format, rm),
     }
 }
 
-const fn is_fp_op(alu_op: AluOp) -> bool {
-    matches!(
-        alu_op,
-        AluOp::FAdd
-            | AluOp::FSub
-            | AluOp::FMul
-            | AluOp::FDiv
-            | AluOp::FSqrt
-            | AluOp::FMin
-            | AluOp::FMax
-            | AluOp::FMAdd
-            | AluOp::FMSub
-            | AluOp::FNMAdd
-            | AluOp::FNMSub
-            | AluOp::FSgnJ
-            | AluOp::FSgnJN
-            | AluOp::FSgnJX
-            | AluOp::FEq
-            | AluOp::FLt
-            | AluOp::FLe
-            | AluOp::FClass
-            | AluOp::FCvtWS
-            | AluOp::FCvtWUS
-            | AluOp::FCvtLS
-            | AluOp::FCvtLUS
-            | AluOp::FCvtSW
-            | AluOp::FCvtSWU
-            | AluOp::FCvtSL
-            | AluOp::FCvtSLU
-            | AluOp::FCvtSD
-            | AluOp::FCvtDS
-            | AluOp::FCvtSH
-            | AluOp::FCvtHS
-            | AluOp::FCvtDH
-            | AluOp::FCvtHD
-            | AluOp::FMvToX
-    )
+/// `fcvt` of the integer `a`, of the given width and signedness, to single
+/// or double precision.
+fn int_to_float(
+    (width, signedness): (IntWidth, Signedness),
+    a: u64,
+    format: FpFormat,
+    rm: RoundingMode,
+) -> (u64, FpFlags) {
+    use std::hint::black_box;
+
+    let single = format == FpFormat::Single;
+    match (width, signedness) {
+        (IntWidth::Word, Signedness::Signed) => convert_rounded(
+            rm,
+            format,
+            || {
+                let v = black_box(a as i32);
+                if single { box_f32(v as f32) } else { f64::from(v).to_bits() }
+            },
+            || Exact::of_integer(i128::from(a as i32)),
+        ),
+        (IntWidth::Word, Signedness::Unsigned) => convert_rounded(
+            rm,
+            format,
+            || {
+                let v = black_box(a as u32);
+                if single { box_f32(v as f32) } else { f64::from(v).to_bits() }
+            },
+            || Exact::of_unsigned(u128::from(a as u32)),
+        ),
+        (IntWidth::Double, Signedness::Signed) => convert_rounded(
+            rm,
+            format,
+            || {
+                let v = black_box(a as i64);
+                if single { box_f32(v as f32) } else { (v as f64).to_bits() }
+            },
+            || Exact::of_integer(i128::from(a as i64)),
+        ),
+        (IntWidth::Double, Signedness::Unsigned) => convert_rounded(
+            rm,
+            format,
+            || {
+                let v = black_box(a);
+                if single { box_f32(v as f32) } else { (v as f64).to_bits() }
+            },
+            || Exact::of_unsigned(u128::from(a)),
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -537,13 +522,25 @@ mod tests {
     fn int_to_float_conversions_are_exact_for_small_values() {
         let rne = Some(RoundingMode::Rne);
 
-        let (res, flags) =
-            compute_alu(AluOp::FCvtSW, 1, 0, 0, OperandFormat::Fp(FpFormat::Double), rne);
+        let (res, flags) = compute_alu(
+            AluOp::Fp(FpOp::FromInt(IntWidth::Word, Signedness::Signed)),
+            1,
+            0,
+            0,
+            OperandFormat::Fp(FpFormat::Double),
+            rne,
+        );
         assert_eq!(res, (1.0f64).to_bits());
         assert_eq!(flags, FpFlags::NONE);
 
-        let (res, flags) =
-            compute_alu(AluOp::FCvtSW, 1, 0, 0, OperandFormat::Fp(FpFormat::Single), rne);
+        let (res, flags) = compute_alu(
+            AluOp::Fp(FpOp::FromInt(IntWidth::Word, Signedness::Signed)),
+            1,
+            0,
+            0,
+            OperandFormat::Fp(FpFormat::Single),
+            rne,
+        );
         assert_eq!(res, 0xFFFF_FFFF_0000_0000 | u64::from((1.0f32).to_bits()));
         assert_eq!(flags, FpFlags::NONE);
     }
@@ -551,7 +548,7 @@ mod tests {
     #[test]
     fn move_to_float_passes_the_bits_through() {
         let (res, flags) = compute_alu(
-            AluOp::FMvToF,
+            AluOp::Fp(FpOp::MoveFromInt),
             42,
             0,
             0,
@@ -566,7 +563,7 @@ mod tests {
     #[test]
     fn inexact_conversion_raises_the_inexact_flag() {
         let (_, flags) = compute_alu(
-            AluOp::FCvtSL,
+            AluOp::Fp(FpOp::FromInt(IntWidth::Double, Signedness::Signed)),
             (1u64 << 60) + 1,
             0,
             0,

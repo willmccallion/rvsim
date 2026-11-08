@@ -5,57 +5,46 @@
 
 use crate::exec::compute::clmul::{clmul_high, clmul_low};
 use crate::isa::bits::{sext_word, zext_word};
-use crate::isa::op::{AluOp, IntWidth};
+use crate::isa::op::{
+    BitOp, ClmulOp, CountOp, IntWidth, MinMaxOp, PackOp, RotateOp, ShiftAddOp, SingleBitOp,
+};
 
 /// Executes a B-extension ALU operation on `a` (rs1) and `b` (rs2 or the
 /// immediate). A `Word` operation's result is sign-extended from bit 31.
-/// Returns `0` for an op outside the extension.
-pub fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+pub fn execute(op: BitOp, a: u64, b: u64, width: IntWidth) -> u64 {
     match op {
-        AluOp::Sh1Add
-        | AluOp::Sh2Add
-        | AluOp::Sh3Add
-        | AluOp::AddUw
-        | AluOp::Sh1AddUw
-        | AluOp::Sh2AddUw
-        | AluOp::Sh3AddUw
-        | AluOp::SlliUw => address(op, a, b),
-        AluOp::Andn => a & !b,
-        AluOp::Orn => a | !b,
-        AluOp::Xnor => !(a ^ b),
-        AluOp::Clz | AluOp::Ctz | AluOp::Cpop => count_bits(op, a, width),
-        AluOp::Max | AluOp::Maxu | AluOp::Min | AluOp::Minu => min_max(op, a, b, width),
-        AluOp::SextB => a as i8 as i64 as u64,
-        AluOp::SextH => a as i16 as i64 as u64,
-        AluOp::Rol | AluOp::Ror => rotate(op, a, b, width),
-        AluOp::OrcB => map_bytes(a, |byte| if byte == 0 { 0 } else { 0xFF }),
-        AluOp::Rev8 => a.swap_bytes(),
-        AluOp::Brev8 => a.reverse_bits().swap_bytes(),
-        AluOp::Clmul => clmul_low(a, b, 64),
-        AluOp::Clmulh => clmul_high(a, b, 64),
-        // Bits 126..63 of the 128-bit product.
-        AluOp::Clmulr => (clmul_high(a, b, 64) << 1) | (clmul_low(a, b, 64) >> 63),
-        AluOp::Bclr | AluOp::Bext | AluOp::Binv | AluOp::Bset => single_bit(op, a, b, width),
-        AluOp::Pack | AluOp::Packh | AluOp::Packw => pack(op, a, b, width),
-        AluOp::Xperm4 => crossbar_permute(a, b, 4),
-        AluOp::Xperm8 => crossbar_permute(a, b, 8),
-        _ => 0,
+        BitOp::ShiftAdd(op) => shift_add(op, a, b),
+        BitOp::Andn => a & !b,
+        BitOp::Orn => a | !b,
+        BitOp::Xnor => !(a ^ b),
+        BitOp::Count(op) => count_bits(op, a, width),
+        BitOp::MinMax(op) => min_max(op, a, b, width),
+        BitOp::SextB => a as i8 as i64 as u64,
+        BitOp::SextH => a as i16 as i64 as u64,
+        BitOp::Rotate(op) => rotate(op, a, b, width),
+        BitOp::OrcB => map_bytes(a, |byte| if byte == 0 { 0 } else { 0xFF }),
+        BitOp::Rev8 => a.swap_bytes(),
+        BitOp::Brev8 => a.reverse_bits().swap_bytes(),
+        BitOp::Clmul(op) => carry_less_multiply(op, a, b),
+        BitOp::SingleBit(op) => single_bit(op, a, b, width),
+        BitOp::Pack(op) => pack(op, a, b, width),
+        BitOp::Xperm4 => crossbar_permute(a, b, 4),
+        BitOp::Xperm8 => crossbar_permute(a, b, 8),
     }
 }
 
 /// Zba's address generation: `a`, zero-extended from a word for the `.uw`
 /// forms, shifted and added to `b`, or shifted by `b` for `slli.uw`.
-const fn address(op: AluOp, a: u64, b: u64) -> u64 {
+const fn shift_add(op: ShiftAddOp, a: u64, b: u64) -> u64 {
     match op {
-        AluOp::Sh1Add => (a << 1).wrapping_add(b),
-        AluOp::Sh2Add => (a << 2).wrapping_add(b),
-        AluOp::Sh3Add => (a << 3).wrapping_add(b),
-        AluOp::AddUw => zext_word(a).wrapping_add(b),
-        AluOp::Sh1AddUw => (zext_word(a) << 1).wrapping_add(b),
-        AluOp::Sh2AddUw => (zext_word(a) << 2).wrapping_add(b),
-        AluOp::Sh3AddUw => (zext_word(a) << 3).wrapping_add(b),
-        AluOp::SlliUw => zext_word(a) << (b & shamt_mask(IntWidth::Double) as u64),
-        _ => 0,
+        ShiftAddOp::Sh1Add => (a << 1).wrapping_add(b),
+        ShiftAddOp::Sh2Add => (a << 2).wrapping_add(b),
+        ShiftAddOp::Sh3Add => (a << 3).wrapping_add(b),
+        ShiftAddOp::AddUw => zext_word(a).wrapping_add(b),
+        ShiftAddOp::Sh1AddUw => (zext_word(a) << 1).wrapping_add(b),
+        ShiftAddOp::Sh2AddUw => (zext_word(a) << 2).wrapping_add(b),
+        ShiftAddOp::Sh3AddUw => (zext_word(a) << 3).wrapping_add(b),
+        ShiftAddOp::SlliUw => zext_word(a) << (b & shamt_mask(IntWidth::Double) as u64),
     }
 }
 
@@ -68,16 +57,15 @@ const fn shamt_mask(width: IntWidth) -> u32 {
 }
 
 /// `clz`, `ctz` or `cpop` over the low word or the whole register.
-const fn count_bits(op: AluOp, a: u64, width: IntWidth) -> u64 {
+const fn count_bits(op: CountOp, a: u64, width: IntWidth) -> u64 {
     let word = a as u32;
     let count = match (op, width) {
-        (AluOp::Clz, IntWidth::Word) => word.leading_zeros(),
-        (AluOp::Clz, IntWidth::Double) => a.leading_zeros(),
-        (AluOp::Ctz, IntWidth::Word) => word.trailing_zeros(),
-        (AluOp::Ctz, IntWidth::Double) => a.trailing_zeros(),
-        (AluOp::Cpop, IntWidth::Word) => word.count_ones(),
-        (AluOp::Cpop, IntWidth::Double) => a.count_ones(),
-        _ => 0,
+        (CountOp::Clz, IntWidth::Word) => word.leading_zeros(),
+        (CountOp::Clz, IntWidth::Double) => a.leading_zeros(),
+        (CountOp::Ctz, IntWidth::Word) => word.trailing_zeros(),
+        (CountOp::Ctz, IntWidth::Double) => a.trailing_zeros(),
+        (CountOp::Cpop, IntWidth::Word) => word.count_ones(),
+        (CountOp::Cpop, IntWidth::Double) => a.count_ones(),
     };
     count as u64
 }
@@ -85,53 +73,59 @@ const fn count_bits(op: AluOp, a: u64, width: IntWidth) -> u64 {
 /// `min`, `max` and their unsigned forms. A word compares sign-extended,
 /// which keeps both its signed and its unsigned order and is already the
 /// register image of the result.
-fn min_max(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+fn min_max(op: MinMaxOp, a: u64, b: u64, width: IntWidth) -> u64 {
     let (a, b) = match width {
         IntWidth::Word => (sext_word(a as u32), sext_word(b as u32)),
         IntWidth::Double => (a, b),
     };
     match op {
-        AluOp::Max => (a as i64).max(b as i64) as u64,
-        AluOp::Min => (a as i64).min(b as i64) as u64,
-        AluOp::Maxu => a.max(b),
-        AluOp::Minu => a.min(b),
-        _ => 0,
+        MinMaxOp::Max => (a as i64).max(b as i64) as u64,
+        MinMaxOp::Min => (a as i64).min(b as i64) as u64,
+        MinMaxOp::Maxu => a.max(b),
+        MinMaxOp::Minu => a.min(b),
     }
 }
 
 /// `rol` and `ror` over the low word or the whole register.
-const fn rotate(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+const fn rotate(op: RotateOp, a: u64, b: u64, width: IntWidth) -> u64 {
     let shamt = b as u32 & shamt_mask(width);
     match (op, width) {
-        (AluOp::Rol, IntWidth::Word) => sext_word((a as u32).rotate_left(shamt)),
-        (AluOp::Rol, IntWidth::Double) => a.rotate_left(shamt),
-        (AluOp::Ror, IntWidth::Word) => sext_word((a as u32).rotate_right(shamt)),
-        (AluOp::Ror, IntWidth::Double) => a.rotate_right(shamt),
-        _ => 0,
+        (RotateOp::Rol, IntWidth::Word) => sext_word((a as u32).rotate_left(shamt)),
+        (RotateOp::Rol, IntWidth::Double) => a.rotate_left(shamt),
+        (RotateOp::Ror, IntWidth::Word) => sext_word((a as u32).rotate_right(shamt)),
+        (RotateOp::Ror, IntWidth::Double) => a.rotate_right(shamt),
+    }
+}
+
+/// Zbc's carry-less multiplies of the full registers.
+const fn carry_less_multiply(op: ClmulOp, a: u64, b: u64) -> u64 {
+    match op {
+        ClmulOp::Clmul => clmul_low(a, b, 64),
+        ClmulOp::Clmulh => clmul_high(a, b, 64),
+        // Bits 126..63 of the 128-bit product.
+        ClmulOp::Clmulr => (clmul_high(a, b, 64) << 1) | (clmul_low(a, b, 64) >> 63),
     }
 }
 
 /// Zbs: clear, extract, invert or set the bit of `a` that `b` numbers.
-const fn single_bit(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+const fn single_bit(op: SingleBitOp, a: u64, b: u64, width: IntWidth) -> u64 {
     let bit = 1u64 << (b as u32 & shamt_mask(width));
     match op {
-        AluOp::Bclr => a & !bit,
-        AluOp::Bext => (a & bit != 0) as u64,
-        AluOp::Binv => a ^ bit,
-        AluOp::Bset => a | bit,
-        _ => 0,
+        SingleBitOp::Bclr => a & !bit,
+        SingleBitOp::Bext => (a & bit != 0) as u64,
+        SingleBitOp::Binv => a ^ bit,
+        SingleBitOp::Bset => a | bit,
     }
 }
 
 /// Zbkb's packing of the low halves (or bytes for `packh`) of `a` and `b`.
-const fn pack(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+const fn pack(op: PackOp, a: u64, b: u64, width: IntWidth) -> u64 {
     match (op, width) {
-        (AluOp::Pack, IntWidth::Double) => zext_word(a) | (zext_word(b) << 32),
-        (AluOp::Pack, IntWidth::Word) | (AluOp::Packw, _) => {
+        (PackOp::Pack, IntWidth::Double) => zext_word(a) | (zext_word(b) << 32),
+        (PackOp::Pack, IntWidth::Word) | (PackOp::Packw, _) => {
             sext_word((a as u16 as u32) | ((b as u16 as u32) << 16))
         }
-        (AluOp::Packh, _) => (a & 0xFF) | ((b & 0xFF) << 8),
-        _ => 0,
+        (PackOp::Packh, _) => (a & 0xFF) | ((b & 0xFF) << 8),
     }
 }
 

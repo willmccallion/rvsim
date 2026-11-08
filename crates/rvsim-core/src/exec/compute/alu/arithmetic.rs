@@ -8,40 +8,34 @@
 //! 64 bits, per the RISC-V spec (§2.4, §7.1, §7.2).
 
 use crate::isa::bits::sext_word;
-use crate::isa::op::{AluOp, IntWidth};
+use crate::isa::op::{ArithOp, DivOp, IntWidth, MulOp};
 
 const WORD_BITS: u32 = 32;
 
 const XLEN_BITS: u32 = 64;
 
-/// Executes an integer arithmetic operation.
-///
-/// # Arguments
-///
-/// * `op`   - The ALU operation to perform (must be an arithmetic variant).
-/// * `a`    - First operand (64-bit value).
-/// * `b`    - Second operand (64-bit value).
-/// * `width` - `Word` for the 32-bit (W-suffix) variant.
-///
-/// # Returns
-///
-/// The 64-bit result. For 32-bit operations the result is sign-extended
-/// from bit 31. Returns `0` for non-arithmetic opcodes.
-pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+/// `add` or `sub`.
+pub const fn add_sub(op: ArithOp, a: u64, b: u64, width: IntWidth) -> u64 {
     match op {
-        AluOp::Add => match width {
+        ArithOp::Add => match width {
             IntWidth::Word => (a as i32).wrapping_add(b as i32) as i64 as u64,
             IntWidth::Double => a.wrapping_add(b),
         },
-        AluOp::Sub => match width {
+        ArithOp::Sub => match width {
             IntWidth::Word => (a as i32).wrapping_sub(b as i32) as i64 as u64,
             IntWidth::Double => a.wrapping_sub(b),
         },
-        AluOp::Mul => match width {
+    }
+}
+
+/// A multiplication: the low or a high half of the product.
+pub const fn multiply(op: MulOp, a: u64, b: u64, width: IntWidth) -> u64 {
+    match op {
+        MulOp::Mul => match width {
             IntWidth::Word => (a as i32).wrapping_mul(b as i32) as i64 as u64,
             IntWidth::Double => a.wrapping_mul(b),
         },
-        AluOp::Mulh => {
+        MulOp::Mulh => {
             match width {
                 IntWidth::Word => ((a as i32 as i64 * b as i32 as i64) >> WORD_BITS) as u64,
                 IntWidth::Double => {
@@ -51,7 +45,7 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
                 }
             }
         }
-        AluOp::Mulhsu => {
+        MulOp::Mulhsu => {
             match width {
                 IntWidth::Word => ((a as i32 as i64 * (b as u32) as i64) >> WORD_BITS) as u64,
                 IntWidth::Double => {
@@ -61,11 +55,18 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
                 }
             }
         }
-        AluOp::Mulhu => match width {
+        MulOp::Mulhu => match width {
             IntWidth::Word => (((a as u32) as u64 * (b as u32) as u64) >> WORD_BITS) as i64 as u64,
             IntWidth::Double => (((a as u128) * (b as u128)) >> XLEN_BITS) as u64,
         },
-        AluOp::Div => match width {
+    }
+}
+
+/// A division or remainder, with RISC-V's results for a zero divisor and
+/// for overflow.
+pub const fn divide(op: DivOp, a: u64, b: u64, width: IntWidth) -> u64 {
+    match op {
+        DivOp::Div => match width {
             IntWidth::Word => {
                 if (b as i32) == 0 {
                     -1i64 as u64
@@ -81,7 +82,7 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
                 }
             }
         },
-        AluOp::Divu => match width {
+        DivOp::Divu => match width {
             IntWidth::Word => match (a as u32).checked_div(b as u32) {
                 Some(q) => sext_word(q),
                 None => -1i64 as u64,
@@ -91,7 +92,7 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
                 None => -1i64 as u64,
             },
         },
-        AluOp::Rem => {
+        DivOp::Rem => {
             match width {
                 IntWidth::Word => {
                     if (b as i32) == 0 {
@@ -111,7 +112,7 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
                 }
             }
         }
-        AluOp::Remu => {
+        DivOp::Remu => {
             match width {
                 IntWidth::Word => {
                     if (b as u32) == 0 {
@@ -131,6 +132,5 @@ pub const fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
                 }
             }
         }
-        _ => 0,
     }
 }

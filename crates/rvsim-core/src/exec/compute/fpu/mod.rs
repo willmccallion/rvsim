@@ -20,7 +20,7 @@ pub mod nan_handling;
 pub mod exact;
 pub mod half;
 
-use crate::isa::op::AluOp;
+use crate::isa::op::{FpCompareOp, FpOp};
 
 use self::nan_handling::unbox_f32;
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
@@ -41,7 +41,7 @@ use nan_handling::{is_snan_f32, is_snan_f64};
 /// the floating-point value is rounded before being cast to integer.
 /// For FP arithmetic, the rounding mode affects the result precision.
 pub fn execute_full_rm(
-    op: AluOp,
+    op: FpOp,
     a: u64,
     b: u64,
     c: u64,
@@ -66,18 +66,7 @@ pub fn execute_full_rm(
     // again in software below when inexact. `black_box` prevents the
     // optimizer from constant-folding FP ops at compile time or reordering
     // them across the feclearexcept/fetestexcept calls.
-    let is_rm_sensitive_arith = matches!(
-        op,
-        AluOp::FAdd
-            | AluOp::FSub
-            | AluOp::FMul
-            | AluOp::FDiv
-            | AluOp::FSqrt
-            | AluOp::FMAdd
-            | AluOp::FMSub
-            | AluOp::FNMAdd
-            | AluOp::FNMSub
-    );
+    let is_rm_sensitive_arith = matches!(op, FpOp::Arith(_) | FpOp::Sqrt | FpOp::Fma(_));
 
     if is_rm_sensitive_arith {
         let saved = set_host_round_mode(rm);
@@ -122,7 +111,7 @@ pub fn execute_full_rm(
 
 /// Executes an operation that rounds nothing: a comparison, min/max, sign
 /// injection, classification or move, with the flags RISC-V gives it.
-fn execute_unrounded(op: AluOp, a: u64, b: u64, c: u64, is32: bool) -> (u64, FpFlags) {
+fn execute_unrounded(op: FpOp, a: u64, b: u64, c: u64, is32: bool) -> (u64, FpFlags) {
     let operands = [a, b];
     let is_snan = |bits: u64| {
         if is32 { is_snan_f32(unbox_f32(bits)) } else { is_snan_f64(f64::from_bits(bits)) }
@@ -131,9 +120,9 @@ fn execute_unrounded(op: AluOp, a: u64, b: u64, c: u64, is32: bool) -> (u64, FpF
         |bits: u64| if is32 { unbox_f32(bits).is_nan() } else { f64::from_bits(bits).is_nan() };
     let is_invalid = match op {
         // FEQ, FMIN and FMAX raise NV only on a signaling NaN.
-        AluOp::FEq | AluOp::FMin | AluOp::FMax => operands.into_iter().any(is_snan),
+        FpOp::Compare(FpCompareOp::Eq) | FpOp::Min | FpOp::Max => operands.into_iter().any(is_snan),
         // FLT and FLE raise NV on any NaN.
-        AluOp::FLt | AluOp::FLe => operands.into_iter().any(is_nan),
+        FpOp::Compare(FpCompareOp::Lt | FpCompareOp::Le) => operands.into_iter().any(is_nan),
         _ => false,
     };
     let flags = if is_invalid { FpFlags::NV } else { FpFlags::NONE };

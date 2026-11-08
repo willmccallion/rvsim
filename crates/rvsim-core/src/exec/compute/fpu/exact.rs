@@ -9,7 +9,7 @@
 
 use super::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
-use crate::isa::op::AluOp;
+use crate::isa::op::{FmaSigns, FpArithOp, FpOp};
 
 impl FpFormat {
     /// Significand bits, the hidden bit included.
@@ -282,17 +282,17 @@ const fn integer_sqrt(value: u128) -> u128 {
 /// fused multiply-add family's operands in the ISA's order; `None` for an
 /// operation that does not round.
 #[must_use]
-pub const fn of_operation(op: AluOp, a: Exact, b: Exact, c: Exact) -> Option<Exact> {
+pub const fn of_operation(op: FpOp, a: Exact, b: Exact, c: Exact) -> Option<Exact> {
     Some(match op {
-        AluOp::FAdd => add(a, b),
-        AluOp::FSub => sub(a, b),
-        AluOp::FMul => mul(a, b),
-        AluOp::FDiv => div(a, b),
-        AluOp::FSqrt => sqrt(a),
-        AluOp::FMAdd => mul_add(a, b, c),
-        AluOp::FMSub => mul_add(a, b, c.negated()),
-        AluOp::FNMAdd => mul_add(a.negated(), b, c.negated()),
-        AluOp::FNMSub => mul_add(a.negated(), b, c),
+        FpOp::Arith(FpArithOp::Add) => add(a, b),
+        FpOp::Arith(FpArithOp::Sub) => sub(a, b),
+        FpOp::Arith(FpArithOp::Mul) => mul(a, b),
+        FpOp::Arith(FpArithOp::Div) => div(a, b),
+        FpOp::Sqrt => sqrt(a),
+        FpOp::Fma(FmaSigns::Macc) => mul_add(a, b, c),
+        FpOp::Fma(FmaSigns::MSac) => mul_add(a, b, c.negated()),
+        FpOp::Fma(FmaSigns::NMacc) => mul_add(a.negated(), b, c.negated()),
+        FpOp::Fma(FmaSigns::NMSac) => mul_add(a.negated(), b, c),
         _ => return None,
     })
 }

@@ -376,6 +376,7 @@ mod tests {
     use super::*;
     use crate::exec::signals::BranchCond;
     use crate::isa::op::AluOp;
+    use crate::isa::op::{ArithOp, DivOp, FmaSigns, FpOp, IntAluOp};
 
     fn default_pool() -> FuPool {
         FuPool::new(&FuConfig::default())
@@ -418,19 +419,22 @@ mod tests {
 
     #[test]
     fn test_classify_int_alu() {
-        let ctrl = ControlSignals { alu: AluOp::Add, ..Default::default() };
+        let ctrl =
+            ControlSignals { alu: AluOp::Int(IntAluOp::Arith(ArithOp::Add)), ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::IntAlu);
     }
 
     #[test]
     fn test_classify_int_div() {
-        let ctrl = ControlSignals { alu: AluOp::Div, ..Default::default() };
+        let ctrl =
+            ControlSignals { alu: AluOp::Int(IntAluOp::Div(DivOp::Div)), ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::IntDiv);
     }
 
     #[test]
     fn test_classify_fp_fma() {
-        let ctrl = ControlSignals { alu: AluOp::FMAdd, ..Default::default() };
+        let ctrl =
+            ControlSignals { alu: AluOp::Fp(FpOp::Fma(FmaSigns::Macc)), ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::FpFma);
     }
 

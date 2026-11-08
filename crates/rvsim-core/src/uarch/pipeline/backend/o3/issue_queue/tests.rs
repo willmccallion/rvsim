@@ -5,6 +5,7 @@ use crate::common::VirtAddr;
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
+use crate::isa::op::{DivOp, IntAluOp};
 use crate::isa::reg::RegIdx;
 use crate::uarch::pipeline::backend::o3::RenamedRegisters;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
@@ -86,7 +87,10 @@ fn a_ready_op_whose_unit_is_busy_lets_a_younger_op_issue_in_its_place() {
     let busy_divider = units.free_unit(FuType::IntDiv, 0).expect("a divider");
     let _ = units.acquire(busy_divider, 0, RobTag::new(9));
     let mut iq = IssueQueue::new(8);
-    iq.slots[0] = Some(ready_entry(1, ControlSignals { alu: AluOp::Div, ..Default::default() }));
+    iq.slots[0] = Some(ready_entry(
+        1,
+        ControlSignals { alu: AluOp::Int(IntAluOp::Div(DivOp::Div)), ..Default::default() },
+    ));
     iq.slots[1] = Some(ready_entry(2, ControlSignals::default()));
     iq.count = 2;
     let budget = IssueBudget {

@@ -1,5 +1,8 @@
 //! The vector operations an instruction decodes to.
 
+use super::alu::{FmaSigns, FpCompareOp};
+use super::format::Signedness;
+
 /// Which kind of vector operation this is, finely enough that both the
 /// unit it runs on and the commit statistic that counts it follow from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1078,15 +1081,6 @@ pub enum FpBinaryOp {
     Sgnjx,
 }
 
-/// Whether an integer is signed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Signedness {
-    /// Unsigned (`xu`).
-    Unsigned,
-    /// Two's-complement signed (`x`).
-    Signed,
-}
-
 /// How a conversion to an integer rounds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IntRounding {
@@ -1120,19 +1114,6 @@ pub enum FpUnaryOp {
     Convert(IntConvert),
 }
 
-/// The signs of a fused multiply-add's product and addend.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FmaSigns {
-    /// `+(a × b) + c`.
-    Macc,
-    /// `-(a × b) - c`.
-    NMacc,
-    /// `+(a × b) - c`.
-    MSac,
-    /// `-(a × b) + c`.
-    NMSac,
-}
-
 /// Which register a single-width fused multiply-add adds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FmaAddend {
@@ -1140,23 +1121,6 @@ pub enum FmaAddend {
     Vd,
     /// `vs2`, as `vfmadd` and its kin, which multiply `vd`.
     Vs2,
-}
-
-/// Floating-point comparisons, which write mask bits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FpCompareOp {
-    /// `vmfeq`.
-    Eq,
-    /// `vmfne`.
-    Ne,
-    /// `vmflt`.
-    Lt,
-    /// `vmfle`.
-    Le,
-    /// `vmfgt`.
-    Gt,
-    /// `vmfge`.
-    Ge,
 }
 
 /// Widening floating-point arithmetic: a 2×SEW result.

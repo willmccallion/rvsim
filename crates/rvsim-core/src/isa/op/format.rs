@@ -11,6 +11,15 @@ pub enum IntWidth {
     Double,
 }
 
+/// Whether an integer is signed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Signedness {
+    /// Unsigned (`u`).
+    Unsigned,
+    /// Two's-complement signed.
+    Signed,
+}
+
 /// What an operation's operands are: integers of a width, or floats of a
 /// format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

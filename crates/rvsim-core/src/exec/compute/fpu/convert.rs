@@ -2,7 +2,7 @@
 //! integral float.
 
 use crate::isa::bits::sign_extend;
-use crate::isa::op::AluOp;
+use crate::isa::op::{FpOp, IntWidth, Signedness};
 
 use crate::isa::fp::{FpFlags, RoundingMode};
 
@@ -26,12 +26,12 @@ impl IntTarget {
     }
 
     /// The target of `op`, when it converts floating point to an integer.
-    pub const fn of(op: AluOp) -> Option<Self> {
+    pub const fn of(op: FpOp) -> Option<Self> {
         match op {
-            AluOp::FCvtWS => Some(Self::signed(32)),
-            AluOp::FCvtWUS => Some(Self::unsigned(32)),
-            AluOp::FCvtLS => Some(Self::signed(64)),
-            AluOp::FCvtLUS => Some(Self::unsigned(64)),
+            FpOp::ToInt(IntWidth::Word, Signedness::Signed) => Some(Self::signed(32)),
+            FpOp::ToInt(IntWidth::Word, Signedness::Unsigned) => Some(Self::unsigned(32)),
+            FpOp::ToInt(IntWidth::Double, Signedness::Signed) => Some(Self::signed(64)),
+            FpOp::ToInt(IntWidth::Double, Signedness::Unsigned) => Some(Self::unsigned(64)),
             _ => None,
         }
     }
