@@ -108,20 +108,15 @@ impl GeoBankSet {
     /// Computes the table index for a bank using pre-computed speculative CSRs. `O(1)`.
     #[inline]
     pub const fn spec_index(&self, pc: u64, bank: usize) -> usize {
-        let pc_hash = pc >> 2;
-        let h1 = self.idx_csr[bank].val;
-        let h2 = self.idx_csr2[bank].val;
-        (pc_hash as usize ^ h1 as usize ^ h2 as usize) & self.table_mask
+        let index = fold_hash(index_pc(pc), self.idx_csr[bank].val, self.idx_csr2[bank].val);
+        index as usize & self.table_mask
     }
 
     /// Computes the tag for a bank using pre-computed speculative CSRs. `O(1)`.
     #[inline]
     pub const fn spec_tag(&self, pc: u64, bank: usize) -> u16 {
-        let width = self.tag_widths[bank];
-        let pc_hash = (pc >> 2) ^ (pc >> 18);
-        let h1 = self.tag_csr[bank].val;
-        let h2 = self.tag_csr2[bank].val;
-        ((pc_hash as usize ^ h1 as usize ^ h2 as usize) & ((1 << width) - 1)) as u16
+        let tag = fold_hash(tag_pc(pc), self.tag_csr[bank].val, self.tag_csr2[bank].val);
+        (tag & ((1 << self.tag_widths[bank]) - 1)) as u16
     }
 
     #[cfg(test)]
@@ -133,8 +128,7 @@ impl GeoBankSet {
         let mut csr2 =
             FoldedHistory::new(self.table_bits.saturating_sub(1).max(1), self.hist_lengths[bank]);
         csr2.recompute(ghr);
-        let pc_hash = pc >> 2;
-        (pc_hash as usize ^ csr1.val as usize ^ csr2.val as usize) & self.table_mask
+        fold_hash(index_pc(pc), csr1.val, csr2.val) as usize & self.table_mask
     }
 
     #[cfg(test)]
@@ -146,8 +140,7 @@ impl GeoBankSet {
         csr1.recompute(ghr);
         let mut csr2 = FoldedHistory::new(width.saturating_sub(1).max(1), self.hist_lengths[bank]);
         csr2.recompute(ghr);
-        let pc_hash = (pc >> 2) ^ (pc >> 18);
-        ((pc_hash as usize ^ csr1.val as usize ^ csr2.val as usize) & ((1 << width) - 1)) as u16
+        (fold_hash(tag_pc(pc), csr1.val, csr2.val) & ((1 << width) - 1)) as u16
     }
 
     /// Computes all bank indices and tags in one pass by recomputing CSRs from a
@@ -157,9 +150,6 @@ impl GeoBankSet {
     pub fn snapshot_all(&self, pc: u64, ghr: &Ghr) -> ([usize; MAX_BANKS], [u16; MAX_BANKS]) {
         let mut indices = [0usize; MAX_BANKS];
         let mut tags = [0u16; MAX_BANKS];
-        let pc_idx_hash = pc >> 2;
-        let pc_tag_hash = (pc >> 2) ^ (pc >> 18);
-
         for i in 0..self.num_banks {
             let hl = self.hist_lengths[i];
             let tw = self.tag_widths[i];
@@ -168,15 +158,13 @@ impl GeoBankSet {
             csr1.recompute(ghr);
             let mut csr2 = FoldedHistory::new(self.table_bits.saturating_sub(1).max(1), hl);
             csr2.recompute(ghr);
-            indices[i] =
-                (pc_idx_hash as usize ^ csr1.val as usize ^ csr2.val as usize) & self.table_mask;
+            indices[i] = fold_hash(index_pc(pc), csr1.val, csr2.val) as usize & self.table_mask;
 
             let mut tcsr1 = FoldedHistory::new(tw, hl);
             tcsr1.recompute(ghr);
             let mut tcsr2 = FoldedHistory::new(tw.saturating_sub(1).max(1), hl);
             tcsr2.recompute(ghr);
-            tags[i] = ((pc_tag_hash as usize ^ tcsr1.val as usize ^ tcsr2.val as usize)
-                & ((1 << tw) - 1)) as u16;
+            tags[i] = (fold_hash(tag_pc(pc), tcsr1.val, tcsr2.val) & ((1 << tw) - 1)) as u16;
         }
 
         (indices, tags)
@@ -222,10 +210,46 @@ impl GeoBankSet {
     }
 }
 
+/// The PC bits an index starts from.
+const fn index_pc(pc: u64) -> u64 {
+    pc >> 2
+}
+
+/// The PC bits a tag starts from.
+const fn tag_pc(pc: u64) -> u64 {
+    (pc >> 2) ^ (pc >> 18)
+}
+
+/// `pc_bits` hashed with a bank's fold and its one-bit-narrower fold, as
+/// Seznec's TAGE forms a tag. A history no longer than both folds sits
+/// unfolded in each, so the narrow one is shifted to keep them from
+/// cancelling.
+const fn fold_hash(pc_bits: u64, fold: u64, narrow_fold: u64) -> u64 {
+    pc_bits ^ fold ^ (narrow_fold << 1)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    /// Both folds of a 4-bit history hold it unfolded; hashed alike, they
+    /// would cancel and leave the bank blind to its history.
+    #[test]
+    fn a_history_shorter_than_both_folds_still_moves_the_index_and_tag() {
+        let banks = GeoBankSet::new(&[4], &[9], 8);
+        let pc = 0x8000_1234;
+        let mut all_taken = Ghr::with_len(4);
+        for _ in 0..4 {
+            all_taken.push(true);
+        }
+
+        let (taken_indices, taken_tags) = banks.snapshot_all(pc, &all_taken);
+        let (empty_indices, empty_tags) = banks.snapshot_all(pc, &Ghr::with_len(4));
+
+        assert_ne!(taken_indices[0], empty_indices[0], "index");
+        assert_ne!(taken_tags[0], empty_tags[0], "tag");
+    }
 
     #[test]
     fn speculative_index_and_tag_match_a_snapshot_recompute() {
