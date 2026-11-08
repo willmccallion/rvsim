@@ -15,11 +15,60 @@ use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader::KernelBoot;
 use rvsim_core::system::simulator::ProbeWidth;
-use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramImage, ProgramKind};
+use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramImage};
 use rvsim_core::{Simulator, ValidConfig};
 
 /// A user program as Python hands it over: its ELF bytes, `argv` and `envp`.
-type PyProgram = (Vec<u8>, Vec<String>, Vec<String>);
+#[derive(FromPyObject)]
+struct PyProgram(Vec<u8>, Vec<String>, Vec<String>);
+
+/// How a lone binary loads: as a process or bare-metal image, or as its
+/// ELF says.
+#[derive(Clone, Copy, Debug, Default)]
+enum LoadMode {
+    #[default]
+    Detect,
+    Process,
+    BareMetal,
+}
+
+impl<'py> FromPyObject<'py> for LoadMode {
+    fn extract_bound(mode: &Bound<'py, PyAny>) -> PyResult<Self> {
+        match mode.extract::<String>()?.as_str() {
+            "se" => Ok(Self::Process),
+            "bare" => Ok(Self::BareMetal),
+            other => {
+                Err(PyValueError::new_err(format!("mode must be 'se' or 'bare', not {other:?}")))
+            }
+        }
+    }
+}
+
+/// Loads `programs` as processes, one per hart from hart 0.
+fn load_programs(sim: &mut Simulator, programs: Vec<PyProgram>) -> PyResult<()> {
+    let loaded: Vec<(Vec<u8>, ProcessArgs)> = programs
+        .into_iter()
+        .map(|PyProgram(data, argv, envp)| (data, ProcessArgs { argv, envp }))
+        .collect();
+    let images: Vec<ProgramImage<'_>> =
+        loaded.iter().map(|(data, args)| ProgramImage { data, args }).collect();
+    sim.load_processes(&images).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Loads the binary `data` with `args` the way `mode` says.
+fn load_binary(
+    sim: &mut Simulator,
+    data: &[u8],
+    args: &ProcessArgs,
+    mode: LoadMode,
+) -> PyResult<()> {
+    let loaded = match mode {
+        LoadMode::Detect => sim.load_program(data, args).map(|_| ()),
+        LoadMode::Process => sim.load_process(data, args),
+        LoadMode::BareMetal => sim.load_elf_with_args(data, args),
+    };
+    loaded.map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
 use std::io::Write;
 use std::io::{BufReader, BufWriter};
 
@@ -188,7 +237,7 @@ impl PySimulator {
         elf_data: Option<Vec<u8>>,
         args: Option<Vec<String>>,
         env: Option<Vec<String>>,
-        mode: Option<String>,
+        mode: Option<LoadMode>,
         programs: Option<Vec<PyProgram>>,
         kernel_path: Option<String>,
         firmware_path: Option<String>,
@@ -198,7 +247,7 @@ impl PySimulator {
         outdir: Option<String>,
     ) -> PyResult<Self> {
         let config = ValidConfig::try_from(py_dict_to_config(py, config_dict)?)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let mut sim = Simulator::build(&config, disk_path)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         if let Some(script) = script_path {
@@ -207,40 +256,17 @@ impl PySimulator {
         if let Some(dir) = outdir {
             sim.set_output_dir(&dir).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         }
-        if let Some(programs) = programs {
-            if elf_data.is_some() {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "pass programs or a binary, not both",
-                ));
+        match (programs, elf_data) {
+            (Some(_), Some(_)) => {
+                return Err(PyValueError::new_err("pass programs or a binary, not both"));
             }
-            let process_args: Vec<ProcessArgs> = programs
-                .iter()
-                .map(|(_, argv, envp)| ProcessArgs { argv: argv.clone(), envp: envp.clone() })
-                .collect();
-            let images: Vec<ProgramImage<'_>> = programs
-                .iter()
-                .zip(&process_args)
-                .map(|((data, _, _), args)| ProgramImage { data, args })
-                .collect();
-            sim.load_processes(&images).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        }
-        if let Some(data) = elf_data {
-            let process_args =
-                ProcessArgs { argv: args.unwrap_or_default(), envp: env.unwrap_or_default() };
-            let mode = mode.unwrap_or_default();
-            let loaded = match mode.as_str() {
-                "" => sim.load_program(&data, &process_args),
-                "se" => sim.load_process(&data, &process_args).map(|()| ProgramKind::Process),
-                "bare" => {
-                    sim.load_elf_with_args(&data, &process_args).map(|()| ProgramKind::BareMetal)
-                }
-                other => {
-                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                        "mode must be 'se' or 'bare', not {other:?}"
-                    )));
-                }
-            };
-            let _ = loaded.map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            (Some(programs), None) => load_programs(&mut sim, programs)?,
+            (None, Some(data)) => {
+                let args =
+                    ProcessArgs { argv: args.unwrap_or_default(), envp: env.unwrap_or_default() };
+                load_binary(&mut sim, &data, &args, mode.unwrap_or_default())?;
+            }
+            (None, None) => {}
         }
         if let Some(kernel) = kernel_path {
             let boot = KernelBoot { kernel: Some(kernel), firmware: firmware_path, dtb: dtb_path };
