@@ -12,15 +12,20 @@ pub mod instruction;
 pub mod simulator;
 /// Pipeline snapshot binding (`PyPipelineSnapshot` exposed as `PipelineSnapshot`).
 pub mod snapshot;
-/// Statistics (internal, not exposed to Python).
+/// Statistics binding (`PyStats` exposed as `Stats`, and query results).
 pub mod stats;
-/// Utility functions (e.g., version).
-pub mod utils;
 /// Register, CSR, and memory view bindings.
 pub mod views;
 
 #[cfg(test)]
 mod tests;
+
+/// The version of the extension, as built.
+#[pyfunction]
+#[must_use]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_owned()
+}
 
 /// Registers all public classes and functions onto the Python module.
 ///
@@ -42,9 +47,9 @@ pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<views::VirtualMemory>()?;
 
     m.add("CHECKPOINT_VERSION", rvsim_core::system::checkpoint::VERSION)?;
-    m.add_function(wrap_pyfunction!(utils::version, m)?)?;
-    m.add_function(wrap_pyfunction!(utils::disassemble, m)?)?;
-    m.add_function(wrap_pyfunction!(utils::isa_string, m)?)?;
+    m.add_function(wrap_pyfunction!(version, m)?)?;
+    m.add_function(wrap_pyfunction!(instruction::disassemble, m)?)?;
+    m.add_function(wrap_pyfunction!(config::isa_string, m)?)?;
     m.add_function(wrap_pyfunction!(config::default_config, m)?)?;
     m.add_function(wrap_pyfunction!(config::minimal_config, m)?)?;
     m.add_function(wrap_pyfunction!(config::check_config, m)?)?;
