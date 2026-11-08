@@ -21,19 +21,10 @@ use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::WriteOrigin;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::sim::stats::Stats;
-
-/// Maps a `width_bytes` value (1/2/4/8) to the matching [`AccessSize`].
-fn access_size_for(width: u8) -> AccessSize {
-    match width {
-        1 => AccessSize::B1,
-        2 => AccessSize::B2,
-        4 => AccessSize::B4,
-        _ => AccessSize::B8,
-    }
-}
+use crate::system::simulator::ProbeWidth;
 
 /// Dispatches a `MemReq::Read` to `device` and returns the response payload.
-pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
+pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: ProbeWidth) -> u64 {
     let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
@@ -53,7 +44,7 @@ pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
             paddr,
             vaddr: None,
             pc: None,
-            size: access_size_for(width),
+            size: AccessSize::from(width),
             op: MemOp::Read,
         },
         ComponentId::Pipeline(PipelineId::new(0)),
@@ -73,7 +64,7 @@ pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
 }
 
 /// Dispatches a `MemReq::Write` to `device` for its side effect.
-pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) {
+pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: ProbeWidth) {
     let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
@@ -93,7 +84,7 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
             paddr,
             vaddr: None,
             pc: None,
-            size: access_size_for(width),
+            size: AccessSize::from(width),
             op: MemOp::Write { data: WriteData::Small(value), origin: WriteOrigin::Host },
         },
         ComponentId::Pipeline(PipelineId::new(0)),
@@ -112,7 +103,7 @@ pub fn write_and_run_dma<H: Handle>(
     memory: &mut GlobalMemory,
     paddr: PhysAddr,
     value: u64,
-    width: u8,
+    width: ProbeWidth,
 ) {
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
@@ -123,7 +114,7 @@ pub fn write_and_run_dma<H: Handle>(
         paddr,
         vaddr: None,
         pc: None,
-        size: access_size_for(width),
+        size: AccessSize::from(width),
         op: MemOp::Write { data: WriteData::Small(value), origin: WriteOrigin::Host },
     }];
     while !pending.is_empty() {

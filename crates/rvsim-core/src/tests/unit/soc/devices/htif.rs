@@ -5,6 +5,7 @@ use crate::sim::memory::{GlobalMemory, Ram};
 use crate::soc::devices::{Device, Htif};
 use crate::soc::exit::ExitSignal;
 use crate::soc::terminal::{SharedTerminal, Terminal};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::probe;
 
 fn quiet() -> SharedTerminal {
@@ -17,22 +18,35 @@ fn reading_tohost_returns_zero() {
     let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal, Vec::new(), quiet());
 
     assert_eq!(
-        crate::tests::support::probe::read(&mut htif, crate::common::PhysAddr::new(0x1000), 1)
-            as u8,
+        crate::tests::support::probe::read(
+            &mut htif,
+            crate::common::PhysAddr::new(0x1000),
+            ProbeWidth::B1
+        ) as u8,
         0
     );
     assert_eq!(
-        crate::tests::support::probe::read(&mut htif, crate::common::PhysAddr::new(0x1000), 2)
-            as u16,
+        crate::tests::support::probe::read(
+            &mut htif,
+            crate::common::PhysAddr::new(0x1000),
+            ProbeWidth::B2
+        ) as u16,
         0
     );
     assert_eq!(
-        crate::tests::support::probe::read(&mut htif, crate::common::PhysAddr::new(0x1000), 4)
-            as u32,
+        crate::tests::support::probe::read(
+            &mut htif,
+            crate::common::PhysAddr::new(0x1000),
+            ProbeWidth::B4
+        ) as u32,
         0
     );
     assert_eq!(
-        crate::tests::support::probe::read(&mut htif, crate::common::PhysAddr::new(0x1000), 8),
+        crate::tests::support::probe::read(
+            &mut htif,
+            crate::common::PhysAddr::new(0x1000),
+            ProbeWidth::B8
+        ),
         0
     );
 }
@@ -42,10 +56,20 @@ fn byte_and_halfword_writes_to_tohost_are_ignored() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1_u64, 1);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000),
+        1_u64,
+        ProbeWidth::B1,
+    );
     assert_eq!(exit_signal.peek(), None);
 
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1_u64, 2);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000),
+        1_u64,
+        ProbeWidth::B2,
+    );
     assert_eq!(exit_signal.peek(), None);
 }
 
@@ -58,11 +82,16 @@ fn a_write_beside_tohost_does_not_end_the_run() {
         &mut htif,
         crate::common::PhysAddr::new(0x1000 + 4),
         1_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(exit_signal.peek(), None);
 
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000 + 8), 1, 8);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000 + 8),
+        1,
+        ProbeWidth::B8,
+    );
     assert_eq!(exit_signal.peek(), None);
 }
 
@@ -71,7 +100,12 @@ fn a_tohost_value_of_one_passes_the_run() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1, 8);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000),
+        1,
+        ProbeWidth::B8,
+    );
     assert_eq!(exit_signal.peek(), Some(0));
 }
 
@@ -81,11 +115,21 @@ fn an_odd_tohost_value_above_one_fails_with_its_test_number() {
     let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     // value 3 is test number 1 (3 >> 1)
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 3, 8);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000),
+        3,
+        ProbeWidth::B8,
+    );
     assert_eq!(exit_signal.peek(), Some(1));
 
     // value 5 is test number 2 (5 >> 1)
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 5, 8);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000),
+        5,
+        ProbeWidth::B8,
+    );
     assert_eq!(exit_signal.peek(), Some(2));
 }
 
@@ -94,7 +138,12 @@ fn a_zero_tohost_value_is_ignored() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 0, 8);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000),
+        0,
+        ProbeWidth::B8,
+    );
     assert_eq!(exit_signal.peek(), None);
 }
 
@@ -105,7 +154,12 @@ fn an_even_tohost_value_is_a_syscall_block_not_an_exit() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 42, 8);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000),
+        42,
+        ProbeWidth::B8,
+    );
     assert_eq!(exit_signal.peek(), None);
 }
 
@@ -115,7 +169,12 @@ fn a_word_write_to_tohost_counts() {
     let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     // U32 pass
-    crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1_u64, 4);
+    crate::tests::support::probe::write(
+        &mut htif,
+        crate::common::PhysAddr::new(0x1000),
+        1_u64,
+        ProbeWidth::B4,
+    );
     assert_eq!(exit_signal.peek(), Some(0));
 }
 
@@ -130,7 +189,11 @@ fn fromhost_survives_a_checkpoint() {
     htif.restore(&state).expect("the state restores");
 
     assert_eq!(
-        crate::tests::support::probe::read(&mut htif, crate::common::PhysAddr::new(0x1008), 8),
+        crate::tests::support::probe::read(
+            &mut htif,
+            crate::common::PhysAddr::new(0x1008),
+            ProbeWidth::B8
+        ),
         5
     );
     assert_eq!(htif.checkpoint(), Some(state));
@@ -169,7 +232,7 @@ fn getcwd_into_a_buffer_too_small_for_the_path_fails_with_erange() {
     memory.write_bytes(Writer::External, PhysAddr::new(BLOCK), &block);
     let mut htif = Htif::new(PhysAddr::new(0x1000), ExitSignal::new(), Vec::new(), quiet());
 
-    probe::write_and_run_dma(&mut htif, &mut memory, PhysAddr::new(0x1000), BLOCK, 8);
+    probe::write_and_run_dma(&mut htif, &mut memory, PhysAddr::new(0x1000), BLOCK, ProbeWidth::B8);
 
     let result = memory.read(PhysAddr::new(BLOCK), 8).expect("the block is in RAM");
     assert_eq!(result.cast_signed(), -ERANGE);
@@ -192,7 +255,7 @@ fn an_exit_with_the_largest_code_still_ends_the_run() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
-    probe::write_and_run_dma(&mut htif, &mut memory, PhysAddr::new(0x1000), BLOCK, 8);
+    probe::write_and_run_dma(&mut htif, &mut memory, PhysAddr::new(0x1000), BLOCK, ProbeWidth::B8);
 
     assert_eq!(exit_signal.peek(), Some(u64::MAX));
 }

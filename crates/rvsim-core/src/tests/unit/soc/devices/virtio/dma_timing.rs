@@ -4,6 +4,8 @@
 //! transfers, then the status and used-ring writes. The request completes,
 //! and its interrupt is raised, only when the last transfer has returned.
 
+use crate::system::simulator::ProbeWidth;
+
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::config::Config;
 use crate::config::defaults::RAM_BASE;
@@ -105,7 +107,12 @@ pub(super) fn device_with_a_queued(request: Request) -> (VirtioBlock, GlobalMemo
         (0x38, 8),
         (0x44, 1),
     ] {
-        crate::tests::support::probe::write(&mut device, PhysAddr::new(MMIO + register), value, 4);
+        crate::tests::support::probe::write(
+            &mut device,
+            PhysAddr::new(MMIO + register),
+            value,
+            ProbeWidth::B4,
+        );
     }
     (device, memory)
 }

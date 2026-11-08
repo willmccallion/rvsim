@@ -3,6 +3,8 @@
 //! Tests for UART data transmission, receive buffer, interrupt handling,
 //! and various register configurations.
 
+use crate::system::simulator::ProbeWidth;
+
 use crate::common::{IrqId, PhysAddr};
 use crate::config::Console;
 use crate::soc::devices::Device;
@@ -17,15 +19,30 @@ fn uart(base_addr: u64, console: crate::config::Console, cpu_clock_mhz: u64) -> 
 fn uart_transmit_data_via_thr() {
     let mut uart = uart(0x1000_0000, Console::Quiet, 2400);
     // Write to THR (offset 0)
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0), 0x41_u64, 1); // ASCII 'A'
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        0x41_u64,
+        ProbeWidth::B1,
+    ); // ASCII 'A'
     // UART should buffer this for transmission
 }
 
 #[test]
 fn uart_transmit_multiple_bytes() {
     let mut uart = uart(0x1000_0000, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0), 0x48_u64, 1); // 'H'
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0), 0x69_u64, 1); // 'i'
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        0x48_u64,
+        ProbeWidth::B1,
+    ); // 'H'
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        0x69_u64,
+        ProbeWidth::B1,
+    ); // 'i'
 }
 
 #[test]
@@ -37,7 +54,7 @@ fn uart_transmit_full_message() {
             &mut uart,
             crate::common::PhysAddr::new(0),
             u64::from(byte),
-            1,
+            ProbeWidth::B1,
         );
     }
 }
@@ -46,9 +63,17 @@ fn uart_transmit_full_message() {
 fn uart_dlab_set() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Set DLAB bit (bit 7 of LCR)
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x80_u64, 1);
-    let lcr =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8;
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x80_u64,
+        ProbeWidth::B1,
+    );
+    let lcr = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        ProbeWidth::B1,
+    ) as u8;
     assert_eq!(lcr & 0x80, 0x80);
 }
 
@@ -56,12 +81,26 @@ fn uart_dlab_set() {
 fn uart_dlab_divisor_low() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Enable DLAB
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x80_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x80_u64,
+        ProbeWidth::B1,
+    );
     // Write divisor low byte
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0), 0x01_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        0x01_u64,
+        ProbeWidth::B1,
+    );
     // Verify
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(0), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(0),
+            ProbeWidth::B1
+        ) as u8),
         0x01
     );
 }
@@ -70,12 +109,26 @@ fn uart_dlab_divisor_low() {
 fn uart_dlab_divisor_high() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Enable DLAB
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x80_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x80_u64,
+        ProbeWidth::B1,
+    );
     // Write divisor high byte
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x00_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x00_u64,
+        ProbeWidth::B1,
+    );
     // Verify
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x00
     );
 }
@@ -84,17 +137,40 @@ fn uart_dlab_divisor_high() {
 fn uart_dlab_full_divisor() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Set DLAB
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x80_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x80_u64,
+        ProbeWidth::B1,
+    );
     // Set divisor = 0x000C (common for 9600 baud)
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0), 0x0C_u64, 1); // DLL
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x00_u64, 1); // DLH
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        0x0C_u64,
+        ProbeWidth::B1,
+    ); // DLL
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x00_u64,
+        ProbeWidth::B1,
+    ); // DLH
 
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(0), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(0),
+            ProbeWidth::B1
+        ) as u8),
         0x0C
     );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x00
     );
 }
@@ -103,20 +179,42 @@ fn uart_dlab_full_divisor() {
 fn uart_dlab_disable() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Enable DLAB
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x80_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x80_u64,
+        ProbeWidth::B1,
+    );
     // Disable DLAB
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x03_u64, 1); // 8N1, no DLAB
-    let lcr =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8;
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x03_u64,
+        ProbeWidth::B1,
+    ); // 8N1, no DLAB
+    let lcr = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        ProbeWidth::B1,
+    ) as u8;
     assert_eq!(lcr & 0x80, 0);
 }
 
 #[test]
 fn uart_lcr_data_bits_5() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x00_u64, 1); // 5 data bits
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x00_u64,
+        ProbeWidth::B1,
+    ); // 5 data bits
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x03,
         0x00
     );
@@ -125,9 +223,18 @@ fn uart_lcr_data_bits_5() {
 #[test]
 fn uart_lcr_data_bits_6() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x01_u64, 1); // 6 data bits
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x01_u64,
+        ProbeWidth::B1,
+    ); // 6 data bits
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x03,
         0x01
     );
@@ -136,9 +243,18 @@ fn uart_lcr_data_bits_6() {
 #[test]
 fn uart_lcr_data_bits_7() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x02_u64, 1); // 7 data bits
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x02_u64,
+        ProbeWidth::B1,
+    ); // 7 data bits
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x03,
         0x02
     );
@@ -147,9 +263,18 @@ fn uart_lcr_data_bits_7() {
 #[test]
 fn uart_lcr_data_bits_8() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x03_u64, 1); // 8 data bits
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x03_u64,
+        ProbeWidth::B1,
+    ); // 8 data bits
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x03,
         0x03
     );
@@ -158,9 +283,18 @@ fn uart_lcr_data_bits_8() {
 #[test]
 fn uart_lcr_stop_bits() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x04_u64, 1); // 2 stop bits
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x04_u64,
+        ProbeWidth::B1,
+    ); // 2 stop bits
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x04,
         0x04
     );
@@ -169,9 +303,18 @@ fn uart_lcr_stop_bits() {
 #[test]
 fn uart_lcr_parity_enable() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x08_u64, 1); // Enable parity
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x08_u64,
+        ProbeWidth::B1,
+    ); // Enable parity
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x08,
         0x08
     );
@@ -180,9 +323,18 @@ fn uart_lcr_parity_enable() {
 #[test]
 fn uart_lcr_even_parity() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x18_u64, 1); // Enable parity + even parity
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x18_u64,
+        ProbeWidth::B1,
+    ); // Enable parity + even parity
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x18,
         0x18
     );
@@ -191,9 +343,18 @@ fn uart_lcr_even_parity() {
 #[test]
 fn uart_lcr_break_control() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x40_u64, 1); // Set break
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x40_u64,
+        ProbeWidth::B1,
+    ); // Set break
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x40,
         0x40
     );
@@ -202,9 +363,18 @@ fn uart_lcr_break_control() {
 #[test]
 fn uart_ier_disable_all() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x00_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x00_u64,
+        ProbeWidth::B1,
+    );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x00
     );
 }
@@ -212,9 +382,18 @@ fn uart_ier_disable_all() {
 #[test]
 fn uart_ier_enable_received_data() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x01_u64, 1); // Enable received data interrupt
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x01_u64,
+        ProbeWidth::B1,
+    ); // Enable received data interrupt
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x01
     );
 }
@@ -222,9 +401,18 @@ fn uart_ier_enable_received_data() {
 #[test]
 fn uart_ier_enable_transmitter_empty() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x02_u64, 1); // Enable transmitter empty interrupt
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x02_u64,
+        ProbeWidth::B1,
+    ); // Enable transmitter empty interrupt
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x02
     );
 }
@@ -232,9 +420,18 @@ fn uart_ier_enable_transmitter_empty() {
 #[test]
 fn uart_ier_enable_line_status() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x04_u64, 1); // Enable line status interrupt
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x04_u64,
+        ProbeWidth::B1,
+    ); // Enable line status interrupt
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x04
     );
 }
@@ -242,9 +439,18 @@ fn uart_ier_enable_line_status() {
 #[test]
 fn uart_ier_enable_modem_status() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x08_u64, 1); // Enable modem status interrupt
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x08_u64,
+        ProbeWidth::B1,
+    ); // Enable modem status interrupt
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x08
     );
 }
@@ -252,9 +458,18 @@ fn uart_ier_enable_modem_status() {
 #[test]
 fn uart_ier_enable_multiple() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x0F_u64, 1); // Enable all interrupts
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x0F_u64,
+        ProbeWidth::B1,
+    ); // Enable all interrupts
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x0F
     );
 }
@@ -262,8 +477,11 @@ fn uart_ier_enable_multiple() {
 #[test]
 fn uart_iir_no_interrupt_pending() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let iir =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(2), 1) as u8;
+    let iir = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(2),
+        ProbeWidth::B1,
+    ) as u8;
     // Bit 0 = 1 means no interrupt pending
     assert_ne!(iir & 0x01, 0);
 }
@@ -271,17 +489,29 @@ fn uart_iir_no_interrupt_pending() {
 #[test]
 fn uart_iir_fifo_enabled() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let _iir =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(2), 1) as u8;
+    let _iir = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(2),
+        ProbeWidth::B1,
+    ) as u8;
     // Bits 6-7 should indicate FIFO status
 }
 
 #[test]
 fn uart_mcr_dtr() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x01_u64, 1); // DTR
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x01_u64,
+        ProbeWidth::B1,
+    ); // DTR
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(4), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(4),
+            ProbeWidth::B1
+        ) as u8)
             & 0x01,
         0x01
     );
@@ -290,9 +520,18 @@ fn uart_mcr_dtr() {
 #[test]
 fn uart_mcr_rts() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x02_u64, 1); // RTS
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x02_u64,
+        ProbeWidth::B1,
+    ); // RTS
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(4), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(4),
+            ProbeWidth::B1
+        ) as u8)
             & 0x02,
         0x02
     );
@@ -301,9 +540,18 @@ fn uart_mcr_rts() {
 #[test]
 fn uart_mcr_out1() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x04_u64, 1); // OUT1
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x04_u64,
+        ProbeWidth::B1,
+    ); // OUT1
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(4), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(4),
+            ProbeWidth::B1
+        ) as u8)
             & 0x04,
         0x04
     );
@@ -312,9 +560,18 @@ fn uart_mcr_out1() {
 #[test]
 fn uart_mcr_out2() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x08_u64, 1); // OUT2
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x08_u64,
+        ProbeWidth::B1,
+    ); // OUT2
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(4), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(4),
+            ProbeWidth::B1
+        ) as u8)
             & 0x08,
         0x08
     );
@@ -323,9 +580,18 @@ fn uart_mcr_out2() {
 #[test]
 fn uart_mcr_loopback() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x10_u64, 1); // Loopback mode
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x10_u64,
+        ProbeWidth::B1,
+    ); // Loopback mode
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(4), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(4),
+            ProbeWidth::B1
+        ) as u8)
             & 0x10,
         0x10
     );
@@ -334,9 +600,18 @@ fn uart_mcr_loopback() {
 #[test]
 fn uart_mcr_all_bits() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x1F_u64, 1); // All bits set
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x1F_u64,
+        ProbeWidth::B1,
+    ); // All bits set
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(4), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(4),
+            ProbeWidth::B1
+        ) as u8),
         0x1F
     );
 }
@@ -344,8 +619,11 @@ fn uart_mcr_all_bits() {
 #[test]
 fn uart_lsr_overrun_error() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let lsr =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(5), 1) as u8;
+    let lsr = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(5),
+        ProbeWidth::B1,
+    ) as u8;
     // Check bit 1 (overrun error)
     let _ = (lsr >> 1) & 1;
 }
@@ -353,8 +631,11 @@ fn uart_lsr_overrun_error() {
 #[test]
 fn uart_lsr_parity_error() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let lsr =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(5), 1) as u8;
+    let lsr = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(5),
+        ProbeWidth::B1,
+    ) as u8;
     // Check bit 2 (parity error)
     let _ = (lsr >> 2) & 1;
 }
@@ -362,8 +643,11 @@ fn uart_lsr_parity_error() {
 #[test]
 fn uart_lsr_framing_error() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let lsr =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(5), 1) as u8;
+    let lsr = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(5),
+        ProbeWidth::B1,
+    ) as u8;
     // Check bit 3 (framing error)
     let _ = (lsr >> 3) & 1;
 }
@@ -371,8 +655,11 @@ fn uart_lsr_framing_error() {
 #[test]
 fn uart_lsr_break_interrupt() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let lsr =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(5), 1) as u8;
+    let lsr = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(5),
+        ProbeWidth::B1,
+    ) as u8;
     // Check bit 4 (break interrupt)
     let _ = (lsr >> 4) & 1;
 }
@@ -380,27 +667,42 @@ fn uart_lsr_break_interrupt() {
 #[test]
 fn uart_read_u16() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let _ =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(0), 2) as u16;
+    let _ = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        ProbeWidth::B2,
+    ) as u16;
 }
 
 #[test]
 fn uart_read_u32() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let _ =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(0), 4) as u32;
+    let _ = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        ProbeWidth::B4,
+    ) as u32;
 }
 
 #[test]
 fn uart_read_u64() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let _ = crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(0), 8);
+    let _ = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        ProbeWidth::B8,
+    );
 }
 
 #[test]
 fn uart_write_u16() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0), 0x4142_u64, 2);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        0x4142_u64,
+        ProbeWidth::B2,
+    );
 }
 
 #[test]
@@ -410,7 +712,7 @@ fn uart_write_u32() {
         &mut uart,
         crate::common::PhysAddr::new(0),
         0x41424344_u64,
-        4,
+        ProbeWidth::B4,
     );
 }
 
@@ -421,28 +723,40 @@ fn uart_write_u64() {
         &mut uart,
         crate::common::PhysAddr::new(0),
         0x4142434445464748,
-        8,
+        ProbeWidth::B8,
     );
 }
 
 #[test]
 fn uart_invalid_register_read() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    let _ =
-        crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(0xFF), 1) as u8; // Invalid offset
+    let _ = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(0xFF),
+        ProbeWidth::B1,
+    ) as u8; // Invalid offset
 }
 
 #[test]
 fn uart_invalid_register_write() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0xFF), 0x00_u64, 1); // Invalid offset
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0xFF),
+        0x00_u64,
+        ProbeWidth::B1,
+    ); // Invalid offset
 }
 
 #[test]
 fn uart_read_write_only_register() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Try reading FCR (write-only)
-    let _ = crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(2), 1) as u8;
+    let _ = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(2),
+        ProbeWidth::B1,
+    ) as u8;
 }
 
 #[test]
@@ -461,15 +775,39 @@ fn uart_tick_no_interrupt() {
 fn uart_configure_9600_8n1() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Set DLAB
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x80_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x80_u64,
+        ProbeWidth::B1,
+    );
     // Set divisor for 9600 baud
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0), 0x0C_u64, 1);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x00_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        0x0C_u64,
+        ProbeWidth::B1,
+    );
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x00_u64,
+        ProbeWidth::B1,
+    );
     // Clear DLAB, set 8N1
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x03_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x03_u64,
+        ProbeWidth::B1,
+    );
 
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x03,
         0x03
     );
@@ -479,15 +817,39 @@ fn uart_configure_9600_8n1() {
 fn uart_configure_115200_8n1() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Set DLAB
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x80_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x80_u64,
+        ProbeWidth::B1,
+    );
     // Set divisor for 115200 baud
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(0), 0x01_u64, 1);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x00_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        0x01_u64,
+        ProbeWidth::B1,
+    );
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x00_u64,
+        ProbeWidth::B1,
+    );
     // Clear DLAB, set 8N1
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x03_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x03_u64,
+        ProbeWidth::B1,
+    );
 
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8)
             & 0x03,
         0x03
     );
@@ -497,9 +859,18 @@ fn uart_configure_115200_8n1() {
 fn uart_configure_with_parity() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // 8 data bits, 1 stop bit, even parity
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x1B_u64, 1); // 0b00011011
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x1B_u64,
+        ProbeWidth::B1,
+    ); // 0b00011011
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(3), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(3),
+            ProbeWidth::B1
+        ) as u8),
         0x1B
     );
 }
@@ -508,9 +879,18 @@ fn uart_configure_with_parity() {
 fn uart_configure_with_flow_control() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Set RTS/DTR for flow control
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x03_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x03_u64,
+        ProbeWidth::B1,
+    );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(4), 1) as u8)
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(4),
+            ProbeWidth::B1
+        ) as u8)
             & 0x03,
         0x03
     );
@@ -520,17 +900,51 @@ fn uart_configure_with_flow_control() {
 fn uart_reset_configuration() {
     let mut uart = uart(0, Console::Quiet, 2400);
     // Set some configuration
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x03_u64, 1);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x03_u64, 1);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x0F_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x03_u64,
+        ProbeWidth::B1,
+    );
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x03_u64,
+        ProbeWidth::B1,
+    );
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x0F_u64,
+        ProbeWidth::B1,
+    );
 
     // Reset
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(3), 0x00_u64, 1);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(4), 0x00_u64, 1);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(1), 0x00_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(3),
+        0x00_u64,
+        ProbeWidth::B1,
+    );
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(4),
+        0x00_u64,
+        ProbeWidth::B1,
+    );
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(1),
+        0x00_u64,
+        ProbeWidth::B1,
+    );
 
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(1), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(1),
+            ProbeWidth::B1
+        ) as u8),
         0x00
     );
 }
@@ -538,9 +952,18 @@ fn uart_reset_configuration() {
 #[test]
 fn uart_scratch_all_zeros() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(7), 0x00_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(7),
+        0x00_u64,
+        ProbeWidth::B1,
+    );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(7), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(7),
+            ProbeWidth::B1
+        ) as u8),
         0x00
     );
 }
@@ -548,9 +971,18 @@ fn uart_scratch_all_zeros() {
 #[test]
 fn uart_scratch_all_ones() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(7), 0xFF_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(7),
+        0xFF_u64,
+        ProbeWidth::B1,
+    );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(7), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(7),
+            ProbeWidth::B1
+        ) as u8),
         0xFF
     );
 }
@@ -558,15 +990,33 @@ fn uart_scratch_all_ones() {
 #[test]
 fn uart_scratch_pattern() {
     let mut uart = uart(0, Console::Quiet, 2400);
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(7), 0x55_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(7),
+        0x55_u64,
+        ProbeWidth::B1,
+    );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(7), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(7),
+            ProbeWidth::B1
+        ) as u8),
         0x55
     );
 
-    crate::tests::support::probe::write(&mut uart, crate::common::PhysAddr::new(7), 0xAA_u64, 1);
+    crate::tests::support::probe::write(
+        &mut uart,
+        crate::common::PhysAddr::new(7),
+        0xAA_u64,
+        ProbeWidth::B1,
+    );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(7), 1) as u8),
+        (crate::tests::support::probe::read(
+            &mut uart,
+            crate::common::PhysAddr::new(7),
+            ProbeWidth::B1
+        ) as u8),
         0xAA
     );
 }
@@ -582,7 +1032,7 @@ fn a_kernel_panic_message_is_printed_whole_and_noticed() {
             &mut uart,
             crate::common::PhysAddr::new(0),
             u64::from(byte),
-            1,
+            ProbeWidth::B1,
         );
     }
 
@@ -602,7 +1052,7 @@ fn a_captured_console_keeps_output_for_the_host() {
             &mut uart,
             crate::common::PhysAddr::new(0),
             u64::from(byte),
-            1,
+            ProbeWidth::B1,
         );
     }
 
@@ -623,7 +1073,15 @@ fn a_captured_console_delivers_the_hosts_input() {
         let _ = uart.tick();
     }
 
-    let lsr = crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(5), 1);
-    let rbr = crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(0), 1);
+    let lsr = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(5),
+        ProbeWidth::B1,
+    );
+    let rbr = crate::tests::support::probe::read(
+        &mut uart,
+        crate::common::PhysAddr::new(0),
+        ProbeWidth::B1,
+    );
     assert_eq!((lsr & 1, rbr), (1, u64::from(b'r')));
 }

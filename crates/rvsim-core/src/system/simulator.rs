@@ -1177,12 +1177,7 @@ impl Simulator {
         use crate::sim::packet::{AccessSize, MemRespData, Packet};
         use crate::sim::stats::Stats;
 
-        let access_size = match width {
-            ProbeWidth::B1 => AccessSize::B1,
-            ProbeWidth::B2 => AccessSize::B2,
-            ProbeWidth::B4 => AccessSize::B4,
-            ProbeWidth::B8 => AccessSize::B8,
-        };
+        let access_size = AccessSize::from(width);
         let req_id = ReqId::HOST_PROBE;
         let mut local_queue = EventQueue::new();
         let mut local_stats = Stats::new();
@@ -1246,6 +1241,17 @@ pub enum ProbeWidth {
     B4,
     /// Eight bytes.
     B8,
+}
+
+impl From<ProbeWidth> for crate::sim::packet::AccessSize {
+    fn from(width: ProbeWidth) -> Self {
+        match width {
+            ProbeWidth::B1 => Self::B1,
+            ProbeWidth::B2 => Self::B2,
+            ProbeWidth::B4 => Self::B4,
+            ProbeWidth::B8 => Self::B8,
+        }
+    }
 }
 
 impl ProbeWidth {
