@@ -16,7 +16,7 @@ use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::op::{VecOperandGroups, VectorOp};
 use crate::isa::rvv::MAX_GROUP_REGS;
-use crate::isa::rvv::{VRegIdx, VectorConfig, VectorRounding, parse_vtype};
+use crate::isa::rvv::{VRegIdx, VectorConfig, VectorRounding};
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::expected_load_micro_ops;
@@ -385,7 +385,7 @@ fn vector_operand_groups(ctrl: &ControlSignals, vector: &VectorConfig) -> VecOpe
         ctrl.vec_broadcast_vs2,
     );
     let is_mem = matches!(op, VectorOp::Load(_) | VectorOp::Store(_));
-    let vtype = parse_vtype(vector.vtype);
+    let vtype = vector.fields();
     if is_mem && (!vtype.vill || !op.depends_on_vtype()) {
         groups.vd = vec_mem_dst_count(op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
         groups.vs2 = vec_mem_emul_regs(op, ctrl.vec_eew, vtype.vsew, vtype.vlmul).1;

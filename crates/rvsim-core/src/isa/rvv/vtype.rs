@@ -455,14 +455,42 @@ pub struct VectorRounding {
 /// The vector configuration a `vsetvl` establishes: what the front end
 /// snapshots for the vector instructions it renames, and what commit
 /// writes to the `vtype`, `vl` and `vstart` CSRs.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VectorConfig {
     /// `vtype`.
-    pub vtype: u64,
+    vtype: u64,
+    /// `vtype`'s fields, parsed once.
+    fields: VtypeFields,
     /// `vl`.
     pub vl: u64,
     /// `vstart`.
     pub vstart: u64,
+}
+
+impl VectorConfig {
+    /// The configuration of `vtype`, `vl` and `vstart`.
+    #[must_use]
+    pub const fn new(vtype: u64, vl: u64, vstart: u64) -> Self {
+        Self { vtype, fields: parse_vtype(vtype), vl, vstart }
+    }
+
+    /// `vtype` as the CSR holds it.
+    #[must_use]
+    pub const fn vtype(&self) -> u64 {
+        self.vtype
+    }
+
+    /// `vtype`'s fields.
+    #[must_use]
+    pub const fn fields(&self) -> VtypeFields {
+        self.fields
+    }
+}
+
+impl Default for VectorConfig {
+    fn default() -> Self {
+        Self::new(0, 0, 0)
+    }
 }
 
 #[cfg(test)]

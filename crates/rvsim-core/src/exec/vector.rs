@@ -34,5 +34,5 @@ pub fn vector_config(
         elen,
         current_vl,
     );
-    VectorConfig { vtype, vl, vstart: 0 }
+    VectorConfig::new(vtype, vl, 0)
 }

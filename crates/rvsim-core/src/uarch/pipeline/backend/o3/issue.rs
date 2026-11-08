@@ -8,7 +8,7 @@ use crate::exec::compute::vector::execute::{VecEnv, execute_vec_op_on};
 use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses, is_vec_store};
 use crate::isa::extension::Extension;
 use crate::isa::op::{VectorCompute, VectorOp};
-use crate::isa::rvv::{VRegIdx, parse_vtype};
+use crate::isa::rvv::VRegIdx;
 use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::mdp::MemDepAccess;
@@ -235,7 +235,7 @@ impl O3Engine {
         let vd = dest.map_or(VecRegGroup::EMPTY, |d| d.group);
 
         // Reject illegal EMUL (>8) before element_accesses would panic.
-        let vtype = parse_vtype(entry.vector_config.vtype);
+        let vtype = entry.vector_config.fields();
         if let Err(trap) = check_vec_mem_emul(result.op.bits, ctrl, vtype) {
             self.rob.fault(result.op.rob_tag, trap);
             return;
