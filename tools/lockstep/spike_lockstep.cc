@@ -461,6 +461,11 @@ std::optional<InterruptPendingWrite> pending_write(insn_t insn, const state_t& s
 
 // CSRs rvsim implements and spike does not: tcontrol is optional in
 // Sdtrig. Their accesses are taken from rvsim's log.
+// gem5's m5op pseudo-instruction, which rvsim performs and spike lacks.
+bool is_pseudo_op(insn_t insn) {
+  return (insn.bits() & 0x7f) == 0x7b;
+}
+
 bool is_rvsim_only(unsigned csr) {
   return csr == CSR_TCONTROL;
 }
@@ -550,7 +555,7 @@ class Lockstep {
   uint64_t instructions() const { return instructions_; }
   uint64_t traps() const { return traps_; }
   uint64_t injected_csr_reads() const { return injected_csr_reads_; }
-  uint64_t emulated_csr_accesses() const { return emulated_csr_accesses_; }
+  uint64_t emulated_instructions() const { return emulated_instructions_; }
   uint64_t failed_store_conditionals() const { return failed_store_conditionals_; }
   uint64_t adopted_misa_writes() const { return adopted_misa_writes_; }
   uint64_t agnostic_vector_writes() const { return agnostic_vector_writes_; }
@@ -608,8 +613,8 @@ class Lockstep {
     if (insn.length() == 4 && static_cast<uint32_t>(insn.bits()) != expected.inst)
       throw Divergence("instruction bits differ at " + hex(expected.pc));
 
-    if (is_csr_access(insn) && is_rvsim_only(insn.csr())) {
-      take_rvsim_only_csr_access(insn, expected);
+    if ((is_csr_access(insn) && is_rvsim_only(insn.csr())) || is_pseudo_op(insn)) {
+      take_rvsim_only(insn, expected);
       return;
     }
 
@@ -781,11 +786,13 @@ class Lockstep {
 
   // Retires a CSR instruction for a CSR spike lacks as rvsim did: its
   // result is rvsim's, and nothing else changes.
-  void take_rvsim_only_csr_access(insn_t insn, const Retired& expected) {
-    if (expected.destination && insn.rd() != 0) state_.XPR.write(insn.rd(), expected.destination->value);
+  // An instruction spike lacks: it takes the integer result rvsim logged.
+  void take_rvsim_only(insn_t insn, const Retired& expected) {
+    if (expected.destination && expected.destination->file == RegFile::integer && expected.destination->index != 0)
+      state_.XPR.write(expected.destination->index, expected.destination->value);
     state_.pc = expected.pc + insn.length();
     ++instructions_;
-    ++emulated_csr_accesses_;
+    ++emulated_instructions_;
   }
 
   void inject_model_specific_read(insn_t insn, const Retired& expected) {
@@ -906,7 +913,7 @@ class Lockstep {
   uint64_t instructions_ = 0;
   uint64_t traps_ = 0;
   uint64_t injected_csr_reads_ = 0;
-  uint64_t emulated_csr_accesses_ = 0;
+  uint64_t emulated_instructions_ = 0;
   uint64_t failed_store_conditionals_ = 0;
   uint64_t adopted_misa_writes_ = 0;
   uint64_t agnostic_vector_writes_ = 0;
@@ -1052,8 +1059,8 @@ int main(int argc, char** argv) {
     return 2;
   }
   std::cout << "MATCHED " << lockstep.instructions() << " instructions, " << lockstep.traps() << " traps; "
-            << lockstep.injected_csr_reads() << " CSR reads, " << lockstep.emulated_csr_accesses()
-            << " accesses to CSRs spike lacks, " << platform.device_reads() << " device reads and "
+            << lockstep.injected_csr_reads() << " CSR reads, " << lockstep.emulated_instructions()
+            << " instructions spike lacks, " << platform.device_reads() << " device reads and "
             << lockstep.failed_store_conditionals() << " SC failures, " << lockstep.adopted_misa_writes()
             << " misa writes and " << lockstep.agnostic_vector_writes()
             << " agnostic vector fills taken from rvsim\n";
