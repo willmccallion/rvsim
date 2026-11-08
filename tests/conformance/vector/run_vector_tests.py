@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import concurrent.futures as cf
+import contextlib
 import glob
 import json
 import os
@@ -151,10 +152,8 @@ def run_one(args):
         return {"name": name, "status": "error", "reason": f"{type(e).__name__}: {e}"}
     finally:
         for p in (spike_sig_path, rvsim_sig_path):
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(p)
-            except OSError:
-                pass
 
 
 def main():

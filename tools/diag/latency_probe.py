@@ -49,7 +49,7 @@ def build(footprint: int, steps: int) -> Path:
     OUT.mkdir(parents=True, exist_ok=True)
     stem = OUT / f"chase_{footprint}_{steps}"
     libc = [OUT / f"{name}.o" for name in LIBC_SOURCES]
-    for source, obj in zip(LIBC_SOURCES, libc):
+    for source, obj in zip(LIBC_SOURCES, libc, strict=True):
         if not obj.exists():
             subprocess.run(
                 ["riscv64-elf-gcc", *CFLAGS, "-c", str(LIBC / source), "-o", str(obj)],

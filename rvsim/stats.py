@@ -107,10 +107,7 @@ class Stats(dict):
             diff = ""
             if isinstance(v_self, (int, float)) and isinstance(v_other, (int, float)):
                 d = v_other - v_self
-                if isinstance(d, float):
-                    diff = f"{d:+.4f}"
-                else:
-                    diff = f"{d:+,}"
+                diff = f"{d:+.4f}" if isinstance(d, float) else f"{d:+,}"
             print(
                 f"{key:<{max_key}}  {_fmt(v_self):>14}  {_fmt(v_other):>14}  {diff:>14}"
             )
@@ -160,7 +157,7 @@ def _weighted_harmonic_mean(values: Sequence[float], weights: Sequence[float]) -
     """Weighted harmonic mean: sum(w) / sum(w/v). Skips zero values."""
     num = 0.0
     den = 0.0
-    for v, w in zip(values, weights):
+    for v, w in zip(values, weights, strict=True):
         if v > 0 and w > 0:
             num += w
             den += w / v
@@ -257,7 +254,7 @@ def _aggregate_rate(metric: str, stats_list: Sequence[Stats]) -> float | None:
     total_weight = sum(weights)
     if total_weight == 0:
         return None
-    return sum(v * w for v, w in zip(values, weights)) / total_weight
+    return sum(v * w for v, w in zip(values, weights, strict=True)) / total_weight
 
 
 def _ratio(numerator: float | None, other: float | None) -> float | None:
@@ -343,46 +340,21 @@ class Table:
         if not self.__labels:
             return "(empty table)"
 
-        # Partition labels/rows into data rows and speedup rows.
-        # Speedup rows are those that follow the sentinel row whose first cell
-        # starts with "vs " (inserted by _compare_matrix).
-        data_labels: list[str] = []
-        data_grid: list[list[str]] = []
-        speedup_labels: list[str] = []
-        speedup_grid: list[list[str]] = []
-        in_speedup = False
-        for label, cells in zip(self.__labels, self.__grid):
-            if label.startswith("baseline "):
-                in_speedup = True
-                speedup_labels.append(label)
-                speedup_grid.append(cells)
-            elif in_speedup:
-                speedup_labels.append(label)
-                speedup_grid.append(cells)
-            else:
-                data_labels.append(label)
-                data_grid.append(cells)
+        # Speedup rows start at the "baseline …" row _compare_matrix inserts.
+        rows = [
+            [label, *cells]
+            for label, cells in zip(self.__labels, self.__grid, strict=True)
+        ]
+        split = next(
+            (i for i, row in enumerate(rows) if row[0].startswith("baseline ")),
+            len(rows),
+        )
+        headers = [self.__col_header, *self.__metrics]
+        plain = _format_table(headers, rows[:split])
+        speedup = _format_table(headers, rows[split:]) if rows[split:] else None
 
-        headers = [self.__col_header] + self.__metrics
-        data_rows = [[label] + cells for label, cells in zip(data_labels, data_grid)]
-        plain = _format_table(headers, data_rows)
-
-        is_tty = stdout_is_tty()
-        if not is_tty:
-            if speedup_labels:
-                spd_rows = [
-                    [label] + cells
-                    for label, cells in zip(speedup_labels, speedup_grid)
-                ]
-                plain += "\n" + _format_table(headers, spd_rows)
-            return plain
-
-        speedup = None
-        if speedup_labels:
-            spd_rows = [
-                [label] + cells for label, cells in zip(speedup_labels, speedup_grid)
-            ]
-            speedup = _format_table(headers, spd_rows)
+        if not stdout_is_tty():
+            return plain if speedup is None else f"{plain}\n{speedup}"
         return _framed(plain, speedup, self.__title)
 
 
@@ -410,7 +382,7 @@ def _compare_flat(
         if not show_metrics:
             show_metrics = sorted(all_stat_keys)
 
-    headers = [col_header or "metric"] + config_names
+    headers = [col_header or "metric", *config_names]
     rows: list[list[str]] = []
     for m in show_metrics:
         row = [m]

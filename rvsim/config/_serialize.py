@@ -146,7 +146,7 @@ def _mem_dep_dicts(mdp) -> dict[str, Any]:
 def _fu_config_to_dict(fc: Fu) -> dict[str, int]:
     """A unit list as the core's pool: a unit type the list leaves out has
     no units, and keeps the core's latency."""
-    stems = {unit: stem for unit, stem in _UNITS}
+    stems = dict(_UNITS)
     pool = {f"num_{stem}": 0 for _, stem in _UNITS}
     for unit in fc.units:
         stem = stems.get(type(unit))

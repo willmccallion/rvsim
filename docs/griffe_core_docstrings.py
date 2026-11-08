@@ -14,7 +14,7 @@ import griffe
 class CoreDocstrings(griffe.Extension):
     """Copy runtime docstrings onto the ``rvsim._core`` stub objects."""
 
-    def on_package_loaded(self, *, pkg: griffe.Module, **kwargs: object) -> None:
+    def on_package_loaded(self, *, pkg: griffe.Module, **_kwargs: object) -> None:
         if pkg.name != "rvsim" or "_core" not in pkg.members:
             return
         runtime = griffe.load("rvsim._core", force_inspection=True)

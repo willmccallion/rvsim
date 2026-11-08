@@ -216,7 +216,7 @@ class FastForwardCache(SessionTestCase):
         s = self.session()
 
         with self.assertRaises(ValueError):
-            s.fast_forward(When(lambda session: True))
+            s.fast_forward(When(lambda _session: True))
         s.fast_forward(
             When(lambda session: session.cycle >= 2000, every=1000), cache=False
         )

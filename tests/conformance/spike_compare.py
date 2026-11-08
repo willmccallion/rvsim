@@ -90,7 +90,7 @@ def compare_traces(spike_trace, rvsim_trace):
     exactly.  A shorter *spike* trace (rvsim retired instructions spike
     didn't) is a real divergence.
     """
-    for i, (s, r) in enumerate(zip(spike_trace, rvsim_trace)):
+    for i, (s, r) in enumerate(zip(spike_trace, rvsim_trace, strict=False)):
         if s[0] != r[0]:
             return i, {
                 "inst_num": i + 1,
