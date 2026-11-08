@@ -114,7 +114,7 @@ impl TestContext {
     pub fn run(&mut self, cycles: u64) {
         for _ in 0..cycles {
             self.tick();
-            if self.sim.state.check_exit().is_some() {
+            if self.sim.state.peek_exit().is_some() {
                 break;
             }
         }

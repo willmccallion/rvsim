@@ -136,3 +136,30 @@ fn exit_through_the_block_ends_the_run() {
         assert_eq!(stop, StopReason::Exited(5), "{backend:?}");
     }
 }
+
+/// The device answers the 16 bytes at `tohost` and RAM the bytes past
+/// them: what the program stores just past the device it reads back, then
+/// passes the run through `tohost`, or fails it when the device took the
+/// store.
+#[test]
+fn a_write_reaches_htif_only_inside_its_sixteen_bytes() {
+    let i = InstructionBuilder::new;
+    let mut program = addresses();
+    program.extend([
+        i().addi(A0, 0, 3).build(),
+        i().sd(T0, A0, 16).build(),
+        i().ld(A1, T0, 16).build(),
+        i().bne(A1, A0, 16).build(),
+        i().addi(A0, 0, 1).build(),
+        i().sd(T0, A0, 0).build(),
+        i().jal(0, 0).build(),
+        i().addi(A0, 0, 3).build(),
+        i().sd(T0, A0, 0).build(),
+        i().jal(0, 0).build(),
+    ]);
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &program, &[]);
+
+        assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
+    }
+}

@@ -71,7 +71,7 @@ fn every_character_printed_before_the_exit_reaches_the_console() {
 fn the_run_ends_on_the_cycle_of_the_exit() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = system(backend);
-        let exited_at = ctx.run_until(20_000, |ctx| ctx.sim.state.check_exit().is_some());
+        let exited_at = ctx.run_until(20_000, |ctx| ctx.sim.state.peek_exit().is_some());
 
         let code = ctx.sim.take_exit();
 
@@ -86,7 +86,7 @@ fn the_run_ends_on_the_cycle_of_the_exit() {
 #[test]
 fn a_run_resumed_after_the_exit_counts_the_cycles_since() {
     let mut ctx = system(BackendKind::InOrder);
-    ctx.run_until(20_000, |ctx| ctx.sim.state.check_exit().is_some());
+    ctx.run_until(20_000, |ctx| ctx.sim.state.peek_exit().is_some());
     ctx.sim.take_exit();
 
     ctx.sim.tick().expect("the run ticks");

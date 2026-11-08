@@ -44,7 +44,7 @@ fn test_multiple_ticks() {
 #[test]
 fn test_exit_code_none_initially() {
     let sim = create_test_sim();
-    assert_eq!(sim.state.check_exit(), None);
+    assert_eq!(sim.state.peek_exit(), None);
 }
 
 #[test]

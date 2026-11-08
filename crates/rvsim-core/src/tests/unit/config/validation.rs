@@ -7,7 +7,7 @@ use crate::config::{
 };
 
 #[test]
-fn default_config_validates() {
+fn minimal_config_validates() {
     assert!(Config::minimal().validate().is_ok());
 }
 

@@ -38,7 +38,7 @@ fn exit_code_of(backend: BackendKind, isa: Option<&str>, instruction: u32) -> Op
     }
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.run(5_000);
-    ctx.sim.state.check_exit()
+    ctx.sim.state.peek_exit()
 }
 
 #[test]

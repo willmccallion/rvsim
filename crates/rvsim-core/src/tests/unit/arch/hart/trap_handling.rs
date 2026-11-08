@@ -120,7 +120,7 @@ fn test_trap_double_fault_detection() {
 
     // A trap whose EPC equals the handler address is legitimate (not a double fault).
     state.trap(&Trap::IllegalInstruction(0), VirtAddr::new(handler_pc));
-    assert_eq!(state.check_exit(), None);
+    assert_eq!(state.peek_exit(), None);
     assert_eq!(state.hart.pc, VirtAddr::new(handler_pc)); // dispatched to M-mode handler
 }
 

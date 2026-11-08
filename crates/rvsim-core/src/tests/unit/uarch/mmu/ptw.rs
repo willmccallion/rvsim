@@ -39,7 +39,7 @@ fn translate_sync(
             TranslateOutcome::Ready(r) => return r,
             TranslateOutcome::NeedPte { pte_addr, state } => {
                 let raw_pte = uncore.memory.read(pte_addr, 8).unwrap_or(0);
-                let cycles = uncore.bus.calculate_transit_time(8);
+                let cycles = uncore.bus.transit_cycles(8);
                 outcome = mmu.continue_walk(state, raw_pte, csrs, None, cycles);
             }
         }
