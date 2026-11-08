@@ -8,7 +8,9 @@
 //! returns the side effects for commit-time application.
 
 use crate::exec::compute::vector::alu::vec_execute;
-use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, widen_sew};
+use crate::exec::compute::vector::context::{
+    VecExecCtx, VecExecResult, VecOperand, VecSources, widen_sew,
+};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::compute::vector::{crypto, fpu, mask, permute, reduction};
 use crate::exec::inst::Inst;
@@ -163,16 +165,16 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     }
     let operand1 = build_operand1(inst);
     let (vd, vs2, vs1) = (inst.ctrl.vd, inst.ctrl.vs2, inst.ctrl.vs1);
+    let sources = VecSources { operand1, vs1, rs1: inst.rv1 };
 
     let result = match vec_op {
-        VectorOp::Fp(op) => fpu::vec_fp_execute(op, vpr, vd, vs2, operand1, &ctx),
+        VectorOp::Fp(op) => fpu::vec_fp_execute(op, vpr, vd, vs2, sources, &ctx),
         VectorOp::Reduce(op) => reduction::vec_reduce(op, vpr, vd, vs2, vs1, &ctx),
         VectorOp::Mask(op) => {
             let result = mask::vec_mask_execute(op, vpr, vd, vs2, vs1, &ctx);
             VecExecResult { scalar_result: result.scalar_result, ..VecExecResult::default() }
         }
         VectorOp::Permute(op) => {
-            let sources = permute::PermuteSources { operand1, vs1, rs1: inst.rv1 };
             let result = permute::vec_permute_execute(op, vpr, vd, vs2, sources, &ctx);
             VecExecResult { scalar_result: result.scalar_result, ..VecExecResult::default() }
         }

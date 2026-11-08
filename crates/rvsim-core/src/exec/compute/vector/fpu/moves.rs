@@ -50,14 +50,11 @@ pub(super) fn exec_fp_slide1(
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
-    operand1: VecOperand,
+    rs1: u64,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-    let scalar = match operand1 {
-        VecOperand::Scalar(s) => s & ctx.sew.mask(),
-        _ => 0,
-    };
+    let scalar = rs1 & ctx.sew.mask();
 
     for i in 0..vlmax {
         if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, ctx.sew)) {
