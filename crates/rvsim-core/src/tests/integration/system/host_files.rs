@@ -5,7 +5,7 @@
 
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::harness::build_simulator;
+use crate::tests::support::harness::{build_simulator, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A0, A1, A2, A3, T0, T1, T2, X0};
 use std::fs;
@@ -205,13 +205,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u6
 /// code.
 fn run_paged(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext, Option<u64>) {
     let mut ctx = TestContext::with_fast_memory(&config(backend)).with_memory(RAM_SIZE, BARE_BASE);
-    for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(CODE_PA + 4 * n as u64),
-            u64::from(*inst),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, CODE_PA, program);
     write_pte(&mut ctx, ROOT_PPN, CODE_VA, 2, (L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, L1_PPN, CODE_VA, 1, (L0_PPN << 10) | PTE_V);
     write_pte(&mut ctx, L0_PPN, CODE_VA, 0, ((CODE_PA >> 12) << 10) | PTE_RWX_AD);

@@ -2,11 +2,9 @@
 //! leaves out, as hardware without the extension would: an
 //! illegal-instruction trap, on either backend.
 
-use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, Console};
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF, M5_FAIL};
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A1, X0, X1, X2};
 
 const HANDLER: u64 = 0x8000_0100;
@@ -32,13 +30,7 @@ fn exit_code_of(backend: BackendKind, isa: Option<&str>, instruction: u32) -> Op
     config.system.console = Console::Quiet;
     config.isa.string = isa.map(str::to_owned);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
-    for (n, word) in handler.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + 4 * n as u64),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &handler);
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.run(5_000);
     ctx.sim.state.uncore.peek_exit()

@@ -2,12 +2,10 @@
 //! divider, as an iterative divider is killed with its instruction: the
 //! next divide does not wait out the rest of the killed one.
 
-use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A0, A1, A2, A3, S4, T0, T1, T2, T3, X0};
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 /// Below RAM, where nothing answers: a load from it faults.
@@ -88,13 +86,7 @@ fn handler_finish_cycle(backend: BackendKind, behind: u32) -> u64 {
     config.system.console = crate::config::Console::Quiet;
     let program = faulting_load_then(behind);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
-    for (n, word) in dividing_handler().iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + 4 * n as u64),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &dividing_handler());
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();
 

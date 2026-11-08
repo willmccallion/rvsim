@@ -1,12 +1,10 @@
 //! Privilege and CSR-access rules from the privileged and Zicsr specs.
 
-use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_DIRTY, MSTATUS_FS_INIT};
 use crate::isa::privileged::PrivilegeMode;
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A1, A2, A3, T1, X0};
 
@@ -50,13 +48,7 @@ fn context(backend: BackendKind, isa: Option<&str>, program: &[u32]) -> TestCont
     config.system.console = Console::Quiet;
     config.isa.string = isa.map(str::to_owned);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
-    for (n, word) in handler().iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + 4 * n as u64),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &handler());
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx
 }

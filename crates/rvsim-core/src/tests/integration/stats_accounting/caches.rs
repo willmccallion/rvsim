@@ -12,7 +12,7 @@ use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::CBO_CLEAN_IMM;
 use crate::tests::support::builder::instruction::{FENCE_I, FENCE_IORW, InstructionBuilder};
 use crate::tests::support::count;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A1, T0, T1, T2, X0, after};
 
 const CACHES: [&str; 4] = ["core0.cache.l1i", "core0.cache.l1d", "core0.cache.l2", "llc"];
@@ -480,7 +480,7 @@ fn next_line_candidates_past_the_page_are_dropped_at_every_level(rec: &mut Recor
             cache.prefetcher = PrefetcherKind::NextLine;
         }
         let mut ctx = system_with(&config, &program, &[]);
-        super::program::store_words(&mut ctx, page_end, &[i().jal(X0, 0).build()]);
+        store_words(&mut ctx.sim, page_end, &[i().jal(X0, 0).build()]);
 
         run_to_pc(&mut ctx, page_end, &context);
         ctx.run(SETTLE);

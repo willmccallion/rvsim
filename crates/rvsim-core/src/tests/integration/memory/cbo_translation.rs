@@ -13,7 +13,7 @@ use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::X10;
 
@@ -58,13 +58,7 @@ fn run(backend: BackendKind, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
         cbo(cbo_imm, X10),
         JAL_SELF,
     ];
-    for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(CODE_PA + 4 * n as u64),
-            u64::from(*inst),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, CODE_PA, &program);
     ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), ProbeWidth::B4);
     for off in (0..2 * CBOZ_BLOCK_SIZE).step_by(8) {
         ctx.sim.probe_mem_store(PhysAddr::new(DATA_PA + off), 0xDEAD_BEEF, ProbeWidth::B8);

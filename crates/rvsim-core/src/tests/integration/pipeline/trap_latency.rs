@@ -1,12 +1,10 @@
 //! Taking a trap costs the configured trap latency, and an interrupt lets
 //! everything already fetched retire before it is taken.
 
-use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{T0, T1, T2, T3, T4, T6, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -64,13 +62,7 @@ fn run_until_trap(backend: BackendKind, trap_latency: u64, program: &[u32]) -> T
     config.pipeline.trap_latency = trap_latency;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
-    for (i, word) in handler().iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + (i as u64) * 4),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &handler());
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();
 

@@ -1,14 +1,13 @@
 //! Loading and running the small programs the accounting checks count.
 
 use crate::Simulator;
-use crate::common::{PhysAddr, VirtAddr};
+use crate::common::VirtAddr;
 use crate::config::{BackendKind, Config};
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use crate::system::SystemState;
-use crate::system::simulator::ProbeWidth;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, M5_FAIL, MRET};
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A0, A1, A2, T0, T1, X0};
 
 pub const HANDLER: u64 = PROGRAM_BASE + 0x400;
@@ -24,12 +23,6 @@ pub fn config(backend: BackendKind) -> Config {
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     config
-}
-
-pub fn store_words(ctx: &mut TestContext, at: u64, words: &[u32]) {
-    for (n, word) in words.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(at + 4 * n as u64), u64::from(*word), ProbeWidth::B4);
-    }
 }
 
 /// Loads `program`, and `handler` at `HANDLER` when given, with the FP and
@@ -57,7 +50,7 @@ pub fn system_with_configured_latency(
 
 fn prepare(ctx: TestContext, program: &[u32], handler: &[u32]) -> TestContext {
     let mut ctx = ctx.load_program(PROGRAM_BASE, program);
-    store_words(&mut ctx, HANDLER, handler);
+    store_words(&mut ctx.sim, HANDLER, handler);
     let csrs = &mut ctx.sim.state.harts[0].csrs;
     csrs.mstatus = (csrs.mstatus & !(MSTATUS_FS | MSTATUS_VS)) | MSTATUS_FS_INIT | MSTATUS_VS_INIT;
     if !handler.is_empty() {

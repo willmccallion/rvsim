@@ -1,12 +1,10 @@
 //! Every compressed HINT runs as a no-op, as a hart that gives it no
 //! meaning must: none traps.
 
-use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A2, S4, X0};
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 const MCAUSE: u32 = 0x342;
@@ -40,13 +38,7 @@ fn trap_cause(backend: BackendKind) -> Option<u64> {
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
-    for (n, word) in handler.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + 4 * n as u64),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &handler);
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();
 

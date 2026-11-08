@@ -12,7 +12,7 @@ use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A0, A1, A2, A3, X0};
 
@@ -41,13 +41,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
 }
 
 fn store_program(ctx: &mut TestContext, base: u64, program: &[u32]) {
-    for (i, word) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(base + (i as u64) * 4),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, base, program);
 }
 
 /// `ld a1, 0(a0)` from `CROSSING_VA`, then a jump to self.

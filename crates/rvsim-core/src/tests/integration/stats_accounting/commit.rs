@@ -2,15 +2,15 @@
 //! and hart keeps: by privilege mode and by how many instructions retired.
 
 use super::program::{
-    BACKENDS, HANDLER, MEPC, MHARTID, MTVEC, config, exit_sequence, run_to_exit, store_words,
-    system, system_with, three_handled_ecalls,
+    BACKENDS, HANDLER, MEPC, MHARTID, MTVEC, config, exit_sequence, run_to_exit, system,
+    system_with, three_handled_ecalls,
 };
 use super::{Recorder, accounting_checks};
 use crate::config::BackendKind;
 use crate::isa::csr::MSTATUS_MPP;
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, MRET};
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A1, A2, T0, T1, T2, X0, after};
 
@@ -161,7 +161,7 @@ fn run_in(backend: BackendKind, width: usize, mode: PrivilegeMode) -> TestContex
     let mut config = config(backend);
     config.pipeline.width = width;
     let mut ctx = system_with(&config, &program, &handler);
-    store_words(&mut ctx, BODY, &spin);
+    store_words(&mut ctx.sim, BODY, &spin);
     let hart = &mut ctx.sim.state.harts[0];
     hart.csrs.mstatus = (hart.csrs.mstatus & !MSTATUS_MPP) | (u64::from(mode.to_u8()) << 11);
     open_pmp(&mut hart.pmp);

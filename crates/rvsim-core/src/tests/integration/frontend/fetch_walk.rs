@@ -10,7 +10,7 @@ use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A0, A1};
 
@@ -38,13 +38,7 @@ fn run_from_a_cold_tlb(backend: BackendKind, width: usize) -> (u64, u64) {
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
-    for (i, word) in PROGRAM.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(CODE + (i as u64) * 4),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, CODE, &PROGRAM);
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (NEXT_PPN << 10) | PTE_V);
     write_pte(&mut ctx, NEXT_PPN, (CODE >> 21) & 0x1ff, ((CODE >> 12) << 10) | PTE_LEAF_RWX_AD);
     {

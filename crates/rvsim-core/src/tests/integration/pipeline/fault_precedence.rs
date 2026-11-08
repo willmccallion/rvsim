@@ -8,7 +8,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A1, A2, A3, T0, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -45,13 +45,7 @@ fn handler() -> Vec<u32> {
 }
 
 fn store_program(ctx: &mut TestContext, base: u64, program: &[u32]) {
-    for (i, word) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(base + (i as u64) * 4),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, base, program);
 }
 
 fn run(backend: BackendKind) -> (u64, u64, u64) {

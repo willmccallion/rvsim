@@ -3,14 +3,12 @@
 //! the same instruction runs. Likewise an instruction that rounds by `frm`
 //! is illegal while `frm` holds a reserved mode.
 
-use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use crate::isa::fp::Frm;
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A0, A1, A2, A3, A4, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -66,13 +64,7 @@ fn run(backend: BackendKind, units: Units, frm: u64, inst: u32) -> (u64, u64, u6
     let i = InstructionBuilder::new;
     let program = [inst, i().addi(A4, X0, 1).build(), i().jal(X0, 0).build()];
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
-    for (n, word) in handler().iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + 4 * n as u64),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &handler());
     let csrs = &mut ctx.sim.state.harts[0].csrs;
     csrs.mtvec = HANDLER;
     csrs.mstatus &= !(MSTATUS_FS | MSTATUS_VS);

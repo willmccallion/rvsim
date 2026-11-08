@@ -1,12 +1,10 @@
 //! A load or store trigger raises a breakpoint whose `mtval` is the address
 //! accessed, as the privileged spec gives the faulting virtual address.
 
-use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A1, A2, A3, T0, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -43,13 +41,7 @@ fn trap_of_data_trigger(backend: BackendKind, store: bool, tdata1: u64) -> (u64,
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &access(store));
-    for (n, word) in handler().iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + 4 * n as u64),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &handler());
     let csrs = &mut ctx.sim.state.harts[0].csrs;
     csrs.mtvec = HANDLER;
     csrs.tcontrol = TCONTROL_MTE;

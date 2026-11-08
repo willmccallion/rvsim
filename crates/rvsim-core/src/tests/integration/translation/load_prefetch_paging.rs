@@ -20,7 +20,7 @@ use crate::config::{BackendKind, Config, LoadPrefetcherConfig, PageBoundary, Pre
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::{open_pmp, pmp_entry};
 use crate::uarch::mmu::tlb::PageSize;
 
@@ -242,13 +242,7 @@ pub fn run_system(
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     let code = program(matches!(data, Data::TouchedSecondPage));
-    for (n, inst) in code.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(CODE + 4 * n as u64),
-            u64::from(*inst),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, CODE, &code);
     let data_va = mode.data_va();
     let mut tables = PageTables::new(mode.levels());
     tables.map(&mut ctx, CODE, CODE, 1, PTE_LEAF_RWX_AD);
