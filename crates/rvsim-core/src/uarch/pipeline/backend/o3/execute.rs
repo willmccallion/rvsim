@@ -40,7 +40,7 @@ pub fn execute_one(
     }
     state.trace_stage(issued.seq, Stage::Execute);
 
-    trace_execute!(state.kernel.config.general.trace_instructions;
+    trace_execute!(state.uncore().kernel.config.general.trace_instructions;
         rob_tag  = %issued.rob_tag,
         pc       = %Hex(issued.inst.pc.val()),
         inst     = %Hex32(issued.inst.bits),
@@ -105,7 +105,7 @@ fn execute_system_o3(
         SystemExecution::Done(result) => (result, None),
         SystemExecution::AtRetire => {
             if matches!(issued.inst.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
-                trace_trap!(state.kernel.config.general.trace_instructions;
+                trace_trap!(state.uncore().kernel.config.general.trace_instructions;
                     event     = "return",
                     pc        = %Hex(issued.inst.pc.val()),
                     rob_tag   = %issued.rob_tag,

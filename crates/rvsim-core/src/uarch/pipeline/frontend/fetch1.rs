@@ -164,7 +164,7 @@ fn predict_control_flow(
 /// L2's latency.
 fn hold_fetch<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &mut E, pc: VirtAddr, cycles: u64) {
     let common = engine.common_mut();
-    common.fetch.fetch_hold_until = state.kernel.cycle + cycles;
+    common.fetch.fetch_hold_until = state.uncore().kernel.cycle + cycles;
     common.fetch.fetch_restart = FetchRestart::At(pc);
 }
 
@@ -208,7 +208,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
     );
     common.fetch.fetch_restart = FetchRestart::AwaitingWalk;
 
-    let cycle = state.kernel.cycle;
+    let cycle = state.uncore().kernel.cycle;
     state.events().schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
@@ -242,7 +242,7 @@ pub fn dispatch_fetch_group<E: ExecutionEngine>(
             issue_line_fetch(state, engine, fetch_buffer, line, group);
         }
         _ => {
-            let now = state.kernel.cycle;
+            let now = state.uncore().kernel.cycle;
             let common = engine.common_mut();
             let _ = common.fetch.fetch_reorder.insert(group.fetch_seq, group);
             drain_fetch_reorder(now, common, fetch_buffer, latch, invalidations);
@@ -257,7 +257,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
     line: LineAddr,
     group: OutstandingFetch,
 ) {
-    trace_fetch!(state.kernel.config.general.trace_instructions;
+    trace_fetch!(state.uncore().kernel.config.general.trace_instructions;
         line        = %Hex(line.val()),
         fetch_seq   = group.fetch_seq.val(),
         entries     = group.entries.len(),
@@ -271,7 +271,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
     let vaddr = group.entries.first().map(|e| e.pc);
     let _ = common.fetch.outstanding_fetches.insert(req_id, group);
 
-    let cycle = state.kernel.cycle;
+    let cycle = state.uncore().kernel.cycle;
     state.events().schedule(
         cycle,
         ComponentId::Cache(l1_i_id),
@@ -342,7 +342,7 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         line_end: (pc.val() | (line_bytes - 1)) + 1,
         group: GroupBuilder::default(),
     };
-    for _ in 0..state.kernel.config.pipeline.fetch_width() {
+    for _ in 0..state.uncore().kernel.config.pipeline.fetch_width() {
         if matches!(fetch_instruction(state, engine, fetch_buffer, &mut cursor), FetchStep::Stop) {
             break;
         }
@@ -453,7 +453,7 @@ fn fetch_lower_half<E: ExecutionEngine>(
     match lower {
         FetchHalf::Ready(paddr) => Some(paddr),
         FetchHalf::Fault(trap) => {
-            trace_fetch!(state.kernel.config.general.trace_instructions;
+            trace_fetch!(state.uncore().kernel.config.general.trace_instructions;
                 pc          = %Hex(pc.val()),
                 trap        = ?trap,
                 "F1: fetch trap"
@@ -484,7 +484,7 @@ fn fetch_upper_half<E: ExecutionEngine>(
     match translate_fetch_half(state, engine, lower.pc, upper_va, |_| pending) {
         FetchHalf::Ready(upper) => Some(Fetch1Fetch2Entry { upper_paddr: Some(upper), ..lower }),
         FetchHalf::Fault(trap) => {
-            trace_fetch!(state.kernel.config.general.trace_instructions;
+            trace_fetch!(state.uncore().kernel.config.general.trace_instructions;
                 pc           = %Hex(lower.pc.val()),
                 paddr        = %Hex(lower.paddr.val()),
                 trap         = ?trap,
@@ -543,7 +543,7 @@ fn push_fetched<E: ExecutionEngine>(
     let prediction = predict_control_flow(state, entry.seq, entry.pc, size);
     let next_pc = prediction.target.unwrap_or_else(|| entry.pc.wrapping_add(size.as_u64()));
     if let Some(kind) = prediction.kind {
-        trace_branch!(state.kernel.config.general.trace_instructions;
+        trace_branch!(state.uncore().kernel.config.general.trace_instructions;
             event       = "predict",
             pc          = %Hex(entry.pc.val()),
             paddr       = %Hex(entry.paddr.val()),
@@ -554,7 +554,7 @@ fn push_fetched<E: ExecutionEngine>(
             "F1: control-flow prediction"
         );
     }
-    trace_fetch!(state.kernel.config.general.trace_instructions;
+    trace_fetch!(state.uncore().kernel.config.general.trace_instructions;
         pc          = %Hex(entry.pc.val()),
         paddr       = %Hex(entry.paddr.val()),
         compressed  = matches!(size, InstSize::Compressed(_)),

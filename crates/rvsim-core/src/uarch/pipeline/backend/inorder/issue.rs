@@ -221,7 +221,7 @@ fn read_operands(entry: &InOrderEntry, rob: &Rob, state: &StageCtx<'_>) -> Optio
     if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
         return Some([v1, v2, v3]);
     }
-    trace_issue!(state.kernel.config.general.trace_instructions;
+    trace_issue!(state.uncore().kernel.config.general.trace_instructions;
         pc       = %Hex(entry.inst.pc.val()),
         rs1      = entry.inst.rs1.as_usize(),
         rs1_tag  = ?entry.regs.rs1,
@@ -250,7 +250,7 @@ fn take_unit(
             fu_type,
             &entry.inst.ctrl,
             state.hart().csrs.vl as usize,
-            state.kernel.config.pipeline.vector_lanes(),
+            state.uncore().kernel.config.pipeline.vector_lanes(),
         );
         fu_pool.acquire_with_latency(unit, now, latency, entry.rob_tag)
     } else {
