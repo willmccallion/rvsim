@@ -17,6 +17,7 @@ use crate::soc::cache::Cache;
 use crate::soc::coherence::fabric::CoherenceFabric;
 use crate::soc::coherence::protocol::CoreSet;
 use crate::system::state::SystemState;
+use crate::uarch::CoreUnits;
 
 /// One broken invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,96 +167,130 @@ pub fn lines_in_flight(state: &SystemState) -> Vec<LineAddr> {
 /// Checks every invariant and returns what is broken (empty when all hold).
 #[must_use]
 pub fn audit(state: &SystemState) -> Vec<Violation> {
-    let mut violations = Vec::new();
-    let Some(fabric) = state.uncore.coherence.as_ref() else { return violations };
-
+    let Some(fabric) = state.uncore.coherence.as_ref() else { return Vec::new() };
     let in_flight = lines_in_flight(state);
-    let busy = |line: LineAddr| in_flight.contains(&line);
+    let busy = |line: &LineAddr| in_flight.contains(line);
+    let held_by = holders_by_line(state);
 
-    // Who holds what, from the L2s (the requesting agents).
-    let mut holders: BTreeMap<LineAddr, Vec<(CoreId, MesiState)>> = BTreeMap::new();
+    let mut violations: Vec<Violation> =
+        state.cores.iter().flat_map(|core| l1_inclusion_faults(&core.units, &busy)).collect();
+    for (line, held) in held_by.iter().filter(|(line, _)| !busy(line)) {
+        let owners: Vec<CoreId> =
+            held.iter().filter(|(_, state)| is_owner(*state)).map(|(core, _)| *core).collect();
+        violations.extend(ownership_faults(*line, held, &owners));
+        violations.extend(home_tracking_faults(*line, held, &owners, fabric));
+    }
+    let untracked = fabric.tracked_lines().unwrap_or_default().into_iter();
+    violations.extend(
+        untracked
+            .filter(|line| !busy(line) && !held_by.contains_key(line))
+            .map(|line| Violation { line, kind: ViolationKind::HomeTracksUnheldLine }),
+    );
+    violations
+}
+
+/// The cores holding each line, and in what state.
+type HeldBy = BTreeMap<LineAddr, Vec<(CoreId, MesiState)>>;
+
+/// Who holds what, from the requesting agents: each core's L2, or its L1s
+/// when the L2 is disabled.
+fn holders_by_line(state: &SystemState) -> HeldBy {
+    let mut held_by = HeldBy::new();
     for core in state.cores.iter().map(|core| &core.units) {
-        let l2: BTreeMap<LineAddr, MesiState> = core.l2_cache.held_lines().into_iter().collect();
-        if core.l2_cache.is_enabled() {
-            for (line, l2_state) in &l2 {
-                holders.entry(*line).or_default().push((core.core_id, *l2_state));
-            }
-        } else {
-            // A disabled L2 still requests for its L1s: they are the holders.
-            let mut held: BTreeMap<LineAddr, MesiState> = BTreeMap::new();
-            for (line, state) in
-                core.l1_i_cache.held_lines().into_iter().chain(core.l1_d_cache.held_lines())
-            {
-                let entry = held.entry(line).or_insert(state);
-                if is_owner(state) {
-                    *entry = state;
-                }
-            }
-            for (line, state) in held {
-                holders.entry(line).or_default().push((core.core_id, state));
-            }
+        for (line, state) in core_holdings(core) {
+            held_by.entry(line).or_default().push((core.core_id, state));
         }
-        for (line, l1_state) in core.l1_d_cache.held_lines() {
-            if busy(line) || !core.l2_cache.is_enabled() {
-                continue;
-            }
-            match l2.get(&line) {
-                None => violations.push(Violation {
-                    line,
-                    kind: ViolationKind::L1NotInL2 { core: core.core_id },
-                }),
-                Some(l2_state) if is_owner(l1_state) && !is_owner(*l2_state) => {
-                    let kind = ViolationKind::L1DirtierThanL2 {
+    }
+    held_by
+}
+
+/// The lines `core` holds as a requesting agent. A disabled L2 still
+/// requests for its L1s, so they hold the lines, the owning copy counting.
+fn core_holdings(core: &CoreUnits) -> BTreeMap<LineAddr, MesiState> {
+    if core.l2_cache.is_enabled() {
+        return core.l2_cache.held_lines().into_iter().collect();
+    }
+    let mut held = BTreeMap::new();
+    for (line, state) in
+        core.l1_i_cache.held_lines().into_iter().chain(core.l1_d_cache.held_lines())
+    {
+        let entry = held.entry(line).or_insert(state);
+        if is_owner(state) {
+            *entry = state;
+        }
+    }
+    held
+}
+
+/// Lines `core`'s L1D holds that its L2 lacks, or holds with fewer rights.
+fn l1_inclusion_faults<'a>(
+    core: &'a CoreUnits,
+    busy: &'a impl Fn(&LineAddr) -> bool,
+) -> impl Iterator<Item = Violation> + 'a {
+    let l2: BTreeMap<LineAddr, MesiState> = core.l2_cache.held_lines().into_iter().collect();
+    // Without an L2 the L1s are the requesting agents; there is no inclusion.
+    let checked = core.l2_cache.is_enabled();
+    core.l1_d_cache
+        .held_lines()
+        .into_iter()
+        .filter(move |(line, _)| checked && !busy(line))
+        .filter_map(move |(line, l1_state)| {
+            let kind = match l2.get(&line) {
+                None => ViolationKind::L1NotInL2 { core: core.core_id },
+                Some(&l2_state) if is_owner(l1_state) && !is_owner(l2_state) => {
+                    ViolationKind::L1DirtierThanL2 {
                         core: core.core_id,
                         l1: l1_state,
-                        l2: *l2_state,
-                    };
-                    violations.push(Violation { line, kind });
+                        l2: l2_state,
+                    }
                 }
-                Some(_) => {}
-            }
-        }
-    }
+                Some(_) => return None,
+            };
+            Some(Violation { line, kind })
+        })
+}
 
-    for (line, held) in &holders {
-        if busy(*line) {
-            continue;
-        }
-        let owners: Vec<CoreId> =
-            held.iter().filter(|(_, s)| is_owner(*s)).map(|(c, _)| *c).collect();
-        if owners.len() > 1 {
-            violations.push(Violation {
-                line: *line,
-                kind: ViolationKind::MultipleOwners(owners.clone()),
-            });
-        }
-        if owners.len() == 1 && held.len() > 1 {
-            let kind = ViolationKind::OwnerWithSharers { owner: owners[0], others: held.len() - 1 };
-            violations.push(Violation { line: *line, kind });
-        }
-        if let Some(tracked) = fabric.tracked_holders(*line) {
-            let mut actual = CoreSet::EMPTY;
-            for (core, _) in held {
-                actual.insert(*core);
-            }
-            if tracked.sharers != actual {
-                let kind =
-                    ViolationKind::HomeSharersMismatch { tracked: tracked.sharers, held: actual };
-                violations.push(Violation { line: *line, kind });
-            }
-            if tracked.owner != owners.first().copied() {
-                let kind = ViolationKind::HomeOwnerMismatch {
-                    tracked: tracked.owner,
-                    held: owners.first().copied(),
-                };
-                violations.push(Violation { line: *line, kind });
-            }
-        }
+/// A line with more than one owner, or an owner and other holders.
+fn ownership_faults(
+    line: LineAddr,
+    held: &[(CoreId, MesiState)],
+    owners: &[CoreId],
+) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    if owners.len() > 1 {
+        violations.push(Violation { line, kind: ViolationKind::MultipleOwners(owners.to_vec()) });
     }
-    for line in fabric.tracked_lines().unwrap_or_default() {
-        if !busy(line) && !holders.contains_key(&line) {
-            violations.push(Violation { line, kind: ViolationKind::HomeTracksUnheldLine });
-        }
+    if owners.len() == 1 && held.len() > 1 {
+        let kind = ViolationKind::OwnerWithSharers { owner: owners[0], others: held.len() - 1 };
+        violations.push(Violation { line, kind });
+    }
+    violations
+}
+
+/// Where the home agent's record of a line's sharers or owner differs
+/// from who holds it.
+fn home_tracking_faults(
+    line: LineAddr,
+    held: &[(CoreId, MesiState)],
+    owners: &[CoreId],
+    fabric: &CoherenceFabric,
+) -> Vec<Violation> {
+    let Some(tracked) = fabric.tracked_holders(line) else { return Vec::new() };
+    let mut violations = Vec::new();
+    let mut actual = CoreSet::EMPTY;
+    for (core, _) in held {
+        actual.insert(*core);
+    }
+    if tracked.sharers != actual {
+        let kind = ViolationKind::HomeSharersMismatch { tracked: tracked.sharers, held: actual };
+        violations.push(Violation { line, kind });
+    }
+    if tracked.owner != owners.first().copied() {
+        let kind = ViolationKind::HomeOwnerMismatch {
+            tracked: tracked.owner,
+            held: owners.first().copied(),
+        };
+        violations.push(Violation { line, kind });
     }
     violations
 }
