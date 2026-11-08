@@ -276,7 +276,7 @@ mod tests {
     }
 
     fn paths() -> HomeStatPaths {
-        HomeStatPaths::new("test.ha")
+        HomeStatPaths::under("test.ha")
     }
 
     #[test]
