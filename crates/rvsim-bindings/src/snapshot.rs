@@ -6,29 +6,114 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use rvsim_core::common::VirtAddr;
 use rvsim_core::disasm::disassemble;
-use rvsim_core::isa::reg::RegIdx;
 use rvsim_core::system::snapshot::{
     DecodedSlot, ExecutedSlot, FetchSlot, FetchedSlot, MemorySlot, PipelineSnapshot, RenamedSlot,
     WritebackSlot,
 };
 
-const ABI: [&str; 32] = [
-    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
-    "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4",
-    "t5", "t6",
-];
-
-fn reg_name(idx: RegIdx) -> &'static str {
-    ABI.get(idx.as_usize()).copied().unwrap_or("x?")
+/// A latch slot as Python sees it: a dict of its fields.
+trait SlotFields {
+    /// Adds the slot's fields to `dict`.
+    fn fill(&self, dict: &Bound<'_, PyDict>) -> PyResult<()>;
 }
 
-fn slot_dict(py: Python<'_>, pc: u64, raw: u32) -> PyResult<Bound<'_, PyDict>> {
-    let d = PyDict::new(py);
-    d.set_item("pc", pc)?;
-    d.set_item("raw", raw)?;
-    d.set_item("asm", disassemble(raw))?;
-    Ok(d)
+/// `slots` as a list of dicts.
+fn slot_list<T: SlotFields>(py: Python<'_>, slots: &[T]) -> PyResult<Py<PyList>> {
+    let dicts = slots
+        .iter()
+        .map(|slot| {
+            let dict = PyDict::new(py);
+            slot.fill(&dict)?;
+            Ok(dict)
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok(PyList::new(py, dicts)?.unbind())
+}
+
+/// The fields every slot past Fetch1 has: its address and instruction.
+fn fill_instruction(dict: &Bound<'_, PyDict>, pc: u64, raw: u32) -> PyResult<()> {
+    dict.set_item("pc", pc)?;
+    dict.set_item("raw", raw)?;
+    dict.set_item("asm", disassemble(raw))
+}
+
+/// The prediction fields of a slot in fetch.
+fn fill_prediction(dict: &Bound<'_, PyDict>, predicted_target: Option<VirtAddr>) -> PyResult<()> {
+    dict.set_item("pred_taken", predicted_target.is_some())?;
+    dict.set_item("pred_target", predicted_target.map(|target| target.val()))
+}
+
+impl SlotFields for FetchSlot {
+    fn fill(&self, dict: &Bound<'_, PyDict>) -> PyResult<()> {
+        dict.set_item("pc", self.pc.val())?;
+        fill_prediction(dict, self.predicted_target)
+    }
+}
+
+impl SlotFields for FetchedSlot {
+    fn fill(&self, dict: &Bound<'_, PyDict>) -> PyResult<()> {
+        fill_instruction(dict, self.pc.val(), self.raw)?;
+        fill_prediction(dict, self.predicted_target)
+    }
+}
+
+impl SlotFields for DecodedSlot {
+    fn fill(&self, dict: &Bound<'_, PyDict>) -> PyResult<()> {
+        fill_instruction(dict, self.pc.val(), self.raw)?;
+        dict.set_item("rs1", self.rs1.as_u8())?;
+        dict.set_item("rs2", self.rs2.as_u8())?;
+        dict.set_item("rd", self.rd.as_u8())?;
+        dict.set_item("imm", self.imm)
+    }
+}
+
+impl SlotFields for RenamedSlot {
+    fn fill(&self, dict: &Bound<'_, PyDict>) -> PyResult<()> {
+        fill_instruction(dict, self.pc.val(), self.raw)?;
+        dict.set_item("rs1", self.rs1.as_u8())?;
+        dict.set_item("rs2", self.rs2.as_u8())?;
+        dict.set_item("rd", self.rd.as_u8())?;
+        dict.set_item("rv1", self.rv1)?;
+        dict.set_item("rv2", self.rv2)?;
+        dict.set_item("rob_tag", self.rob_tag)?;
+        dict.set_item("rs1_ready", self.rs1_ready)?;
+        dict.set_item("rs2_ready", self.rs2_ready)
+    }
+}
+
+impl SlotFields for ExecutedSlot {
+    fn fill(&self, dict: &Bound<'_, PyDict>) -> PyResult<()> {
+        fill_instruction(dict, self.pc.val(), self.raw)?;
+        dict.set_item("rd", self.rd.as_u8())?;
+        dict.set_item("alu", self.alu)?;
+        dict.set_item("store_data", self.store_data)?;
+        dict.set_item("rob_tag", self.rob_tag)
+    }
+}
+
+impl SlotFields for MemorySlot {
+    fn fill(&self, dict: &Bound<'_, PyDict>) -> PyResult<()> {
+        fill_instruction(dict, self.pc.val(), self.raw)?;
+        dict.set_item("rd", self.rd.as_u8())?;
+        dict.set_item("alu", self.alu)?;
+        dict.set_item("vaddr", self.vaddr.val())?;
+        dict.set_item("paddr", self.paddr.val())?;
+        dict.set_item("store_data", self.store_data)?;
+        dict.set_item("rob_tag", self.rob_tag)
+    }
+}
+
+impl SlotFields for WritebackSlot {
+    fn fill(&self, dict: &Bound<'_, PyDict>) -> PyResult<()> {
+        fill_instruction(dict, self.pc.val(), self.raw)?;
+        dict.set_item("rd", self.rd.as_u8())?;
+        dict.set_item("alu", self.alu)?;
+        dict.set_item("load_data", self.load_data)?;
+        dict.set_item("value", self.value)?;
+        dict.set_item("rob_tag", self.rob_tag)
+    }
 }
 
 const COL_W: usize = 14;
@@ -44,99 +129,79 @@ fn trunc(s: &str, w: usize) -> String {
     }
 }
 
-/// One cell: mnemonic + first operand, truncated to `COL_W`.
-fn cell(asm: &str) -> String {
-    trunc(asm, COL_W)
+/// One cell: the instruction `raw`'s mnemonic and operands, truncated to
+/// `COL_W`.
+fn asm_cell(raw: u32) -> String {
+    trunc(&disassemble(raw), COL_W)
+}
+
+/// An issue-queue cell, marked when an operand is not ready.
+fn issue_cell(slot: &RenamedSlot) -> String {
+    let asm = asm_cell(slot.raw);
+    if slot.rs1_ready && slot.rs2_ready { asm } else { trunc(&format!("⋯{asm}"), COL_W) }
+}
+
+/// One stage's column of the diagram: its header and a cell per slot.
+struct StageColumn {
+    header: &'static str,
+    cells: Vec<Option<String>>,
+}
+
+impl StageColumn {
+    /// The column of `slots`, the first `width` of them drawn by `cell`.
+    fn of<T>(header: &'static str, slots: &[T], width: usize, cell: impl Fn(&T) -> String) -> Self {
+        Self { header, cells: (0..width).map(|i| slots.get(i).map(&cell)).collect() }
+    }
+
+    /// A column for a stage with no outbound latch to show.
+    fn empty(header: &'static str, width: usize) -> Self {
+        Self { header, cells: vec![None; width] }
+    }
+}
+
+/// Every stage's column, fetch to commit.
+fn stage_columns(snap: &PipelineSnapshot) -> [StageColumn; 10] {
+    let w = snap.width;
+    [
+        StageColumn::of("F1", &snap.fetch1_fetch2, w, |e| format!("{:#010x}", e.pc)),
+        StageColumn::of("F2", &snap.fetch2_decode, w, |e| asm_cell(e.raw)),
+        StageColumn::of("DE", &snap.decode_rename, w, |e| asm_cell(e.raw)),
+        StageColumn::of("RN", &snap.rename_issue, w, |e| asm_cell(e.raw)),
+        StageColumn::of("IS", &snap.issue_queue, w, issue_cell),
+        StageColumn::of("EX", &snap.execute_mem1, w, |e| asm_cell(e.raw)),
+        StageColumn::of("M1", &snap.mem1_mem2, w, |e| asm_cell(e.raw)),
+        StageColumn::of("M2", &snap.mem2_wb, w, |e| asm_cell(e.raw)),
+        StageColumn::empty("WB", w),
+        StageColumn::empty("CM", w),
+    ]
+}
+
+/// The values being forwarded this cycle, as `reg←value`.
+fn forwarding_notes(snap: &PipelineSnapshot) -> Vec<String> {
+    let executed = snap.execute_mem1.iter().map(|e| (e.rd, e.alu));
+    let written = snap.mem2_wb.iter().map(|e| (e.rd, e.value));
+    executed
+        .chain(written)
+        .filter(|(rd, _)| !rd.is_zero())
+        .map(|(rd, value)| format!("{}←{value:#x}", rd.int_abi_name()))
+        .collect()
 }
 
 fn render_inner(snap: &PipelineSnapshot) -> String {
-    let w = snap.width;
+    let columns = stage_columns(snap);
+    let headers: Vec<String> = columns.iter().map(|c| format!("{:^COL_W$}", c.header)).collect();
+    let header_line = format!("{:SLOT_W$} {}", "", headers.join(" "));
+    let rule = "─".repeat(header_line.len());
 
-    #[allow(clippy::items_after_statements)]
-    struct StageCol {
-        hdr: &'static str,
-        cells: Vec<Option<String>>,
-    }
-
-    let mut cols: Vec<StageCol> = Vec::new();
-
-    macro_rules! stage {
-        ($hdr:expr, $entries:expr, $cell_fn:expr) => {{
-            let mut cells: Vec<Option<String>> = vec![None; w];
-            for (i, e) in $entries.iter().enumerate() {
-                if i < w {
-                    cells[i] = Some($cell_fn(e));
-                }
-            }
-            cols.push(StageCol { hdr: $hdr, cells });
-        }};
-    }
-
-    stage!("F1", snap.fetch1_fetch2, |e: &FetchSlot| { format!("{:#010x}", e.pc) });
-
-    stage!("F2", snap.fetch2_decode, |e: &FetchedSlot| { cell(&disassemble(e.raw)) });
-
-    stage!("DE", snap.decode_rename, |e: &DecodedSlot| { cell(&disassemble(e.raw)) });
-
-    stage!("RN", snap.rename_issue, |e: &RenamedSlot| { cell(&disassemble(e.raw)) });
-
-    stage!("IS", snap.issue_queue, |e: &RenamedSlot| {
-        let asm = disassemble(e.raw);
-        let stalled = !e.rs1_ready || !e.rs2_ready;
-        if stalled { trunc(&format!("⋯{}", cell(&asm)), COL_W) } else { cell(&asm) }
-    });
-
-    stage!("EX", snap.execute_mem1, |e: &ExecutedSlot| { cell(&disassemble(e.raw)) });
-
-    stage!("M1", snap.mem1_mem2, |e: &MemorySlot| { cell(&disassemble(e.raw)) });
-
-    stage!("M2", snap.mem2_wb, |e: &WritebackSlot| { cell(&disassemble(e.raw)) });
-
-    // WB and CM have no outbound latch to inspect — both show empty.
-    {
-        let cells = vec![None; w];
-        cols.push(StageCol { hdr: "WB", cells });
-    }
-    {
-        let cells = vec![None; w];
-        cols.push(StageCol { hdr: "CM", cells });
-    }
-
-    let hdr_cells: Vec<String> = cols.iter().map(|c| format!("{:^COL_W$}", c.hdr)).collect();
-    let hdr_line = format!("{:SLOT_W$} {}", "", hdr_cells.join(" "));
-    let rule = "─".repeat(hdr_line.len());
-
-    let mut rows: Vec<String> = Vec::new();
-    for slot in 0..w {
-        let row_cells: Vec<String> = cols
+    let mut out = vec![rule.clone(), header_line, rule.clone()];
+    for slot in 0..snap.width {
+        let cells: Vec<String> = columns
             .iter()
-            .map(|c| {
-                let s = c.cells[slot]
-                    .as_ref()
-                    .map_or_else(|| "─".to_string(), std::clone::Clone::clone);
-                format!("{s:<COL_W$}")
-            })
+            .map(|c| format!("{:<COL_W$}", c.cells[slot].as_deref().unwrap_or("─")))
             .collect();
-        rows.push(format!("[{slot}]  {}", row_cells.join(" ")));
+        out.push(format!("[{slot}]  {}", cells.join(" ")));
     }
-
-    let mut notes: Vec<String> = Vec::new();
-    for e in &snap.execute_mem1 {
-        if !e.rd.is_zero() {
-            notes.push(format!("{}←{:#x}", reg_name(e.rd), e.alu));
-        }
-    }
-    for e in &snap.mem2_wb {
-        if !e.rd.is_zero() {
-            notes.push(format!("{}←{:#x}", reg_name(e.rd), e.value));
-        }
-    }
-
-    let mut out: Vec<String> = Vec::new();
-    out.push(rule.clone());
-    out.push(hdr_line);
-    out.push(rule.clone());
-    out.extend(rows);
+    let notes = forwarding_notes(snap);
     if !notes.is_empty() {
         out.push(rule.clone());
         out.push(format!("  fwd: {}", notes.join("  ")));
@@ -191,19 +256,7 @@ impl PyPipelineSnapshot {
     /// ``None`` unless predicted taken.
     #[getter]
     fn fetch1_fetch2(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<_> = self
-            .inner
-            .fetch1_fetch2
-            .iter()
-            .map(|e| -> PyResult<_> {
-                let d = PyDict::new(py);
-                d.set_item("pc", e.pc.val())?;
-                d.set_item("pred_taken", e.predicted_target.is_some())?;
-                d.set_item("pred_target", e.predicted_target.map(|target| target.val()))?;
-                Ok(d.into_any().unbind())
-            })
-            .collect::<PyResult<_>>()?;
-        Ok(PyList::new(py, items)?.unbind())
+        slot_list(py, &self.inner.fetch1_fetch2)
     }
 
     /// Fetch2 → Decode latch.
@@ -212,18 +265,7 @@ impl PyPipelineSnapshot {
     /// ``pred_target`` is ``None`` unless predicted taken.
     #[getter]
     fn fetch2_decode(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<_> = self
-            .inner
-            .fetch2_decode
-            .iter()
-            .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc.val(), e.raw)?;
-                d.set_item("pred_taken", e.predicted_target.is_some())?;
-                d.set_item("pred_target", e.predicted_target.map(|target| target.val()))?;
-                Ok(d.into_any().unbind())
-            })
-            .collect::<PyResult<_>>()?;
-        Ok(PyList::new(py, items)?.unbind())
+        slot_list(py, &self.inner.fetch2_decode)
     }
 
     /// Decode → Rename latch.
@@ -232,20 +274,7 @@ impl PyPipelineSnapshot {
     /// at issue, not decode.
     #[getter]
     fn decode_rename(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<_> = self
-            .inner
-            .decode_rename
-            .iter()
-            .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc.val(), e.raw)?;
-                d.set_item("rs1", e.rs1.as_u8())?;
-                d.set_item("rs2", e.rs2.as_u8())?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("imm", e.imm)?;
-                Ok(d.into_any().unbind())
-            })
-            .collect::<PyResult<_>>()?;
-        Ok(PyList::new(py, items)?.unbind())
+        slot_list(py, &self.inner.decode_rename)
     }
 
     /// Rename → Issue latch (ROB-allocated instructions pending dispatch).
@@ -253,24 +282,7 @@ impl PyPipelineSnapshot {
     /// Each slot: ``{pc, raw, asm, rs1, rs2, rd, rv1, rv2, rob_tag, rs1_ready, rs2_ready}``.
     #[getter]
     fn rename_issue(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<_> = self
-            .inner
-            .rename_issue
-            .iter()
-            .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc.val(), e.raw)?;
-                d.set_item("rs1", e.rs1.as_u8())?;
-                d.set_item("rs2", e.rs2.as_u8())?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("rv1", e.rv1)?;
-                d.set_item("rv2", e.rv2)?;
-                d.set_item("rob_tag", e.rob_tag)?;
-                d.set_item("rs1_ready", e.rs1_ready)?;
-                d.set_item("rs2_ready", e.rs2_ready)?;
-                Ok(d.into_any().unbind())
-            })
-            .collect::<PyResult<_>>()?;
-        Ok(PyList::new(py, items)?.unbind())
+        slot_list(py, &self.inner.rename_issue)
     }
 
     /// Issue queue (Rename → Execute, waiting for operands).
@@ -279,24 +291,7 @@ impl PyPipelineSnapshot {
     /// ``{pc, raw, asm, rs1, rs2, rd, rv1, rv2, rob_tag, rs1_ready, rs2_ready}``.
     #[getter]
     fn issue_queue(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<_> = self
-            .inner
-            .issue_queue
-            .iter()
-            .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc.val(), e.raw)?;
-                d.set_item("rs1", e.rs1.as_u8())?;
-                d.set_item("rs2", e.rs2.as_u8())?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("rv1", e.rv1)?;
-                d.set_item("rv2", e.rv2)?;
-                d.set_item("rob_tag", e.rob_tag)?;
-                d.set_item("rs1_ready", e.rs1_ready)?;
-                d.set_item("rs2_ready", e.rs2_ready)?;
-                Ok(d.into_any().unbind())
-            })
-            .collect::<PyResult<_>>()?;
-        Ok(PyList::new(py, items)?.unbind())
+        slot_list(py, &self.inner.issue_queue)
     }
 
     /// Execute → Memory1 latch.
@@ -306,20 +301,7 @@ impl PyPipelineSnapshot {
     /// ``alu`` is the forwarded result available to dependent instructions.
     #[getter]
     fn execute_mem1(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<_> = self
-            .inner
-            .execute_mem1
-            .iter()
-            .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc.val(), e.raw)?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("alu", e.alu)?;
-                d.set_item("store_data", e.store_data)?;
-                d.set_item("rob_tag", e.rob_tag)?;
-                Ok(d.into_any().unbind())
-            })
-            .collect::<PyResult<_>>()?;
-        Ok(PyList::new(py, items)?.unbind())
+        slot_list(py, &self.inner.execute_mem1)
     }
 
     /// Memory1 → Memory2 latch.
@@ -327,22 +309,7 @@ impl PyPipelineSnapshot {
     /// Each slot: ``{pc, raw, asm, rd, alu, vaddr, paddr, store_data, rob_tag}``.
     #[getter]
     fn mem1_mem2(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<_> = self
-            .inner
-            .mem1_mem2
-            .iter()
-            .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc.val(), e.raw)?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("alu", e.alu)?;
-                d.set_item("vaddr", e.vaddr.val())?;
-                d.set_item("paddr", e.paddr.val())?;
-                d.set_item("store_data", e.store_data)?;
-                d.set_item("rob_tag", e.rob_tag)?;
-                Ok(d.into_any().unbind())
-            })
-            .collect::<PyResult<_>>()?;
-        Ok(PyList::new(py, items)?.unbind())
+        slot_list(py, &self.inner.mem1_mem2)
     }
 
     /// Memory2 → Writeback latch.
@@ -352,21 +319,7 @@ impl PyPipelineSnapshot {
     /// ``load_data`` carries the forwarded value for load instructions.
     #[getter]
     fn mem2_wb(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let items: Vec<_> = self
-            .inner
-            .mem2_wb
-            .iter()
-            .map(|e| -> PyResult<_> {
-                let d = slot_dict(py, e.pc.val(), e.raw)?;
-                d.set_item("rd", e.rd.as_u8())?;
-                d.set_item("alu", e.alu)?;
-                d.set_item("load_data", e.load_data)?;
-                d.set_item("value", e.value)?;
-                d.set_item("rob_tag", e.rob_tag)?;
-                Ok(d.into_any().unbind())
-            })
-            .collect::<PyResult<_>>()?;
-        Ok(PyList::new(py, items)?.unbind())
+        slot_list(py, &self.inner.mem2_wb)
     }
 
     /// Return the pipeline diagram as a string.
