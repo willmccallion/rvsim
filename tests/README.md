@@ -21,8 +21,8 @@ uses.
 
 ## What CI runs
 
-`make test-all-smoke` is the gate a pull request must pass: the Rust and
-Python tests, then `make conformance-smoke`. That runs every riscv-test on
+`make ci` runs the gate a pull request must pass: the lints, the Rust and
+Python tests, `make conformance-smoke` and `make se-verify`. That runs every riscv-test on
 the `SMOKE_PIPELINES` configs (both backends, no caches, an L3, every
 prefetcher, DDR5, capped paging, a coherent SMP fabric and the calibrated
 presets), a sample of every vector instruction class against spike on an

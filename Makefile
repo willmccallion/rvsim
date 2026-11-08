@@ -31,13 +31,14 @@ else
 endif
 
 .PHONY: help software examples linux python python-wheel
-.PHONY: check test test-python test-coverage clippy fmt fmt-check lint prerelease
+.PHONY: check test test-python test-coverage clippy doc fmt fmt-check ruff
+.PHONY: lint lint-rust lint-python ci prerelease
 .PHONY: compare-gem5
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
 .PHONY: lockstep lockstep-build lockstep-smoke
 .PHONY: rtl-build rtl-compare embench-build se-programs se-verify
-.PHONY: test-all test-all-smoke conformance-smoke clean-tests
+.PHONY: test-all conformance-smoke clean-tests
 .PHONY: run-example run-linux
 .PHONY: profile-build flamegraph
 .PHONY: clean clean-rust clean-python clean-software
@@ -55,9 +56,12 @@ help:
 	@printf "    %-$(HELP_W)s  Run Rust tests\n" "make test"
 	@printf "    %-$(HELP_W)s  Run Rust tests with coverage (llvm-cov)\n" "make test-coverage"
 	@printf "    %-$(HELP_W)s  Run clippy linter\n" "make clippy"
-	@printf "    %-$(HELP_W)s  Format all code (Rust, Python, C)\n" "make fmt"
+	@printf "    %-$(HELP_W)s  Build the Rust docs, warnings denied\n" "make doc"
+	@printf "    %-$(HELP_W)s  Format Rust and Python code\n" "make fmt"
 	@printf "    %-$(HELP_W)s  Check formatting without modifying\n" "make fmt-check"
-	@printf "    %-$(HELP_W)s  fmt-check + clippy\n" "make lint"
+	@printf "    %-$(HELP_W)s  Lint Python with ruff\n" "make ruff"
+	@printf "    %-$(HELP_W)s  Every lint (lint-rust + lint-python)\n" "make lint"
+	@printf "    %-$(HELP_W)s  Everything CI runs: lint, tests, conformance smoke, SE check\n" "make ci"
 	@printf "    %-$(HELP_W)s  Full pre-release check (PRERELEASE_ARGS=--skip-linux skips the boot)\n" "make prerelease"
 	@printf "    %-$(HELP_W)s  Build riscv-tests ELFs (one-time)\n" "make riscv-tests-build"
 	@printf "    %-$(HELP_W)s  Run riscv-tests across all PIPELINES\n" "make riscv-tests"
@@ -73,7 +77,6 @@ help:
 	@printf "    %-$(HELP_W)s  Build Embench-IoT as static Linux programs for SE mode\n" "make embench-build"
 	@printf "    %-$(HELP_W)s  Check SE mode against qemu-riscv64 (EMBENCH=1, BUNDLED=1 add programs; SLOW=1 the long ones)\n" "make se-verify"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
-	@printf "    %-$(HELP_W)s  Rust, Python and conformance smoke (CI's gate)\n" "make test-all-smoke"
 	@printf "    %-$(HELP_W)s  Conformance smoke only (riscv, vector, multicore)\n" "make conformance-smoke"
 	@printf "    %-$(HELP_W)s  Wipe tests/builds/ (forces full rebuild)\n" "make clean-tests"
 	@printf "    %-$(HELP_W)s  Compare rvsim with gem5 on the benchmark set (GEM5_BIN=…)\n" "make compare-gem5"
@@ -161,6 +164,10 @@ clippy:
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
 	$(CARGO) clippy --workspace --all-targets --features rvsim-core/commit-log -- -D warnings
 
+doc:
+	@printf "$(GREEN)Building the Rust docs…$(RESET)\n"
+	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --workspace --no-deps
+
 PYTHON_SOURCES := rvsim tests examples tools docs
 
 fmt: $(VENV_STAMP)
@@ -175,7 +182,19 @@ fmt-check: $(VENV_STAMP)
 	@printf "$(GREEN)Checking Python formatting…$(RESET)\n"
 	$(PYTHON) -m ruff format --check $(PYTHON_SOURCES)
 
-lint: fmt-check clippy
+ruff: $(VENV_STAMP)
+	@printf "$(GREEN)Running ruff…$(RESET)\n"
+	$(PYTHON) -m ruff check $(PYTHON_SOURCES)
+
+lint-rust:
+	$(CARGO) fmt --all -- --check
+	@$(MAKE) --no-print-directory clippy doc
+
+lint-python: $(VENV_STAMP)
+	$(PYTHON) -m ruff format --check $(PYTHON_SOURCES)
+	@$(MAKE) --no-print-directory ruff
+
+lint: lint-rust lint-python
 
 SPIKE_LOCAL    := $(TEST_BUILDS)/spike-install/bin/spike
 VECTOR_PATTERN ?= .*
@@ -327,9 +346,9 @@ test-all: riscv-tests-build vector-test-build lockstep-build software python
 conformance-smoke: riscv-tests-build vector-smoke-build software python
 	$(PYTHON) tests/run_all.py --smoke
 
-# What CI requires before a merge: Rust and Python tests, then the
-# conformance smoke.
-test-all-smoke: test test-python conformance-smoke
+# Everything CI requires before a merge, across its jobs.
+ci: lint test test-python conformance-smoke
+	@$(MAKE) --no-print-directory se-verify EMBENCH=1 BUNDLED=1
 
 # Wipe everything under tests/builds/ — forces full rebuild on next run.
 clean-tests:
