@@ -12,6 +12,7 @@ use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
 use crate::common::{HartId, NANOS_PER_SECOND, PhysAddr, SimError, VirtAddr};
 use crate::config::{Config, InclusionPolicy, MemoryControllerKind, ValidConfig};
+use crate::isa::csr::MSTATUS_DEFAULT_RV64;
 use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
@@ -29,7 +30,7 @@ use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
 use crate::soc::memory::ddr5::Ddr5Controller;
-use crate::soc::terminal::Terminal;
+use crate::soc::terminal::{SharedTerminal, Terminal};
 use crate::soc::topology::Topology;
 use crate::soc::uncore::debug::HartDebug;
 use crate::soc::uncore::{
@@ -49,6 +50,134 @@ pub struct SystemState {
     pub cores: Vec<Core>,
     /// The uncore.
     pub uncore: Uncore,
+}
+
+/// The bus with RAM and every device on it: the console UART, the disk
+/// (with `disk`'s image), the CLINT, PLIC, `SysCon`, RTC and, for a
+/// program that has one, HTIF.
+fn build_bus(
+    config: &Config,
+    hart_count: usize,
+    terminal: &SharedTerminal,
+    exit_signal: &ExitSignal,
+    disk: Option<&str>,
+) -> Result<Bus, SimError> {
+    let system = &config.system;
+    let mut bus = Bus::new(system.bus_width, system.bus_latency, hart_count);
+    let mut disk_device = VirtioBlock::new(system.disk_base);
+    if let Some(path) = disk {
+        disk_device.load(load_binary(path)?);
+    }
+    let rtc_epoch_ns = system.rtc_epoch_seconds.saturating_mul(NANOS_PER_SECOND);
+    bus.add_device(Box::new(Uart::new(system.uart_base, terminal.clone(), system.cpu_clock_mhz)));
+    bus.add_device(Box::new(disk_device));
+    bus.add_device(Box::new(Clint::new(system.clint_base, system.clint_divider(), hart_count)));
+    bus.add_device(Box::new(Plic::new(crate::config::PLIC_BASE, hart_count)));
+    bus.add_device(Box::new(SysCon::new(system.syscon_base, exit_signal.clone())));
+    bus.add_device(Box::new(GoldfishRtc::new(
+        crate::config::RTC_BASE,
+        rtc_epoch_ns,
+        system.cpu_clock_mhz,
+    )));
+    if system.tohost_addr != 0 {
+        let htif = Htif::new(system.tohost_addr, exit_signal.clone(), Vec::new(), terminal.clone());
+        bus.add_device(Box::new(htif));
+    }
+    bus.attach_ram(MemCtrlId::new(0), system.ram_base, config.memory.ram_size as u64);
+    Ok(bus)
+}
+
+/// The memory controller the configuration picks.
+fn build_mem_controller(config: &Config) -> Box<dyn MemoryController> {
+    match config.memory.controller {
+        MemoryControllerKind::Dram => {
+            Box::new(DramController::new(DramConfig::from(&config.memory)))
+        }
+        MemoryControllerKind::Simple => {
+            let bytes_per_second = config
+                .memory
+                .simple_bandwidth_bytes_per_second()
+                .unwrap_or(std::num::NonZeroU64::MAX);
+            Box::new(SimpleController::new(
+                config.memory.simple_latency,
+                Bandwidth::new(bytes_per_second, config.system.cpu_clock_hz()),
+            ))
+        }
+        MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
+            PhysAddr::new(config.system.ram_base),
+            config.memory.ram_size as u64,
+            &config.memory.ddr5.to_config(),
+            MemCtrlId::new(0),
+            config.system.cpu_clock_mhz,
+        )),
+    }
+}
+
+/// The shared LLC, in front of the bus.
+fn build_llc(config: &Config, topology: &Topology) -> Cache {
+    let mut llc = Cache::new(topology.llc, CacheLevel::L3, &config.cache.l3, "llc");
+    llc.set_downstream(ComponentId::Bus);
+    // An exclusive L1/L2 pair leaves the LLC non-inclusive of the L2s.
+    let llc_inclusion = match config.cache.inclusion_policy {
+        InclusionPolicy::Exclusive => InclusionPolicy::Nine,
+        policy => policy,
+    };
+    llc.set_upstream_inclusion(llc_inclusion);
+    llc
+}
+
+/// `hart_count` harts at reset: in machine mode at the start PC, which the
+/// riscv-tests and bare-metal images both need.
+fn build_harts(config: &Config, hart_count: usize) -> Vec<Hart> {
+    let csrs = Csrs {
+        mstatus: MSTATUS_DEFAULT_RV64,
+        misa: config.misa(),
+        stimecmp: u64::MAX,
+        vlenb: config.pipeline.vlen.bytes() as u64,
+        ..Default::default()
+    };
+    (0..hart_count)
+        .map(|index| {
+            Hart::new(HartInit {
+                hart_id: HartId::from_index(index),
+                regs: RegisterFile::new(config.pipeline.vlen),
+                pc: VirtAddr::new(config.general.start_pc),
+                csrs: csrs.clone(),
+                privilege: PrivilegeMode::Machine,
+                pmp: Pmp::new(),
+            })
+        })
+        .collect()
+}
+
+/// The stats tree, with every hart's, core's, cache's and the fabric's
+/// counters registered.
+fn build_stats(
+    hart_stat_paths: &[HartPaths],
+    topology: &Topology,
+    units: &[CoreUnits],
+    llc: &Cache,
+    coherence: Option<&CoherenceFabric>,
+) -> Stats {
+    let core_stat_paths: Vec<_> = topology
+        .cores
+        .iter()
+        .zip(units)
+        .map(|(c, core)| (core.stat_paths, c.hart_ids[0]))
+        .collect();
+    let cache_stat_paths: Vec<_> = units
+        .iter()
+        .flat_map(|core| {
+            [core.l1_i_cache.stat_paths, core.l1_d_cache.stat_paths, core.l2_cache.stat_paths]
+        })
+        .chain(std::iter::once(llc.stat_paths))
+        .collect();
+    let components: Vec<&dyn StatSource> = cache_stat_paths
+        .iter()
+        .map(|paths| paths as &dyn StatSource)
+        .chain(coherence.map(|fabric| fabric.stat_paths() as &dyn StatSource))
+        .collect();
+    Stats::for_components(hart_stat_paths, &core_stat_paths, &components)
 }
 
 impl SystemState {
@@ -146,127 +275,20 @@ impl SystemState {
         disk: Option<&str>,
         exit_signal: ExitSignal,
     ) -> Result<Self, SimError> {
-        use crate::isa::csr::MSTATUS_DEFAULT_RV64;
-
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
         let hart_count = topology.hart_count();
-
-        // The bus and its devices.
-        let mut bus = Bus::new(config.system.bus_width, config.system.bus_latency, hart_count);
-
-        let ram_base = config.system.ram_base;
         let ram_size = config.memory.ram_size;
-        let ram = Ram::new(ram_base, ram_size)
+        let ram = Ram::new(config.system.ram_base, ram_size)
             .map_err(|source| SimError::RamAllocation { bytes: ram_size, source })?;
-
         let terminal = Terminal::shared(config.system.console);
-        let uart =
-            Uart::new(config.system.uart_base, terminal.clone(), config.system.cpu_clock_mhz);
-        let clint = Clint::new(config.system.clint_base, config.system.clint_divider(), hart_count);
-        let plic = Plic::new(crate::config::PLIC_BASE, hart_count);
-
-        let mut disk_device = VirtioBlock::new(config.system.disk_base);
-        if let Some(path) = disk {
-            disk_device.load(load_binary(path)?);
-        }
-
-        let syscon = SysCon::new(config.system.syscon_base, exit_signal.clone());
-        let rtc = GoldfishRtc::new(
-            crate::config::RTC_BASE,
-            config.system.rtc_epoch_seconds.saturating_mul(NANOS_PER_SECOND),
-            config.system.cpu_clock_mhz,
-        );
-
-        bus.add_device(Box::new(uart));
-        bus.add_device(Box::new(disk_device));
-        bus.add_device(Box::new(clint));
-        bus.add_device(Box::new(plic));
-        bus.add_device(Box::new(syscon));
-        bus.add_device(Box::new(rtc));
-
-        if config.system.tohost_addr != 0 {
-            let htif = Htif::new(
-                config.system.tohost_addr,
-                exit_signal.clone(),
-                Vec::new(),
-                terminal.clone(),
-            );
-            bus.add_device(Box::new(htif));
-        }
-
-        let mem_controller: Box<dyn MemoryController> = match config.memory.controller {
-            MemoryControllerKind::Dram => Box::new(DramController::new(DramConfig {
-                t_cas: config.memory.t_cas,
-                t_ras: config.memory.t_ras,
-                t_pre: config.memory.t_pre,
-                t_rrd: config.memory.t_rrd,
-                num_banks: config.memory.num_banks,
-                row_size_bytes: config.memory.row_size_bytes,
-                t_refi: config.memory.t_refi,
-                t_rfc: config.memory.t_rfc,
-            })),
-            MemoryControllerKind::Simple => {
-                let bytes_per_second = config
-                    .memory
-                    .simple_bandwidth_bytes_per_second()
-                    .unwrap_or(std::num::NonZeroU64::MAX);
-                Box::new(SimpleController::new(
-                    config.memory.simple_latency,
-                    Bandwidth::new(bytes_per_second, config.system.cpu_clock_hz()),
-                ))
-            }
-            MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
-                PhysAddr::new(ram_base),
-                ram_size as u64,
-                &config.memory.ddr5.to_config(),
-                MemCtrlId::new(0),
-                config.system.cpu_clock_mhz,
-            )),
-        };
-
-        let mut l3_cache = Cache::new(topology.llc, CacheLevel::L3, &config.cache.l3, "llc");
-        l3_cache.set_downstream(ComponentId::Bus);
-        // An exclusive L1/L2 pair leaves the LLC non-inclusive of the L2s.
-        let llc_inclusion = match config.cache.inclusion_policy {
-            InclusionPolicy::Exclusive => InclusionPolicy::Nine,
-            policy => policy,
-        };
-        l3_cache.set_upstream_inclusion(llc_inclusion);
-
-        bus.attach_ram(MemCtrlId::new(0), ram_base, ram_size as u64);
+        let bus = build_bus(config, hart_count, &terminal, &exit_signal, disk)?;
+        let mem_controller = build_mem_controller(config);
+        let mut l3_cache = build_llc(config, &topology);
         let write_log_line_bytes = match config.cache.l1_d.line_bytes {
             0 => 64,
             line_bytes => line_bytes as u64,
         };
-
-        // The harts' architectural state.
-        let csrs = Csrs {
-            mstatus: MSTATUS_DEFAULT_RV64,
-            misa: config.misa(),
-            stimecmp: u64::MAX,
-            vlenb: config.pipeline.vlen.bytes() as u64,
-            ..Default::default()
-        };
-
-        let fresh_regs = |_hart_id: HartId| RegisterFile::new(config.pipeline.vlen);
-
-        // Always start in Machine mode. The riscv-tests switch to lower modes
-        // via their own trap handlers; bare-metal binaries need M-mode too.
-        let privilege = PrivilegeMode::Machine;
-
-        let harts: Vec<Hart> = (0..hart_count)
-            .map(|index| {
-                let hart_id = HartId::from_index(index);
-                Hart::new(HartInit {
-                    hart_id,
-                    regs: fresh_regs(hart_id),
-                    pc: VirtAddr::new(config.general.start_pc),
-                    csrs: csrs.clone(),
-                    privilege,
-                    pmp: Pmp::new(),
-                })
-            })
-            .collect();
+        let harts = build_harts(config, hart_count);
 
         let mut units: Vec<CoreUnits> = topology
             .cores
@@ -284,25 +306,7 @@ impl SystemState {
 
         let hart_stat_paths: Vec<HartPaths> =
             harts.iter().map(|hart| HartPaths::new(hart.hart_id)).collect();
-        let core_stat_paths: Vec<_> = topology
-            .cores
-            .iter()
-            .zip(&units)
-            .map(|(c, core)| (core.stat_paths, c.hart_ids[0]))
-            .collect();
-        let cache_stat_paths: Vec<_> = units
-            .iter()
-            .flat_map(|core| {
-                [core.l1_i_cache.stat_paths, core.l1_d_cache.stat_paths, core.l2_cache.stat_paths]
-            })
-            .chain(std::iter::once(l3_cache.stat_paths))
-            .collect();
-        let components: Vec<&dyn StatSource> = cache_stat_paths
-            .iter()
-            .map(|paths| paths as &dyn StatSource)
-            .chain(coherence.as_ref().map(|fabric| fabric.stat_paths() as &dyn StatSource))
-            .collect();
-        let stats = Stats::for_components(&hart_stat_paths, &core_stat_paths, &components);
+        let stats = build_stats(&hart_stat_paths, &topology, &units, &l3_cache, coherence.as_ref());
 
         let cores = topology
             .cores

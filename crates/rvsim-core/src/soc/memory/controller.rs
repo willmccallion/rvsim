@@ -10,6 +10,7 @@
 use std::num::NonZeroU64;
 
 use crate::common::{LineAddr, PhysAddr};
+use crate::config::MemoryConfig;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
@@ -37,6 +38,21 @@ pub struct DramConfig {
     pub t_refi: u64,
     /// Refresh cycle time in cycles.
     pub t_rfc: u64,
+}
+
+impl From<&MemoryConfig> for DramConfig {
+    fn from(memory: &MemoryConfig) -> Self {
+        Self {
+            t_cas: memory.t_cas,
+            t_ras: memory.t_ras,
+            t_pre: memory.t_pre,
+            t_rrd: memory.t_rrd,
+            num_banks: memory.num_banks,
+            row_size_bytes: memory.row_size_bytes,
+            t_refi: memory.t_refi,
+            t_rfc: memory.t_rfc,
+        }
+    }
 }
 
 /// Per-bank state for DRAM row-buffer tracking.
