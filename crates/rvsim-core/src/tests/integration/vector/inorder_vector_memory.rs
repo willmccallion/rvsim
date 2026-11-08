@@ -60,7 +60,7 @@ fn a_scalar_load_forwards_from_an_in_order_vector_store() {
     config.pipeline.width = 4;
     config.cache.l1_d.enabled = true;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     for byte in 0..ELEMENTS {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }

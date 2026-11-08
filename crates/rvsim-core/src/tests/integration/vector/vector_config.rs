@@ -53,7 +53,7 @@ fn run(backend: BackendKind) -> (u64, u64) {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     for (i, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + (i as u64) * 4),
@@ -96,7 +96,7 @@ fn cycles_to_retire(backend: BackendKind, program: &[u32]) -> u64 {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     let target = program.len() as u64 - 1;
     let mut cycles = 0;
     while ctx.sim.state.harts[0].instructions_retired < target {

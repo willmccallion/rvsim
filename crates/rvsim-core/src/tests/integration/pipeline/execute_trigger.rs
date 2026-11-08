@@ -41,7 +41,7 @@ fn check(backend: BackendKind) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     for (n, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + 4 * n as u64),
@@ -88,7 +88,7 @@ fn tdata1_after_writing_every_access_and_mode(backend: BackendKind) -> u64 {
     config.pipeline.backend = backend;
     let program =
         [i().csrrw(0, TDATA1, A1).build(), i().csrrs(A2, TDATA1, 0).build(), i().jal(0, 0).build()];
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     ctx.set_reg(A1 as usize, MCONTROL_EVERY_ACCESS_AND_MODE);
     ctx.sim.sync_arch_regs();
 

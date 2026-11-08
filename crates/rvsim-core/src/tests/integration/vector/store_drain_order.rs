@@ -84,7 +84,8 @@ fn run(order: Order, backend: BackendKind) -> (u64, u64) {
     config.pipeline.backend = backend;
     config.cache.wcb_entries = WCB_ENTRIES;
     config.system.console = Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program(order));
+    let mut ctx =
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program(order));
     for byte in 0..BYTES {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }

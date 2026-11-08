@@ -42,7 +42,7 @@ fn trap_of_data_trigger(backend: BackendKind, store: bool, tdata1: u64) -> (u64,
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &access(store));
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &access(store));
     for (n, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + 4 * n as u64),

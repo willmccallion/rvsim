@@ -57,7 +57,7 @@ fn run(backend: BackendKind) -> u64 {
     config.pipeline.width = 4;
     config.pipeline.vec_store_buffer_size = VSB_ENTRIES;
     config.system.console = Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     for byte in 0..ELEMENTS {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }

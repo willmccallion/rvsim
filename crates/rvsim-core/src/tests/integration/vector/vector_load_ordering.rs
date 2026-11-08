@@ -96,7 +96,7 @@ fn copied(load: Load, load_queue_size: usize) -> Vec<u64> {
     config.pipeline.load_queue_size = load_queue_size;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &store_then_load(load));
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &store_then_load(load));
     for byte in 0..BYTES {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }

@@ -74,7 +74,7 @@ fn config(backend: BackendKind, with_l2: bool) -> Config {
 /// Cycles one FENCE.I took with the L1D as `l1d` says.
 fn fence_i_cycles(backend: BackendKind, with_l2: bool, l1d: L1d) -> u64 {
     let config = config(backend, with_l2);
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program(l1d));
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program(l1d));
 
     let finished = ctx.run_until(20_000, |ctx| ctx.get_reg(S4 as usize) == 1);
 

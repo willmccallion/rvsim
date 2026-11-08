@@ -120,7 +120,7 @@ fn traced_run(backend: BackendKind, program: &[u32]) -> Recording {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     let recording = Recording::default();
     ctx.sim.state.uncore.host.pipeline_trace = Some(Box::new(recording.clone()));
     ctx.run(20_000);

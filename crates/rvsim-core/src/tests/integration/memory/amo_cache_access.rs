@@ -35,7 +35,7 @@ fn check_one_access_per_amo(backend: BackendKind) {
     config.cache.l1_d.enabled = true;
     config.cache.wcb_entries = 0;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.probe_mem_store(PhysAddr::new(DATA), 100, ProbeWidth::B8);
 
     ctx.run(400);

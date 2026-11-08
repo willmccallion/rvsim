@@ -69,7 +69,7 @@ fn run_until_trap(backend: BackendKind, trap_latency: u64, program: &[u32]) -> T
     config.pipeline.width = 4;
     config.pipeline.trap_latency = trap_latency;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     for (i, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + (i as u64) * 4),

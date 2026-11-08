@@ -60,7 +60,7 @@ fn marked_program(before: Before) -> Vec<u32> {
 fn run(program: &[u32]) -> TestContext {
     let mut config = Config::minimal();
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     ctx.run(20_000);
     assert_eq!(ctx.sim.state.uncore.peek_exit(), Some(5), "the guest ended the run with its code");
     ctx
@@ -106,7 +106,7 @@ fn exit_code_on(backend: crate::config::BackendKind, program: &[u32]) -> Option<
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     ctx.run(20_000);
     ctx.sim.state.uncore.peek_exit()
 }
@@ -167,7 +167,7 @@ fn debug_break_stops_the_hosts_run_and_panic_ends_it() {
     ];
     let mut config = Config::minimal();
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     let everything = StopAt { cycles: Some(20_000), guest_breaks: true, ..StopAt::default() };
 
     let first = ctx.sim.run_to(&everything).expect("the run ticks");

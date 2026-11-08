@@ -16,7 +16,7 @@ fn history_after_a_jump_loop(backend: BackendKind) -> bool {
     config.pipeline.branch_predictor = crate::config::BranchPredictorKind::GShare;
     config.system.console = crate::config::Console::Quiet;
     let program = [InstructionBuilder::new().jal(0, 0).build()];
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
 
     ctx.run(100);
 

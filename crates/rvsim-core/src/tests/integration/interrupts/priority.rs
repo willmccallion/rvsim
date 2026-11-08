@@ -23,7 +23,7 @@ fn run(backend: BackendKind) -> (PrivilegeMode, u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     let spin = [InstructionBuilder::new().jal(0, 0).build()];
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &spin);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &spin);
     for handler in [M_HANDLER, S_HANDLER] {
         ctx.sim.probe_mem_store(PhysAddr::new(handler), u64::from(spin[0]), ProbeWidth::B4);
     }

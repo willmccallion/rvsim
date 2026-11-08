@@ -40,7 +40,7 @@ fn committed_mispredicts(backend: BackendKind) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.branch_predictor = BranchPredictorKind::GShare;
-    let mut ctx = TestContext::new_with_config(&config)
+    let mut ctx = TestContext::with_fast_memory(&config)
         .load_program(PROGRAM_BASE, &alternating_indirect_jump());
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     let path = ctx.sim.state.cores[0].units.stat_paths.bp.committed_mispredicts;

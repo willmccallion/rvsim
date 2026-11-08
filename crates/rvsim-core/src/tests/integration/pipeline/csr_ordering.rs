@@ -30,7 +30,7 @@ fn swap_then_read_back(backend: BackendKind, width: usize) {
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);
 
@@ -68,7 +68,7 @@ fn o3_holds_rename_behind_a_csr_access_instead_of_squashing() {
     let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);
 

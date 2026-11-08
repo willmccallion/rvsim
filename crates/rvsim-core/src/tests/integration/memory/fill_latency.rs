@@ -39,7 +39,7 @@ fn cycles_to_finish(l1d_latency: u64, l1d_response_latency: u64) -> u64 {
     config.cache.l1_d.response_latency = l1d_response_latency;
     config.system.console = crate::config::Console::Quiet;
     let program = program();
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     let all_but_spin = program.len() as u64 - 1;
     let mut cycles = 0;
     while ctx.sim.state.harts[0].instructions_retired < all_but_spin && cycles < 100_000 {

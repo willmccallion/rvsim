@@ -44,7 +44,7 @@ fn run(backend: BackendKind, load: u32, between: u32) -> Outcome {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program(load, between));
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program(load, between));
     let cycles =
         ctx.run_until(5_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     Outcome {

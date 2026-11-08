@@ -35,7 +35,7 @@ fn cycles_with_writeback_width(writeback_width: usize) -> u64 {
     config.pipeline.writeback_width = Some(writeback_width);
     config.cache.l1_i.enabled = true;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &independent_adds());
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &independent_adds());
     ctx.run_until(50_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished")
 }
 

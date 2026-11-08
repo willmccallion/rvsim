@@ -41,7 +41,7 @@ fn drain_after(backend: BackendKind, cycles: u64) -> u64 {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.run(cycles);
     let committed = ctx.sim.state.harts[0].instructions_retired.saturating_sub(2).min(STORES);
     let in_ram_before = (0..committed).take_while(|&s| slot(&mut ctx, s) == MARK).count() as u64;
@@ -71,7 +71,7 @@ fn keeps_running_after_a_drain(backend: BackendKind, cycles: u64) {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.run(cycles);
     ctx.sim.drain();
     let retired_at_drain = ctx.sim.state.harts[0].instructions_retired;

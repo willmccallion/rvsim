@@ -50,7 +50,7 @@ fn run(backend: BackendKind, maintenance: u32) -> Outcome {
     config.cache.l1_i.enabled = true;
     config.cache.l1_d.enabled = true;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program(maintenance));
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program(maintenance));
 
     ctx.run_until(3_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     ctx.run(50);

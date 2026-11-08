@@ -177,7 +177,7 @@ fn config(backend: BackendKind) -> Config {
 /// Runs `program` as a bare-metal image on `backend` with `host`'s files
 /// and returns the exit code.
 fn run_bare(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext, Option<u64>) {
-    let mut ctx = TestContext::new_with_config(&config(backend)).load_program(BARE_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(&config(backend)).load_program(BARE_BASE, program);
     host.attach(&mut ctx.sim);
     ctx.run(20_000);
     let exit = ctx.sim.state.uncore.peek_exit();
@@ -210,7 +210,7 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u6
 /// under Sv39 at `CODE_VA`, with `host`'s files, and returns the exit
 /// code.
 fn run_paged(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext, Option<u64>) {
-    let mut ctx = TestContext::new_with_config(&config(backend)).with_memory(RAM_SIZE, BARE_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config(backend)).with_memory(RAM_SIZE, BARE_BASE);
     for (n, inst) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(CODE_PA + 4 * n as u64),
@@ -325,7 +325,7 @@ fn readfile_into_an_unmapped_buffer_fails_with_efault() {
 fn without_a_script_readfile_reads_nothing() {
     for backend in BACKENDS {
         let host = Host::new();
-        let mut ctx = TestContext::new_with_config(&config(backend))
+        let mut ctx = TestContext::with_fast_memory(&config(backend))
             .load_program(BARE_BASE, &exchange_program());
         let out = host.dir.path().join("out");
         ctx.sim.set_output_dir(out.to_str().expect("utf-8 path")).expect("the directory is made");

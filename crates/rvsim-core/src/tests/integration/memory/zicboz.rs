@@ -84,7 +84,7 @@ fn run_cbo_zero(ctx: &mut TestContext, addr_in_x10: u64) {
 #[test]
 fn cbo_zero_aligned_zeroes_one_block_only() {
     let data_addr = RAM_BASE + 0x1000;
-    let mut ctx = TestContext::new_with_config(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
     fill_pattern(&mut ctx, data_addr, 2 * CBOZ_BLOCK_SIZE);
 
     run_cbo_zero(&mut ctx, data_addr);
@@ -109,7 +109,7 @@ fn cbo_zero_aligned_zeroes_one_block_only() {
 fn cbo_zero_ignores_low_address_bits() {
     let block_addr = RAM_BASE + 0x1000;
     let unaligned = block_addr + 17; // mid-block
-    let mut ctx = TestContext::new_with_config(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
     fill_pattern(&mut ctx, block_addr, 2 * CBOZ_BLOCK_SIZE);
 
     run_cbo_zero(&mut ctx, unaligned);
@@ -135,7 +135,7 @@ fn cbo_zero_ignores_low_address_bits() {
 #[test]
 fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
     let data_addr = RAM_BASE + 0x1000;
-    let mut ctx = TestContext::new_with_config(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
     assert_eq!(ctx.state().harts[0].csrs.menvcfg & crate::isa::csr::MENVCFG_CBZE, 0);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
@@ -167,7 +167,7 @@ fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
 #[test]
 fn cbo_inval_in_machine_mode_does_not_trap() {
     let data_addr = RAM_BASE + 0x1000;
-    let mut ctx = TestContext::new_with_config(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
     run_cbo(&mut ctx, cbo_inval(X10), data_addr);
@@ -181,7 +181,7 @@ fn cbo_inval_in_machine_mode_does_not_trap() {
 #[test]
 fn cbo_clean_in_machine_mode_does_not_trap() {
     let data_addr = RAM_BASE + 0x1000;
-    let mut ctx = TestContext::new_with_config(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
     run_cbo(&mut ctx, cbo_clean(X10), data_addr);
@@ -192,7 +192,7 @@ fn cbo_clean_in_machine_mode_does_not_trap() {
 #[test]
 fn cbo_flush_in_machine_mode_does_not_trap() {
     let data_addr = RAM_BASE + 0x1000;
-    let mut ctx = TestContext::new_with_config(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
     run_cbo(&mut ctx, cbo_flush(X10), data_addr);
@@ -214,7 +214,7 @@ fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
     let data_addr = RAM_BASE + 0x1000;
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
     let i = InstructionBuilder::new;
     let program =

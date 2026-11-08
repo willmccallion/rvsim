@@ -74,7 +74,7 @@ fn run(backend: BackendKind, first: RobTag) -> Outcome {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.state.cores[0].pipeline.start_rob_tags_at(first);
 
     let finished = ctx.run_until(50_000, |ctx| ctx.get_reg(S2 as usize) == 1);

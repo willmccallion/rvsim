@@ -66,7 +66,7 @@ fn run(backend: BackendKind, units: Units, frm: u64, inst: u32) -> (u64, u64, u6
     config.system.console = crate::config::Console::Quiet;
     let i = InstructionBuilder::new;
     let program = [inst, i().addi(A4, 0, 1).build(), i().jal(0, 0).build()];
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + 4 * n as u64),

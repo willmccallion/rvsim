@@ -67,7 +67,7 @@ fn run_on(
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = console;
-    let mut tc = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    let mut tc = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     let exit_signal = tc.sim.state.uncore.run.exit_signal.clone();
     tc.sim.state.uncore.add_htif(
         TOHOST,

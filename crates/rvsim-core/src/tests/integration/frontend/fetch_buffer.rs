@@ -48,7 +48,7 @@ fn run_until(backend: BackendKind, program: &[u32], marker: u64) -> (u64, u64) {
     config.cache.l1_i.enabled = true;
     config.cache.l1_i.line_bytes = std::num::NonZero::new(LINE_BYTES).unwrap();
     config.cache.l1_i.latency = I_CACHE_LATENCY;
-    let mut tc = TestContext::new_with_config(&config)
+    let mut tc = TestContext::with_fast_memory(&config)
         .with_memory(RAM_SIZE, RAM_BASE)
         .load_program(RAM_BASE, program);
 

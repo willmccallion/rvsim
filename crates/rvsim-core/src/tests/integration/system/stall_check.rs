@@ -16,7 +16,7 @@ const SHORTER_THAN_A_COLD_FETCH: u64 = 10;
 fn system(program: &[u32]) -> TestContext {
     let mut config = Config::minimal();
     config.system.console = Console::Quiet;
-    TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program)
+    TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program)
 }
 
 fn spin() -> Vec<u32> {

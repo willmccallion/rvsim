@@ -63,7 +63,7 @@ fn run_program(config: &Config, program: &[u32], cycles: u64) -> TestContext {
 
 /// A system with `program` at `RAM_BASE` and the PC on its first instruction.
 fn load_program(config: &Config, program: &[u32]) -> TestContext {
-    let mut ctx = TestContext::new_with_config(config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(config).with_memory(RAM_SIZE, RAM_BASE);
     for (i, inst) in program.iter().enumerate() {
         let addr = RAM_BASE + (i as u64) * 4;
         ctx.sim.probe_mem_store(PhysAddr::new(addr), u64::from(*inst), ProbeWidth::B4);
@@ -263,7 +263,7 @@ fn cycles_through_four(funct6: u32, funct3: u32) -> u64 {
         .chain([addi(A0, 0, 1), 0x0000_006F])
         .collect();
     let mut ctx =
-        TestContext::new_with_config(&wide_inorder_config()).with_memory(RAM_SIZE, RAM_BASE);
+        TestContext::with_fast_memory(&wide_inorder_config()).with_memory(RAM_SIZE, RAM_BASE);
     for (i, inst) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(RAM_BASE + (i as u64) * 4),

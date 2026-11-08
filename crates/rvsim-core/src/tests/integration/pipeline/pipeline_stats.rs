@@ -39,7 +39,7 @@ fn flushes_by_cause_add_up_to_all_flushes() {
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &violating_program());
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &violating_program());
 
     ctx.run(2000);
 
@@ -72,7 +72,7 @@ fn fu_structural_stalls_are_counted_in_cycles() {
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &divide_bound_program());
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &divide_bound_program());
 
     ctx.run(60);
 

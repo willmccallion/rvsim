@@ -90,7 +90,7 @@ fn context(backend: BackendKind, harts: usize) -> TestContext {
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
     config.system.hart_count = std::num::NonZero::new(harts).unwrap();
-    TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program())
+    TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program())
 }
 
 /// Serves one debugger whose script is `client`, and returns what the
@@ -204,7 +204,7 @@ fn a_breakpoint_inside_a_commit_group_stops_before_its_instruction() {
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = Console::Quiet;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &independent_adds());
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &independent_adds());
     let third = PROGRAM_BASE + 8;
 
     let (seen, outcome) = debug_session(&mut ctx.sim, move |mut gdb| {
@@ -255,7 +255,7 @@ fn a_write_watchpoint_stops_after_the_store_and_a_read_one_after_the_load() {
         config.pipeline.backend = backend;
         config.system.console = Console::Quiet;
         let mut ctx =
-            TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &store_then_load());
+            TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &store_then_load());
 
         let (seen, outcome) = debug_session(&mut ctx.sim, |mut gdb| {
             vec![

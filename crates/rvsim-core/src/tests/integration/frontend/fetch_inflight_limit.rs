@@ -41,7 +41,7 @@ fn assert_fetch_bounded(backend: BackendKind) {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     let width = config.pipeline.width;
-    let mut tc = TestContext::new_with_config(&config)
+    let mut tc = TestContext::with_fast_memory(&config)
         .with_memory(RAM_SIZE, RAM_BASE)
         .load_program(RAM_BASE, &straight_line_program());
 

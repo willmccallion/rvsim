@@ -31,7 +31,7 @@ fn warm_iteration_cycles(backend: BackendKind, narrow: impl Fn(&mut Config)) -> 
     config.cache.l1_i.enabled = true;
     config.system.console = crate::config::Console::Quiet;
     narrow(&mut config);
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     let mut cycles = 0;
     let mut second_iteration = None;

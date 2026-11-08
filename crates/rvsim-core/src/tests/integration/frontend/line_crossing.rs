@@ -33,7 +33,7 @@ fn run(backend: BackendKind, offset: i32) -> (u64, u64) {
     config.cache.l1_d.enabled = true;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program(offset));
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program(offset));
     ctx.sim.probe_mem_store(
         PhysAddr::new(DATA + offset as u64),
         0x1817_1615_1413_1211,

@@ -31,7 +31,7 @@ fn cycles_to_finish(configure: impl Fn(&mut Config)) -> u64 {
     config.pipeline.backend = BackendKind::InOrder;
     config.system.cpu_clock_mhz = std::num::NonZero::new(CLOCK_MHZ).unwrap();
     configure(&mut config);
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.run_until(5_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished")
 }
 

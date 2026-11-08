@@ -29,22 +29,20 @@ impl Default for TestContext {
 }
 
 impl TestContext {
+    /// The minimal machine, with fast memory.
     pub fn new() -> Self {
-        Self::new_with_config(&Config::minimal())
+        Self::with_fast_memory(&Config::minimal())
     }
 
-    /// Construct a TestContext with a caller-supplied `Config` (e.g. to vary
-    /// pipeline width or backend type when reproducing pipeline-integration
-    /// bugs). Otherwise identical to `new()`.
-    pub fn new_with_config(config: &Config) -> Self {
+    /// The machine `config` describes, except that its memory is a
+    /// one-cycle controller behind a zero-latency bus, so short programs
+    /// finish inside their cycle budgets whatever the memory config says.
+    pub fn with_fast_memory(config: &Config) -> Self {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .with_test_writer()
             .try_init();
 
-        // Pipeline tests exercise stage behaviour, not the memory system:
-        // give every miss a single-cycle memory controller and a zero-latency
-        // bus so short programs finish inside their cycle budgets.
         let mut config = config.clone();
         config.memory.controller = MemoryControllerKind::Simple;
         config.memory.simple_latency = 1;

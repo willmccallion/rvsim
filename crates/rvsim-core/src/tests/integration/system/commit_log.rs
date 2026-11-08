@@ -77,7 +77,7 @@ fn logged_lines_until(
     config.pipeline.width = width;
     let log = tempfile::NamedTempFile::new().expect("temp file");
     let path = log.path().to_str().expect("utf-8 path").to_owned();
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     ctx.sim.open_commit_log(&path).expect("open commit log");
 
     let reached = ctx.run_until(5_000, |ctx| ctx.state().harts[0].pc == VirtAddr::new(stop_pc));

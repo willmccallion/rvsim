@@ -40,7 +40,7 @@ fn program() -> Vec<u32> {
 fn system() -> TestContext {
     let mut config = Config::minimal();
     config.system.console = Console::Quiet;
-    TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program())
+    TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program())
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn console_output_stops_the_run_once_the_guest_prints() {
     let mut config = Config::minimal();
     config.system.console = Console::Captured;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &printing_program());
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &printing_program());
     let stop = StopAt { cycles: Some(20_000), console_output: true, ..StopAt::default() };
 
     let reason = ctx.sim.run_to(&stop).expect("the run ticks");
@@ -146,7 +146,7 @@ fn a_pc_stop_lands_before_its_instruction_inside_a_commit_group() {
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.system.console = Console::Quiet;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &independent_adds());
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &independent_adds());
     let third = PROGRAM_BASE + 8;
     let stop =
         StopAt { pcs: vec![VirtAddr::new(third)], cycles: Some(10_000), ..StopAt::default() };

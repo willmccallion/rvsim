@@ -39,7 +39,7 @@ fn program() -> Vec<u32> {
 }
 
 fn assert_forwarded_values_are_the_stored_ones(backend: BackendKind) {
-    let mut tc = TestContext::new_with_config(&config(backend))
+    let mut tc = TestContext::with_fast_memory(&config(backend))
         .with_memory(MEM_SIZE, BASE_ADDR)
         .load_program(BASE_ADDR, &program());
 

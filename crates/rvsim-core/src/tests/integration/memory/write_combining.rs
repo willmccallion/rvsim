@@ -51,7 +51,7 @@ fn run(backend: BackendKind, wcb_entries: usize) -> TestContext {
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
     config.cache.wcb_entries = wcb_entries;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.run_until(5_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     ctx
 }
