@@ -190,3 +190,12 @@ fn a_half_precision_fused_zero_times_infinity_is_invalid_even_with_a_quiet_nan_a
             .contains(FpFlags::NV)
     );
 }
+
+#[test]
+fn a_half_precision_fma_whose_f64_step_rounds_away_the_product_is_inexact() {
+    // -2^-24 × 2^-24 - 32 is -32 - 2^-48, half an f64 ulp below -32: the f64
+    // fused step rounds it to -32 exactly, which converts to f16 exactly.
+    let (smallest_negative, smallest, minus_32) = (0x8001, 0x0001, 0xd000);
+    let flags = execute_f16(FpOp::Fma(FmaSigns::Macc), smallest_negative, smallest, minus_32);
+    assert_eq!(flags, FpFlags::NX);
+}

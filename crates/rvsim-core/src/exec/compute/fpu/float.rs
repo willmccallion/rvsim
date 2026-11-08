@@ -11,6 +11,7 @@ use super::half::{
     CANONICAL_NAN_F16, F16_SIGN, f16_to_f32, f64_to_f16, fused_is_invalid, is_snan_f16,
     product_is_invalid, sum_is_invalid,
 };
+use super::host::{clear_host_fp_flags, read_host_fp_flags};
 use super::nan_handling::{fmax_f32, fmax_f64, fmin_f32, fmin_f64, is_snan_f32, is_snan_f64};
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::{IntWidth, Signedness};
@@ -185,14 +186,19 @@ impl Float for SoftF16 {
         Self::round(a.sqrt(), rm, extra)
     }
 
-    /// The f64 fused result can be inexact and then rounds twice, so an
-    /// inexact one is rounded from the exact value.
+    /// The f64 fused result can be inexact, and then either rounds twice or
+    /// hides that it was inexact, so an inexact one is rounded from the
+    /// exact value instead.
     fn mul_add(self, b: Self, c: Self, rm: RoundingMode) -> (Self, FpFlags) {
         let (x, y, z) = (self.to_f64(), b.to_f64(), c.to_f64());
         let signaling = self.is_signaling_nan() || b.is_signaling_nan() || c.is_signaling_nan();
         let nv = if signaling || fused_is_invalid(x, y, z) { FpFlags::NV } else { FpFlags::NONE };
-        let (bits, flags) = f64_to_f16(x.mul_add(y, z), rm);
-        if flags.contains(FpFlags::NX) && x.is_finite() && y.is_finite() && z.is_finite() {
+        clear_host_fp_flags();
+        let fused = black_box(black_box(x).mul_add(black_box(y), black_box(z)));
+        let is_fused_inexact = read_host_fp_flags().contains(FpFlags::NX);
+        let (bits, flags) = f64_to_f16(fused, rm);
+        let is_inexact = is_fused_inexact || flags.contains(FpFlags::NX);
+        if is_inexact && x.is_finite() && y.is_finite() && z.is_finite() {
             let exact = exact::mul_add(Exact::of_f64(x), Exact::of_f64(y), Exact::of_f64(z));
             let (bits, flags) = exact::round(exact, FpFormat::Half, rm);
             return (Self(bits as u16), flags | nv);
