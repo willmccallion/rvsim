@@ -27,6 +27,9 @@ pub const SW: u32 = 0b010;
 /// Store Doubleword.
 pub const SD: u32 = 0b011;
 
+/// Jump And Link Register, its only funct3.
+pub const JALR: u32 = 0b000;
+
 /// Branch Equal.
 pub const BEQ: u32 = 0b000;
 /// Branch Not Equal.
