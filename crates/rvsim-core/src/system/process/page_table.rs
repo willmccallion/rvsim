@@ -146,12 +146,6 @@ impl AddressSpace {
         Ok(Self { mode, root, pages: BTreeMap::new(), revocations: 0 })
     }
 
-    /// The paging mode the tables are built for.
-    #[must_use]
-    pub const fn mode(&self) -> PagingMode {
-        self.mode
-    }
-
     /// The `satp` value that selects these tables.
     #[must_use]
     pub const fn satp(&self) -> u64 {

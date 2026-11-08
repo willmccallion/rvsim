@@ -29,12 +29,6 @@ impl VecPhysReg {
         Self(val)
     }
 
-    /// Returns the index as `u16`.
-    #[inline(always)]
-    pub const fn as_u16(self) -> u16 {
-        self.0
-    }
-
     /// Returns the index as `usize`.
     #[inline(always)]
     pub const fn as_usize(self) -> usize {

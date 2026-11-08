@@ -101,6 +101,7 @@ fn finalize_outcome(
 
 impl CoreCtx<'_> {
     /// Begins (or completes) translation of a virtual address.
+    #[cfg(test)]
     pub fn translate(
         &mut self,
         vaddr: VirtAddr,
@@ -192,25 +193,5 @@ impl CoreCtx<'_> {
             rest = tail;
         }
         Ok(())
-    }
-
-    /// Resumes a walk that was parked waiting on a PTE response, for an
-    /// access of `size` bytes.
-    pub fn translate_continue(
-        &mut self,
-        state: WalkState,
-        raw_pte: u64,
-        bus_transit_cycles: u64,
-        size: u64,
-    ) -> TranslateOutcome {
-        translate_continue(
-            self.core,
-            self.hart,
-            self.uncore,
-            state,
-            raw_pte,
-            bus_transit_cycles,
-            size,
-        )
     }
 }

@@ -615,9 +615,13 @@ fn a_captured_console_keeps_output_for_the_host() {
 
 #[test]
 fn a_captured_console_delivers_the_hosts_input() {
-    let mut uart = uart(0, Console::Captured, 2400);
+    let terminal = Terminal::shared(Console::Captured);
+    let mut uart = Uart::new(0, terminal.clone(), 2400);
 
-    uart.send_input(b"r");
+    terminal.lock().expect("the terminal is free").type_input(b"r");
+    for _ in 0..=u8::MAX {
+        let _ = uart.tick();
+    }
 
     let lsr = crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(5), 1);
     let rbr = crate::tests::support::probe::read(&mut uart, crate::common::PhysAddr::new(0), 1);

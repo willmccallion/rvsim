@@ -321,11 +321,6 @@ impl Bus {
         }
     }
 
-    /// The console UART.
-    pub fn uart_mut(&mut self) -> Option<&mut Uart> {
-        device_as_mut::<Uart>(&mut self.devices, self.uart_idx)
-    }
-
     /// Whether the UART has printed the kernel's panic message.
     pub fn check_kernel_panic(&self) -> bool {
         device_as::<Uart>(&self.devices, self.uart_idx).is_some_and(Uart::check_kernel_panic)
