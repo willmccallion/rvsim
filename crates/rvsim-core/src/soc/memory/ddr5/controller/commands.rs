@@ -21,7 +21,7 @@ impl Ddr5Controller {
         rank: RankId,
         bank_index: usize,
     ) -> BankCmdCtx {
-        let banks_per_group = usize::from(self.config.banks_per_group.max(1));
+        let banks_per_group = usize::from(self.config.banks_per_group.get());
         BankCmdCtx {
             chan,
             subch,
@@ -97,7 +97,7 @@ impl Ddr5Controller {
     /// Timing floors an ACTIVATE of `ctx`'s bank must clear.
     pub(super) fn activate_bounds(&self, ctx: &BankCmdCtx) -> ActivateBounds {
         let t = self.config.timing;
-        let banks_per_group = usize::from(self.config.banks_per_group);
+        let banks_per_group = usize::from(self.config.banks_per_group.get());
         let sc = &self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
         let rank_ref = &sc.ranks[ctx.rank.as_index()];
         let mut rrd = 0u64;

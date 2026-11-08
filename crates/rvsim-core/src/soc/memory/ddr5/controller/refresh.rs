@@ -190,7 +190,7 @@ impl Ddr5Controller {
         self.pending_commands.push(EmittedCommand {
             channel: chan,
             rank,
-            bank: index_to_u8(set as usize % usize::from(self.config.banks_per_group.max(1))),
+            bank: index_to_u8(set as usize % usize::from(self.config.banks_per_group.get())),
             row: 0,
             kind: DramCmdKind::Refresh,
             fire_at,

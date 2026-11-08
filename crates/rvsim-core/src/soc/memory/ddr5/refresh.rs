@@ -8,6 +8,7 @@
 //! must refresh and which banks each command covers.
 
 use std::fmt::Debug;
+use std::num::NonZeroU8;
 
 use crate::config::ddr5::RefreshKind;
 use crate::config::ddr5::timing::Ddr5Timing;
@@ -18,14 +19,14 @@ pub struct RankLayout {
     /// Bank groups per rank.
     pub bank_groups: u8,
     /// Banks per bank group.
-    pub banks_per_group: u8,
+    pub banks_per_group: NonZeroU8,
 }
 
 impl RankLayout {
     /// Total banks in the rank.
     #[must_use]
     pub const fn bank_count(self) -> u32 {
-        self.bank_groups as u32 * self.banks_per_group as u32
+        self.bank_groups as u32 * self.banks_per_group.get() as u32
     }
 }
 
@@ -73,11 +74,11 @@ pub struct SameBank;
 
 impl RefreshPolicy for SameBank {
     fn interval(&self, timing: &Ddr5Timing, layout: RankLayout) -> u64 {
-        timing.t_refi / u64::from(layout.banks_per_group.max(1))
+        timing.t_refi / u64::from(layout.banks_per_group.get())
     }
 
     fn target(&self, timing: &Ddr5Timing, layout: RankLayout, sequence: u64) -> RefreshTarget {
-        let set = sequence % u64::from(layout.banks_per_group.max(1));
+        let set = sequence % u64::from(layout.banks_per_group.get());
         RefreshTarget { bank_mask: bank_mask_set(layout, set), duration: timing.t_rfcsb }
     }
 }
@@ -106,7 +107,7 @@ pub const fn bank_mask_set(layout: RankLayout, set: u64) -> u64 {
     let mut mask = 0u64;
     let mut group = 0u64;
     while group < layout.bank_groups as u64 {
-        let bank_index = group * layout.banks_per_group as u64 + set;
+        let bank_index = group * layout.banks_per_group.get() as u64 + set;
         if bank_index < 64 {
             mask |= 1u64 << bank_index;
         }
