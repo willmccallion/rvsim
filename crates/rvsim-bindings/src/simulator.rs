@@ -146,7 +146,7 @@ fn chunks(limit: Option<u64>, chunk: NonZeroU64) -> impl Iterator<Item = u64> {
 #[derive(Debug)]
 pub struct PySimulator {
     /// The simulator the Python object wraps.
-    pub(crate) inner: Simulator,
+    pub inner: Simulator,
 }
 
 /// The privilege level Python names by `letter`: ``"M"``, ``"S"`` or ``"U"``.
@@ -162,7 +162,7 @@ fn privilege_named(letter: &str) -> PyResult<PrivilegeMode> {
 }
 
 impl PySimulator {
-    pub(crate) fn privilege_str(&self, hart: usize) -> &'static str {
+    pub fn privilege_str(&self, hart: usize) -> &'static str {
         match self.inner.hart(hart).privilege {
             PrivilegeMode::Machine => "M",
             PrivilegeMode::Supervisor => "S",

@@ -1,21 +1,26 @@
 //! Python bindings for the RISC-V system simulator (`PyO3`).
 
+#![expect(
+    unnameable_types,
+    reason = "pyo3 implements its public traits for every #[pyclass], which only Python names"
+)]
+
 use pyo3::prelude::*;
 
 /// The core's default and minimal machines and its configuration check.
-pub mod config;
+mod config;
 /// Conversion between Python config dicts and the core's `Config`.
-pub mod conversion;
+mod conversion;
 /// Instruction binding (`PyInstruction` exposed as `Instruction`).
-pub mod instruction;
+mod instruction;
 /// Simulator binding (`PySimulator` exposed as `Simulator`).
-pub mod simulator;
+mod simulator;
 /// Pipeline snapshot binding (`PyPipelineSnapshot` exposed as `PipelineSnapshot`).
-pub mod snapshot;
+mod snapshot;
 /// Statistics binding (`PyStats` exposed as `Stats`, and query results).
-pub mod stats;
+mod stats;
 /// Register, CSR, and memory view bindings.
-pub mod views;
+mod views;
 
 #[cfg(test)]
 mod tests;
@@ -32,7 +37,7 @@ pub fn version() -> String {
 /// # Errors
 ///
 /// Returns the error Python raised while adding a class or function.
-pub fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<simulator::PySimulator>()?;
 
     m.add_class::<instruction::PyInstruction>()?;
