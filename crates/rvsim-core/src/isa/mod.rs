@@ -9,8 +9,6 @@ pub mod config;
 
 pub mod csr;
 
-pub mod disasm;
-
 pub mod encode;
 
 pub mod encoding;

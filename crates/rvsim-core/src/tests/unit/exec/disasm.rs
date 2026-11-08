@@ -4,7 +4,7 @@
 //! encodings to human-readable mnemonics for RV64I, RV64M, RV64A,
 //! RV64F/D, and privileged instructions.
 
-use crate::isa::disasm::disassemble;
+use crate::exec::disasm::disassemble;
 
 #[test]
 fn disasm_add() {
@@ -149,7 +149,7 @@ fn disasm_wfi() {
 fn disasm_fence() {
     let inst: u32 = 0x0FF0_000F;
     let text = disassemble(inst);
-    assert_eq!(text, "fence");
+    assert_eq!(text, "fence iorw,iorw");
 }
 
 #[test]

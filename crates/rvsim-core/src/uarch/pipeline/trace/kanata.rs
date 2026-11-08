@@ -15,7 +15,7 @@ use std::io::{self, BufWriter, Write};
 
 use super::{Departure, PipelineTrace, Stage};
 use crate::common::{HartId, InstSeq, SimError};
-use crate::isa::disasm::disassemble;
+use crate::exec::disasm::disassemble;
 
 const HEADER: &str = "Kanata\t0004\n";
 

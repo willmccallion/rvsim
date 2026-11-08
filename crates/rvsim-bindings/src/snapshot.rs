@@ -6,7 +6,7 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-use rvsim_core::isa::disasm::disassemble;
+use rvsim_core::disasm::disassemble;
 use rvsim_core::isa::reg::RegIdx;
 use rvsim_core::system::snapshot::{
     DecodedSlot, ExecutedSlot, FetchSlot, FetchedSlot, MemorySlot, PipelineSnapshot, RenamedSlot,

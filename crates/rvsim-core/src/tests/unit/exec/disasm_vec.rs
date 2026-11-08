@@ -1,7 +1,7 @@
 //! Vector disassembler unit tests (RVV 1.0).
 #![allow(clippy::too_many_arguments)]
 
-use crate::isa::disasm::disassemble;
+use crate::exec::disasm::disassemble;
 
 const OP_V: u32 = 0b1010111;
 const OP_LOAD_FP: u32 = 0b0000111;
@@ -217,9 +217,9 @@ fn test_rvv_widening() {
     assert!(disassemble(vec_arith(0b111000, 1, 2, 3, OPMVV, 1)).starts_with("vwmulu.vv"));
     assert!(disassemble(vec_arith(0b111011, 1, 2, 3, OPMVV, 1)).starts_with("vwmul.vv"));
 
-    // Narrowing
-    assert!(disassemble(vec_arith(0b101100, 1, 2, 3, OPIVV, 1)).starts_with("vnsrl.vv"));
-    assert!(disassemble(vec_arith(0b101101, 1, 2, 3, OPIVV, 1)).starts_with("vnsra.vv"));
+    // Narrowing: vs2 is the wide operand
+    assert!(disassemble(vec_arith(0b101100, 1, 2, 3, OPIVV, 1)).starts_with("vnsrl.wv"));
+    assert!(disassemble(vec_arith(0b101101, 1, 2, 3, OPIVV, 1)).starts_with("vnsra.wv"));
 }
 
 #[test]
@@ -421,12 +421,12 @@ fn test_rvv_permute() {
     let inst = vec_arith(0b010111, 1, 2, 3, OPMVV, 1);
     assert!(disassemble(inst).starts_with("vcompress.vm"), "{}", disassemble(inst));
 
-    // vmv1r.v v1, v2  (funct6=0b100111, vs1=0 (nr-1=0), OPIVV)
-    let inst = vec_arith(0b100111, 1, 2, 0, OPIVV, 1);
+    // vmv1r.v v1, v2  (funct6=0b100111, simm5 = nr-1 = 0, OPIVI)
+    let inst = vec_arith(0b100111, 1, 2, 0, OPIVI, 1);
     assert!(disassemble(inst).starts_with("vmv1r.v"), "{}", disassemble(inst));
 
-    // vmv4r.v v4, v8  (vs1=3)
-    let inst = vec_arith(0b100111, 1, 8, 3, OPIVV, 4);
+    // vmv4r.v v4, v8  (simm5=3)
+    let inst = vec_arith(0b100111, 1, 8, 3, OPIVI, 4);
     assert!(disassemble(inst).starts_with("vmv4r.v"), "{}", disassemble(inst));
 
     // vmv.x.s a0, v2  (funct6=0b010000, vs1=0, OPMVV)

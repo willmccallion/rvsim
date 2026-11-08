@@ -1,7 +1,7 @@
 //! Comprehensive disassembler tests covering all RV64GC instructions.
 //! Tests use flexible assertions to handle format variations.
 
-use crate::isa::disasm::disassemble;
+use crate::exec::disasm::disassemble;
 
 #[test]
 fn test_rv64i_arithmetic() {

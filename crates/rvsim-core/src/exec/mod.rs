@@ -12,6 +12,8 @@ pub mod cbo;
 
 pub mod decode;
 
+pub mod disasm;
+
 pub mod execute;
 
 pub mod inst;
