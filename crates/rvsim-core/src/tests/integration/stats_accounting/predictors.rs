@@ -9,7 +9,7 @@ use crate::common::VirtAddr;
 use crate::config::{BackendKind, LoadPrefetcherConfig, MemDepPredictorKind, PageBoundary};
 use crate::tests::integration::translation::load_prefetch_paging::{Data, Mode, run_system};
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::PROGRAM_BASE;
+use crate::tests::support::harness::{PROGRAM_BASE, store_words};
 use crate::tests::support::regs::{A1, T0, T1, T2, X0};
 
 const LOOPS: i32 = 5;
@@ -157,7 +157,7 @@ fn predictor_counts_start_again_after_a_stats_reset(rec: &mut Recorder) {
     after.extend(exit_sequence());
     let mut ctx = system(BackendKind::OutOfOrder, &program, &[]);
     let continuation = PROGRAM_BASE + 0x100;
-    super::program::store_words(&mut ctx, continuation, &after);
+    store_words(&mut ctx.sim, continuation, &after);
     run_to_pc(&mut ctx, end, context);
 
     ctx.sim.reset_stats();

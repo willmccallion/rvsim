@@ -14,7 +14,7 @@ use crate::config::defaults::RAM_BASE;
 use crate::isa::privileged::cause::exception;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::regs::{A0, T0, T1, X0, X5, X6};
 
 /// `jal x0, 0`: holds the program at its end instead of running into zeros.
@@ -265,13 +265,7 @@ fn cycles_through_four(funct6: u32, funct3: u32) -> u64 {
         .collect();
     let mut ctx =
         TestContext::with_fast_memory(&wide_inorder_config()).with_memory(RAM_SIZE, RAM_BASE);
-    for (i, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(RAM_BASE + (i as u64) * 4),
-            u64::from(*inst),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, RAM_BASE, &program);
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     for cycle in 1..=2_000 {
         ctx.run(1);

@@ -12,7 +12,7 @@ use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::pmp_entry;
 use crate::tests::support::regs::{X10, X11};
 
@@ -63,13 +63,7 @@ fn run(
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
-    for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(CODE_PA + 4 * n as u64),
-            u64::from(*inst),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, CODE_PA, program);
     ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), ProbeWidth::B4);
     for off in (0..PAGE).step_by(4) {
         ctx.sim.probe_mem_store(PhysAddr::new(DATA_PA + off), u64::from(FILL), ProbeWidth::B4);

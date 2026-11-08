@@ -22,6 +22,13 @@ pub fn valid(config: &Config) -> ValidConfig {
     ValidConfig::try_from(config.clone()).expect("the test config is valid")
 }
 
+/// Writes `words` to memory from `at` up, four bytes each.
+pub fn store_words(sim: &mut Simulator, at: u64, words: &[u32]) {
+    for (n, word) in (0u64..).zip(words) {
+        sim.probe_mem_store(PhysAddr::new(at + 4 * n), u64::from(*word), ProbeWidth::B4);
+    }
+}
+
 pub struct TestContext {
     pub sim: Simulator,
 }
@@ -83,10 +90,7 @@ impl TestContext {
 
     /// Load a sequence of 32-bit instructions into memory at `addr` and set the PC.
     pub fn load_program(mut self, addr: u64, instructions: &[u32]) -> Self {
-        for (i, inst) in instructions.iter().enumerate() {
-            let offset = addr + (i as u64) * 4;
-            self.sim.probe_mem_store(PhysAddr::new(offset), u64::from(*inst), ProbeWidth::B4);
-        }
+        store_words(&mut self.sim, addr, instructions);
         self.sim.set_pc(0, VirtAddr::new(addr));
         self
     }

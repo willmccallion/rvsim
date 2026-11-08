@@ -15,7 +15,7 @@ use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, MRET};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A3, T0, T1, T2, T3, T4, T5, T6, X0};
 
@@ -93,20 +93,8 @@ fn run(backend: BackendKind, width: usize) -> (u64, u64, u64) {
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
-    for (n, word) in machine_code().iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(CODE + (n as u64) * 4),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
-    for (n, word) in target_code().iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(TARGET_PA + (n as u64) * 4),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, CODE, &machine_code());
+    store_words(&mut ctx.sim, TARGET_PA, &target_code());
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, CODE_L1_PPN, (CODE >> 21) & 0x1ff, ((CODE >> 12) << 10) | PTE_LEAF_RWX_AD);
     write_pte(&mut ctx, ROOT_PPN, (TARGET_VA >> 30) & 0x1ff, (TARGET_L1_PPN << 10) | PTE_V);

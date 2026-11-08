@@ -5,7 +5,7 @@ use crate::config::{BackendKind, Config, Console};
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A0, A1, A2, A3, A4, T0, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x200;
@@ -104,13 +104,7 @@ fn run(backend: BackendKind, body: &[u32]) -> Outcome {
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
-    for (n, word) in handler.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + 4 * n as u64),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &handler);
     for byte in 0..64 {
         ctx.sim.probe_mem_store(PhysAddr::new(DATA + byte), byte + 1, ProbeWidth::B1);
     }

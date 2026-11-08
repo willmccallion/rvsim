@@ -12,7 +12,7 @@ use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A0, A1, T0, X0};
 
@@ -67,13 +67,7 @@ fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     let program = program();
-    for (i, word) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(CODE + (i as u64) * 4),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, CODE, &program);
     let last_load_retired = program.len() as u64 - 1;
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, CODE_L1_PPN, (CODE >> 21) & 0x1ff, ((CODE >> 12) << 10) | PTE_LEAF_RWX_AD);

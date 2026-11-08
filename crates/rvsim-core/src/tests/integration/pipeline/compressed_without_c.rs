@@ -2,12 +2,10 @@
 //! a whole word, and one whose low bits are not `11` is illegal rather
 //! than a compressed instruction.
 
-use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A2, A3, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -36,13 +34,7 @@ fn trap_seen(backend: BackendKind, isa: &str) -> (u64, u64) {
     config.system.console = crate::config::Console::Quiet;
     let program = [TWO_C_NOPS, InstructionBuilder::new().jal(X0, 0).build()];
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
-    for (n, word) in handler().iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(HANDLER + 4 * n as u64),
-            u64::from(*word),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, HANDLER, &handler());
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();
 

@@ -8,7 +8,7 @@ use crate::config::defaults::RAM_BASE;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{X0, X10, X11};
 
@@ -25,13 +25,7 @@ fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64
     let i = InstructionBuilder::new;
     let program = [i().lui(X10, (UNMAPPED >> 12) as i32).build(), access, JAL_SELF];
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
-    for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(RAM_BASE + 4 * n as u64),
-            u64::from(*inst),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, RAM_BASE, &program);
     ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), ProbeWidth::B4);
     {
         let hart = &mut ctx.sim.state.harts[0];

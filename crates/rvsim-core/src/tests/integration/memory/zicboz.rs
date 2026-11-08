@@ -10,7 +10,7 @@ use crate::isa::encoding::zicboz::{
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::JAL_SELF;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::regs::{X0, X10, X11, X12};
 
 const RAM_SIZE: usize = 0x4000;
@@ -218,13 +218,7 @@ fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
     let i = InstructionBuilder::new;
     let program =
         [cbo_zero(X10), i().ld(X11, X10, 8).build(), i().addi(X12, X0, 1).build(), JAL_SELF];
-    for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(
-            PhysAddr::new(RAM_BASE + 4 * n as u64),
-            u64::from(*inst),
-            ProbeWidth::B4,
-        );
-    }
+    store_words(&mut ctx.sim, RAM_BASE, &program);
     ctx.set_reg(X10, data_addr);
     ctx.set_reg(X11, u64::MAX);
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
