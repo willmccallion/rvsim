@@ -13,6 +13,8 @@ use crate::common::{CoreId, LineAddr};
 use crate::sim::components::CacheId;
 use crate::sim::packet::MesiState;
 use crate::soc::cache::BookkeepingFault;
+use crate::soc::cache::Cache;
+use crate::soc::coherence::fabric::CoherenceFabric;
 use crate::soc::coherence::protocol::CoreSet;
 use crate::system::state::SystemState;
 
@@ -28,8 +30,6 @@ pub struct Violation {
 /// Which invariant a [`Violation`] broke.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ViolationKind {
-    /// A cache holds the line in two ways of a set.
-    DuplicateTag(CacheId),
     /// A core's L1D holds a line its L2 does not.
     L1NotInL2 {
         /// The core whose caches disagree.
@@ -108,7 +108,6 @@ impl fmt::Display for Violation {
 impl fmt::Display for ViolationKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateTag(cache) => write!(f, "duplicate tag in cache {cache:?}"),
             Self::L1NotInL2 { core } => {
                 write!(f, "core {} L1D holds a line its L2 does not", core.val())
             }
@@ -153,29 +152,29 @@ const fn is_owner(state: MesiState) -> bool {
     matches!(state, MesiState::Modified | MesiState::Exclusive)
 }
 
+/// Lines the coherence fabric or a core's private cache has a fetch,
+/// writeback or transaction open on.
+pub fn lines_in_flight(state: &SystemState) -> Vec<LineAddr> {
+    let fabric = state.uncore.coherence.iter().flat_map(CoherenceFabric::lines_in_flight);
+    let private = state.cores.iter().flat_map(|core| {
+        let units = &core.units;
+        [&units.l1_i_cache, &units.l1_d_cache, &units.l2_cache]
+    });
+    fabric.chain(private.flat_map(Cache::lines_in_flight)).collect()
+}
+
 /// Checks every invariant and returns what is broken (empty when all hold).
 #[must_use]
 pub fn audit(state: &SystemState) -> Vec<Violation> {
     let mut violations = Vec::new();
     let Some(fabric) = state.uncore.coherence.as_ref() else { return violations };
 
-    let mut in_flight: Vec<LineAddr> = fabric.lines_in_flight();
-    for core in state.cores.iter().map(|core| &core.units) {
-        in_flight.extend(core.l2_cache.lines_in_flight());
-        in_flight.extend(core.l1_d_cache.lines_in_flight());
-        in_flight.extend(core.l1_i_cache.lines_in_flight());
-    }
+    let in_flight = lines_in_flight(state);
     let busy = |line: LineAddr| in_flight.contains(&line);
 
     // Who holds what, from the L2s (the requesting agents).
     let mut holders: BTreeMap<LineAddr, Vec<(CoreId, MesiState)>> = BTreeMap::new();
     for core in state.cores.iter().map(|core| &core.units) {
-        for cache in [&core.l1_i_cache, &core.l1_d_cache, &core.l2_cache] {
-            for dup in cache.duplicate_lines() {
-                violations
-                    .push(Violation { line: dup, kind: ViolationKind::DuplicateTag(cache.id) });
-            }
-        }
         let l2: BTreeMap<LineAddr, MesiState> = core.l2_cache.held_lines().into_iter().collect();
         if core.l2_cache.is_enabled() {
             for (line, l2_state) in &l2 {

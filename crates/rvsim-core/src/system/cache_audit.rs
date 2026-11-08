@@ -9,27 +9,16 @@ use crate::common::LineAddr;
 use crate::config::InclusionPolicy;
 use crate::sim::packet::Packet;
 use crate::soc::cache::Cache;
-use crate::soc::coherence::fabric::CoherenceFabric;
 use crate::system::coherence_audit::{self, InclusionFault, Violation, ViolationKind};
 use crate::system::state::SystemState;
 
 /// Every broken invariant (empty when all hold).
 #[must_use]
 pub fn audit(state: &SystemState) -> Vec<Violation> {
-    // Each cache's bookkeeping below reports its duplicate tags.
-    let mut violations: Vec<Violation> = coherence_audit::audit(state)
-        .into_iter()
-        .filter(|violation| !matches!(violation.kind, ViolationKind::DuplicateTag(_)))
-        .collect();
+    let mut violations = coherence_audit::audit(state);
     let llc = &state.uncore.l3_cache;
-    let mut in_flight =
-        state.uncore.coherence.as_ref().map(CoherenceFabric::lines_in_flight).unwrap_or_default();
+    let mut in_flight = coherence_audit::lines_in_flight(state);
     in_flight.extend(llc.lines_in_flight());
-    for core in state.cores.iter().map(|core| &core.units) {
-        for cache in [&core.l1_i_cache, &core.l1_d_cache, &core.l2_cache] {
-            in_flight.extend(cache.lines_in_flight());
-        }
-    }
     in_flight.extend(lines_on_their_way(state));
     let busy = |line: &LineAddr| in_flight.contains(line);
 
