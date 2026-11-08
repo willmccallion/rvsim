@@ -88,20 +88,19 @@ impl Topology {
         assert!(core_count > 0, "a system needs at least one core");
         let cores = (0..core_count)
             .map(|c| {
-                let c32 = u32::try_from(c).unwrap_or(u32::MAX);
-                let base = c32 * PRIVATE_CACHES_PER_CORE;
+                let core_id = CoreId::from_index(c);
+                let base = core_id.val() * PRIVATE_CACHES_PER_CORE;
                 CoreTopology {
-                    core_id: CoreId::new(c32),
-                    hart_ids: vec![HartId::new(c32)],
-                    pipeline_id: PipelineId::new(c32),
+                    core_id,
+                    hart_ids: vec![HartId::new(core_id.val())],
+                    pipeline_id: PipelineId::new(core_id.val()),
                     l1i: CacheId::new(base),
                     l1d: CacheId::new(base + 1),
                     l2: CacheId::new(base + 2),
                 }
             })
             .collect();
-        let llc =
-            CacheId::new(u32::try_from(core_count).unwrap_or(u32::MAX) * PRIVATE_CACHES_PER_CORE);
+        let llc = CacheId::new(CoreId::from_index(core_count).val() * PRIVATE_CACHES_PER_CORE);
         Self { cores, llc, mem_ctrls: vec![MemCtrlId::new(0)] }
     }
 

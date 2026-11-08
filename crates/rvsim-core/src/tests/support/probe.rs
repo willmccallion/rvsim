@@ -45,7 +45,7 @@ pub fn read<H: Handle>(device: &mut H, paddr: PhysAddr, width: u8) -> u64 {
         memory: &mut memory,
         config: &config,
         cycle: 0,
-        self_id: ComponentId::Device(DeviceId::new(0)),
+        self_id: ComponentId::Device(DeviceId::from_index(0)),
     };
     device.handle(
         Packet::MemReq {
@@ -85,7 +85,7 @@ pub fn write<H: Handle>(device: &mut H, paddr: PhysAddr, value: u64, width: u8) 
         memory: &mut memory,
         config: &config,
         cycle: 0,
-        self_id: ComponentId::Device(DeviceId::new(0)),
+        self_id: ComponentId::Device(DeviceId::from_index(0)),
     };
     device.handle(
         Packet::MemReq {
@@ -134,7 +134,7 @@ pub fn write_and_run_dma<H: Handle>(
                 memory: &mut *memory,
                 config: &config,
                 cycle,
-                self_id: ComponentId::Device(DeviceId::new(0)),
+                self_id: ComponentId::Device(DeviceId::from_index(0)),
             };
             device.handle(packet, ComponentId::Bus, &mut ctx);
         }

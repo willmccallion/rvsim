@@ -256,7 +256,7 @@ impl SystemState {
 
         let harts: Vec<Hart> = (0..hart_count)
             .map(|index| {
-                let hart_id = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
+                let hart_id = HartId::from_index(index);
                 Hart::new(HartInit {
                     hart_id,
                     regs: fresh_regs(hart_id),

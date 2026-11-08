@@ -113,7 +113,7 @@ impl Bus {
     ) -> bool {
         let Packet::MemReq { paddr, .. } = &packet else { return false };
         let Some(idx) = self.find_device_idx(*paddr) else { return false };
-        let device = DeviceId::new(u32::try_from(idx).unwrap_or(u32::MAX));
+        let device = DeviceId::from_index(idx);
         self.handle_device(device, packet, source, ctx);
         true
     }
@@ -303,7 +303,7 @@ impl Bus {
 
         if let Some(clint) = device_as::<Clint>(devices, *clint_idx) {
             for (index, lines) in hart_irqs.iter_mut().enumerate() {
-                let hart = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
+                let hart = HartId::from_index(index);
                 lines.mtip = clint.timer_pending(hart);
                 lines.msip = clint.msip_pending(hart);
             }
@@ -313,7 +313,7 @@ impl Bus {
             plic.update_irqs(active_irqs);
             plic.check_interrupts();
             for (index, lines) in hart_irqs.iter_mut().enumerate() {
-                let hart = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
+                let hart = HartId::from_index(index);
                 let external = plic.hart_lines(hart);
                 lines.meip = external.meip;
                 lines.seip = external.seip;
@@ -410,7 +410,7 @@ impl Handle for Bus {
                     // crosses back (the `MemResp` arm).
                     let _ = self.pending.insert(req_id, (source, response_bytes(&packet)));
                     let arrives = self.send_request(ctx.cycle, request_bytes(&packet));
-                    let device = DeviceId::new(u32::try_from(idx).unwrap_or(u32::MAX));
+                    let device = DeviceId::from_index(idx);
                     ctx.scheduler.schedule(
                         arrives,
                         ComponentId::Device(device),

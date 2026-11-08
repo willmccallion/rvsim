@@ -66,11 +66,7 @@ pub const fn port_of(node: Node, cores: usize) -> usize {
 /// The node on port `port`.
 #[must_use]
 pub fn node_of(port: usize, cores: usize) -> Node {
-    if port == cores {
-        Node::Home
-    } else {
-        Node::Core(CoreId::new(u32::try_from(port).unwrap_or(u32::MAX)))
-    }
+    if port == cores { Node::Home } else { Node::Core(CoreId::from_index(port)) }
 }
 
 /// A message waiting in an input queue.

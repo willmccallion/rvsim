@@ -122,7 +122,7 @@ fn deliver(
         memory,
         config: &config,
         cycle,
-        self_id: ComponentId::Device(DeviceId::new(0)),
+        self_id: ComponentId::Device(DeviceId::from_index(0)),
     };
     device.handle(packet, source, &mut ctx);
 }
