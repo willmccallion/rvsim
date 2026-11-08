@@ -264,7 +264,7 @@ fn miss_sends_one_line_request_and_the_fill_answers_the_requester() {
         vec![(ReqId::new(7), bench.cycle + RESPONSE_LATENCY)],
         "the fill is forwarded to its request as it is written"
     );
-    assert!(bench.cache.contains(0x1008));
+    assert!(bench.cache.contains(PhysAddr::new(0x1008)));
     assert_eq!(bench.stat("test.misses"), 1);
     assert_eq!(bench.stat("test.fills"), 1);
 }
@@ -507,7 +507,7 @@ fn fifo_evicts_the_oldest_line_even_after_a_hit_on_it() {
 
     bench.install(4, 0x1100, MemOp::Read);
 
-    let kept = [0x1000, 0x1080, 0x1100].map(|addr| bench.cache.contains(addr));
+    let kept = [0x1000, 0x1080, 0x1100].map(|addr| bench.cache.contains(PhysAddr::new(addr)));
     assert_eq!(kept, [false, true, true], "0x1000 went in first, so it goes out first");
 }
 
@@ -571,8 +571,8 @@ fn a_dirty_victim_is_written_back_and_a_clean_one_is_dropped() {
         vec![(0x0000, true)],
         "the dirty LRU victim goes down as a dirty writeback"
     );
-    assert!(!bench.cache.contains(0x0000));
-    assert!(bench.cache.contains(0x0080));
+    assert!(!bench.cache.contains(PhysAddr::new(0x0000)));
+    assert!(bench.cache.contains(PhysAddr::new(0x0080)));
     assert_eq!(bench.stat("test.evictions"), 1);
     assert_eq!(bench.stat("test.writebacks"), 1);
     assert_eq!(bench.cache.writebacks().len(), 1);
@@ -717,7 +717,7 @@ fn back_invalidation_of_a_dirty_line_writes_it_back_and_propagates() {
         DOWNSTREAM,
     );
     let events = bench.drain();
-    assert!(!bench.cache.contains(0x1000));
+    assert!(!bench.cache.contains(PhysAddr::new(0x1000)));
     assert!(events.iter().any(|e| e.target == DOWNSTREAM
         && matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { dirty: true }, .. })));
     assert!(
@@ -1003,7 +1003,7 @@ fn a_disabled_cache_forwards_and_routes_the_response_back() {
     bench.fill(requests[0].0, 0x1000);
     let events = bench.drain();
     assert_eq!(responses_to(&events, PIPELINE), vec![(ReqId::new(9), bench.cycle)]);
-    assert!(!bench.cache.contains(0x1000));
+    assert!(!bench.cache.contains(PhysAddr::new(0x1000)));
 }
 
 #[test]
@@ -1024,7 +1024,7 @@ fn a_writeback_for_an_absent_line_is_forwarded_and_acked() {
     assert_eq!(responses_to(&events, PIPELINE), vec![(ReqId::new(5), bench.cycle + LATENCY)]);
     assert!(events.iter().any(|e| e.target == DOWNSTREAM
         && matches!(e.packet, Packet::MemReq { op: MemOp::Writeback { dirty: true }, .. })));
-    assert!(!bench.cache.contains(0x3000), "writebacks do not allocate");
+    assert!(!bench.cache.contains(PhysAddr::new(0x3000)), "writebacks do not allocate");
 }
 
 #[test]
@@ -1089,7 +1089,7 @@ fn exclusive_lower_level_gives_up_its_copy_when_it_fills_the_upper_one() {
     );
     let events = bench.drain();
     assert_eq!(responses_to(&events, UPSTREAM).len(), 1);
-    assert!(!bench.cache.contains(0x1000));
+    assert!(!bench.cache.contains(PhysAddr::new(0x1000)));
 }
 
 #[test]
@@ -1389,7 +1389,7 @@ fn an_invalidating_probe_writes_a_dirty_line_back_before_answering() {
     assert!(
         events.iter().any(|e| matches!(e.packet, Packet::ProbeResp { txn: t, .. } if t == txn))
     );
-    assert!(!bench.cache.contains(0x1000));
+    assert!(!bench.cache.contains(PhysAddr::new(0x1000)));
     assert_eq!(bench.stat("test.probes"), 1);
 }
 
@@ -1439,7 +1439,7 @@ fn a_probe_that_hits_an_in_flight_fetch_leaves_the_fill_alone() {
     let events = bench.drain();
     assert_eq!(responses_to(&events, PIPELINE).len(), 1, "the waiting load still gets its data");
     assert!(
-        bench.cache.contains(0x1000),
+        bench.cache.contains(PhysAddr::new(0x1000)),
         "the fill was ordered after the probe, so the line stays"
     );
 }
@@ -1484,7 +1484,7 @@ fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
     let events = bench.drain();
     assert!(events.iter().any(|e| e.target == DOWNSTREAM
         && matches!(e.packet, Packet::ProbeResp { txn, dirty: true, .. } if txn == ReqId::new(9))));
-    assert!(!bench.cache.contains(0x1000));
+    assert!(!bench.cache.contains(PhysAddr::new(0x1000)));
 }
 
 #[test]
@@ -1516,7 +1516,7 @@ fn a_probe_for_a_line_no_cache_above_holds_is_answered_at_once() {
     assert!(events.iter().all(|e| !matches!(e.packet, Packet::Probe { .. })), "nothing probed");
     assert!(events.iter().any(|e| e.target == DOWNSTREAM
         && matches!(e.packet, Packet::ProbeResp { txn, had_copy: true, .. } if txn == ReqId::new(9))));
-    assert!(!bench.cache.contains(0x1000));
+    assert!(!bench.cache.contains(PhysAddr::new(0x1000)));
 }
 
 #[test]
@@ -1898,7 +1898,7 @@ mod coherent {
             })
             .collect();
         assert_eq!(answered, vec![(ReqId::new(1), MesiState::Modified)]);
-        assert!(!bench.cache.contains(0x1000), "nothing is kept here");
+        assert!(!bench.cache.contains(PhysAddr::new(0x1000)), "nothing is kept here");
 
         bench.snoop(0x1000, SnoopKind::Unique);
         let sent = probes(&bench.drain());

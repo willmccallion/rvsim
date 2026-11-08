@@ -58,7 +58,7 @@ fn run(backend: BackendKind, maintenance: u32) -> Outcome {
     let units = &ctx.sim.state.cores[0].units;
     let line = LineAddr::from_phys(PhysAddr::new(DATA), 64);
     let data_line = units.l1_d_cache.held_lines().into_iter().find(|(l, _)| *l == line);
-    let code_line_cached = units.l1_i_cache.contains(PROGRAM_BASE);
+    let code_line_cached = units.l1_i_cache.contains(PhysAddr::new(PROGRAM_BASE));
     Outcome { data_line: data_line.map(|(_, state)| state), code_line_cached }
 }
 

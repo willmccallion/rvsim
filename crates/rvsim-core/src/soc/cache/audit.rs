@@ -107,7 +107,7 @@ impl Cache {
     /// when it does not hold the line.
     #[must_use]
     pub fn recorded_holders(&self, line: LineAddr) -> Vec<ComponentId> {
-        if !self.enabled || self.find_way(line.val()).is_none() {
+        if !self.enabled || self.find_way(line).is_none() {
             return Vec::new();
         }
         self.upper_holders(line)

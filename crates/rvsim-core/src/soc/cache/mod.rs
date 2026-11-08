@@ -442,8 +442,7 @@ impl Cache {
         let mut held = Vec::new();
         for (index, line) in self.lines.iter().enumerate() {
             if line.valid() {
-                let addr = self.reconstruct_addr(self.set_of_slot(index), line.tag);
-                held.push((self.line_of(addr), line.state));
+                held.push((self.line_at(self.set_of_slot(index), line.tag), line.state));
             }
         }
         held
@@ -460,8 +459,7 @@ impl Cache {
                 if line.valid()
                     && set[..i].iter().any(|other| other.valid() && other.tag == line.tag)
                 {
-                    let addr = self.reconstruct_addr(SetIdx::new(set_index), line.tag);
-                    duplicates.push(self.line_of(addr));
+                    duplicates.push(self.line_at(SetIdx::new(set_index), line.tag));
                 }
             }
         }
@@ -471,10 +469,11 @@ impl Cache {
     /// Writes `addr`'s line into `way` of its set, bypassing the protocol,
     /// so audit tests can plant a fault.
     #[cfg(test)]
-    pub fn plant_line(&mut self, way: usize, addr: u64, state: MesiState) {
-        let index = self.slot(self.set_index(addr), WayIdx::new(way));
+    pub fn plant_line(&mut self, way: usize, paddr: PhysAddr, state: MesiState) {
+        let line = self.line_of(paddr);
+        let index = self.slot(self.set_index(line), WayIdx::new(way));
         self.lines[index] = CacheLine {
-            tag: self.tag_of(addr),
+            tag: self.tag_of(line),
             state,
             upper: UpperMask::default(),
             prefetched: false,
@@ -494,8 +493,8 @@ impl Cache {
         self.writebacks.allocate(writeback);
     }
 
-    const fn line_of(&self, addr: u64) -> LineAddr {
-        LineAddr::from_phys(PhysAddr::new(addr), self.line_bytes as u64)
+    const fn line_of(&self, paddr: PhysAddr) -> LineAddr {
+        LineAddr::from_phys(paddr, self.line_bytes as u64)
     }
 
     /// Where way `way` of set `set` sits in `lines`.
@@ -514,22 +513,24 @@ impl Cache {
         (0..self.ways).map(WayIdx::new)
     }
 
-    const fn set_index(&self, addr: u64) -> SetIdx {
-        SetIdx::new(((addr as usize) / self.line_bytes) % self.num_sets)
+    const fn set_index(&self, line: LineAddr) -> SetIdx {
+        SetIdx::new(((line.val() as usize) / self.line_bytes) % self.num_sets)
     }
 
-    const fn tag_of(&self, addr: u64) -> u64 {
-        addr / (self.line_bytes * self.num_sets) as u64
+    const fn tag_of(&self, line: LineAddr) -> u64 {
+        line.val() / (self.line_bytes * self.num_sets) as u64
     }
 
-    const fn reconstruct_addr(&self, set_index: SetIdx, tag: u64) -> u64 {
-        tag * (self.line_bytes * self.num_sets) as u64
-            + (set_index.index() * self.line_bytes) as u64
+    /// The line with `tag` in set `set_index`.
+    const fn line_at(&self, set_index: SetIdx, tag: u64) -> LineAddr {
+        let addr = tag * (self.line_bytes * self.num_sets) as u64
+            + (set_index.index() * self.line_bytes) as u64;
+        self.line_of(PhysAddr::new(addr))
     }
 
-    fn find_way(&self, addr: u64) -> Option<WayIdx> {
-        let set_index = self.set_index(addr);
-        let tag = self.tag_of(addr);
+    fn find_way(&self, line: LineAddr) -> Option<WayIdx> {
+        let set_index = self.set_index(line);
+        let tag = self.tag_of(line);
         self.ways().find(|&way| {
             let line = self.lines[self.slot(set_index, way)];
             line.valid() && line.tag == tag
@@ -537,15 +538,20 @@ impl Cache {
     }
 
     /// Returns true if the cache holds the line containing `addr`.
-    pub fn contains(&self, addr: u64) -> bool {
-        self.enabled && self.find_way(addr).is_some()
+    pub fn contains(&self, paddr: PhysAddr) -> bool {
+        self.holds(self.line_of(paddr))
+    }
+
+    /// Whether the cache holds `line`.
+    fn holds(&self, line: LineAddr) -> bool {
+        self.enabled && self.find_way(line).is_some()
     }
 
     /// Makes our copy of the line containing `addr` clean, keeping it.
     /// Returns whether it was dirty.
-    fn clean_line(&mut self, addr: u64) -> bool {
-        let Some(way) = self.find_way(addr) else { return false };
-        let index = self.slot(self.set_index(addr), way);
+    fn clean_line(&mut self, line: LineAddr) -> bool {
+        let Some(way) = self.find_way(line) else { return false };
+        let index = self.slot(self.set_index(line), way);
         let was_dirty = self.lines[index].dirty();
         if was_dirty {
             self.lines[index].state = MesiState::Exclusive;
@@ -555,9 +561,9 @@ impl Cache {
 
     /// Drops our copy of the line containing `addr`. Returns whether it was
     /// dirty.
-    fn invalidate_line(&mut self, addr: u64, stats: &mut Stats) -> bool {
-        let Some(way) = self.find_way(addr) else { return false };
-        let index = self.slot(self.set_index(addr), way);
+    fn invalidate_line(&mut self, line: LineAddr, stats: &mut Stats) -> bool {
+        let Some(way) = self.find_way(line) else { return false };
+        let index = self.slot(self.set_index(line), way);
         let was_dirty = self.lines[index].dirty();
         self.drop_line(index, stats);
         was_dirty

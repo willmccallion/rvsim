@@ -37,8 +37,8 @@ impl Cache {
             return;
         }
         let holders = self.upper_holders(line);
-        let held = self.contains(line.val()) || !holders.is_empty();
-        if self.invalidate_line(line.val(), ctx.stats) {
+        let held = self.holds(line) || !holders.is_empty();
+        if self.invalidate_line(line, ctx.stats) {
             self.write_back(line, true, WritebackCause::Demanded, ctx);
         }
         if held {
@@ -59,9 +59,9 @@ impl Cache {
     }
 
     /// `source` dropped its copy of the line holding `addr`.
-    pub(super) fn forget_upper_copy(&mut self, addr: u64, source: ComponentId) {
-        if let Some(way) = self.find_way(addr) {
-            let index = self.slot(self.set_index(addr), way);
+    pub(super) fn forget_upper_copy(&mut self, line: LineAddr, source: ComponentId) {
+        if let Some(way) = self.find_way(line) {
+            let index = self.slot(self.set_index(line), way);
             self.lines[index].upper = self.lines[index].upper.without(self.upstream_bit(source));
         }
     }
@@ -73,9 +73,9 @@ impl Cache {
         if !self.enabled {
             return self.upstream.clone();
         }
-        match self.find_way(line.val()) {
+        match self.find_way(line) {
             Some(way) => {
-                let bits = self.lines[self.slot(self.set_index(line.val()), way)].upper;
+                let bits = self.lines[self.slot(self.set_index(line), way)].upper;
                 self.upstream
                     .iter()
                     .enumerate()
