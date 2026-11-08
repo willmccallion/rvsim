@@ -1,4 +1,4 @@
-//! VirtIO Block Device Unit Tests.
+//! `VirtIO` Block Device Unit Tests.
 //!
 //! Verifies register identification (magic, version, device ID),
 //! status register, queue configuration, and interrupt status.

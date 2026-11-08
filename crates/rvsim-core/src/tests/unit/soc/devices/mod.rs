@@ -1,6 +1,6 @@
 //! # Device Tests
 //!
-//! Unit tests for SoC peripheral devices.
+//! Unit tests for `SoC` peripheral devices.
 
 pub mod checkpoint;
 pub mod clint;

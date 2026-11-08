@@ -27,7 +27,7 @@ const RAM_SIZE: usize = 4096;
 const NOP: u32 = 0x0000_0013;
 
 /// Build a Config with a wider in-order pipeline. The original Python brief
-/// reproduced the bug at width=4 / InOrder, where the rename-to-issue
+/// reproduced the bug at width=4 / `InOrder`, where the rename-to-issue
 /// distance is large enough for forwarding/serialization races to surface.
 fn wide_inorder_config() -> Config {
     let mut c = Config::minimal();
@@ -119,7 +119,7 @@ fn vsetvli_consumes_immediately_preceding_li_width1() {
 }
 
 /// Closest to the chipsalliance failing-ELF pattern: a flushing vsetvli
-/// (which sets the pipeline's redirect_pending bit), then a scalar `li`,
+/// (which sets the pipeline's `redirect_pending` bit), then a scalar `li`,
 /// then a second vsetvli that needs to consume the just-written t0.
 ///
 /// The first vsetvli is the prior "vector op that flushes". We then expect
@@ -219,7 +219,7 @@ fn vwaddu_vv_at_mf8_does_not_trap_for_odd_vd() {
 
     // mcause = 2 (illegal instruction) is the failure mode we're catching.
     let mcause = ctx.state().harts[0].csrs.mcause;
-    assert_eq!(mcause, 0, "vwaddu.vv at e8/mf8 with vd=v27 must not trap (mcause={:#x})", mcause);
+    assert_eq!(mcause, 0, "vwaddu.vv at e8/mf8 with vd=v27 must not trap (mcause={mcause:#x})");
     assert_eq!(ctx.state().harts[0].csrs.vl, 2);
 }
 

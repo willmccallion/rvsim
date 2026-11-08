@@ -10,7 +10,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 fn cold_read_pays_act_plus_rcd_plus_cas_plus_burst() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let addr = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id = h.issue(addr, 0, read_op());
     let resp = h.response_at(id);
@@ -23,7 +23,7 @@ fn cold_read_pays_act_plus_rcd_plus_cas_plus_burst() {
 fn row_hit_second_read_only_pays_cas_plus_burst() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let a1 = addr_from(&cfg, 0, 0, 0, 0, 0);
     let a2 = addr_from(&cfg, 0, 0, 0, 0, 1);
     let first = h.issue(a1, 0, read_op());
@@ -39,7 +39,7 @@ fn row_hit_second_read_only_pays_cas_plus_burst() {
 fn same_bank_row_miss_pays_pre_plus_act_plus_col() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let a1 = addr_from(&cfg, 0, 0, 0, 0, 0);
     let a2 = addr_from(&cfg, 0, 0, 0, 1, 0);
     let first = h.issue(a1, 0, read_op());
@@ -59,7 +59,7 @@ fn same_bank_row_miss_pays_pre_plus_act_plus_col() {
 fn back_to_back_same_bank_group_reads_honor_ccd_l() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     // Same bank group, different banks, both queued before any command:
     // the second column command is at least tCCD_L after the first.
     let a1 = addr_from(&cfg, 0, 0, 0, 0, 0);

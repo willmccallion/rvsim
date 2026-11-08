@@ -11,7 +11,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 fn four_reads_across_bank_groups_serialize_on_data_bus() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     // Four cold reads, different (bg, bank) combinations, all rank 0.
     let addrs = [
         addr_from(&cfg, 0, 0, 0, 0, 0),

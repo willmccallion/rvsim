@@ -47,20 +47,20 @@ pub fn controller_latency(cfg: &Ddr5Config) -> u64 {
     cfg.frontend_latency + cfg.backend_latency
 }
 
-/// Ddr5Controller over 16 MiB of RAM, clocked 1:1.
-pub fn make_controller(config: Ddr5Config) -> Ddr5Controller {
+/// `Ddr5Controller` over 16 MiB of RAM, clocked 1:1.
+pub fn make_controller(config: &Ddr5Config) -> Ddr5Controller {
     make_controller_with_clock(config, ONE_TO_ONE_CPU_MHZ)
 }
 
-/// Ddr5Controller over 16 MiB of RAM at a given core clock.
-pub fn make_controller_with_clock(config: Ddr5Config, cpu_mhz: u64) -> Ddr5Controller {
-    Ddr5Controller::new(PhysAddr::new(0), 1 << 24, &config, MemCtrlId::new(0), cpu_mhz)
+/// `Ddr5Controller` over 16 MiB of RAM at a given core clock.
+pub fn make_controller_with_clock(config: &Ddr5Config, cpu_mhz: u64) -> Ddr5Controller {
+    Ddr5Controller::new(PhysAddr::new(0), 1 << 24, config, MemCtrlId::new(0), cpu_mhz)
 }
 
 /// Encodes a physical address for the tiny topology.
 ///
-/// Bit layout (RoRaBaChCo, low→high above line offset 6):
-/// column | subchannel | channel | bank | bank_group | rank | row.
+/// Bit layout (`RoRaBaChCo`, low→high above line offset 6):
+/// column | subchannel | channel | bank | `bank_group` | rank | row.
 ///
 /// `column` addresses within a row are in cache-line units (each column
 /// occupies `1 << 6` bytes).
@@ -103,7 +103,7 @@ pub struct Harness {
 }
 
 impl Harness {
-    pub fn new(cfg: Ddr5Config) -> Self {
+    pub fn new(cfg: &Ddr5Config) -> Self {
         Self::with_controller(make_controller(cfg))
     }
 
@@ -156,7 +156,7 @@ impl Harness {
         }
     }
 
-    /// Delivers one request at `cycle` and returns the ReqId assigned. The
+    /// Delivers one request at `cycle` and returns the `ReqId` assigned. The
     /// controller's tick for `cycle` runs on the next `response_at` /
     /// `run_until`.
     pub fn issue(&mut self, paddr: u64, cycle: u64, op: MemOp) -> ReqId {
@@ -220,7 +220,7 @@ impl Harness {
         found
     }
 
-    /// Every DramCmd event the controller has emitted so far, in issue
+    /// Every `DramCmd` event the controller has emitted so far, in issue
     /// order. Leaves the event queue untouched.
     pub fn dram_cmds(&mut self) -> Vec<CommandRecord> {
         let mut retained = Vec::new();
@@ -238,7 +238,7 @@ impl Harness {
         cmds
     }
 
-    /// DramCmd events of one kind, in issue order.
+    /// `DramCmd` events of one kind, in issue order.
     pub fn commands_of(&mut self, kind: DramCmdKind) -> Vec<CommandRecord> {
         self.dram_cmds().into_iter().filter(|c| c.kind == kind).collect()
     }

@@ -430,7 +430,7 @@ fn divw_divide_by_zero() {
     assert_eq!(alu(DivOp::Div, 42, ZERO, W), NEG1);
 }
 
-/// RISC-V spec: DIVW signed overflow: i32::MIN / -1 = i32::MIN sign-extended.
+/// RISC-V spec: DIVW signed overflow: `i32::MIN` / -1 = `i32::MIN` sign-extended.
 #[test]
 fn divw_signed_overflow() {
     assert_eq!(alu(DivOp::Div, I32_MIN, NEG1, W), I32_MIN);
@@ -543,7 +543,7 @@ fn divuw_ignores_upper_input_bits() {
 }
 
 /// REGRESSION: Verify DIVUW result is sign-extended from bit 31.
-/// The quotient 0x8000_0001 has bit 31 set → must become 0xFFFF_FFFF_8000_0001.
+/// The quotient `0x8000_0001` has bit 31 set → must become `0xFFFF_FFFF_8000_0001`.
 #[test]
 fn divuw_result_sign_extends_when_bit31_set() {
     assert_eq!(alu(DivOp::Divu, 0x8000_0002, ONE, W), sext32(0x8000_0002));
@@ -837,8 +837,7 @@ fn all_w_operations_produce_sign_extended_results() {
         let expected_upper = if bit31 == 1 { 0xFFFF_FFFF } else { 0 };
         assert_eq!(
             upper, expected_upper,
-            "Op {:?} with a={:#x}, b={:#x}: result {:#018x} is not properly sign-extended",
-            op, a, b, result
+            "Op {op:?} with a={a:#x}, b={b:#x}: result {result:#018x} is not properly sign-extended"
         );
     }
 }

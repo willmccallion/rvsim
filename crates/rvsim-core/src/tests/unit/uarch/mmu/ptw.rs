@@ -800,7 +800,7 @@ fn sv57_non_canonical_address_faults() {
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
-/// Walks a load of 0x4000_0000 through a root pointer with `pointer_extra`
+/// Walks a load of `0x4000_0000` through a root pointer with `pointer_extra`
 /// set to a 2 MiB leaf with `leaf_extra` set.
 fn walk_with(pointer_extra: u64, leaf_extra: u64) -> TranslationResult {
     let (mut mmu, csrs, mut tc) = setup_mmu();

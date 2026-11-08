@@ -15,7 +15,7 @@ use crate::isa::reg::RegIdx;
 fn gpr_initial_values_are_zero() {
     let regs = RegisterFile::default();
     for i in 0u8..32 {
-        assert_eq!(regs.read(RegIdx::new(i)), 0, "x{} should be 0 initially", i);
+        assert_eq!(regs.read(RegIdx::new(i)), 0, "x{i} should be 0 initially");
     }
 }
 
@@ -73,7 +73,7 @@ fn gpr_max_value() {
 fn fpr_initial_values_are_zero() {
     let regs = RegisterFile::default();
     for i in 0u8..32 {
-        assert_eq!(regs.read_f(RegIdx::new(i)), 0, "f{} should be 0 initially", i);
+        assert_eq!(regs.read_f(RegIdx::new(i)), 0, "f{i} should be 0 initially");
     }
 }
 

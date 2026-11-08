@@ -23,22 +23,9 @@ fn fully_associative(entries: usize) -> Tlb {
     Tlb::new(TlbGeometry { entries, ways: 0 })
 }
 
-/// Helper to create a PTE with specific permissions
-fn make_pte(r: bool, w: bool, x: bool, u: bool) -> u64 {
-    let mut pte = PTE_V;
-    if r {
-        pte |= PTE_R;
-    }
-    if w {
-        pte |= PTE_W;
-    }
-    if x {
-        pte |= PTE_X;
-    }
-    if u {
-        pte |= PTE_U;
-    }
-    pte
+/// A valid PTE granting `permissions`, some of `PTE_R | PTE_W | PTE_X | PTE_U`.
+const fn valid_pte(permissions: u64) -> u64 {
+    PTE_V | permissions
 }
 
 #[test]
@@ -52,7 +39,7 @@ fn insert_and_lookup_hit() {
     let mut tlb = fully_associative(16);
     let vpn = Vpn::new(0xABC);
     let ppn = Ppn::new(0x123);
-    let pte = make_pte(true, false, true, false); // R=1, W=0, X=1, U=0
+    let pte = valid_pte(PTE_R | PTE_X); // R=1, W=0, X=1, U=0
 
     tlb.insert(vpn, ppn, pte, Asid::new(0), PageSize::Kib4);
 
@@ -73,13 +60,7 @@ fn permissions_extracted_correctly() {
     let mut tlb = fully_associative(16);
 
     // R-only
-    tlb.insert(
-        Vpn::new(0x10),
-        Ppn::new(0x100),
-        make_pte(true, false, false, false),
-        Asid::new(0),
-        PageSize::Kib4,
-    );
+    tlb.insert(Vpn::new(0x10), Ppn::new(0x100), valid_pte(PTE_R), Asid::new(0), PageSize::Kib4);
     let hit = tlb.lookup(Vpn::new(0x10), Asid::new(0)).unwrap();
     assert_eq!((hit.r, hit.w, hit.x, hit.u), (true, false, false, false));
 
@@ -87,7 +68,7 @@ fn permissions_extracted_correctly() {
     tlb.insert(
         Vpn::new(0x11),
         Ppn::new(0x101),
-        make_pte(true, true, false, false),
+        valid_pte(PTE_R | PTE_W),
         Asid::new(0),
         PageSize::Kib4,
     );
@@ -98,7 +79,7 @@ fn permissions_extracted_correctly() {
     tlb.insert(
         Vpn::new(0x12),
         Ppn::new(0x102),
-        make_pte(true, false, true, false),
+        valid_pte(PTE_R | PTE_X),
         Asid::new(0),
         PageSize::Kib4,
     );
@@ -109,7 +90,7 @@ fn permissions_extracted_correctly() {
     tlb.insert(
         Vpn::new(0x13),
         Ppn::new(0x103),
-        make_pte(true, true, true, true),
+        valid_pte(PTE_R | PTE_W | PTE_X | PTE_U),
         Asid::new(0),
         PageSize::Kib4,
     );
@@ -149,8 +130,7 @@ fn fill_capacity() {
     for i in 0..size {
         assert!(
             tlb.lookup(Vpn::new(i as u64), Asid::new(0)).is_some(),
-            "Entry {} should be present",
-            i
+            "Entry {i} should be present"
         );
     }
 }

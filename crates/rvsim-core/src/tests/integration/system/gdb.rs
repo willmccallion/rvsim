@@ -223,8 +223,9 @@ fn a_breakpoint_inside_a_commit_group_stops_before_its_instruction() {
     assert_eq!(outcome, Outcome::Detached);
 }
 
+/// `value`'s bytes in memory order, as GDB's remote protocol sends them.
 fn hex_le(value: u64) -> String {
-    value.to_le_bytes().iter().map(|byte| format!("{byte:02x}")).collect()
+    format!("{:016x}", value.swap_bytes())
 }
 
 /// `ld t3, 0x100(t2)`.

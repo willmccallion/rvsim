@@ -11,7 +11,7 @@ use crate::isa::privileged::Trap;
 fn byte_access_always_aligned() {
     // Size=1 is always aligned regardless of address.
     for addr in [0u64, 1, 2, 3, 7, 0xFF, 0x1001, u64::MAX] {
-        assert!(misaligned::is_aligned(addr, 1), "addr={:#x}", addr);
+        assert!(misaligned::is_aligned(addr, 1), "addr={addr:#x}");
     }
 }
 

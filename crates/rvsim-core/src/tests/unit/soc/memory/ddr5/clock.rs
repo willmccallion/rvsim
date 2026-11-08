@@ -30,7 +30,7 @@ fn one_to_one_clock_is_the_identity() {
 fn faster_core_sees_dram_latency_scaled_into_its_own_cycles() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::with_controller(make_controller_with_clock(cfg, 4800));
+    let mut h = Harness::with_controller(make_controller_with_clock(&cfg, 4800));
     let addr = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id = h.issue(addr, 0, read_op());
     let resp = h.response_at(id);

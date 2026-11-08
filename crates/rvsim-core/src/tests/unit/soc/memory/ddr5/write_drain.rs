@@ -9,7 +9,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 #[test]
 fn write_is_acknowledged_on_admission_before_it_reaches_dram() {
     let cfg = tiny_config();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id = h.issue(a, 10, write_op());
     let ack = h.response_at(id);
@@ -30,7 +30,7 @@ fn read_to_a_queued_write_is_served_from_the_write_queue() {
     // Keep the write from draining by holding it below the high watermark
     // while reads are pending.
     cfg.write_high_watermark = 64;
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let line = addr_from(&cfg, 0, 0, 0, 0, 0);
     let other = addr_from(&cfg, 0, 1, 0, 3, 0);
     let _ = h.issue(other, 0, read_op());
@@ -46,7 +46,7 @@ fn read_to_a_queued_write_is_served_from_the_write_queue() {
 #[test]
 fn writes_to_the_same_line_merge_into_one_dram_write() {
     let cfg = tiny_config();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let line = addr_from(&cfg, 0, 0, 0, 0, 0);
     let _ = h.issue(addr_from(&cfg, 0, 1, 0, 3, 0), 0, read_op());
     let w1 = h.issue(line, 0, write_op());
@@ -62,7 +62,7 @@ fn writes_to_the_same_line_merge_into_one_dram_write() {
 fn read_queue_capacity_delays_admission_until_a_slot_frees() {
     let mut cfg = tiny_config();
     cfg.read_queue_entries = 1;
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let b = addr_from(&cfg, 0, 1, 0, 0, 0);
     let ida = h.issue(a, 0, read_op());
@@ -85,7 +85,7 @@ fn read_queue_capacity_delays_admission_until_a_slot_frees() {
 #[test]
 fn mixed_traffic_serves_all_requests() {
     let cfg = tiny_config();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let mut ids = Vec::new();
     for i in 0..8_u32 {
         let bg = (i & 1) as u8;

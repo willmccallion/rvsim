@@ -227,8 +227,8 @@ fn srlw_ignores_upper_32_bits_of_operand() {
 }
 
 /// SRLW: zero-fill + sign-extension interaction.
-/// After shifting 0xFFFF_FFFF right by 1, we get 0x7FFF_FFFF (bit 31 = 0).
-/// Sign-extended: 0x0000_0000_7FFF_FFFF.
+/// After shifting `0xFFFF_FFFF` right by 1, we get `0x7FFF_FFFF` (bit 31 = 0).
+/// Sign-extended: `0x0000_0000_7FFF_FFFF`.
 #[test]
 fn srlw_zero_fill_clears_sign_bit() {
     assert_eq!(alu(ShiftOp::Srl, 0xFFFF_FFFF, 1, W), sext32(0x7FFF_FFFF));
@@ -399,8 +399,7 @@ fn all_w_shift_results_are_sign_extended() {
         let expected_upper = if bit31 == 1 { 0xFFFF_FFFF } else { 0 };
         assert_eq!(
             upper, expected_upper,
-            "Op {:?} with a={:#x}, b={}: result {:#018x} not sign-extended from bit 31",
-            op, a, b, result
+            "Op {op:?} with a={a:#x}, b={b}: result {result:#018x} not sign-extended from bit 31"
         );
     }
 }

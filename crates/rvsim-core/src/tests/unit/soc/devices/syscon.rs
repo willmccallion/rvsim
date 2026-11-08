@@ -1,6 +1,6 @@
-//! # SysCon Device Tests
+//! # `SysCon` Device Tests
 //!
-//! This module contains unit tests for the System Controller (SysCon) device,
+//! This module contains unit tests for the System Controller (`SysCon`) device,
 //! which provides power management and reset functionality through memory-mapped
 //! registers.
 
@@ -12,7 +12,7 @@ use crate::soc::devices::syscon::SysCon;
 use crate::soc::exit::ExitSignal;
 use crate::tests::support::probe;
 
-/// Helper function to create a test SysCon device.
+/// Helper function to create a test `SysCon` device.
 fn create_test_syscon() -> (SysCon, ExitSignal) {
     let base_addr = 0x100000;
     let exit_signal = ExitSignal::new();

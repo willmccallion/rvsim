@@ -1,9 +1,9 @@
 //! Memory Controller Unit Tests.
 //!
-//! Verifies SimpleController (fixed latency) and DramController
+//! Verifies `SimpleController` (fixed latency) and `DramController`
 //! (multi-bank, row-buffer-aware, refresh-capable DRAM timing) via the
-//! event-driven Handle interface: each test sends a MemReq packet and
-//! inspects the scheduled MemResp's fire_at to recover the access latency
+//! event-driven Handle interface: each test sends a `MemReq` packet and
+//! inspects the scheduled `MemResp`'s `fire_at` to recover the access latency
 //! the controller computed.
 
 use crate::common::{HartId, PhysAddr};
@@ -19,7 +19,7 @@ use crate::soc::memory::controller::{Bandwidth, DramConfig, DramController, Simp
 use std::num::NonZeroU64;
 
 /// Issues a `MemReq::Read` at `paddr` at `cycle` and returns the latency the
-/// controller computed (fire_at − cycle of the scheduled `MemResp`).
+/// controller computed (`fire_at` − cycle of the scheduled `MemResp`).
 fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
     let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();

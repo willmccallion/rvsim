@@ -18,7 +18,7 @@ fn lcg(state: &mut u64) -> u64 {
 fn stress_1024_requests_all_complete() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let mut ids = Vec::with_capacity(1024);
     let mut seed = 0xdead_beef_cafe_babe;
     let mut cycle = 0u64;

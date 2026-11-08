@@ -42,7 +42,7 @@ fn load(width: u8, offset: i32) -> u32 {
     }
 }
 
-/// Mirrors the riscv-tests `ma_data` MISMATCHED_STORE_TEST shape: back to
+/// Mirrors the riscv-tests `ma_data` `MISMATCHED_STORE_TEST` shape: back to
 /// back store/load pairs with partial overlap, then a marker write to x31.
 fn partial_overlap_program() -> Vec<u32> {
     let mut program = Vec::new();

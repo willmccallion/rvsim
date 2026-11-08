@@ -5,7 +5,7 @@
 //! methods. These helpers construct a local event queue + `HandleCtx`,
 //! dispatch a `MemReq`, drain the resulting `MemResp`, and return the
 //! response data. Used by unit tests that exercise CLINT / PLIC / UART /
-//! HTIF / SysCon / Goldfish RTC / VirtIO state directly without a full
+//! HTIF / `SysCon` / Goldfish RTC / `VirtIO` state directly without a full
 //! `Simulator`.
 //!
 //! For tests that need a `Simulator`, prefer `sim.probe_mem_load` /

@@ -1,7 +1,7 @@
-//! VirtIO Block Device Disk Operations Tests.
+//! `VirtIO` Block Device Disk Operations Tests.
 //!
 //! Tests for disk I/O operations, queue descriptor handling,
-//! and more advanced VirtIO functionality.
+//! and more advanced `VirtIO` functionality.
 
 use crate::system::simulator::ProbeWidth;
 

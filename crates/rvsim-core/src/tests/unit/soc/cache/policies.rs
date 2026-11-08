@@ -287,7 +287,7 @@ fn random_victim_always_in_range() {
 
     for _ in 0..200 {
         let victim = policy.get_victim(SetIdx::new(0)).index();
-        assert!(victim < ways, "Victim {} out of range [0, {})", victim, ways);
+        assert!(victim < ways, "Victim {victim} out of range [0, {ways})");
     }
 }
 
@@ -298,12 +298,12 @@ fn random_victim_various_way_counts() {
         let mut policy = RandomPolicy::new(ways);
         for _ in 0..50 {
             let victim = policy.get_victim(SetIdx::new(0)).index();
-            assert!(victim < ways, "ways={}, victim {} out of range", ways, victim);
+            assert!(victim < ways, "ways={ways}, victim {victim} out of range");
         }
     }
 }
 
-/// Random: update is a no-op; victims should still change (LFSR advances on get_victim).
+/// Random: update is a no-op; victims should still change (LFSR advances on `get_victim`).
 #[test]
 fn random_update_is_noop() {
     let mut policy = RandomPolicy::new(4);

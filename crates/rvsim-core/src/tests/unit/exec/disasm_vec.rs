@@ -156,7 +156,7 @@ fn integer_arithmetic_disassembles_with_its_mask_suffix_and_immediate() {
     let inst = vec_arith(0b000011, 1, 7, 5, OPIVI, 6);
     let text = disassemble(inst);
     assert!(text.starts_with("vrsub.vi"), "got '{text}'");
-    assert!(text.contains("5"), "expected imm 5 in '{text}'");
+    assert!(text.contains('5'), "expected imm 5 in '{text}'");
 
     // vand, vor, vxor
     assert!(disassemble(vec_arith(0b001001, 1, 2, 3, OPIVV, 1)).starts_with("vand.vv"));
