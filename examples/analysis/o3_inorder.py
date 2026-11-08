@@ -33,13 +33,13 @@ def main():
     for w in args.widths:
         configs[f"inorder_w{w}"] = Config(
             branch_predictor=BranchPredictor.Tage(),
-            uart_quiet=True,
+            console="Quiet",
             width=w,
             backend=Backend.InOrder(),
         )
         configs[f"o3_w{w}"] = Config(
             branch_predictor=BranchPredictor.Tage(),
-            uart_quiet=True,
+            console="Quiet",
             width=w,
             backend=Backend.OutOfOrder(),
         )

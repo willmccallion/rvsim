@@ -44,7 +44,7 @@ def main():
     bp = BP_MAP[args.bp]()
     binaries = [f"software/bin/programs/{p}.elf" for p in args.programs]
     configs = {
-        f"w{w}": Config(branch_predictor=bp, uart_quiet=True, width=w)
+        f"w{w}": Config(branch_predictor=bp, console="Quiet", width=w)
         for w in args.widths
     }
 

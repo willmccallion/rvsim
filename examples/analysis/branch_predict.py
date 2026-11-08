@@ -36,7 +36,7 @@ def main():
 
     binaries = [f"software/bin/programs/{p}.elf" for p in args.programs]
     configs = {
-        name: Config(branch_predictor=bp_cls(), uart_quiet=True, width=args.width)
+        name: Config(branch_predictor=bp_cls(), console="Quiet", width=args.width)
         for name, bp_cls in PREDICTORS.items()
     }
 

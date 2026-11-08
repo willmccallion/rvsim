@@ -147,8 +147,8 @@ from rvsim import Config, Cache, BranchPredictor, Sweep
 
 # Define configurations to compare
 configs = {
-    "baseline": Config(width=4, uart_quiet=True),
-    "big_cache": Config(width=4, l1d=Cache("64KB", ways=8, mshr_count=8), uart_quiet=True),
+    "baseline": Config(width=4, console="Quiet"),
+    "big_cache": Config(width=4, l1d=Cache("64KB", ways=8, mshr_count=8), console="Quiet"),
 }
 
 # Define workloads
@@ -165,5 +165,5 @@ results.compare(
 )
 ```
 
-!!! tip "uart_quiet"
-    Set `uart_quiet=True` in sweep configs to suppress UART output from the simulated programs. This prevents interleaved output from parallel runs.
+!!! tip "Quiet console"
+    Set `console="Quiet"` in sweep configs to suppress UART output from the simulated programs. This prevents interleaved output from parallel runs.

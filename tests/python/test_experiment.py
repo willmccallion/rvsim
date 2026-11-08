@@ -15,7 +15,7 @@ FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
 @unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
 class EnvironmentRun(unittest.TestCase):
     def test_run_returns_exit_zero_and_stats(self):
-        result = Environment(binary=FIB, config=Config(uart_quiet=True)).run(
+        result = Environment(binary=FIB, config=Config(console="Quiet")).run(
             quiet=False
         )
 
@@ -28,14 +28,14 @@ class EnvironmentRun(unittest.TestCase):
         )
 
     def test_run_accepts_a_config_dict(self):
-        config = Config(width=2, backend=Backend.InOrder(), uart_quiet=True).to_dict()
+        config = Config(width=2, backend=Backend.InOrder(), console="Quiet").to_dict()
 
         result = Environment(binary=FIB, config=config).run(quiet=False)
 
         self.assertTrue(result.ok)
 
     def test_simulator_wrapper_runs_the_same_binary(self):
-        sim = Simulator(Config(uart_quiet=True), binary=FIB)
+        sim = Simulator(Config(console="Quiet"), binary=FIB)
 
         exit_code = sim.run()
 
@@ -47,7 +47,7 @@ class EnvironmentRun(unittest.TestCase):
 class SimpleControllerLatency(unittest.TestCase):
     def cycles_with_memory_latency(self, latency):
         config = Config(
-            uart_quiet=True,
+            console="Quiet",
             memory_controller=MemoryController.Simple(latency=latency),
         )
         return Environment(binary=FIB, config=config).run().stats["cycles"]

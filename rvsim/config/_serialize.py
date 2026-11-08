@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from .backend import _UNITS, Backend, Fu
 from .branch import BranchPredictor, MemDepPredictor
 from .coherence import Coherence, HomeAgent, Interconnect
+from .console import ConsoleMode
 from .memory import (
     Cache,
     LoadPrefetcher,
@@ -30,18 +31,6 @@ def _name(namespace: type, value: object) -> str:
     if getattr(namespace, name, None) is not type(value):
         raise TypeError(f"Unknown {namespace.__name__} kind: {value!r}")
     return name
-
-
-def _console_name(cfg) -> str:
-    """Where the UART console connects: ``console`` if given, else what
-    the ``uart_quiet`` / ``uart_to_stderr`` shorthands say."""
-    if cfg.console is not None:
-        return cfg.console
-    if cfg.uart_quiet:
-        return "Quiet"
-    if cfg.uart_to_stderr:
-        return "Stderr"
-    return "Stdout"
 
 
 def _tage_dict(bp: BranchPredictor.Tage | BranchPredictor.ScLTage) -> dict[str, Any]:
@@ -302,7 +291,7 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "device_latency_ns": cfg.device_latency_ns,
         "device_latency_ns_overrides": cfg.device_latency_ns_overrides,
         "rtc_epoch_seconds": cfg.rtc_epoch_seconds,
-        "console": _console_name(cfg),
+        "console": ConsoleMode(cfg.console).value,
         "hart_count": cfg.hart_count,
     }
     memory = {

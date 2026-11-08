@@ -19,19 +19,19 @@ SHORTER_THAN_A_COLD_FETCH = 10
 @unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
 class StallLimit(unittest.TestCase):
     def test_it_defaults_to_a_million_cycles(self):
-        sim = Simulator(Config(uart_quiet=True), binary=FIB)
+        sim = Simulator(Config(console="Quiet"), binary=FIB)
 
         self.assertEqual(sim.stall_limit, DEFAULT_STALL_LIMIT)
 
     def test_a_hart_stalled_past_the_limit_fails_the_run_naming_it(self):
-        sim = Simulator(Config(uart_quiet=True), binary=FIB)
+        sim = Simulator(Config(console="Quiet"), binary=FIB)
         sim.stall_limit = SHORTER_THAN_A_COLD_FETCH
 
         with self.assertRaisesRegex(Stalled, "hart 0 retired nothing for 10 cycles"):
             sim.run()
 
     def test_none_turns_the_check_off(self):
-        sim = Simulator(Config(uart_quiet=True), binary=FIB)
+        sim = Simulator(Config(console="Quiet"), binary=FIB)
         sim.stall_limit = None
 
         self.assertEqual(sim.run(), 0)

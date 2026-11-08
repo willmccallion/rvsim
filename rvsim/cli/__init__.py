@@ -14,6 +14,7 @@ import pathlib
 import runpy
 import sys
 
+from ..config import ConsoleMode
 from ..presets import PRESETS
 from ..simulator import DebugEnd
 
@@ -416,13 +417,13 @@ def main() -> None:
             parser.error("--harts must be at least 1")
         cfg.hart_count = args.harts
     if args.quiet:
-        cfg.uart_quiet = True
+        cfg.console = ConsoleMode.QUIET
     elif args.watch:
         # Redirect program output to stderr so Live doesn't see stdout being
         # written mid-render (which causes the duplicate frame).
-        cfg.uart_to_stderr = True
+        cfg.console = ConsoleMode.STDERR
     elif mode == "kernel":
-        cfg.uart_to_stderr = True
+        cfg.console = ConsoleMode.STDERR
 
     def build_simulator() -> Simulator:
         host_files = {"script": args.script, "outdir": args.outdir}

@@ -126,7 +126,7 @@ from rvsim import Sweep, Config, Cache
 results = Sweep(
     binaries=["qsort.elf", "mandelbrot.elf", "maze.elf"],
     configs={
-        f"L1={s}": Config(l1d=Cache(s, ways=8, mshr_count=8), uart_quiet=True)
+        f"L1={s}": Config(l1d=Cache(s, ways=8, mshr_count=8), console="Quiet")
         for s in ["8KB", "16KB", "32KB", "64KB"]
     },
 ).run(parallel=True)

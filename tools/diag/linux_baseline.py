@@ -30,7 +30,7 @@ def main():
     args = ap.parse_args()
 
     out_dir = os.path.join(ROOT, "software", "linux", "output")
-    cfg = presets.linux().replace(uart_quiet=True, hart_count=args.hart_count)
+    cfg = presets.linux().replace(console="Quiet", hart_count=args.hart_count)
     os.chdir(ROOT)
     sim = Simulator(
         cfg,

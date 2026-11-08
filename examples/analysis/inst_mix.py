@@ -25,7 +25,7 @@ def main():
     for program in args.programs:
         binary = f"software/bin/programs/{program}.elf"
         print(f"  {program}...", flush=True)
-        config = Config(uart_quiet=True)
+        config = Config(console="Quiet")
         result = Environment(binary=binary, config=config).run(
             quiet=True, limit=args.limit
         )

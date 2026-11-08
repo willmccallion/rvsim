@@ -43,7 +43,7 @@ def prefetches(config):
 class PrefetchAccounting(unittest.TestCase):
     def test_no_cache_resolves_more_prefetches_than_it_issued(self):
         for name, preset in presets.PRESETS.items():
-            config = preset().replace(uart_quiet=True)
+            config = preset().replace(console="Quiet")
             sim = Simulator(config, binary=QSORT)
             sim.run(limit=CYCLES)
 
