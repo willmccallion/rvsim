@@ -32,52 +32,35 @@ fn rne_adds_exactly_representable_values_exactly() {
     assert_eq!(result, 2.0e30);
 }
 
-#[test]
-fn rtz_matches_exact_sums_and_stays_at_or_below_rne() {
-    // For exactly representable results, RTZ and RNE agree
-    let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rtz);
-    assert_eq!(result, 3.0);
-
-    // RTZ truncates toward zero, so its magnitude must be ≤ the RNE result.
-    let rtz_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rtz);
-    let rne_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rne);
-    assert!(rtz_result <= rne_result, "RTZ should produce result <= RNE for positive values");
-    assert!(rtz_result >= 0.0, "RTZ of positive inputs should be non-negative");
-}
+/// Half an ulp of 1.0: `1.0 + HALF_ULP` is a tie between 1.0 and `ABOVE_ONE`.
+const HALF_ULP: f32 = f32::from_bits(0x3380_0000);
+/// Three quarters of an ulp of 1.0, nearer `ABOVE_ONE` than 1.0.
+const THREE_QUARTER_ULP: f32 = f32::from_bits(0x33C0_0000);
+/// The next f32 above 1.0.
+const ABOVE_ONE: f32 = f32::from_bits(0x3F80_0001);
 
 #[test]
-fn rdn_matches_exact_sums_and_stays_at_or_below_rup() {
-    // Exact results should be unchanged
-    let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rdn);
-    assert_eq!(result, 3.0);
+fn each_rounding_mode_rounds_an_inexact_sum_its_own_way() {
+    use RoundingMode::{Rdn, Rmm, Rne, Rtz, Rup};
+    let cases = [
+        (1.0, HALF_ULP, [(Rne, 1.0), (Rtz, 1.0), (Rdn, 1.0), (Rup, ABOVE_ONE), (Rmm, ABOVE_ONE)]),
+        (
+            -1.0,
+            -HALF_ULP,
+            [(Rne, -1.0), (Rtz, -1.0), (Rdn, -ABOVE_ONE), (Rup, -1.0), (Rmm, -ABOVE_ONE)],
+        ),
+        (
+            1.0,
+            THREE_QUARTER_ULP,
+            [(Rne, ABOVE_ONE), (Rtz, 1.0), (Rdn, 1.0), (Rup, ABOVE_ONE), (Rmm, ABOVE_ONE)],
+        ),
+    ];
 
-    // RDN should produce a result <= exact value
-    let rdn_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rdn);
-    let rup_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rup);
-    assert!(rdn_result <= rup_result, "RDN result should be <= RUP result");
-}
-
-#[test]
-fn rup_matches_exact_sums_and_stays_at_or_above_rdn() {
-    let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rup);
-    assert_eq!(result, 3.0);
-
-    // RUP should produce result >= exact for positive values
-    let rup_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rup);
-    let rdn_result = fadd_f32_rm(1.0e-38, 1.0e-38, RoundingMode::Rdn);
-    assert!(rup_result >= rdn_result, "RUP result should be >= RDN result");
-}
-
-#[test]
-fn rmm_agrees_with_rne_when_there_is_no_tie() {
-    // For normal exact values, RMM and RNE agree
-    let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rmm);
-    assert_eq!(result, 3.0);
-
-    // RMM should agree with RNE for non-tie cases
-    let rmm_result = fadd_f32_rm(1.0e10, 1.0, RoundingMode::Rmm);
-    let rne_result = fadd_f32_rm(1.0e10, 1.0, RoundingMode::Rne);
-    assert_eq!(rmm_result, rne_result, "RMM and RNE should agree for non-ties");
+    for (a, b, rounded) in cases {
+        for (rm, expected) in rounded {
+            assert_eq!(fadd_f32_rm(a, b, rm), expected, "{a} + {b:e} under {rm:?}");
+        }
+    }
 }
 
 #[test]

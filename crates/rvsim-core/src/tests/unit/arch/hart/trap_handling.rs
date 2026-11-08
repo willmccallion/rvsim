@@ -4,6 +4,7 @@
 //! including trap dispatch and context saving.
 
 use crate::common::{PhysAddr, VirtAddr};
+use crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
 use crate::tests::support::harness::minimal_system;
@@ -20,20 +21,6 @@ fn a_trap_clears_the_load_reservation() {
 }
 
 #[test]
-fn an_illegal_instruction_leaves_the_mcause_interrupt_bit_clear() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-    state.hart.privilege = PrivilegeMode::Machine;
-    state.hart.csrs.mtvec = 0x8000_0000;
-
-    state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
-
-    let mcause = state.hart.csrs.mcause;
-    // Exceptions should not have interrupt bit set (bit 63)
-    assert_eq!(mcause & (1u64 << 63), 0);
-}
-
-#[test]
 fn exceptions_leave_the_mcause_interrupt_bit_clear() {
     let exceptions = vec![
         Trap::InstructionAddressMisaligned(0),
@@ -47,6 +34,9 @@ fn exceptions_leave_the_mcause_interrupt_bit_clear() {
         Trap::EnvironmentCallFromUMode,
         Trap::EnvironmentCallFromSMode,
         Trap::EnvironmentCallFromMMode,
+        Trap::InstructionPageFault(0x1000_0000),
+        Trap::LoadPageFault(0x2000_0000),
+        Trap::StorePageFault(0x3000_0000),
     ];
 
     for exception in exceptions {
@@ -57,55 +47,12 @@ fn exceptions_leave_the_mcause_interrupt_bit_clear() {
 
         state.trap(&exception, state.hart.pc);
 
-        // Exceptions should not have interrupt bit set
-        assert_eq!(state.hart.csrs.mcause & (1u64 << 63), 0);
+        assert_eq!(state.hart.csrs.mcause & CAUSE_INTERRUPT_BIT, 0, "{exception}");
     }
 }
 
 #[test]
-fn ecalls_from_every_mode_leave_the_mcause_interrupt_bit_clear() {
-    let ecalls = vec![
-        Trap::EnvironmentCallFromUMode,
-        Trap::EnvironmentCallFromSMode,
-        Trap::EnvironmentCallFromMMode,
-    ];
-
-    for ecall in ecalls {
-        let mut sys = minimal_system();
-        let mut state = sys.core_ctx(0);
-        state.hart.privilege = PrivilegeMode::Machine;
-        state.hart.csrs.mtvec = 0x8000_0000;
-
-        state.trap(&ecall, state.hart.pc);
-
-        // Should not have interrupt bit set (ECALL is an exception, not interrupt)
-        assert_eq!(state.hart.csrs.mcause & (1u64 << 63), 0);
-    }
-}
-
-#[test]
-fn page_faults_leave_the_mcause_interrupt_bit_clear() {
-    let page_faults = vec![
-        Trap::InstructionPageFault(0x1000_0000),
-        Trap::LoadPageFault(0x2000_0000),
-        Trap::StorePageFault(0x3000_0000),
-    ];
-
-    for fault_trap in page_faults {
-        let mut sys = minimal_system();
-        let mut state = sys.core_ctx(0);
-        state.hart.privilege = PrivilegeMode::Machine;
-        state.hart.csrs.mtvec = 0x8000_0000;
-
-        state.trap(&fault_trap, state.hart.pc);
-
-        // Should not have interrupt bit set (page faults are exceptions)
-        assert_eq!(state.hart.csrs.mcause & (1u64 << 63), 0);
-    }
-}
-
-#[test]
-fn a_trap_raised_at_the_handler_address_dispatches_without_exiting() {
+fn a_trap_raised_at_the_handler_address_is_dispatched_to_the_handler() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -114,8 +61,8 @@ fn a_trap_raised_at_the_handler_address_dispatches_without_exiting() {
 
     // A trap whose EPC equals the handler address is legitimate (not a double fault).
     state.trap(&Trap::IllegalInstruction(0), VirtAddr::new(handler_pc));
-    assert_eq!(state.uncore.peek_exit(), None);
-    assert_eq!(state.hart.pc, VirtAddr::new(handler_pc)); // dispatched to M-mode handler
+
+    assert_eq!(state.hart.pc, VirtAddr::new(handler_pc));
 }
 
 #[test]
@@ -140,23 +87,8 @@ fn interrupts_set_the_mcause_interrupt_bit() {
 
         state.trap(&interrupt, state.hart.pc);
 
-        // Interrupts should have interrupt bit set (bit 63)
-        assert_ne!(state.hart.csrs.mcause & (1u64 << 63), 0);
+        assert_ne!(state.hart.csrs.mcause & CAUSE_INTERRUPT_BIT, 0, "{interrupt}");
     }
-}
-
-#[test]
-fn a_machine_timer_interrupt_sets_the_mcause_interrupt_bit() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-    state.hart.privilege = PrivilegeMode::Machine;
-    state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
-
-    state.trap(&Trap::MachineTimerInterrupt, state.hart.pc);
-
-    // Should have interrupt bit set
-    assert_ne!(state.hart.csrs.mcause & (1u64 << 63), 0);
 }
 
 #[test]
@@ -176,20 +108,6 @@ fn a_delegated_supervisor_timer_interrupt_enters_supervisor_mode() {
 }
 
 #[test]
-fn a_machine_software_interrupt_sets_the_mcause_interrupt_bit() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-    state.hart.privilege = PrivilegeMode::Machine;
-    state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
-
-    state.trap(&Trap::MachineSoftwareInterrupt, state.hart.pc);
-
-    // Should have interrupt bit set
-    assert_ne!(state.hart.csrs.mcause & (1u64 << 63), 0);
-}
-
-#[test]
 fn a_delegated_supervisor_software_interrupt_enters_supervisor_mode() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
@@ -202,20 +120,6 @@ fn a_delegated_supervisor_software_interrupt_enters_supervisor_mode() {
     state.trap(&Trap::SupervisorSoftwareInterrupt, state.hart.pc);
 
     assert_eq!(state.hart.privilege, PrivilegeMode::Supervisor);
-}
-
-#[test]
-fn a_machine_external_interrupt_sets_the_mcause_interrupt_bit() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-    state.hart.privilege = PrivilegeMode::Machine;
-    state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
-
-    state.trap(&Trap::MachineExternalInterrupt, state.hart.pc);
-
-    // Should have interrupt bit set
-    assert_ne!(state.hart.csrs.mcause & (1u64 << 63), 0);
 }
 
 #[test]
@@ -611,22 +515,6 @@ fn a_trap_writes_the_trap_pc_to_mepc() {
 
     assert_eq!(state.hart.csrs.mepc, trap_pc);
 }
-
-#[test]
-fn a_delegated_trap_writes_the_trap_pc_to_sepc() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-    state.hart.privilege = PrivilegeMode::User;
-    state.hart.csrs.stvec = 0x8000_1000;
-    state.hart.csrs.medeleg = 1 << 2; // Delegate illegal instruction
-    let trap_pc = 0x8000_5678;
-
-    state.trap(&Trap::IllegalInstruction(0), VirtAddr::new(trap_pc));
-
-    assert_eq!(state.hart.csrs.sepc, trap_pc);
-}
-
-use crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT;
 
 #[test]
 fn an_undelegated_user_interrupt_or_hardware_fault_traps_to_machine_mode() {

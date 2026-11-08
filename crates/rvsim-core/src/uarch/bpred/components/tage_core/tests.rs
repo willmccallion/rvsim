@@ -173,18 +173,18 @@ fn the_alternate_trains_while_the_provider_has_not_proved_useful() {
 }
 
 #[test]
-fn a_branch_trained_not_taken_is_predicted_not_taken() {
-    let config = test_config();
-    let mut tage = TageCore::new(&config);
+fn training_turns_the_prediction_to_each_outcome() {
+    let mut tage = TageCore::new(&test_config());
     let pc = 0x8000_1000u64;
+    let mut train = |taken: bool| {
+        for _ in 0..50 {
+            let prediction = tage.predict(pc);
+            tage.update(taken, &prediction, prediction.taken());
+        }
+        tage.predict(pc).taken()
+    };
 
-    // Train not-taken heavily.
-    for _ in 0..50 {
-        let prediction = tage.predict(pc);
-        tage.update(false, &prediction, prediction.taken());
-    }
-
-    assert!(!tage.predict(pc).taken(), "Should predict not-taken after heavy training");
+    assert_eq!((train(true), train(false)), (true, false));
 }
 
 #[test]

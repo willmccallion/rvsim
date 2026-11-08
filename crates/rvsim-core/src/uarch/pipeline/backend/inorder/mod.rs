@@ -602,11 +602,13 @@ mod tests {
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
+        engine.execute_mem1.push(ExMem1Entry::default());
+        engine.mem1_mem2.push(Mem1Mem2Entry::default());
+        engine.mem2_wb.push(Mem2WbEntry::default());
 
         engine.flush(&mut state);
 
-        assert_eq!(engine.execute_mem1.len(), 0);
-        assert_eq!(engine.mem1_mem2.len(), 0);
-        assert_eq!(engine.mem2_wb.len(), 0);
+        let lengths = (engine.execute_mem1.len(), engine.mem1_mem2.len(), engine.mem2_wb.len());
+        assert_eq!(lengths, (0, 0, 0));
     }
 }

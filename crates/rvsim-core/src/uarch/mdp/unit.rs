@@ -307,26 +307,6 @@ mod tests {
     }
 
     #[test]
-    fn resolving_a_store_wakes_the_load_waiting_on_it() {
-        let config = store_set_config();
-        let mut mdu = MemDepUnit::new(&config);
-        let load_pc = 0x1000;
-        let store_pc = 0x2000;
-
-        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
-
-        let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store);
-
-        let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load);
-
-        // Resolve store — should wake the load.
-        let woken = mdu.store_resolved(s1);
-        assert_eq!(woken, Some(s1));
-    }
-
-    #[test]
     fn a_store_wakes_its_waiters_only_the_first_time_it_resolves() {
         let mut mdu = MemDepUnit::new(&store_set_config());
         let (store_pc, load_pc) = (VirtAddr::new(0x2000), VirtAddr::new(0x1000));
@@ -377,30 +357,18 @@ mod tests {
     }
 
     #[test]
-    fn a_load_waits_only_for_a_store_dispatched_before_it() {
+    fn a_load_waits_only_for_a_predicted_store_older_than_it() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
-        let load_pc = 0x1000;
-        let store_pc = 0x2000;
+        let load_pc = VirtAddr::new(0x1000);
+        let store_pc = VirtAddr::new(0x2000);
+        mdu.violation(load_pc, store_pc);
+        let store = RobTag::new(5);
+        let _ = mdu.dispatch(store_pc, store, MemDepAccess::Store);
 
-        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
+        let older_load = mdu.dispatch(load_pc, RobTag::new(3), MemDepAccess::Load);
+        let younger_load = mdu.dispatch(load_pc, RobTag::new(10), MemDepAccess::Load);
 
-        // Dispatch load FIRST (older), then store (younger).
-        let l1 = RobTag::new(1);
-        assert_eq!(
-            mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load),
-            MemDepState::Bypass
-        );
-
-        let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store);
-
-        // Dispatch another load — LFST points to s1 which is younger, so NoDep for
-        // loads older than s1... but l2 is newer than s1, so DepOn(s1).
-        let l2 = RobTag::new(10);
-        assert_eq!(
-            mdu.dispatch(VirtAddr::new(load_pc), l2, MemDepAccess::Load),
-            MemDepState::WaitFor(s1)
-        );
+        assert_eq!((older_load, younger_load), (MemDepState::Bypass, MemDepState::WaitFor(store)));
     }
 }
