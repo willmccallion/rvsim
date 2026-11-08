@@ -28,6 +28,12 @@ All notable changes to this project are documented here. The format is based on 
   (which gains `MCOUNTINHIBIT`, the vector CSRs, the trigger CSRs and the
   rest) and GDB's target description all read one table in the core. A CSR
   address beyond 12 bits raises `KeyError` rather than wrapping.
+- ITTAGE's shortest banks see their history. Each bank hashed its PC with
+  two folds of its history whose XOR cancelled when the history fitted in
+  both, so the default ITTAGE's 4-bit bank indexed and tagged by PC alone
+  and its 8-bit bank tagged by PC alone. The narrower fold is now shifted,
+  as Seznec's TAGE forms its tags, so every TAGE-SC-L run's indirect
+  predictions, and with them its cycle counts, move.
 - `Config` takes keyword arguments only, and `Config.replace()` reports an
   unknown field as `Config.__init__()` does.
 - A run fails when a hart outside WFI retires no instruction for
