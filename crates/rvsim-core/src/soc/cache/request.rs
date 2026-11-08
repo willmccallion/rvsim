@@ -1,6 +1,7 @@
 //! Demand requests: lookup, responses, misses, fills and evictions.
 
 use super::mshr::{FetchOrigin, Mshr, MshrTarget};
+use super::prefetch::Lookup;
 use crate::common::{LineAddr, PAGE_SHIFT, PhysAddr, VirtAddr};
 use crate::config::InclusionPolicy;
 use crate::sim::components::{ComponentId, ReqId};
@@ -175,7 +176,7 @@ impl Cache {
             self.drop_line(index, ctx.stats);
             let _ = self.handed_up.insert(self.line_of(addr));
         }
-        self.observe_prefetcher(addr, req.pc, true, ctx);
+        self.observe_prefetcher(addr, req.pc, Lookup::Hit, ctx);
     }
 
     /// Joins `req` to the MSHR already fetching its line, or starts the
@@ -222,7 +223,7 @@ impl Cache {
                 self.observe_store_miss(addr, ctx);
             }
         }
-        self.observe_prefetcher(addr, req.pc, false, ctx);
+        self.observe_prefetcher(addr, req.pc, Lookup::Miss, ctx);
     }
 
     /// Allocates an MSHR for `line` and sends the line request downstream
@@ -280,21 +281,25 @@ impl Cache {
         &mut self,
         addr: u64,
         pc: Option<VirtAddr>,
-        hit: bool,
+        lookup: Lookup,
         ctx: &mut HandleCtx<'_>,
     ) {
         let Some(prefetcher) = self.prefetcher.as_mut() else { return };
-        let candidates = prefetcher.observe(addr, pc, hit);
-        for candidate in candidates {
+        // The buffer is reused across accesses so observing never allocates.
+        let mut candidates = std::mem::take(&mut self.prefetch_candidates);
+        prefetcher.observe(addr, pc, lookup, &mut candidates);
+        for &candidate in &candidates {
             if !same_base_page(candidate, addr) {
                 ctx.stats.counter(self.stat_paths.prefetches_page_crossing).inc();
                 continue;
             }
             if self.mshrs.free() <= 1 || self.downstream.is_none() {
-                return;
+                break;
             }
             self.start_prefetch(candidate, false, ctx);
         }
+        candidates.clear();
+        self.prefetch_candidates = candidates;
     }
 
     /// Trains the store prefetcher on a store miss that started a fetch for

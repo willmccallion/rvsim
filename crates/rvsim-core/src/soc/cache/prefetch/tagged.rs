@@ -9,7 +9,7 @@
 //!   If yes (a "useful" prefetch), it extends the stream by prefetching the next line.
 //!   If no (a standard hit), it stays idle to save bandwidth.
 
-use super::Prefetcher;
+use super::{Lookup, Prefetcher};
 use crate::common::VirtAddr;
 use std::num::NonZeroUsize;
 
@@ -60,11 +60,16 @@ impl TaggedPrefetcher {
 
 impl Prefetcher for TaggedPrefetcher {
     /// Extends the stream on a miss, or on a hit to a line it prefetched.
-    fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, hit: bool) -> Vec<u64> {
-        let mut prefetches = Vec::new();
+    fn observe(
+        &mut self,
+        addr: u64,
+        _pc: Option<VirtAddr>,
+        lookup: Lookup,
+        prefetches: &mut Vec<u64>,
+    ) {
         let aligned_addr = addr & !(self.line_bytes - 1);
 
-        if !hit || self.was_prefetched(aligned_addr) {
+        if lookup == Lookup::Miss || self.was_prefetched(aligned_addr) {
             for k in 1..=self.degree {
                 let offset = self.line_bytes * k as u64;
                 let target = aligned_addr + offset;
@@ -73,7 +78,5 @@ impl Prefetcher for TaggedPrefetcher {
                 self.mark_prefetched(target);
             }
         }
-
-        prefetches
     }
 }

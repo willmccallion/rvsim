@@ -178,6 +178,8 @@ pub struct Cache {
     pub enabled: bool,
     /// Optional hardware prefetcher.
     pub prefetcher: Option<Box<dyn Prefetcher>>,
+    /// The prefetcher's candidates for the access being observed.
+    prefetch_candidates: Vec<u64>,
     /// Prefetcher for the next level, fed by this cache's store misses.
     store_prefetcher: Option<StoreStreamPrefetcher>,
     /// Stat paths rooted at this cache's subject.
@@ -289,6 +291,7 @@ impl Cache {
             response_latency: config.response_latency,
             enabled: config.enabled,
             prefetcher,
+            prefetch_candidates: Vec::new(),
             store_prefetcher: None,
             stat_paths: CacheStatPaths::under(stat_subject),
             upstream_inclusion: InclusionPolicy::Nine,
