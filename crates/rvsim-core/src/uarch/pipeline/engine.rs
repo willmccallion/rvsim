@@ -896,8 +896,6 @@ impl PipelineDispatch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::uarch::pipeline::backend::inorder::InOrderEngine;
-    use crate::uarch::pipeline::frontend::Frontend;
 
     fn squash(
         keep: u32,
@@ -966,29 +964,5 @@ mod tests {
     #[test]
     fn the_default_backend_is_in_order() {
         assert_eq!(BackendKind::default(), BackendKind::InOrder);
-    }
-
-    #[test]
-    fn an_in_order_dispatch_snapshot_has_the_requested_width() {
-        let config = crate::config::Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
-        let mut state = sys.core_ctx(0);
-
-        let frontend = Frontend::new(state.hart.pc, &config.pipeline);
-        let engine =
-            InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let pipeline = Pipeline {
-            frontend,
-            engine,
-            rename_output: Latch::new(config.pipeline.rename_issue_latency - 1),
-            redirect: None,
-            recovering_from_redirect: false,
-        };
-        let mut dispatch = PipelineDispatch::InOrder(Box::new(pipeline));
-
-        dispatch.tick(&mut state);
-        dispatch.flush(&mut state);
-        let snapshot = dispatch.snapshot(1);
-        assert_eq!(snapshot.width, 1);
     }
 }

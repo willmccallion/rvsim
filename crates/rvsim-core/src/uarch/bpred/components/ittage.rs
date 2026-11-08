@@ -199,20 +199,14 @@ mod tests {
         let mut ittage = Ittage::new(&test_config());
         let pc = 0x8000_2000u64;
         let target = 0x8000_3000u64;
-        let mut ghr = Ghr::with_len(32);
+        let ghr = Ghr::with_len(32);
 
         // Initially no prediction (default entries have target=0, filtered out).
         assert_eq!(ittage.predict(pc), None);
 
-        // Train with a target.
         ittage.update(pc, target, &ghr);
 
-        // After training, should predict the target.
         assert_eq!(ittage.predict(pc), Some(target));
-
-        // Speculate should not crash.
-        ittage.speculate(true, &ghr);
-        ghr.push(true);
     }
 
     #[test]

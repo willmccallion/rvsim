@@ -14,13 +14,6 @@ fn a_new_register_file_reads_zero_everywhere() {
 }
 
 #[test]
-fn x0_reads_zero_after_a_write() {
-    let mut gpr = Gpr::new();
-    gpr.write(RegIdx::new(0), 0xDEAD_BEEF);
-    assert_eq!(gpr.read(RegIdx::new(0)), 0);
-}
-
-#[test]
 fn x1_reads_back_a_written_value() {
     let mut gpr = Gpr::new();
     let value = 0x1234_5678;

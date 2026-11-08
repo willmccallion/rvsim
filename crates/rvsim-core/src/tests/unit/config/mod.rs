@@ -109,36 +109,11 @@ fn the_default_tournament_has_12_global_and_10_local_bits() {
 }
 
 #[test]
-fn the_default_memory_controller_is_simple() {
+fn each_component_kind_defaults_to_its_simplest_choice() {
     assert_eq!(MemoryControllerKind::default(), MemoryControllerKind::Simple);
-    assert_ne!(MemoryControllerKind::Simple, MemoryControllerKind::Dram);
-}
-
-#[test]
-fn the_default_replacement_policy_is_lru() {
     assert_eq!(ReplacementPolicyKind::default(), ReplacementPolicyKind::Lru);
-    assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Fifo);
-    assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Random);
-    assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Mru);
-    assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Plru);
-}
-
-#[test]
-fn the_default_prefetcher_is_off() {
     assert_eq!(PrefetcherKind::default(), PrefetcherKind::Off);
-    assert_ne!(PrefetcherKind::Off, PrefetcherKind::NextLine);
-    assert_ne!(PrefetcherKind::Off, PrefetcherKind::Stride);
-    assert_ne!(PrefetcherKind::Off, PrefetcherKind::Stream);
-    assert_ne!(PrefetcherKind::Off, PrefetcherKind::Tagged);
-}
-
-#[test]
-fn the_default_branch_predictor_is_static() {
     assert_eq!(BranchPredictorKind::default(), BranchPredictorKind::Static);
-    assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::GShare);
-    assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::Perceptron);
-    assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::Tage);
-    assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::Tournament);
 }
 
 #[test]

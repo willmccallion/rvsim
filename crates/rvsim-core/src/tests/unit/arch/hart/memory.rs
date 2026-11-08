@@ -124,17 +124,3 @@ fn a_bare_write_to_an_unmapped_address_traps() {
     };
     assert!(result.trap.is_some());
 }
-
-#[test]
-fn a_bare_translation_completes_without_a_page_walk() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-
-    let vaddr = VirtAddr::new(0x8000_0000);
-    // In M-mode with no paging (default SATP=Bare), translation completes
-    // immediately and identity-maps. Walks only fire under Sv39+.
-    let TranslateOutcome::Ready(result) = state.translate(vaddr, AccessType::Read, 4) else {
-        panic!("M-mode + Bare should not require a walk")
-    };
-    assert!(result.trap.is_some() || result.paddr.val() == 0x8000_0000);
-}

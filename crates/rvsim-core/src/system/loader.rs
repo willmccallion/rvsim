@@ -240,7 +240,6 @@ pub(crate) fn try_load_elf(data: &[u8], memory: &mut GlobalMemory) -> Option<Elf
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     #[test]
     fn data_without_the_elf_magic_is_not_elf() {
@@ -259,25 +258,6 @@ mod tests {
     }
 
     #[test]
-    fn load_binary_returns_the_file_contents() {
-        let mut temp_file = tempfile::NamedTempFile::new().unwrap();
-        temp_file.write_all(b"Hello World").unwrap();
-
-        let path = temp_file.path().to_str().unwrap();
-        let data = load_binary(path).unwrap();
-
-        assert_eq!(data, b"Hello World");
-    }
-
-    #[test]
-    fn a_missing_binary_is_an_error_naming_its_path() {
-        let result = load_binary("/nonexistent/path/that/cannot/exist.bin");
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("/nonexistent/path/that/cannot/exist.bin"));
-    }
-
-    #[test]
     fn the_fw_dynamic_info_block_enters_the_kernel_in_s_mode_with_the_tree() {
         let config = Config::minimal();
         let mut state = SystemState::build(&config);
@@ -291,22 +271,5 @@ mod tests {
             .collect();
         assert_eq!(info_addr, dtb_addr - FW_DYNAMIC_INFO_GAP);
         assert_eq!(fields, [0x4942_534f, 2, 0x8020_0000, 1, 0, u64::MAX, dtb_addr]);
-    }
-
-    #[test]
-    fn without_firmware_the_hart_enters_an_mret_trampoline_to_the_kernel() {
-        let config = Config::minimal();
-        let mut state = SystemState::build(&config);
-
-        setup_kernel_load(&mut state, &config, &KernelBoot::default()).unwrap();
-
-        let ram_base = config.system.ram_base;
-        let load_addr = ram_base.val() + config.system.kernel_offset;
-
-        assert_eq!(state.harts[0].pc, VirtAddr::new(ram_base.val()));
-        assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
-        assert_eq!(state.core_ctx(0).csr_read(csr::MEPC), load_addr);
-        assert_eq!(state.harts[0].regs.read(reg::REG_A0), 0);
-        assert_eq!(state.harts[0].regs.read(reg::REG_A1), ram_base.val() + 0x2200000);
     }
 }

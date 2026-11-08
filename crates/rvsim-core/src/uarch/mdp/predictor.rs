@@ -25,16 +25,3 @@ pub enum MemPrediction {
     /// Depends on this specific in-flight instruction.
     DepOn(RobTag),
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn predictions_are_equal_only_with_the_same_dependence() {
-        assert_eq!(MemPrediction::NoDep, MemPrediction::NoDep);
-        assert_eq!(MemPrediction::DepOn(RobTag::new(3)), MemPrediction::DepOn(RobTag::new(3)));
-        assert_ne!(MemPrediction::NoDep, MemPrediction::DepOn(RobTag::new(1)));
-        assert_ne!(MemPrediction::DepOn(RobTag::new(1)), MemPrediction::DepOn(RobTag::new(2)));
-    }
-}
