@@ -5,6 +5,7 @@
 
 use crate::common::{HartId, PhysAddr};
 use crate::isa::op::{AmoOp, AtomicOp};
+use crate::sim::memory::write_log::Writer;
 use crate::sim::memory::{GlobalMemory, Ram};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData};
 
@@ -92,4 +93,39 @@ fn a_span_read_returns_its_bytes_in_address_order() {
 fn a_span_read_takes_effect_where_it_is_served() {
     assert!(MemOp::Read.takes_effect_when_served(AccessSize::Span(64)));
     assert!(!MemOp::Read.takes_effect_when_served(AccessSize::Line));
+}
+
+/// The reserved granule just past `WORD`'s, inside a 128-byte line.
+const NEXT_GRANULE: PhysAddr = PhysAddr::new(0x140);
+
+#[test]
+fn a_line_write_breaks_a_reservation_anywhere_in_the_line() {
+    let mut memory =
+        GlobalMemory::new(Some(Ram::new(0, RAM_BYTES).expect("test RAM maps")), 2, 128);
+    memory.reservations_mut().set(H1, NEXT_GRANULE);
+
+    memory.write_bytes(Writer::Hart(H0), WORD, &[0; 128]);
+
+    assert!(!memory.reservations().check(H1, NEXT_GRANULE));
+}
+
+#[test]
+fn a_write_across_a_granule_boundary_breaks_both_granules() {
+    let mut memory = memory();
+    memory.reservations_mut().set(H1, NEXT_GRANULE);
+
+    memory.write(Writer::Hart(H0), PhysAddr::new(NEXT_GRANULE.val() - 4), 0, 8);
+
+    assert!(!memory.reservations().check(H1, NEXT_GRANULE));
+}
+
+#[test]
+fn a_write_across_a_line_boundary_is_logged_on_both_lines() {
+    let mut memory = memory();
+    let stamp = memory.write_log().expect("two harts keep a write log").now();
+
+    memory.write(Writer::Hart(H1), PhysAddr::new(NEXT_GRANULE.val() - 4), 0, 8);
+
+    let log = memory.write_log().expect("two harts keep a write log");
+    assert!(log.written_by_other_since(NEXT_GRANULE, H0, stamp));
 }

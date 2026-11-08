@@ -10,7 +10,7 @@ pub mod write_log;
 
 pub use ram::Ram;
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, PhysRange};
 use crate::exec::compute::amo;
 use crate::isa::op::{AtomicOp, MemWidth};
 use crate::sim::packet::{AccessSize, MemOp, MemRespData, WriteData, WriteOrigin};
@@ -90,7 +90,7 @@ impl GlobalMemory {
             return;
         };
         slice.copy_from_slice(bytes);
-        self.note_write(writer, paddr);
+        self.note_write(writer, PhysRange::new(paddr.val(), bytes.len() as u64));
     }
 
     /// Writes `bytes` at `paddr` as `writer`, noting the write on every
@@ -100,7 +100,7 @@ impl GlobalMemory {
             return;
         };
         slice.copy_from_slice(bytes);
-        self.note_write_range(writer, paddr, bytes.len());
+        self.note_write(writer, PhysRange::new(paddr.val(), bytes.len() as u64));
     }
 
     /// Places `image` at `paddr` before the system runs: no reservation
@@ -123,7 +123,7 @@ impl GlobalMemory {
                 *dst = *src;
             }
         }
-        self.note_write(writer, line);
+        self.note_write(writer, PhysRange::new(line.val(), bytes.len() as u64));
     }
 
     /// Makes a hart's access take effect on the `size` bytes at `paddr`
@@ -182,23 +182,12 @@ impl GlobalMemory {
         }
     }
 
-    /// Notes a write of `len` bytes from `paddr`, line by line.
-    fn note_write_range(&mut self, writer: Writer, paddr: PhysAddr, len: usize) {
-        let line_bytes = self.write_log.as_ref().map_or(64, WriteLog::line_bytes);
-        let first = paddr.val() / line_bytes;
-        let last = paddr.val().saturating_add(len.saturating_sub(1) as u64) / line_bytes;
-        for line in first..=last {
-            self.note_write(writer, PhysAddr::new(line * line_bytes));
-        }
-    }
-
-    fn note_write(&mut self, writer: Writer, paddr: PhysAddr) {
-        match writer {
-            Writer::Hart(hart) => self.reservations.invalidate_others(hart, paddr),
-            Writer::External => self.reservations.invalidate_all(paddr),
-        }
+    /// Breaks the reservations and logs the write `writer` made of the bytes
+    /// `written`.
+    fn note_write(&mut self, writer: Writer, written: PhysRange) {
+        self.reservations.break_on_write(writer, written);
         if let Some(log) = self.write_log.as_mut() {
-            log.record(paddr, writer);
+            log.record(written, writer);
         }
     }
 }
