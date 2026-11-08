@@ -1,16 +1,22 @@
 use crate::exec::compute::fpu;
+use crate::exec::compute::fpu::float::Float;
 use crate::isa::fp::{FpFormat, RoundingMode};
 use crate::isa::op::{FpArithOp, FpOp};
 
+/// `value` NaN-boxed in a 64-bit FP register.
+fn to_register(value: f32) -> u64 {
+    Float::to_register(value)
+}
+
 fn execute(op: FpOp, a: u64, b: u64, c: u64, is32: bool) -> u64 {
     let format = if is32 { FpFormat::Single } else { FpFormat::Double };
-    fpu::execute_full_rm(op, a, b, c, format, RoundingMode::Rne).0
+    fpu::execute(op, [a, b, c], format, RoundingMode::Rne).0
 }
 
 #[test]
 fn test_box_f32() {
     let f: f32 = 1.234;
-    let boxed = box_f32(f);
+    let boxed = to_register(f);
     // RISC-V: 32-bit values are boxed in 64-bit registers by setting upper 32 bits to all 1s.
     assert_eq!(boxed >> 32, 0xFFFFFFFF, "Upper 32 bits must be all 1s");
     assert_eq!(boxed as u32, f.to_bits(), "Lower 32 bits must match f32 representation");
@@ -20,10 +26,10 @@ fn test_box_f32() {
 fn test_nan_boxing_unboxing() {
     // Valid boxing
     let f_val: f32 = 42.0;
-    let valid_boxed = box_f32(f_val);
+    let valid_boxed = to_register(f_val);
 
     // We'll test this through an operation like FAdd with 0
-    let zero = box_f32(0.0);
+    let zero = to_register(0.0);
     let res = execute(FpOp::Arith(FpArithOp::Add), valid_boxed, zero, 0, true);
 
     assert_eq!(res >> 32, 0xFFFFFFFF);
@@ -37,15 +43,15 @@ fn test_nan_boxing_unboxing() {
     let canon_nan_32 = 0x7fc00000u32;
     assert_eq!(
         res_invalid,
-        box_f32(f32::from_bits(canon_nan_32)),
+        to_register(f32::from_bits(canon_nan_32)),
         "Invalidly boxed input must result in canonical NaN"
     );
 }
 
 #[test]
 fn test_fmin_fmax_nan_handling() {
-    let f_val = box_f32(10.0);
-    let f_nan = box_f32(f32::NAN);
+    let f_val = to_register(10.0);
+    let f_nan = to_register(f32::NAN);
 
     // RISC-V fmin/fmax: if one op is NaN, return the other.
     let res_min = execute(FpOp::Min, f_val, f_nan, 0, true);
@@ -63,20 +69,24 @@ fn test_fmin_fmax_nan_handling() {
     // Both NaN: return canonical NaN
     let res_both_nan = execute(FpOp::Min, f_nan, f_nan, 0, true);
     let canon_nan_32 = 0x7fc00000u32;
-    assert_eq!(res_both_nan, box_f32(f32::from_bits(canon_nan_32)));
+    assert_eq!(res_both_nan, to_register(f32::from_bits(canon_nan_32)));
 }
 
 #[test]
 fn test_canonical_nan_propagation() {
     // Signaling NaN (sNaN)
     let snan_bits = 0x7f800001u32;
-    let snan = box_f32(f32::from_bits(snan_bits));
-    let zero = box_f32(0.0);
+    let snan = to_register(f32::from_bits(snan_bits));
+    let zero = to_register(0.0);
 
     // Any op with sNaN should produce a canonical quiet NaN
     let res = execute(FpOp::Arith(FpArithOp::Add), snan, zero, 0, true);
     let canon_nan_32 = 0x7fc00000u32;
-    assert_eq!(res, box_f32(f32::from_bits(canon_nan_32)), "sNaN must be quieted to canonical NaN");
+    assert_eq!(
+        res,
+        to_register(f32::from_bits(canon_nan_32)),
+        "sNaN must be quieted to canonical NaN"
+    );
 }
 
 #[test]
@@ -93,11 +103,11 @@ use crate::exec::compute::fpu::nan_handling::*;
 
 #[test]
 fn test_unbox_f32_direct() {
-    let valid = box_f32(1.0);
-    assert_eq!(unbox_f32(valid).to_bits(), 1.0f32.to_bits());
+    let valid = to_register(1.0);
+    assert_eq!(<f32 as Float>::from_register(valid).to_bits(), 1.0f32.to_bits());
 
     let invalid = 1.0f32.to_bits() as u64; // upper bits are 0
-    assert_eq!(unbox_f32(invalid).to_bits(), 0x7fc0_0000);
+    assert_eq!(<f32 as Float>::from_register(invalid).to_bits(), 0x7fc0_0000);
 }
 
 #[test]

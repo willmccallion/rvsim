@@ -9,19 +9,14 @@ use crate::common::VirtAddr;
 use crate::exec::cbo;
 use crate::exec::compute::alu;
 use crate::exec::compute::fpu;
-use crate::exec::compute::fpu::exact::{self, Exact};
 use crate::exec::compute::vector::fpu::is_vec_fp;
-use crate::exec::execute::fpu::host::{
-    clear_host_fp_flags, read_host_fp_flags, restore_host_round_mode, set_host_round_mode,
-};
-use crate::exec::execute::fpu::nan_handling::box_f32;
 use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, JumpKind, OpASrc, OpBSrc};
 use crate::exec::state::ArchState;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
-use crate::isa::fp::{FpFlags, FpFormat, Rounding, RoundingMode};
-use crate::isa::op::{AluOp, CsrOp, FpOp, IntWidth, OperandFormat, Signedness, SystemOp, VectorOp};
+use crate::isa::fp::{FpFlags, Rounding, RoundingMode};
+use crate::isa::op::{AluOp, CsrOp, OperandFormat, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
 
@@ -368,42 +363,6 @@ pub fn jump_target(inst: &Inst) -> VirtAddr {
     }
 }
 
-/// Runs `convert` with the host FPU set to `rm` and returns its result with
-/// the IEEE flags the host raised, so conversions report INEXACT/OVERFLOW.
-fn on_host_fpu(rm: RoundingMode, convert: impl FnOnce() -> u64) -> (u64, FpFlags) {
-    let saved = set_host_round_mode(rm);
-    clear_host_fp_flags();
-    let value = std::hint::black_box(convert());
-    let flags = read_host_fp_flags();
-    restore_host_round_mode(saved);
-    (value, flags)
-}
-
-/// Runs a rounding conversion on the host FPU in `rm`, and under RMM, which
-/// the host rounds as nearest-even, rounds `exact` (the value converted) in
-/// software instead when the host's result was inexact. `format` is the
-/// destination format.
-fn convert_rounded(
-    rm: RoundingMode,
-    format: FpFormat,
-    convert: impl FnOnce() -> u64,
-    exact: impl FnOnce() -> Exact,
-) -> (u64, FpFlags) {
-    use crate::exec::compute::fpu::nan_handling::box_f32_canon;
-    let (value, flags) = on_host_fpu(rm, convert);
-    match exact::rmm_correction(rm, flags, format, || Some(exact())) {
-        Some((bits, flags)) => {
-            let boxed = if format == FpFormat::Single {
-                box_f32_canon(f32::from_bits(bits as u32))
-            } else {
-                bits
-            };
-            (boxed, flags)
-        }
-        None => (value, flags),
-    }
-}
-
 /// Computes the ALU/FPU result and returns `(result, fp_flags)`; the flags
 /// are empty for everything but floating-point arithmetic.
 pub fn compute_alu(
@@ -418,117 +377,16 @@ pub fn compute_alu(
         AluOp::Int(op) => (alu::execute(op, op_a, op_b, format.int_width()), FpFlags::NONE),
         AluOp::Fp(op) => {
             let rm = fp_rm.unwrap_or(RoundingMode::Rne);
-            execute_fp(op, [op_a, op_b, op_c], format.fp_format(), rm)
+            fpu::execute(op, [op_a, op_b, op_c], format.fp_format(), rm)
         }
-    }
-}
-
-/// Executes the floating-point `op` in `format`: conversions into single
-/// and double precision and register moves here, the rest in the FPU.
-fn execute_fp(op: FpOp, [a, b, c]: [u64; 3], format: FpFormat, rm: RoundingMode) -> (u64, FpFlags) {
-    use crate::exec::compute::fpu::half::{box_f16, f16_to_f32, is_snan_f16, unbox_f16};
-    use crate::exec::compute::fpu::nan_handling::{
-        box_f32_canon, canonicalize_f64_bits, unbox_f32,
-    };
-    use std::hint::black_box;
-
-    match (op, format) {
-        (FpOp::FromInt(width, signedness), FpFormat::Single | FpFormat::Double) => {
-            int_to_float((width, signedness), a, format, rm)
-        }
-        (FpOp::FromFloat(FpFormat::Double), FpFormat::Single) => convert_rounded(
-            rm,
-            FpFormat::Single,
-            || box_f32_canon(black_box(f64::from_bits(a)) as f32),
-            || Exact::of_f64(f64::from_bits(a)),
-        ),
-        (FpOp::FromFloat(FpFormat::Single), FpFormat::Double) => {
-            on_host_fpu(rm, || canonicalize_f64_bits(f64::from(black_box(unbox_f32(a)))))
-        }
-        // f16_to_f32 works on the bits, so the host raises nothing for a
-        // signaling NaN.
-        (FpOp::FromFloat(FpFormat::Half), FpFormat::Single) => {
-            let half = unbox_f16(a);
-            let invalid = if is_snan_f16(half) { FpFlags::NV } else { FpFlags::NONE };
-            (box_f32_canon(f16_to_f32(half)), invalid)
-        }
-        (FpOp::FromFloat(FpFormat::Half), FpFormat::Double) => on_host_fpu(rm, || {
-            canonicalize_f64_bits(f64::from(black_box(f16_to_f32(unbox_f16(a)))))
-        }),
-        (FpOp::MoveFromInt, _) => {
-            let value = match format {
-                FpFormat::Half => box_f16(a as u16),
-                FpFormat::Single => box_f32(f32::from_bits(a as u32)),
-                FpFormat::Double => a,
-            };
-            (value, FpFlags::NONE)
-        }
-        _ => fpu::execute_full_rm(op, a, b, c, format, rm),
-    }
-}
-
-/// `fcvt` of the integer `a`, of the given width and signedness, to single
-/// or double precision.
-fn int_to_float(
-    (width, signedness): (IntWidth, Signedness),
-    a: u64,
-    format: FpFormat,
-    rm: RoundingMode,
-) -> (u64, FpFlags) {
-    use std::hint::black_box;
-
-    let single = format == FpFormat::Single;
-    match (width, signedness) {
-        (IntWidth::Word, Signedness::Signed) => convert_rounded(
-            rm,
-            format,
-            || {
-                let v = black_box(a as i32);
-                if single { box_f32(v as f32) } else { f64::from(v).to_bits() }
-            },
-            || Exact::of_integer(i128::from(a as i32)),
-        ),
-        (IntWidth::Word, Signedness::Unsigned) => convert_rounded(
-            rm,
-            format,
-            || {
-                let v = black_box(a as u32);
-                if single { box_f32(v as f32) } else { f64::from(v).to_bits() }
-            },
-            || Exact::of_unsigned(u128::from(a as u32)),
-        ),
-        (IntWidth::Double, Signedness::Signed) => convert_rounded(
-            rm,
-            format,
-            || {
-                let v = black_box(a as i64);
-                if single { box_f32(v as f32) } else { (v as f64).to_bits() }
-            },
-            || Exact::of_integer(i128::from(a as i64)),
-        ),
-        // `0u64 as f64` gives -0 under the host's round-down mode (LLVM's
-        // fallback when CVTUSI2SD_q is unavailable), so zero is explicit.
-        (IntWidth::Double, Signedness::Unsigned) => convert_rounded(
-            rm,
-            format,
-            || {
-                let v = black_box(a);
-                if single {
-                    box_f32(v as f32)
-                } else if v == 0 {
-                    0
-                } else {
-                    (v as f64).to_bits()
-                }
-            },
-            || Exact::of_unsigned(u128::from(a)),
-        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::isa::fp::FpFormat;
+    use crate::isa::op::{FpOp, IntWidth, Signedness};
 
     #[test]
     fn an_unsigned_zero_converts_to_positive_zero_double_in_every_rounding_mode() {

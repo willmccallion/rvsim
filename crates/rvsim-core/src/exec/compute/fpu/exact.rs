@@ -9,7 +9,6 @@
 
 use super::host::{clear_host_fp_flags, read_host_fp_flags};
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
-use crate::isa::op::{FmaSigns, FpArithOp, FpOp};
 
 impl FpFormat {
     /// Significand bits, the hidden bit included.
@@ -276,25 +275,6 @@ const fn integer_sqrt(value: u128) -> u128 {
         bit >>= 2;
     }
     root
-}
-
-/// The exact result of the scalar arithmetic `op` on `a`, `b` and `c`, the
-/// fused multiply-add family's operands in the ISA's order; `None` for an
-/// operation that does not round.
-#[must_use]
-pub const fn of_operation(op: FpOp, a: Exact, b: Exact, c: Exact) -> Option<Exact> {
-    Some(match op {
-        FpOp::Arith(FpArithOp::Add) => add(a, b),
-        FpOp::Arith(FpArithOp::Sub) => sub(a, b),
-        FpOp::Arith(FpArithOp::Mul) => mul(a, b),
-        FpOp::Arith(FpArithOp::Div) => div(a, b),
-        FpOp::Sqrt => sqrt(a),
-        FpOp::Fma(FmaSigns::Macc) => mul_add(a, b, c),
-        FpOp::Fma(FmaSigns::MSac) => mul_add(a, b, c.negated()),
-        FpOp::Fma(FmaSigns::NMacc) => mul_add(a.negated(), b, c.negated()),
-        FpOp::Fma(FmaSigns::NMSac) => mul_add(a.negated(), b, c),
-        _ => return None,
-    })
 }
 
 /// The host FPU has no RMM mode and rounds it as nearest-even, which can
