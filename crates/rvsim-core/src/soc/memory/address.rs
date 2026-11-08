@@ -13,11 +13,8 @@
 
 use crate::common::PhysAddr;
 use crate::config::AddressMappingKind;
+use crate::config::ddr5::CACHE_LINE_OFFSET_BITS;
 use crate::sim::components::{BankGroupId, ChannelId, RankId, RowId, SubchannelId};
-
-/// Number of low-order address bits that are the intra-cache-line byte offset.
-/// 64-byte lines → 6 bits.
-pub const CACHE_LINE_OFFSET_BITS: u8 = 6;
 
 /// A decomposed physical address in DRAM-topology coordinates.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

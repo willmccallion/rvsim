@@ -51,8 +51,8 @@ pub fn audit(state: &SystemState) -> Vec<Violation> {
 /// probe, a back-invalidation or a coherence message. A level and the ones
 /// above it disagree about such a line only until it arrives.
 fn lines_on_their_way(state: &SystemState) -> Vec<LineAddr> {
-    let line_bytes =
-        state.cores.first().map_or(64, |core| core.units.l1_d_cache.line_bytes()) as u64;
+    // Every level shares one line size.
+    let line_bytes = state.uncore.l3_cache.line_bytes() as u64;
     state
         .uncore
         .kernel
