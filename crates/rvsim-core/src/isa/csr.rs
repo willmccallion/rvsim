@@ -582,3 +582,65 @@ pub const ENVCFG_CBIE: u64 = MENVCFG_CBIE_MASK << MENVCFG_CBIE_SHIFT;
 
 /// CBIE's reserved encoding.
 pub const CBIE_RESERVED: u64 = 0b10;
+
+/// Every CSR the simulator implements that has a name of its own, by the
+/// name the privileged spec gives it, in address order within each group.
+pub const NAMED: &[(&str, CsrAddr)] = &[
+    ("fflags", FFLAGS),
+    ("frm", FRM),
+    ("fcsr", FCSR),
+    ("vstart", VSTART),
+    ("vxsat", VXSAT),
+    ("vxrm", VXRM),
+    ("vcsr", VCSR),
+    ("sstatus", SSTATUS),
+    ("sie", SIE),
+    ("stvec", STVEC),
+    ("scounteren", SCOUNTEREN),
+    ("senvcfg", SENVCFG),
+    ("sscratch", SSCRATCH),
+    ("sepc", SEPC),
+    ("scause", SCAUSE),
+    ("stval", STVAL),
+    ("sip", SIP),
+    ("stimecmp", STIMECMP),
+    ("satp", SATP),
+    ("mstatus", MSTATUS),
+    ("misa", MISA),
+    ("medeleg", MEDELEG),
+    ("mideleg", MIDELEG),
+    ("mie", MIE),
+    ("mtvec", MTVEC),
+    ("mcounteren", MCOUNTEREN),
+    ("menvcfg", MENVCFG),
+    ("mcountinhibit", MCOUNTINHIBIT),
+    ("mscratch", MSCRATCH),
+    ("mepc", MEPC),
+    ("mcause", MCAUSE),
+    ("mtval", MTVAL),
+    ("mip", MIP),
+    ("tselect", TSELECT),
+    ("tdata1", TDATA1),
+    ("tdata2", TDATA2),
+    ("tdata3", TDATA3),
+    ("tinfo", TINFO),
+    ("tcontrol", TCONTROL),
+    ("mcycle", MCYCLE),
+    ("minstret", MINSTRET),
+    ("cycle", CYCLE),
+    ("time", TIME),
+    ("instret", INSTRET),
+    ("vl", VL),
+    ("vtype", VTYPE),
+    ("vlenb", VLENB),
+    ("mvendorid", MVENDORID),
+    ("marchid", MARCHID),
+    ("mimpid", MIMPID),
+    ("mhartid", MHARTID),
+];
+
+/// The CSR the privileged spec names `name`, if the simulator implements it.
+#[must_use]
+pub fn named(name: &str) -> Option<CsrAddr> {
+    NAMED.iter().find(|(known, _)| *known == name).map(|&(_, addr)| addr)
+}

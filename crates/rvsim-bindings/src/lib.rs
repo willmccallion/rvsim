@@ -59,6 +59,8 @@ fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("CHECKPOINT_VERSION", rvsim_core::system::checkpoint::VERSION)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(instruction::disassemble, m)?)?;
+    m.add_function(wrap_pyfunction!(instruction::csr_names, m)?)?;
+    m.add_function(wrap_pyfunction!(instruction::register_names, m)?)?;
     m.add_function(wrap_pyfunction!(config::isa_string, m)?)?;
     m.add_function(wrap_pyfunction!(config::default_config, m)?)?;
     m.add_function(wrap_pyfunction!(config::minimal_config, m)?)?;

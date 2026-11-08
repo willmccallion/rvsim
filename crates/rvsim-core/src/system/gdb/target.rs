@@ -12,42 +12,14 @@ pub const FIRST_FP_REGNUM: u32 = 33;
 /// its address.
 pub const FIRST_CSR_REGNUM: u32 = 65;
 
-/// The CSRs the description names, by address, in the order they appear.
-pub const CSRS: &[(&str, u32)] = &[
-    ("fflags", csr::FFLAGS.as_u32()),
-    ("frm", csr::FRM.as_u32()),
-    ("fcsr", csr::FCSR.as_u32()),
-    ("sstatus", 0x100),
-    ("sie", 0x104),
-    ("stvec", 0x105),
-    ("sscratch", 0x140),
-    ("sepc", 0x141),
-    ("scause", 0x142),
-    ("stval", 0x143),
-    ("sip", 0x144),
-    ("satp", 0x180),
-    ("mstatus", 0x300),
-    ("misa", 0x301),
-    ("medeleg", 0x302),
-    ("mideleg", 0x303),
-    ("mie", 0x304),
-    ("mtvec", 0x305),
-    ("mscratch", 0x340),
-    ("mepc", 0x341),
-    ("mcause", 0x342),
-    ("mtval", 0x343),
-    ("mip", 0x344),
-    ("cycle", 0xC00),
-    ("time", 0xC01),
-    ("instret", 0xC02),
-    ("mhartid", 0xF14),
-];
-
 /// GDB's name for integer register `idx`: its ABI name, except that
 /// GDB's `riscv:rv64` feature names `x8` `fp`.
 fn xreg_name(idx: RegIdx) -> &'static str {
     if idx == REG_FP { "fp" } else { idx.int_abi_name() }
 }
+
+/// The CSRs GDB's `riscv:rv64` layout puts in its FPU feature, at 32 bits.
+const FP_CSRS: [csr::CsrAddr; 3] = [csr::FFLAGS, csr::FRM, csr::FCSR];
 
 /// `x8`, the frame pointer.
 const REG_FP: RegIdx = RegIdx::new(8);
@@ -72,12 +44,14 @@ pub fn description() -> String {
     for n in 0..32 {
         xml.push_str(&reg(&format!("f{n}"), 64, "ieee_double", FIRST_FP_REGNUM + n));
     }
-    for (name, addr) in CSRS.iter().take(3) {
-        xml.push_str(&reg(name, 32, "int", FIRST_CSR_REGNUM + addr));
+    let (fp_csrs, other_csrs): (Vec<_>, Vec<_>) =
+        csr::NAMED.iter().partition(|(_, addr)| FP_CSRS.contains(addr));
+    for (name, addr) in fp_csrs {
+        xml.push_str(&reg(name, 32, "int", FIRST_CSR_REGNUM + addr.as_u32()));
     }
     xml.push_str("  </feature>\n  <feature name=\"org.gnu.gdb.riscv.csr\">\n");
-    for (name, addr) in CSRS.iter().skip(3) {
-        xml.push_str(&reg(name, 64, "int", FIRST_CSR_REGNUM + addr));
+    for (name, addr) in other_csrs {
+        xml.push_str(&reg(name, 64, "int", FIRST_CSR_REGNUM + addr.as_u32()));
     }
     xml.push_str("  </feature>\n</target>\n");
     xml
@@ -105,6 +79,19 @@ mod tests {
             65 + 0x300
         )));
         assert!(xml.contains("<architecture>riscv:rv64</architecture>"));
+    }
+
+    #[test]
+    fn every_named_csr_is_described_with_the_fp_ones_at_32_bits() {
+        let xml = description();
+
+        assert!(xml.contains(&format!(
+            "name=\"fflags\" bitsize=\"32\" type=\"int\" regnum=\"{}\"",
+            65 + 0x001
+        )));
+        for (name, _) in csr::NAMED {
+            assert!(xml.contains(&format!("name=\"{name}\"")), "{name} is described");
+        }
     }
 
     #[test]
