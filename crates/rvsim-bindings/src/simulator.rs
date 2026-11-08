@@ -2,11 +2,12 @@
 //! subclasses, with every run, inspection and checkpoint method.
 
 use crate::conversion::config_from_py;
+use crate::errors::{SimulationError, checkpoint_error, sim_error};
 use crate::instruction::PyInstruction;
 use crate::snapshot::PyPipelineSnapshot;
 use crate::stats::PyStats;
 use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory, Width};
-use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyOSError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
@@ -50,7 +51,7 @@ fn load_programs(sim: &mut Simulator, programs: Vec<PyProgram>) -> PyResult<()> 
         .collect();
     let images: Vec<ProgramImage<'_>> =
         loaded.iter().map(|(data, args)| ProgramImage { data, args }).collect();
-    sim.load_processes(&images).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    sim.load_processes(&images).map_err(|e| sim_error(&e))
 }
 
 /// Loads the binary `data` with `args` the way `mode` says.
@@ -65,7 +66,7 @@ fn load_binary(
         LoadMode::Process => sim.load_process(data, args),
         LoadMode::BareMetal => sim.load_elf_with_args(data, args),
     };
-    loaded.map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    loaded.map_err(|e| sim_error(&e))
 }
 use std::io::Write;
 use std::io::{BufReader, BufWriter};
@@ -96,6 +97,12 @@ const SIGNAL_CHECK_INTERVAL_TICKS: u64 = 10_000;
 /// How long the gdb server sleeps between checks for a connection.
 const GDB_ACCEPT_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// `error` from opening the file at `path`, as the `OSError` subclass its
+/// kind maps to, saying what was being done.
+fn file_error(error: &std::io::Error, doing: &str, path: &str) -> PyErr {
+    std::io::Error::new(error.kind(), format!("{doing} {path}: {error}")).into()
+}
+
 /// A Python signal, such as Ctrl-C, that stopped a run.
 #[derive(Default)]
 struct Interrupt(Option<PyErr>);
@@ -115,7 +122,7 @@ impl Interrupt {
 
     /// What a cancelled `what` raises: the pending signal's error, if any.
     fn into_error(self, what: &str) -> PyErr {
-        self.0.unwrap_or_else(|| PyRuntimeError::new_err(format!("{what} cancelled")))
+        self.0.unwrap_or_else(|| SimulationError::new_err(format!("{what} cancelled")))
     }
 }
 
@@ -179,7 +186,7 @@ impl PySimulator {
                 let _ = std::io::stdout().flush();
                 interrupt.keep_going(py.check_signals())
             })
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| sim_error(&e))?;
         let _ = std::io::stdout().flush();
         match reason {
             StopReason::Cancelled => Err(interrupt.into_error("run")),
@@ -194,7 +201,7 @@ impl PySimulator {
         match self.run_until_stop(py, &stop)? {
             StopReason::Exited(code) => Ok(Some(code)),
             StopReason::Cycles => Ok(None),
-            other => Err(PyRuntimeError::new_err(format!("run stopped unexpectedly: {other:?}"))),
+            other => Err(SimulationError::new_err(format!("run stopped unexpectedly: {other:?}"))),
         }
     }
 
@@ -269,13 +276,12 @@ impl PySimulator {
         outdir: Option<String>,
     ) -> PyResult<Self> {
         let config = config_from_py(py, config_dict)?;
-        let mut sim = Simulator::build(&config, disk_path)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let mut sim = Simulator::build(&config, disk_path).map_err(|e| sim_error(&e))?;
         if let Some(script) = script_path {
-            sim.set_script_file(&script).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            sim.set_script_file(&script).map_err(|e| sim_error(&e))?;
         }
         if let Some(dir) = outdir {
-            sim.set_output_dir(&dir).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            sim.set_output_dir(&dir).map_err(|e| sim_error(&e))?;
         }
         match (programs, elf_data) {
             (Some(_), Some(_)) => {
@@ -291,7 +297,7 @@ impl PySimulator {
         }
         if let Some(kernel) = kernel_path {
             let boot = KernelBoot { kernel: Some(kernel), firmware: firmware_path, dtb: dtb_path };
-            sim.boot_kernel(&boot).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            sim.boot_kernel(&boot).map_err(|e| sim_error(&e))?;
         }
         Ok(Self { inner: sim })
     }
@@ -555,7 +561,7 @@ impl PySimulator {
     /// ``commit-log`` feature.
     #[cfg(feature = "commit-log")]
     fn open_commit_log(&mut self, path: &str) -> PyResult<()> {
-        self.inner.open_commit_log(path).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.open_commit_log(path).map_err(|e| sim_error(&e))
     }
 
     /// Opens a pipeline trace at ``path``: every instruction's progress
@@ -572,14 +578,12 @@ impl PySimulator {
                 )));
             }
         };
-        self.inner
-            .open_pipeline_trace(path, format)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.open_pipeline_trace(path, format).map_err(|e| sim_error(&e))
     }
 
     /// Writes out and closes the pipeline trace, if one is open.
     fn close_pipeline_trace(&mut self) -> PyResult<()> {
-        self.inner.close_pipeline_trace().map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.close_pipeline_trace().map_err(|e| sim_error(&e))
     }
 
     /// Serves a debugger with GDB's remote protocol on ``host:port``:
@@ -619,7 +623,7 @@ impl PySimulator {
                 }
             };
             stream.set_nonblocking(false).map_err(|e| PyOSError::new_err(e.to_string()))?;
-            inner.serve_gdb(stream, keep_going).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            inner.serve_gdb(stream, keep_going).map_err(|e| sim_error(&e))
         });
         let _ = std::io::stdout().flush();
         Ok(match served? {
@@ -644,7 +648,7 @@ impl PySimulator {
             if ticks.is_multiple_of(SIGNAL_CHECK_INTERVAL_TICKS) {
                 py.check_signals()?;
             }
-            self.inner.tick().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            self.inner.tick().map_err(|e| sim_error(&e))?;
             ticks += 1;
             if self.inner.take_exit().is_some() {
                 return Ok(None);
@@ -730,7 +734,7 @@ impl PySimulator {
         chunk: u64,
     ) -> PyResult<Option<u64>> {
         if predicate.is_none() && pc.is_none() && privilege.is_none() {
-            return Err(PyRuntimeError::new_err(
+            return Err(PyTypeError::new_err(
                 "run_until() requires at least one of: predicate, pc=, or privilege=",
             ));
         }
@@ -823,7 +827,7 @@ impl PySimulator {
 
     /// Advance one cycle.
     fn tick(&mut self) -> PyResult<()> {
-        self.inner.tick().map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.tick().map_err(|e| sim_error(&e))
     }
 
     /// Translate a virtual address to a physical address using the current page tables.
@@ -900,10 +904,8 @@ impl PySimulator {
     /// cycle-identical to one without it.
     fn save(&mut self, path: &str) -> PyResult<()> {
         let file = std::fs::File::create(path)
-            .map_err(|e| PyRuntimeError::new_err(format!("cannot create checkpoint file: {e}")))?;
-        self.inner
-            .save_checkpoint(&mut BufWriter::new(file))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            .map_err(|e| file_error(&e, "cannot create checkpoint file", path))?;
+        self.inner.save_checkpoint(&mut BufWriter::new(file)).map_err(|e| checkpoint_error(&e))
     }
 
     /// Restore a checkpoint saved by `save`.
@@ -921,9 +923,7 @@ impl PySimulator {
     /// leaves the simulator untouched.
     fn restore(&mut self, path: &str) -> PyResult<()> {
         let file = std::fs::File::open(path)
-            .map_err(|e| PyRuntimeError::new_err(format!("cannot open checkpoint file: {e}")))?;
-        self.inner
-            .restore_checkpoint(&mut BufReader::new(file))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            .map_err(|e| file_error(&e, "cannot open checkpoint file", path))?;
+        self.inner.restore_checkpoint(&mut BufReader::new(file)).map_err(|e| checkpoint_error(&e))
     }
 }

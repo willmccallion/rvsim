@@ -7,15 +7,21 @@ from typing_extensions import Self, disjoint_base
 
 __all__ = [
     "CHECKPOINT_VERSION",
+    "CheckpointError",
+    "ConfigError",
     "Csrs",
     "Hart",
     "Harts",
     "Instruction",
+    "KernelPanic",
+    "LoadError",
     "Memory",
     "PipelineSnapshot",
     "QueryResult",
     "Registers",
+    "SimulationError",
     "Simulator",
+    "Stalled",
     "Stats",
     "VirtualMemory",
     "check_config",
@@ -28,6 +34,24 @@ __all__ = [
 ]
 
 CHECKPOINT_VERSION: int
+
+class SimulationError(RuntimeError):
+    """A simulation failed. The base of every error the simulator raises but a bad config."""
+
+class LoadError(SimulationError):
+    """A program could not be loaded: unreadable, not an ELF, or not runnable in SE mode."""
+
+class CheckpointError(SimulationError):
+    """A checkpoint could not be saved or restored into this simulator."""
+
+class KernelPanic(SimulationError):
+    """The guest kernel panicked; its console output says why."""
+
+class Stalled(SimulationError):
+    """A hart retired nothing for the stall limit's cycles: its pipeline is stuck."""
+
+class ConfigError(ValueError):
+    """A config is not one the simulator accepts, or describes a machine it cannot build."""
 
 def version() -> str: ...
 def disassemble(inst: int) -> str: ...

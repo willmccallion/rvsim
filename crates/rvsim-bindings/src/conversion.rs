@@ -3,7 +3,7 @@
 //! Converts Python dicts (e.g., from `Config.to_dict()`) to and from the core
 //! `Config` type via JSON, so both sides read and write one schema.
 
-use pyo3::exceptions::PyValueError;
+use crate::errors::ConfigError;
 use pyo3::prelude::*;
 use rvsim_core::config::{Config, ValidConfig};
 
@@ -24,15 +24,15 @@ pub fn config_from_py(py: Python<'_>, dict: &Bound<'_, PyAny>) -> PyResult<Valid
     let config: Config = serde_path_to_error::deserialize(&mut deserializer).map_err(|e| {
         let message = without_position(e.inner());
         if e.path().iter().next().is_none() {
-            PyValueError::new_err(format!("Invalid config: {message}"))
+            ConfigError::new_err(format!("Invalid config: {message}"))
         } else {
-            PyValueError::new_err(format!("Invalid config at {}: {message}", e.path()))
+            ConfigError::new_err(format!("Invalid config at {}: {message}", e.path()))
         }
     })?;
     deserializer
         .end()
-        .map_err(|e| PyValueError::new_err(format!("Invalid config: {}", without_position(&e))))?;
-    ValidConfig::try_from(config).map_err(|e| PyValueError::new_err(e.to_string()))
+        .map_err(|e| ConfigError::new_err(format!("Invalid config: {}", without_position(&e))))?;
+    ValidConfig::try_from(config).map_err(|e| ConfigError::new_err(e.to_string()))
 }
 
 /// A JSON error's message without its line and column, which point into
@@ -54,7 +54,7 @@ fn without_position(error: &serde_json::Error) -> String {
 /// Returns `ValueError` if the value cannot be written as JSON.
 pub fn config_to_py_dict<T: serde::Serialize>(py: Python<'_>, value: &T) -> PyResult<PyObject> {
     let json_str = serde_json::to_string(value)
-        .map_err(|e| PyValueError::new_err(format!("Unwritable config: {e}")))?;
+        .map_err(|e| ConfigError::new_err(format!("Unwritable config: {e}")))?;
     let json = py.import("json")?;
     Ok(json.getattr("loads")?.call1((json_str,))?.unbind())
 }

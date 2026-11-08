@@ -21,6 +21,14 @@ from importlib.metadata import (
 )
 
 from . import presets
+from ._core import (
+    CheckpointError,
+    ConfigError,
+    KernelPanic,
+    LoadError,
+    SimulationError,
+    Stalled,
+)
 from .config import (
     Backend,
     BranchPredictor,
@@ -80,8 +88,10 @@ __all__ = [
     "Backend",
     "BranchPredictor",
     "Cache",
+    "CheckpointError",
     "Coherence",
     "Config",
+    "ConfigError",
     "Console",
     "Cycles",
     "Disassemble",
@@ -92,6 +102,8 @@ __all__ = [
     "Instruction",
     "Instructions",
     "Interconnect",
+    "KernelPanic",
+    "LoadError",
     "LoadPrefetcher",
     "LoginShell",
     "Marker",
@@ -106,7 +118,9 @@ __all__ = [
     "ReplacementPolicy",
     "Result",
     "Session",
+    "SimulationError",
     "Simulator",
+    "Stalled",
     "Stats",
     "Stop",
     "Stopped",

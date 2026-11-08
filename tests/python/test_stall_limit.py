@@ -7,7 +7,7 @@ Run with: .venv/bin/python -m unittest discover -s tests/python
 import os
 import unittest
 
-from rvsim import Config, Simulator
+from rvsim import Config, Simulator, Stalled
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
@@ -27,9 +27,7 @@ class StallLimit(unittest.TestCase):
         sim = Simulator(Config(uart_quiet=True), binary=FIB)
         sim.stall_limit = SHORTER_THAN_A_COLD_FETCH
 
-        with self.assertRaisesRegex(
-            RuntimeError, "hart 0 retired nothing for 10 cycles"
-        ):
+        with self.assertRaisesRegex(Stalled, "hart 0 retired nothing for 10 cycles"):
             sim.run()
 
     def test_none_turns_the_check_off(self):
