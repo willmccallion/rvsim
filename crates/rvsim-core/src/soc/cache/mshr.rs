@@ -153,7 +153,10 @@ impl MshrTable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::HartId;
     use crate::sim::components::CacheId;
+    use crate::sim::packet::WriteData;
+    use crate::sim::packet::WriteOrigin;
     use crate::tests::support::count;
 
     fn mshr(line: u64, req: u64) -> Mshr {
@@ -199,8 +202,8 @@ mod tests {
             pc: None,
             size: AccessSize::B8,
             op: MemOp::Write {
-                data: crate::sim::packet::WriteData::Small(1),
-                origin: crate::sim::packet::WriteOrigin::Hart(crate::common::HartId::new(0)),
+                data: WriteData::Small(1),
+                origin: WriteOrigin::Hart(HartId::new(0)),
             },
         });
         entry.write = true;

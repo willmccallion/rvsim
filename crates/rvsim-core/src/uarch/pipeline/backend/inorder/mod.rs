@@ -586,6 +586,7 @@ impl ExecutionEngine for InOrderEngine {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use crate::system::SystemState;
 
     #[test]
     fn a_new_engine_accepts_a_full_pipeline_width() {
@@ -600,7 +601,7 @@ mod tests {
         let config = Config::minimal();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
         engine.execute_mem1.push(ExMem1Entry::default());
         engine.mem1_mem2.push(Mem1Mem2Entry::default());

@@ -896,23 +896,22 @@ impl PipelineDispatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
+    use crate::uarch::bpred::BranchPredictor;
+    use crate::uarch::pipeline::squash::Redirect;
+    use crate::uarch::pipeline::squash::SquashCause;
 
-    fn squash(
-        keep: u32,
-        cause: crate::uarch::pipeline::squash::SquashCause,
-        target: u64,
-    ) -> PendingSquash {
+    fn squash(keep: u32, cause: SquashCause, target: u64) -> PendingSquash {
         PendingSquash {
             keep_tag: Some(RobTag::new(keep)),
-            redirect: crate::uarch::pipeline::squash::Redirect::to(VirtAddr::new(target), cause),
+            redirect: Redirect::to(VirtAddr::new(target), cause),
             apply_at: 10,
         }
     }
 
     #[test]
     fn a_commit_reaches_the_predictor_a_cycle_later() {
-        let mut predictor =
-            crate::uarch::bpred::BranchPredictor::new(&crate::config::Config::minimal());
+        let mut predictor = BranchPredictor::new(&Config::minimal());
         let mut common = BackendCommon::default();
         common.note_committed(InstSeq::new(4), 10);
 
@@ -926,8 +925,7 @@ mod tests {
     #[test]
     fn a_waiting_squash_holds_commit_notices_back() {
         use crate::uarch::pipeline::squash::SquashCause;
-        let mut predictor =
-            crate::uarch::bpred::BranchPredictor::new(&crate::config::Config::minimal());
+        let mut predictor = BranchPredictor::new(&Config::minimal());
         let mut common = BackendCommon::default();
         common.note_committed(InstSeq::new(4), 10);
         common.request_squash(squash(5, SquashCause::Branch, 0x2000));

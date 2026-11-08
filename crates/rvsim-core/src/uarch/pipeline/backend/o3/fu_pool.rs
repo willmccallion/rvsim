@@ -364,6 +364,7 @@ impl FuPool {
 mod tests {
     use super::*;
     use crate::exec::signals::BranchCond;
+    use crate::isa::op::SlideOffset;
     use crate::isa::op::{
         AluOp, ArithOp, DivOp, FmaAddend, FmaSigns, FpBinaryOp, FpOp, IntAluOp, IntOp, IntReduceOp,
         MaskLogicalOp, MaskOp, VecAluOp, VecFpOp, VecLoadOp,
@@ -508,7 +509,7 @@ mod tests {
     #[test]
     fn a_vector_slide_up_runs_on_the_vec_permute_unit() {
         let ctrl = ControlSignals {
-            vec_op: Some(VectorOp::Permute(PermuteOp::SlideUp(crate::isa::op::SlideOffset::Rs1))),
+            vec_op: Some(VectorOp::Permute(PermuteOp::SlideUp(SlideOffset::Rs1))),
             ..Default::default()
         };
         assert_eq!(FuType::classify(&ctrl), FuType::VecPermute);

@@ -151,11 +151,12 @@ impl CoreCtx<'_> {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use crate::system::SystemState;
 
     #[test]
     fn mret_returns_to_mepc_in_mpp_with_mie_restored() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.mepc = 0x2000;
@@ -173,7 +174,7 @@ mod tests {
     #[test]
     fn sret_returns_to_sepc_in_spp_with_sie_restored() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         state.hart.csrs.sepc = 0x3000;
