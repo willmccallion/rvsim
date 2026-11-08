@@ -107,30 +107,6 @@ impl GeoBankSet {
         (tag & ((1 << self.tag_widths[bank]) - 1)) as u16
     }
 
-    #[cfg(test)]
-    /// Computes the table index for a bank by recomputing CSRs from a GHR snapshot.
-    /// `O(hist_length)`. Used at commit time.
-    pub fn snapshot_index(&self, pc: u64, bank: usize, ghr: &Ghr) -> usize {
-        let mut csr1 = FoldedHistory::new(self.table_bits, self.hist_lengths[bank]);
-        csr1.recompute(ghr);
-        let mut csr2 =
-            FoldedHistory::new(self.table_bits.saturating_sub(1).max(1), self.hist_lengths[bank]);
-        csr2.recompute(ghr);
-        fold_hash(index_pc(pc), csr1.val, csr2.val) as usize & self.table_mask
-    }
-
-    #[cfg(test)]
-    /// Computes the tag for a bank by recomputing CSRs from a GHR snapshot.
-    /// `O(hist_length)`. Used at commit time.
-    pub fn snapshot_tag(&self, pc: u64, bank: usize, ghr: &Ghr) -> u16 {
-        let width = self.tag_widths[bank];
-        let mut csr1 = FoldedHistory::new(width, self.hist_lengths[bank]);
-        csr1.recompute(ghr);
-        let mut csr2 = FoldedHistory::new(width.saturating_sub(1).max(1), self.hist_lengths[bank]);
-        csr2.recompute(ghr);
-        (fold_hash(tag_pc(pc), csr1.val, csr2.val) & ((1 << width) - 1)) as u16
-    }
-
     /// Computes all bank indices and tags in one pass by recomputing CSRs from a
     /// GHR snapshot. Returns `([indices; MAX_BANKS], [tags; MAX_BANKS])`.
     /// Only the first `num_banks` elements are meaningful.
@@ -241,14 +217,10 @@ mod tests {
             ghr.push(taken);
         }
 
+        let (indices, tags) = banks.snapshot_all(pc, &ghr);
         for bank in 0..4 {
-            let si = banks.spec_index(pc, bank);
-            let ri = banks.snapshot_index(pc, bank, &ghr);
-            assert_eq!(si, ri, "Index mismatch for bank {bank}");
-
-            let st = banks.spec_tag(pc, bank);
-            let rt = banks.snapshot_tag(pc, bank, &ghr);
-            assert_eq!(st, rt, "Tag mismatch for bank {bank}");
+            assert_eq!(banks.spec_index(pc, bank), indices[bank], "index of bank {bank}");
+            assert_eq!(banks.spec_tag(pc, bank), tags[bank], "tag of bank {bank}");
         }
     }
 
@@ -288,45 +260,9 @@ mod tests {
         assert_eq!(saved_idx, restored_idx, "Index CSRs not restored");
         assert_eq!(saved_tag, restored_tag, "Tag CSRs not restored");
 
-        // Verify spec matches snapshot after repair.
-        for bank in 0..4 {
-            assert_eq!(
-                banks.spec_index(pc, bank),
-                banks.snapshot_index(pc, bank, &ghr),
-                "Post-repair index mismatch for bank {bank}"
-            );
-        }
-    }
-
-    #[test]
-    fn snapshot_all_matches_the_per_bank_snapshots() {
-        let hist_lengths = [5, 15, 44, 130];
-        let tag_widths = [9, 9, 10, 10];
-        let table_bits = 8;
-        let banks = GeoBankSet::new(&hist_lengths, &tag_widths, table_bits);
-        let max_hist = *hist_lengths.iter().max().unwrap();
-        let mut ghr = Ghr::with_len(max_hist);
-
-        // Build up some history.
-        for i in 0u64..60 {
-            ghr.push(i % 3 != 0);
-        }
-
-        let pcs = [0x8000_1234u64, 0xDEAD_BEEFu64, 0x0000_0004u64];
-        for &pc in &pcs {
-            let (indices, tags) = banks.snapshot_all(pc, &ghr);
-            for bank in 0..4 {
-                assert_eq!(
-                    indices[bank],
-                    banks.snapshot_index(pc, bank, &ghr),
-                    "snapshot_all index mismatch for PC {pc:#x} bank {bank}"
-                );
-                assert_eq!(
-                    tags[bank],
-                    banks.snapshot_tag(pc, bank, &ghr),
-                    "snapshot_all tag mismatch for PC {pc:#x} bank {bank}"
-                );
-            }
+        let (indices, _) = banks.snapshot_all(pc, &ghr);
+        for (bank, &index) in indices.iter().enumerate().take(4) {
+            assert_eq!(banks.spec_index(pc, bank), index, "index of bank {bank}");
         }
     }
 }
