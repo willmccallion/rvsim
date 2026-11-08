@@ -27,6 +27,21 @@ use crate::common::VirtAddr;
 /// requests to reduce cache miss penalties.
 pub trait Prefetcher: Send + Sync {
     /// Observes an access to `addr`, by the instruction at `pc` if it has
-    /// one, that hit if `hit`, and returns the addresses to prefetch.
-    fn observe(&mut self, addr: u64, pc: Option<VirtAddr>, hit: bool) -> Vec<u64>;
+    /// one, and appends the addresses to prefetch to `prefetches`.
+    fn observe(
+        &mut self,
+        addr: u64,
+        pc: Option<VirtAddr>,
+        lookup: Lookup,
+        prefetches: &mut Vec<u64>,
+    );
+}
+
+/// Whether an access found its line in the cache.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lookup {
+    /// The line was there.
+    Hit,
+    /// The line was not.
+    Miss,
 }

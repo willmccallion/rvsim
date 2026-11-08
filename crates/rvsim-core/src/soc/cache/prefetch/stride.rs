@@ -7,7 +7,7 @@
 //! does not train it. Prefetching starts once the same stride has repeated
 //! enough to saturate the entry's confidence, and goes out a line at a time.
 
-use super::Prefetcher;
+use super::{Lookup, Prefetcher};
 use crate::common::VirtAddr;
 use std::num::NonZeroUsize;
 
@@ -110,15 +110,22 @@ impl Prefetcher for StridePrefetcher {
     /// Trains the entry of the load at `pc` on `addr` and, once its stride
     /// has repeated with full confidence, returns the next `degree` lines
     /// along it. A load whose entry another load holds takes it over.
-    fn observe(&mut self, addr: u64, pc: Option<VirtAddr>, _hit: bool) -> Vec<u64> {
-        let Some(pc) = pc else { return Vec::new() };
+    fn observe(
+        &mut self,
+        addr: u64,
+        pc: Option<VirtAddr>,
+        _lookup: Lookup,
+        prefetches: &mut Vec<u64>,
+    ) {
+        let Some(pc) = pc else { return };
         let slot = &mut self.table[pc_index(pc, self.table_mask)];
         if slot.is_none_or(|entry| entry.pc != pc) {
             *slot = Some(StrideEntry { pc, tracker: StrideTracker::starting_at(addr) });
-            return Vec::new();
+            return;
         }
-        let Some(entry) = slot.as_mut() else { return Vec::new() };
-        let Some(stride) = entry.tracker.train(addr) else { return Vec::new() };
-        (1..=self.degree as i64).map(|k| line_along(addr, stride, k, self.line_bytes)).collect()
+        let Some(entry) = slot.as_mut() else { return };
+        let Some(stride) = entry.tracker.train(addr) else { return };
+        prefetches
+            .extend((1..=self.degree as i64).map(|k| line_along(addr, stride, k, self.line_bytes)));
     }
 }

@@ -7,14 +7,15 @@
 //!
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
-use crate::soc::cache::prefetch::Prefetcher;
+use super::observe;
+use crate::soc::cache::prefetch::Lookup;
 use crate::soc::cache::prefetch::TaggedPrefetcher;
 
 /// A cache miss triggers prefetching of the next line(s).
 #[test]
 fn miss_triggers_prefetch() {
     let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
-    let addrs = pf.observe(0x1000, None, false); // miss
+    let addrs = observe(&mut pf, 0x1000, None, Lookup::Miss); // miss
     assert_eq!(addrs.len(), 1);
     assert_eq!(addrs[0], 0x1040, "Next 64-byte line after 0x1000");
 }
@@ -23,7 +24,7 @@ fn miss_triggers_prefetch() {
 #[test]
 fn miss_degree_2() {
     let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(2).unwrap());
-    let addrs = pf.observe(0x1000, None, false);
+    let addrs = observe(&mut pf, 0x1000, None, Lookup::Miss);
     assert_eq!(addrs.len(), 2);
     assert_eq!(addrs[0], 0x1040);
     assert_eq!(addrs[1], 0x1080);
@@ -34,7 +35,7 @@ fn miss_degree_2() {
 fn standard_hit_no_prefetch() {
     let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     // Hit on a line we never prefetched — filter should not match.
-    let addrs = pf.observe(0x2000, None, true);
+    let addrs = observe(&mut pf, 0x2000, None, Lookup::Hit);
     assert!(addrs.is_empty(), "Standard hit should not trigger prefetch");
 }
 
@@ -45,11 +46,11 @@ fn hit_to_prefetched_line_extends_stream() {
     let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
 
     // Miss at 0x1000 → prefetches 0x1040, marks it in filter.
-    let pf1 = pf.observe(0x1000, None, false);
+    let pf1 = observe(&mut pf, 0x1000, None, Lookup::Miss);
     assert_eq!(pf1[0], 0x1040);
 
     // Hit on the prefetched address: filter should recognize and extend the stream.
-    let pf2 = pf.observe(0x1040, None, true);
+    let pf2 = observe(&mut pf, 0x1040, None, Lookup::Hit);
     assert_eq!(pf2.len(), 1, "Hit on prefetched line should extend stream");
     assert_eq!(pf2[0], 0x1080, "Should prefetch the line after 0x1040");
 }
@@ -60,9 +61,9 @@ fn chained_prefetch_stream() {
     let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
 
     // Miss → prefetch chain starts.
-    pf.observe(0x3000, None, false); // prefetches 0x3040
-    pf.observe(0x3040, None, true); // hit on prefetched → prefetches 0x3080
-    let addrs = pf.observe(0x3080, None, true); // hit on prefetched → prefetches 0x30C0
+    observe(&mut pf, 0x3000, None, Lookup::Miss); // prefetches 0x3040
+    observe(&mut pf, 0x3040, None, Lookup::Hit); // hit on prefetched → prefetches 0x3080
+    let addrs = observe(&mut pf, 0x3080, None, Lookup::Hit); // hit on prefetched → prefetches 0x30C0
     assert_eq!(addrs.len(), 1);
     assert_eq!(addrs[0], 0x30C0);
 }
@@ -71,7 +72,7 @@ fn chained_prefetch_stream() {
 #[test]
 fn mid_line_miss_aligns() {
     let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
-    let addrs = pf.observe(0x1020, None, false); // miss at offset 32 within line
+    let addrs = observe(&mut pf, 0x1020, None, Lookup::Miss); // miss at offset 32 within line
     // Aligned addr = 0x1000. Next line = 0x1040.
     assert_eq!(addrs[0], 0x1040);
 }
@@ -83,10 +84,10 @@ fn the_filter_remembers_a_line_per_entry_whatever_the_line_size() {
     const LINE: u64 = 128;
     let mut pf = TaggedPrefetcher::new(LINE as usize, std::num::NonZero::new(1).unwrap());
     for miss in (0..60).step_by(2) {
-        let _ = pf.observe(miss * LINE, None, false);
+        let _ = observe(&mut pf, miss * LINE, None, Lookup::Miss);
     }
 
-    let extended = pf.observe(LINE, None, true);
+    let extended = observe(&mut pf, LINE, None, Lookup::Hit);
 
     assert_eq!(extended, [2 * LINE]);
 }

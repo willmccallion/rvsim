@@ -8,7 +8,7 @@
 //! It maintains a history of the last access to determine direction. Once a
 //! direction is established, it prefetches multiple lines ahead.
 
-use super::Prefetcher;
+use super::{Lookup, Prefetcher};
 use crate::common::VirtAddr;
 use std::num::NonZeroUsize;
 
@@ -58,8 +58,13 @@ impl StreamPrefetcher {
 impl Prefetcher for StreamPrefetcher {
     /// Compares the address with the previous one; once a contiguous
     /// stream is seen with enough confidence, prefetches along it.
-    fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, _hit: bool) -> Vec<u64> {
-        let mut prefetches = Vec::new();
+    fn observe(
+        &mut self,
+        addr: u64,
+        _pc: Option<VirtAddr>,
+        _lookup: Lookup,
+        prefetches: &mut Vec<u64>,
+    ) {
         let diff = (addr as i64) - (self.last_addr as i64);
         let line_sz = self.line_bytes as i64;
 
@@ -99,6 +104,5 @@ impl Prefetcher for StreamPrefetcher {
         }
 
         self.last_addr = addr;
-        prefetches
     }
 }

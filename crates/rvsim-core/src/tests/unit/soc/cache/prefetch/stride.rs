@@ -4,8 +4,9 @@
 //! confidence before prefetching, and emits line-aligned addresses
 //! `degree` strides ahead.
 
+use super::observe;
 use crate::common::VirtAddr;
-use crate::soc::cache::prefetch::Prefetcher;
+use crate::soc::cache::prefetch::Lookup;
 use crate::soc::cache::prefetch::StridePrefetcher;
 
 const LOAD: Option<VirtAddr> = Some(VirtAddr(0x8000_1000));
@@ -26,7 +27,7 @@ fn stream(
 ) -> Vec<u64> {
     let mut last = Vec::new();
     for i in 0..count {
-        last = pf.observe(base.wrapping_add_signed(stride * i as i64), pc, false);
+        last = observe(pf, base.wrapping_add_signed(stride * i as i64), pc, Lookup::Miss);
     }
     last
 }
@@ -35,7 +36,7 @@ fn stream(
 fn a_loads_first_access_prefetches_nothing() {
     let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
 
-    let prefetches = pf.observe(0x1000, LOAD, false);
+    let prefetches = observe(&mut pf, 0x1000, LOAD, Lookup::Miss);
 
     assert!(prefetches.is_empty());
 }
@@ -45,7 +46,7 @@ fn a_stride_prefetches_only_once_confidence_saturates() {
     let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
 
     let warming = stream(&mut pf, LOAD, 0x1_0000, 256, WARMUP);
-    let trained = pf.observe(0x1_0000 + 256 * WARMUP, LOAD, false);
+    let trained = observe(&mut pf, 0x1_0000 + 256 * WARMUP, LOAD, Lookup::Miss);
 
     assert!(warming.is_empty());
     assert_eq!(trained, vec![0x1_0000 + 256 * (WARMUP + 1)]);
@@ -99,8 +100,8 @@ fn interleaved_loads_each_learn_their_own_stride() {
     let (mut last_a, mut last_b) = (Vec::new(), Vec::new());
 
     for i in 0..=WARMUP {
-        last_a = pf.observe(a + 256 * i, LOAD, false);
-        last_b = pf.observe(b + 4096 * i, OTHER_LOAD, false);
+        last_a = observe(&mut pf, a + 256 * i, LOAD, Lookup::Miss);
+        last_b = observe(&mut pf, b + 4096 * i, OTHER_LOAD, Lookup::Miss);
     }
 
     assert_eq!(last_a, vec![a + 256 * (WARMUP + 1)]);
@@ -122,7 +123,7 @@ fn a_changed_stride_does_not_prefetch() {
     let base = 0x7_0000;
     let _ = stream(&mut pf, LOAD, base, 256, WARMUP + 1);
 
-    let prefetches = pf.observe(base + 256 * WARMUP + 1000, LOAD, false);
+    let prefetches = observe(&mut pf, base + 256 * WARMUP + 1000, LOAD, Lookup::Miss);
 
     assert!(prefetches.is_empty());
 }
@@ -141,9 +142,9 @@ fn a_load_that_takes_over_an_entry_starts_untrained() {
     let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
     let alias = LOAD.map(|pc| VirtAddr(pc.val() + 64 * 2));
     let _ = stream(&mut pf, LOAD, 0x9_0000, 256, WARMUP + 1);
-    let _ = pf.observe(0xA_0000, alias, false);
+    let _ = observe(&mut pf, 0xA_0000, alias, Lookup::Miss);
 
-    let prefetches = pf.observe(0x9_0000 + 256 * (WARMUP + 1), LOAD, false);
+    let prefetches = observe(&mut pf, 0x9_0000 + 256 * (WARMUP + 1), LOAD, Lookup::Miss);
 
     assert!(prefetches.is_empty());
 }

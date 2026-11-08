@@ -4,7 +4,7 @@
 //! whenever a cache access occurs. This exploits the spatial locality common
 //! in instruction streams and sequential data arrays.
 
-use super::Prefetcher;
+use super::{Lookup, Prefetcher};
 use crate::common::VirtAddr;
 use std::num::NonZeroUsize;
 
@@ -26,14 +26,17 @@ impl NextLinePrefetcher {
 
 impl Prefetcher for NextLinePrefetcher {
     /// Prefetches the `degree` lines after the accessed one.
-    fn observe(&mut self, addr: u64, _pc: Option<VirtAddr>, _hit: bool) -> Vec<u64> {
-        let mut prefetches = Vec::new();
-
+    fn observe(
+        &mut self,
+        addr: u64,
+        _pc: Option<VirtAddr>,
+        _lookup: Lookup,
+        prefetches: &mut Vec<u64>,
+    ) {
         for k in 1..=self.degree {
             let offset = self.line_bytes * k as u64;
             let target = (addr & !(self.line_bytes - 1)) + offset;
             prefetches.push(target);
         }
-        prefetches
     }
 }
