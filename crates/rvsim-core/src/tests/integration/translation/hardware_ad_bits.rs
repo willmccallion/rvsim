@@ -7,6 +7,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
@@ -59,7 +60,7 @@ fn run_with(
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.isa.svadu = true;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().chain(&[JAL_SELF]).enumerate() {
         ctx.sim.probe_mem_store(

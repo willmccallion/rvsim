@@ -4,6 +4,7 @@
 
 use crate::common::{LineAddr, PhysAddr};
 use crate::config::BackendKind;
+use crate::config::Console;
 use crate::config::{
     Config, HomeAgentConfig, InterconnectConfig, LoadPrefetcherConfig, PageBoundary,
     StorePrefetcherConfig,
@@ -25,7 +26,7 @@ const MHARTID: u32 = 0xF14;
 fn cached(harts: usize, backend: BackendKind) -> Config {
     let mut config = Config::minimal();
     config.system.hart_count = std::num::NonZero::new(harts).unwrap();
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     config.pipeline.backend = backend;
     for cache in [&mut config.cache.l1_i, &mut config.cache.l1_d] {
         cache.enabled = true;
@@ -276,7 +277,7 @@ fn a_shared_llc_serves_the_home_agent() {
 fn cores_without_caches_take_no_part_in_coherence() {
     let mut config = Config::minimal();
     config.system.hart_count = std::num::NonZero::new(2).unwrap();
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut system = MultiHart::with_config(&config, &shared_line_stores(2, 20));
     let exit = run_audited(&mut system, 2_000_000);
     assert_eq!(exit, Some(40));

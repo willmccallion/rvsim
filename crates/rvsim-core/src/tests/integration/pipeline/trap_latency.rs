@@ -3,6 +3,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{T0, T1, T2, T3, T4, T6, X0};
@@ -60,7 +61,7 @@ fn run_until_trap(backend: BackendKind, trap_latency: u64, program: &[u32]) -> T
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.pipeline.trap_latency = trap_latency;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     store_words(&mut ctx.sim, HANDLER, &handler());
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;

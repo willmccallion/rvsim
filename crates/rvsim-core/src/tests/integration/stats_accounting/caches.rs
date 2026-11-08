@@ -5,6 +5,8 @@
 
 use super::program::{BACKENDS, config, ending_in_spin, run_to_pc, system_with};
 use super::{Recorder, accounting_checks};
+use crate::config::LoadPrefetcherConfig;
+use crate::config::PageBoundary;
 use crate::config::{
     BackendKind, CacheConfig, Config, InclusionPolicy, PrefetcherKind, StorePrefetcherConfig,
 };
@@ -379,11 +381,11 @@ fn store_prefetches_go_to_the_l2_and_are_dropped_without_an_mshr(rec: &mut Recor
 fn everything_on(backend: BackendKind) -> Config {
     let mut config = prefetching_hierarchy(backend);
     config.cache.inclusion_policy = InclusionPolicy::Inclusive;
-    config.cache.load_prefetcher = crate::config::LoadPrefetcherConfig::Stride {
+    config.cache.load_prefetcher = LoadPrefetcherConfig::Stride {
         table_size: 64,
         l1_lines: 2,
         l2_lines: 4,
-        page_boundary: crate::config::PageBoundary::Stop,
+        page_boundary: PageBoundary::Stop,
     };
     config
 }

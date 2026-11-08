@@ -2,6 +2,8 @@
 
 use crate::common::PhysAddr;
 use crate::config::DeviceKind;
+use crate::config::Timer;
+use crate::config::ValidConfig;
 use crate::config::{
     BackendKind, BhtConfigError, CacheConfig, Config, ConfigError, CsrSquash, HomeAgentConfig,
     LoadPrefetcherConfig, MAX_ITTAGE_HISTORY, MemoryControllerKind, PageBoundary, PrefetcherKind,
@@ -525,7 +527,7 @@ fn a_config_validation_refuses_cannot_become_a_valid_config() {
     let mut config = Config::minimal();
     config.pipeline.rob_size = 0;
 
-    let checked = crate::config::ValidConfig::try_from(config);
+    let checked = ValidConfig::try_from(config);
 
     assert!(matches!(checked, Err(ConfigError::Zero("pipeline.rob_size"))), "{:?}", checked.err());
 }
@@ -615,7 +617,7 @@ fn an_every_cycle_timer_takes_any_timebase() {
     let mut config = Config::minimal();
     config.system.cpu_clock_mhz = std::num::NonZero::new(1000).unwrap();
     config.system.timebase_hz = std::num::NonZero::new(3_000_000).unwrap();
-    config.system.timer = crate::config::Timer::EveryCycle;
+    config.system.timer = Timer::EveryCycle;
 
     assert!(config.validate().is_ok());
 }

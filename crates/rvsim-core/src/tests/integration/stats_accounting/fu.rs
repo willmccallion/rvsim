@@ -4,6 +4,7 @@
 
 use super::program::{BACKENDS, ending_in_spin, run_to_pc, system};
 use super::{Recorder, accounting_checks};
+use crate::Simulator;
 use crate::config::BackendKind;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::regs::{A2, T0, T1, T2, X0};
@@ -43,7 +44,7 @@ const VFDIV_VV: u32 = 0x8210_9557;
 /// `vrgather.vv v11, v1, v2`.
 const VRGATHER_VV: u32 = 0x3211_05d7;
 
-fn util(rec: &mut Recorder, sim: &crate::Simulator, unit: &str) -> u64 {
+fn util(rec: &mut Recorder, sim: &Simulator, unit: &str) -> u64 {
     rec.read(sim, &format!("core0.fu.util.{unit}"))
 }
 

@@ -5,6 +5,7 @@ use crate::tests::support::harness::build_simulator;
 use std::collections::BTreeSet;
 
 use super::{Recorder, caches, coherence, commit, ddr5, fu, pipeline, predictors};
+use crate::config::Console;
 use crate::config::{Config, MemoryControllerKind};
 
 /// Every accounting check.
@@ -27,7 +28,7 @@ fn every_check() -> impl Iterator<Item = &'static fn(&mut Recorder)> {
 fn every_component(harts: usize) -> Config {
     let mut config = Config::minimal();
     config.system.hart_count = std::num::NonZero::new(harts).unwrap();
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     for cache in
         [&mut config.cache.l1_i, &mut config.cache.l1_d, &mut config.cache.l2, &mut config.cache.l3]
     {

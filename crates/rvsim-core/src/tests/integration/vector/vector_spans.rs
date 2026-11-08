@@ -5,6 +5,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -58,7 +59,7 @@ fn config(backend: BackendKind, vector_mem_width: Option<usize>) -> Config {
     config.pipeline.backend = backend;
     config.pipeline.vector_mem_width = vector_mem_width;
     config.cache.l1_d.enabled = true;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     config
 }
 

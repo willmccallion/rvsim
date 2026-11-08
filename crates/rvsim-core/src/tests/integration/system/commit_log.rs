@@ -9,6 +9,7 @@ use crate::common::VirtAddr;
 use crate::config::{BackendKind, Config};
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
+use crate::uarch::pipeline::commit_log::RESET_CSRS;
 
 const DATA: u64 = PROGRAM_BASE + 0x1000;
 const HANDLER: u64 = PROGRAM_BASE + 0x50;
@@ -186,10 +187,8 @@ fn the_log_opens_with_the_state_it_starts_from() {
         .filter_map(|line| line.strip_prefix("core   0: reset c"))
         .map(|rest| rest[..3].to_owned())
         .collect();
-    let expected: Vec<String> = crate::uarch::pipeline::commit_log::RESET_CSRS
-        .iter()
-        .map(|addr| format!("{:03x}", addr.as_u32()))
-        .collect();
+    let expected: Vec<String> =
+        RESET_CSRS.iter().map(|addr| format!("{:03x}", addr.as_u32())).collect();
 
     assert_eq!(lines[0], format!("core   0: reset pc 0x{PROGRAM_BASE:016x} priv 3"));
     assert_eq!(reset_csrs, expected);

@@ -1,5 +1,6 @@
 //! Posted writes and the write-queue drain policy.
 
+use crate::config::ddr5::Ddr5Config;
 use crate::sim::packet::DramCmdKind;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, read_op, tiny_config, write_op,
@@ -110,7 +111,7 @@ fn drain_watermarks_follow_gem5_defaults() {
 
 struct Ddr5ConfigDefaults;
 impl Ddr5ConfigDefaults {
-    fn get() -> crate::config::ddr5::Ddr5Config {
-        crate::config::ddr5::Ddr5Config::default()
+    fn get() -> Ddr5Config {
+        Ddr5Config::default()
     }
 }

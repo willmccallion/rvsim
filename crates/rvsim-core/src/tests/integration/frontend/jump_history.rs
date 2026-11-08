@@ -3,7 +3,9 @@
 //! after it sees a different path from one reached with no jump.
 
 use crate::config::BackendKind;
+use crate::config::BranchPredictorKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::X0;
@@ -12,8 +14,8 @@ use crate::uarch::bpred::BranchPredictor;
 fn history_after_a_jump_loop(backend: BackendKind) -> bool {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.pipeline.branch_predictor = crate::config::BranchPredictorKind::GShare;
-    config.system.console = crate::config::Console::Quiet;
+    config.pipeline.branch_predictor = BranchPredictorKind::GShare;
+    config.system.console = Console::Quiet;
     let program = [InstructionBuilder::new().jal(X0, 0).build()];
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
 

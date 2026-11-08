@@ -16,6 +16,7 @@ use crate::tests::support::regs::{X0, X6, X7, X13};
 use std::collections::HashMap;
 
 use crate::common::{Asid, LineAddr, PhysAddr, Ppn, VirtAddr, Vpn};
+use crate::config::Console;
 use crate::config::{BackendKind, Config, LoadPrefetcherConfig, PageBoundary, PrefetcherKind};
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
@@ -239,7 +240,7 @@ pub fn run_system(
     config.cache.l1_d.prefetcher = PrefetcherKind::Off;
     config.cache.load_prefetcher =
         LoadPrefetcherConfig::Stride { table_size: 64, l1_lines: 4, l2_lines: 0, page_boundary };
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     let code = program(matches!(data, Data::TouchedSecondPage));
     store_words(&mut ctx.sim, CODE, &code);

@@ -5,6 +5,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use crate::isa::fp::Frm;
 use crate::tests::support::builder::instruction::{InstructionBuilder, trap_recorder};
@@ -48,7 +49,7 @@ const BOTH_ON: Units = Units { fp: true, vector: true };
 fn run(backend: BackendKind, units: Units, frm: u64, inst: u32) -> (u64, u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let i = InstructionBuilder::new;
     let program = [inst, i().addi(A4, X0, 1).build(), i().jal(X0, 0).build()];
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);

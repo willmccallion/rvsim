@@ -6,6 +6,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{InstructionBuilder, trap_recorder};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
@@ -40,7 +41,7 @@ fn run(backend: BackendKind) -> (u64, u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     store_program(&mut ctx, HANDLER, &trap_recorder());
     ctx.sim.probe_mem_store(PhysAddr::new(DATA), 0x1234_5678, ProbeWidth::B4);

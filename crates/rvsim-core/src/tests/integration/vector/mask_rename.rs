@@ -5,6 +5,7 @@
 use crate::common::VirtAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -35,7 +36,7 @@ fn elements(values: [u32; 4]) -> Vec<u8> {
 fn masked_add_result(backend: BackendKind) -> Vec<u8> {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let i = InstructionBuilder::new;
     let program = [
         VSETIVLI_4_E32_M1,
@@ -77,7 +78,7 @@ fn rewriting_v0_from_reset_returns_its_physical_register() {
     for backend in BACKENDS {
         let mut config = Config::minimal();
         config.pipeline.backend = backend;
-        config.system.console = crate::config::Console::Quiet;
+        config.system.console = Console::Quiet;
         let i = InstructionBuilder::new;
         let program = [VSETIVLI_4_E32_M1, VMV_V0_ALL_ONES, ILLEGAL];
         let handler = [i().addi(DONE_REG, X0, DONE as i32).build(), i().jal(X0, 0).build()];
@@ -101,7 +102,7 @@ const VMSEQ_V0_V2_V3_MASKED: u32 = 0x6021_8057;
 fn masked_compare_into_v0(backend: BackendKind) -> u8 {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let i = InstructionBuilder::new;
     let program = [
         VSETIVLI_4_E32_M1,

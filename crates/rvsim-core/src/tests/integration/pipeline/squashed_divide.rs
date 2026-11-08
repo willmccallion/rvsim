@@ -4,6 +4,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A0, A1, A2, A3, S4, T0, T1, T2, T3, X0};
@@ -37,7 +38,7 @@ fn finish_cycle(backend: BackendKind, wrong_path: u32) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let program = program(wrong_path);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
 
@@ -83,7 +84,7 @@ fn handler_finish_cycle(backend: BackendKind, behind: u32) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let program = faulting_load_then(behind);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     store_words(&mut ctx.sim, HANDLER, &dividing_handler());

@@ -1,8 +1,10 @@
 //! End-to-end tests for the Zicboz / Zicbom CBO instructions.
 
 use crate::common::{PhysAddr, VirtAddr};
+use crate::config::BackendKind;
 use crate::config::Config;
 use crate::config::defaults::RAM_BASE;
+use crate::isa::csr::MENVCFG_CBZE;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{
     CBO_CLEAN_IMM, CBO_FLUSH_IMM, CBO_INVAL_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE,
@@ -137,7 +139,7 @@ fn cbo_zero_ignores_low_address_bits() {
 fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
     let data_addr = RAM_BASE + 0x1000;
     let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
-    assert_eq!(ctx.state().harts[0].csrs.menvcfg & crate::isa::csr::MENVCFG_CBZE, 0);
+    assert_eq!(ctx.state().harts[0].csrs.menvcfg & MENVCFG_CBZE, 0);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
     run_cbo_zero(&mut ctx, data_addr);
@@ -208,7 +210,7 @@ fn cbo_flush_in_machine_mode_does_not_trap() {
 
 /// A load that follows `cbo.zero` to the same block reads zeros: the CBO
 /// takes effect at commit, so the load must not read the block before then.
-fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
+fn check_load_after_cbo_zero_reads_zero(backend: BackendKind) {
     use crate::tests::support::builder::instruction::InstructionBuilder;
     let data_addr = RAM_BASE + 0x1000;
     let mut config = Config::minimal();
@@ -234,10 +236,10 @@ fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
 
 #[test]
 fn load_after_cbo_zero_reads_zero_in_order() {
-    check_load_after_cbo_zero_reads_zero(crate::config::BackendKind::InOrder);
+    check_load_after_cbo_zero_reads_zero(BackendKind::InOrder);
 }
 
 #[test]
 fn load_after_cbo_zero_reads_zero_out_of_order() {
-    check_load_after_cbo_zero_reads_zero(crate::config::BackendKind::OutOfOrder);
+    check_load_after_cbo_zero_reads_zero(BackendKind::OutOfOrder);
 }

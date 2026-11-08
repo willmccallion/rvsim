@@ -5,6 +5,7 @@
 //! and a non-pipelined unit serialises the instructions that need it.
 
 use crate::config::BackendKind;
+use crate::config::Console;
 use crate::config::{Config, PrefetcherKind};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
@@ -25,7 +26,7 @@ fn cycles_to_retire(program: &[u32], retired: u64) -> u64 {
     config.cache.l1_i.enabled = true;
     config.cache.l1_i.prefetcher = PrefetcherKind::NextLine;
     config.cache.l1_i.prefetch_degree = std::num::NonZero::new(4).unwrap();
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     let mut cycles = 0;
     while ctx.sim.state.harts[0].instructions_retired < retired && cycles < 100_000 {

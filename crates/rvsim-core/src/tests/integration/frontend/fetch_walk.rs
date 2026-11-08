@@ -6,6 +6,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
@@ -36,7 +37,7 @@ fn run_from_a_cold_tlb(backend: BackendKind, width: usize) -> (u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     store_words(&mut ctx.sim, CODE, &PROGRAM);
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (NEXT_PPN << 10) | PTE_V);

@@ -4,6 +4,7 @@ use crate::isa::encoding::privileged::{CSRRC, CSRRS, CSRRW, OP_SYSTEM};
 use crate::isa::encoding::rv64a::funct5::{AMOADD, LR, SC};
 use crate::isa::encoding::rv64a::opcodes::OP_AMO;
 use crate::isa::encoding::rv64i::opcodes::*;
+use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::reg::RegIdx;
 use crate::tests::support::regs::{A0, A1, A2, A3, ZERO};
 
@@ -14,9 +15,9 @@ pub const FENCE_IORW: u32 = 0x0ff0_000f;
 /// `fence.i`.
 pub const FENCE_I: u32 = 0x0000_100f;
 /// `ecall`.
-pub const ECALL: u32 = crate::isa::encoding::privileged::ECALL;
+pub use crate::isa::encoding::privileged::ECALL;
 /// gem5's `m5_fail`: ends the run with `a1` as the exit code.
-pub const M5_FAIL: u32 = crate::isa::op::pseudo::PseudoOp::encode(0x22);
+pub const M5_FAIL: u32 = PseudoOp::encode(0x22);
 
 /// Ends the run with `a0` as the exit code, as a program's exit does.
 #[must_use]

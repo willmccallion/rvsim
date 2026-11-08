@@ -5,6 +5,8 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
+use crate::config::Timer;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, T0, T1, T2, X0};
@@ -34,8 +36,8 @@ fn mtime_seen_by_the_load(backend: BackendKind) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.timer = crate::config::Timer::EveryCycle;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.timer = Timer::EveryCycle;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);
@@ -82,7 +84,7 @@ fn receive_register_read(backend: BackendKind, width: usize, fenced: bool) -> u6
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let program = uart_receive_after_transmit(fenced);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
 
@@ -115,7 +117,7 @@ fn retire_and_device_read_cycles(backend: BackendKind) -> (u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     let older_than_load = CHAIN as u64 + 2;
     let mut older_retired = None;

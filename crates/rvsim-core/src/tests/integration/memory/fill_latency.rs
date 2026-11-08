@@ -5,6 +5,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, T0, X0};
@@ -34,7 +35,7 @@ fn cycles_to_finish(l1d_latency: u64, l1d_response_latency: u64) -> u64 {
     config.memory.simple_bandwidth_gib_s = 1e6;
     config.cache.l1_d.latency = l1d_latency;
     config.cache.l1_d.response_latency = l1d_response_latency;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let program = program();
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     let all_but_spin = program.len() as u64 - 1;

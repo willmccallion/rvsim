@@ -13,9 +13,10 @@ use crate::isa::encoding::rv64f::opcodes as f_op;
 use crate::isa::encoding::rv64i::funct3 as i_f3;
 use crate::isa::encoding::rv64i::funct7 as i_f7;
 use crate::isa::encoding::rv64i::opcodes as i_op;
+use crate::isa::instruction::Decoded;
 
 /// Expand a 16-bit compressed instruction and decode the resulting 32-bit instruction.
-fn expand_and_decode(cinst: u16) -> crate::isa::instruction::Decoded {
+fn expand_and_decode(cinst: u16) -> Decoded {
     let expanded =
         expand(cinst).unwrap_or_else(|| panic!("{cinst:#06x} must expand to an instruction"));
     decode(expanded)

@@ -5,6 +5,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
@@ -31,7 +32,7 @@ fn check_one_access_per_amo(backend: BackendKind) {
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
     config.cache.wcb_entries = 0;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.probe_mem_store(PhysAddr::new(DATA), 100, ProbeWidth::B8);
 

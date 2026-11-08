@@ -7,6 +7,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
@@ -64,7 +65,7 @@ fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
     config.memory.l2_tlb_size = L2_TLB_ENTRIES;
     config.memory.l2_tlb_ways = L2_TLB_WAYS;
     config.memory.l2_tlb_latency = l2_tlb_latency;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     let program = program();
     store_words(&mut ctx.sim, CODE, &program);

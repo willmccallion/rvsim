@@ -4,6 +4,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -57,7 +58,7 @@ fn a_scalar_load_forwards_from_an_in_order_vector_store() {
     config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 4;
     config.cache.l1_d.enabled = true;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     for byte in 0..ELEMENTS {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);

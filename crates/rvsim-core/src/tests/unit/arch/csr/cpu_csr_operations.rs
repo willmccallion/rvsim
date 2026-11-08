@@ -4,10 +4,12 @@
 //! including side effects like TLB flushes, interrupt inhibition, and
 //! synchronization between MSTATUS and SSTATUS.
 
+use crate::common::PhysAddr;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::PagingMode;
+use crate::soc::bus::HartIrqs;
 use crate::system::SystemState;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::{build_simulator, minimal_system};
@@ -377,13 +379,13 @@ fn stval_reads_back_any_written_value() {
 fn sstc_raises_stip_once_the_clint_time_reaches_stimecmp() {
     let config = Config::minimal();
     let mut sim = build_simulator(&config);
-    let mtime = crate::common::PhysAddr::new(config.system.clint_base.val() + 0xBFF8);
+    let mtime = PhysAddr::new(config.system.clint_base.val() + 0xBFF8);
     sim.probe_mem_store(mtime, 5000, ProbeWidth::B8);
     let mut state = sim.state.core_ctx(0);
     state.csr_write(csr::MENVCFG, csr::MENVCFG_STCE);
     state.csr_write(csr::STIMECMP, 4000);
 
-    state.pre_tick(crate::soc::bus::HartIrqs::default());
+    state.pre_tick(HartIrqs::default());
 
     assert_ne!(state.csr_read(csr::MIP) & csr::MIP_STIP, 0, "time 5000 is past stimecmp 4000");
 }

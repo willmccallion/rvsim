@@ -2,6 +2,7 @@
 //! surviving tag: its response would otherwise write a physical register
 //! that a newer instruction may already own.
 
+use crate::arch::translation::DirtyUpdates;
 use crate::common::{PhysAddr, VirtAddr};
 use crate::sim::components::ReqId;
 use crate::uarch::pipeline::engine::BackendCommon;
@@ -17,7 +18,7 @@ fn in_flight_load(tag: u32) -> OutstandingLoad {
         },
         paddr: PhysAddr::new(0x8000_0000),
         vaddr: VirtAddr::new(0x8000_0000),
-        dirty_updates: crate::arch::translation::DirtyUpdates::NONE,
+        dirty_updates: DirtyUpdates::NONE,
         side_effecting: false,
         parts: LoadParts::Whole(None),
     }

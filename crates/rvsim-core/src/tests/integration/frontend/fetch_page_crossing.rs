@@ -6,6 +6,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
@@ -39,7 +40,7 @@ fn straddling_context(backend: BackendKind) -> TestContext {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
 
     write_pte(&mut ctx, ROOT_PPN, (CODE_VA >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);

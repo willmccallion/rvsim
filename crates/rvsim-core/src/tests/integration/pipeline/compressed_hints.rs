@@ -3,6 +3,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A2, S4, X0};
@@ -36,7 +37,7 @@ fn trap_cause(backend: BackendKind) -> Option<u64> {
     let handler = [i().csrrs(A2, MCAUSE, X0).build(), i().jal(X0, 0).build()];
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     store_words(&mut ctx.sim, HANDLER, &handler);
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
