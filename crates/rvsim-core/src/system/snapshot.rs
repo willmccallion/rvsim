@@ -155,8 +155,9 @@ pub struct WritebackSlot {
     pub rob_tag: u32,
 }
 
-impl From<&LatchSnapshot> for PipelineSnapshot {
-    fn from(latches: &LatchSnapshot) -> Self {
+impl PipelineSnapshot {
+    /// The plain-data copy of what `latches` hold.
+    pub(crate) fn of(latches: &LatchSnapshot) -> Self {
         Self {
             width: latches.width,
             fetch1_fetch2: latches

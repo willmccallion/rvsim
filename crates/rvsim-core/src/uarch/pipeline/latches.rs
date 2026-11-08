@@ -164,17 +164,6 @@ pub struct VecMemAccess {
     pub target: VecMemTarget,
 }
 
-impl VecMemAccess {
-    /// Bytes the micro-op reads or writes.
-    #[must_use]
-    pub fn bytes(&self) -> usize {
-        match &self.target {
-            VecMemTarget::Element { eew, .. } => eew.bytes(),
-            VecMemTarget::Span(span) => span.bytes(),
-        }
-    }
-}
-
 /// What a vector memory micro-op accesses.
 #[derive(Clone, Debug)]
 pub enum VecMemTarget {
@@ -416,9 +405,6 @@ pub struct Mem1Mem2Entry {
     /// Set by memory1 when a store-buffer hit replaced the cache request;
     /// memory2 sign-extends `load_data` without re-checking the SB.
     pub sb_forwarded: bool,
-    /// Cycle at which this entry's memory operation completes (O3 per-op latency).
-    /// For non-memory ops or in-order backend, defaults to 0 (ready immediately).
-    pub complete_cycle: u64,
     /// The D-bit updates the access applies when it retires.
     pub dirty_updates: DirtyUpdates,
     /// Write-log position when `load_data` was read from RAM; `None` for
@@ -488,7 +474,6 @@ impl Mem1Mem2Entry {
             store_data: ex.store_data,
             load_data: 0,
             sb_forwarded: false,
-            complete_cycle: 0,
             dirty_updates: DirtyUpdates::NONE,
             observed: None,
         }

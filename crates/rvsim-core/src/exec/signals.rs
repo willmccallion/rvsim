@@ -154,8 +154,6 @@ pub struct ControlSignals {
     pub vs1: VRegIdx,
     /// Vector source register 2.
     pub vs2: VRegIdx,
-    /// Vector source register 3 (FMA, stores).
-    pub vs3: VRegIdx,
     /// Masking bit (true = unmasked).
     pub vm: bool,
     /// Enable write to vector destination register.

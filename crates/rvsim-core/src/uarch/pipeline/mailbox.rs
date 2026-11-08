@@ -151,7 +151,6 @@ fn complete_load<E: ExecutionEngine>(
 ) {
     let entry = load.entry;
     let paddr = load.paddr;
-    let cycle = state.uncore().kernel.cycle;
 
     if let Some(log) = state.uncore().kernel.memory.write_log()
         && let Some(load_queue) = pipeline.engine.load_queue_mut()
@@ -163,7 +162,6 @@ fn complete_load<E: ExecutionEngine>(
 
     pipeline.engine.mem1_mem2_mut().push(Mem1Mem2Entry {
         load_data: read.value,
-        complete_cycle: cycle,
         dirty_updates: load.dirty_updates,
         observed: read.observed,
         ..Mem1Mem2Entry::from_execute(entry, load.vaddr, paddr)

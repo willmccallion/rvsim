@@ -86,7 +86,7 @@ impl RefreshPolicy for SameBank {
 impl RefreshKind {
     /// Instantiates the policy.
     #[must_use]
-    pub fn build(self) -> Box<dyn RefreshPolicy> {
+    pub(crate) fn build(self) -> Box<dyn RefreshPolicy> {
         match self {
             Self::AllBank => Box::new(AllBank),
             Self::SameBank => Box::new(SameBank),

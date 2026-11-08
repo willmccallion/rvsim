@@ -203,7 +203,7 @@ impl Watch {
     /// The hit `access` scores on this range, if it touches it the way the
     /// range watches for.
     #[must_use]
-    pub fn hit(&self, access: &MemAccess) -> Option<WatchHit> {
+    pub(crate) fn hit(&self, access: &MemAccess) -> Option<WatchHit> {
         let wanted = match self.kind {
             WatchKind::Write => access.write,
             WatchKind::Read => access.read,
