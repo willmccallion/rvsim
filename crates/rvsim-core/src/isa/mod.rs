@@ -11,6 +11,8 @@ pub mod csr;
 
 pub mod disasm;
 
+pub mod encode;
+
 pub mod encoding;
 
 pub mod extension;

@@ -15,84 +15,48 @@
 //! - R4-type: OP_FMADD, OP_FMSUB, OP_FNMADD, OP_FNMSUB
 
 use crate::isa::csr::CsrAddr;
+use crate::isa::encode::{BType, IType, JType, R4Type, RType, SType, UType};
 use crate::isa::instruction::{InstructionBits, decode};
 use crate::isa::reg::RegIdx;
 
+/// A register field's index.
+fn r(idx: u32) -> RegIdx {
+    RegIdx::new(idx as u8)
+}
+
 /// Encode an R-type instruction.
 fn r_type(opcode: u32, rd: u32, funct3: u32, rs1: u32, rs2: u32, funct7: u32) -> u32 {
-    (funct7 & 0x7F) << 25
-        | (rs2 & 0x1F) << 20
-        | (rs1 & 0x1F) << 15
-        | (funct3 & 0x7) << 12
-        | (rd & 0x1F) << 7
-        | (opcode & 0x7F)
+    RType { opcode, funct3, funct7, rd: r(rd), rs1: r(rs1), rs2: r(rs2) }.encode()
 }
 
 /// Encode an I-type instruction.
 fn i_type(opcode: u32, rd: u32, funct3: u32, rs1: u32, imm: i32) -> u32 {
-    let imm_bits = (imm as u32) & 0xFFF;
-    imm_bits << 20 | (rs1 & 0x1F) << 15 | (funct3 & 0x7) << 12 | (rd & 0x1F) << 7 | (opcode & 0x7F)
+    IType { opcode, funct3, rd: r(rd), rs1: r(rs1), imm }.encode()
 }
 
 /// Encode an S-type instruction.
 fn s_type(opcode: u32, funct3: u32, rs1: u32, rs2: u32, imm: i32) -> u32 {
-    let v = imm as u32;
-    let hi = (v >> 5) & 0x7F;
-    let lo = v & 0x1F;
-    hi << 25
-        | (rs2 & 0x1F) << 20
-        | (rs1 & 0x1F) << 15
-        | (funct3 & 0x7) << 12
-        | lo << 7
-        | (opcode & 0x7F)
+    SType { opcode, funct3, rs1: r(rs1), rs2: r(rs2), imm }.encode()
 }
 
 /// Encode a B-type instruction.
 fn b_type(opcode: u32, funct3: u32, rs1: u32, rs2: u32, imm: i32) -> u32 {
-    let v = imm as u32;
-    let bit12 = (v >> 12) & 1;
-    let bits10_5 = (v >> 5) & 0x3F;
-    let bits4_1 = (v >> 1) & 0xF;
-    let bit11 = (v >> 11) & 1;
-    bit12 << 31
-        | bits10_5 << 25
-        | (rs2 & 0x1F) << 20
-        | (rs1 & 0x1F) << 15
-        | (funct3 & 0x7) << 12
-        | bits4_1 << 8
-        | bit11 << 7
-        | (opcode & 0x7F)
+    BType { opcode, funct3, rs1: r(rs1), rs2: r(rs2), offset: imm }.encode()
 }
 
 /// Encode a U-type instruction.
 fn u_type(opcode: u32, rd: u32, imm20: u32) -> u32 {
-    (imm20 & 0xFFFFF) << 12 | (rd & 0x1F) << 7 | (opcode & 0x7F)
+    UType { opcode, rd: r(rd), imm20 }.encode()
 }
 
 /// Encode a J-type instruction.
 fn j_type(opcode: u32, rd: u32, imm: i32) -> u32 {
-    let v = imm as u32;
-    let bit20 = (v >> 20) & 1;
-    let bits10_1 = (v >> 1) & 0x3FF;
-    let bit11 = (v >> 11) & 1;
-    let bits19_12 = (v >> 12) & 0xFF;
-    bit20 << 31
-        | bits10_1 << 21
-        | bit11 << 20
-        | bits19_12 << 12
-        | (rd & 0x1F) << 7
-        | (opcode & 0x7F)
+    JType { opcode, rd: r(rd), offset: imm }.encode()
 }
 
 /// Encode an R4-type (FMA) instruction.
 fn r4_type(opcode: u32, rd: u32, funct3: u32, rs1: u32, rs2: u32, rs3: u32, fmt: u32) -> u32 {
-    (rs3 & 0x1F) << 27
-        | (fmt & 0x3) << 25
-        | (rs2 & 0x1F) << 20
-        | (rs1 & 0x1F) << 15
-        | (funct3 & 0x7) << 12
-        | (rd & 0x1F) << 7
-        | (opcode & 0x7F)
+    R4Type { opcode, funct3, fmt, rd: r(rd), rs1: r(rs1), rs2: r(rs2), rs3: r(rs3) }.encode()
 }
 
 use crate::isa::encoding::privileged as sys_op;
