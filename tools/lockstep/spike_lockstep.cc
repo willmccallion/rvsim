@@ -93,6 +93,12 @@ struct ResetState {
   std::vector<CsrWrite> csrs;
 };
 
+// Memory something other than the hart wrote: HTIF, DMA, the SE host.
+struct HostWrite {
+  uint64_t paddr;
+  std::vector<char> bytes;
+};
+
 struct Record {
   enum class Kind { retired, trap } kind;
   Retired retired;
@@ -159,6 +165,10 @@ class CommitLog {
       if (line.rfind("core   0: ", 0) != 0) continue;
       remember(line);
       try {
+        if (line.rfind(host_write_prefix, 0) == 0) {
+          host_writes_.push_back(parse_host_write(line));
+          continue;
+        }
         return parse_record(line);
       } catch (const std::logic_error&) {
         throw std::runtime_error("malformed commit log line " + std::to_string(lines_read_) + ": " + line);
@@ -181,10 +191,26 @@ class CommitLog {
     return next();
   }
 
+  // The host writes logged before the records read so far.
+  std::vector<HostWrite> take_host_writes() { return std::exchange(host_writes_, {}); }
+
   const std::deque<std::string>& recent() const { return recent_; }
   uint64_t lines_read() const { return lines_read_; }
 
  private:
+  static constexpr const char* host_write_prefix = "core   0: host write ";
+
+  // `core   0: host write 0x<paddr> 0x<bytes>`, the bytes in address order.
+  static HostWrite parse_host_write(const std::string& line) {
+    std::istringstream fields(line.substr(std::strlen(host_write_prefix)));
+    std::string paddr, data;
+    fields >> paddr >> data;
+    HostWrite write{parse_hex(paddr), std::vector<char>((data.size() - 2) / 2)};
+    for (size_t i = 0; i < write.bytes.size(); ++i)
+      write.bytes[i] = static_cast<char>(std::stoul(data.substr(2 + 2 * i, 2), nullptr, 16));
+    return write;
+  }
+
   static Record parse_record(const std::string& line) {
     std::istringstream fields(line.substr(10));
     std::string first;
@@ -267,6 +293,7 @@ class CommitLog {
   std::ifstream in_;
   std::optional<std::string> pending_line_;
   std::optional<Record> lookahead_;
+  std::vector<HostWrite> host_writes_;
   std::deque<std::string> recent_;
   uint64_t lines_read_ = 0;
 };
@@ -483,6 +510,8 @@ class Lockstep {
 
   void run() {
     while (auto record = log_.take()) {
+      for (const HostWrite& write : log_.take_host_writes())
+        platform_.write_ram(write.paddr, write.bytes.data(), write.bytes.size());
       if (record->kind == Record::Kind::trap) {
         take_logged_trap(record->trap);
       } else {
