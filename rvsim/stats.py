@@ -55,21 +55,10 @@ class Stats(dict):
         return cls(data)
 
     def query(self, pattern: str) -> Stats:
-        """Search for statistics matching *pattern* (case-insensitive regex or substring)."""
-        matches = {}
-        try:
-            regex = re.compile(pattern, re.IGNORECASE)
-        except re.error:
-            regex = None
-
-        for key, value in self.items():
-            if regex:
-                if regex.search(key):
-                    matches[key] = value
-            elif pattern.lower() in key.lower():
-                matches[key] = value
-
-        return Stats(matches)
+        """The statistics whose path *pattern*, a case-insensitive regex,
+        matches anywhere in. An invalid regex raises ``re.error``."""
+        regex = re.compile(pattern, re.IGNORECASE)
+        return Stats({key: value for key, value in self.items() if regex.search(key)})
 
     @staticmethod
     def tabulate(rows: dict[str, Stats], *, title: str = "") -> Table:
