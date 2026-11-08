@@ -28,7 +28,7 @@ use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Pa
 use crate::soc::devices::Device;
 use crate::soc::terminal::SharedTerminal;
 use crate::system::process::errno::Errno;
-use crate::system::process::files::{FileTable, PATH_MAX, Stat};
+use crate::system::process::files::{Fd, FileTable, PATH_MAX, Stat};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -140,18 +140,18 @@ impl Htif {
                 self.exit_signal.store(a[0], Ordering::Relaxed);
                 Ok(0)
             }
-            SYS_WRITE => host.write(a[0] as i64, a[1], a[2]),
-            SYS_READ => host.read(a[0] as i64, a[1], a[2]),
-            SYS_PREAD => host.pread(a[0] as i64, a[1], a[2], a[3]),
-            SYS_PWRITE => host.pwrite(a[0] as i64, a[1], a[2], a[3]),
+            SYS_WRITE => host.write(Fd::from_arg(a[0]), a[1], a[2]),
+            SYS_READ => host.read(Fd::from_arg(a[0]), a[1], a[2]),
+            SYS_PREAD => host.pread(Fd::from_arg(a[0]), a[1], a[2], a[3]),
+            SYS_PWRITE => host.pwrite(Fd::from_arg(a[0]), a[1], a[2], a[3]),
             SYS_OPENAT => {
                 let path = host.path(a[1], a[2])?;
-                host.files.open(path, a[3], a[4]).map(|fd| fd as u64)
+                host.files.open(path, a[3], a[4]).map(Fd::return_value)
             }
-            SYS_CLOSE => host.files.close(a[0] as i64).map(|()| 0),
-            SYS_LSEEK => host.files.seek(a[0] as i64, a[1] as i64, a[2]),
+            SYS_CLOSE => host.files.close(Fd::from_arg(a[0])).map(|()| 0),
+            SYS_LSEEK => host.files.seek(Fd::from_arg(a[0]), a[1] as i64, a[2]),
             SYS_FSTAT => {
-                let stat = host.files.stat(a[0] as i64)?;
+                let stat = host.files.stat(Fd::from_arg(a[0]))?;
                 {
                     host.write_bytes(a[1], &stat.to_bytes());
                     Ok(0)
@@ -173,7 +173,7 @@ impl Htif {
                     Ok(0)
                 }
             }
-            SYS_FTRUNCATE => host.files.truncate(a[0] as i64, a[1]).map(|()| 0),
+            SYS_FTRUNCATE => host.files.truncate(Fd::from_arg(a[0]), a[1]).map(|()| 0),
             SYS_FACCESSAT => {
                 let path = host.path(a[1], a[2])?;
                 std::fs::metadata(&path).map(drop)?;
@@ -275,26 +275,26 @@ impl Host<'_> {
         }
     }
 
-    fn write(&mut self, fd: i64, buf: u64, len: u64) -> Result<u64, Errno> {
+    fn write(&mut self, fd: Fd, buf: u64, len: u64) -> Result<u64, Errno> {
         let bytes = self.read_bytes(buf, len)?;
         self.files.write(fd, &bytes).map(|n| n as u64)
     }
 
-    fn read(&mut self, fd: i64, buf: u64, len: u64) -> Result<u64, Errno> {
+    fn read(&mut self, fd: Fd, buf: u64, len: u64) -> Result<u64, Errno> {
         let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let bytes = self.files.read(fd, len)?;
         self.write_bytes(buf, &bytes);
         Ok(bytes.len() as u64)
     }
 
-    fn pread(&mut self, fd: i64, buf: u64, len: u64, offset: u64) -> Result<u64, Errno> {
+    fn pread(&mut self, fd: Fd, buf: u64, len: u64, offset: u64) -> Result<u64, Errno> {
         let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let bytes = self.files.pread(fd, len, offset)?;
         self.write_bytes(buf, &bytes);
         Ok(bytes.len() as u64)
     }
 
-    fn pwrite(&mut self, fd: i64, buf: u64, len: u64, offset: u64) -> Result<u64, Errno> {
+    fn pwrite(&mut self, fd: Fd, buf: u64, len: u64, offset: u64) -> Result<u64, Errno> {
         let bytes = self.read_bytes(buf, len)?;
         self.files.pwrite(fd, &bytes, offset).map(|n| n as u64)
     }

@@ -9,7 +9,7 @@ mod thread;
 use thread::ThreadCall;
 
 use super::errno::Errno;
-use super::files::{PATH_MAX, Stat, open_flags};
+use super::files::{Fd, PATH_MAX, Stat, open_flags};
 use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, ThreadRef, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
 use crate::common::VirtAddr;
@@ -259,29 +259,33 @@ impl Sys<'_> {
     fn dispatch(&mut self, number: u64, a: [u64; 6]) -> SysResult {
         let at = |i: usize| VirtAddr::new(a[i]);
         match number {
-            SYS_WRITE => self.write(a[0] as i64, at(1), a[2]),
-            SYS_READ => self.read(a[0] as i64, at(1), a[2]),
-            SYS_WRITEV => self.writev(a[0] as i64, at(1), a[2]),
-            SYS_READV => self.readv(a[0] as i64, at(1), a[2]),
-            SYS_PREAD64 => self.pread(a[0] as i64, at(1), a[2], a[3]),
-            SYS_PWRITE64 => self.pwrite(a[0] as i64, at(1), a[2], a[3]),
-            SYS_OPENAT => self.openat(a[0] as i64, at(1), a[2], a[3]),
-            SYS_CLOSE => self.process.files.close(a[0] as i64).map(|()| Reply::Value(0)),
-            SYS_LSEEK => self.process.files.seek(a[0] as i64, a[1] as i64, a[2]).and_then(ok),
-            SYS_FSTAT => self.fstat(a[0] as i64, at(1)),
-            SYS_NEWFSTATAT => self.fstatat(a[0] as i64, at(1), at(2), a[3]),
-            SYS_FACCESSAT | SYS_FACCESSAT2 => self.faccessat(a[0] as i64, at(1)),
-            SYS_READLINKAT => self.readlinkat(a[0] as i64, at(1), at(2), a[3]),
-            SYS_MKDIRAT => self.mkdirat(a[0] as i64, at(1)),
-            SYS_UNLINKAT => self.unlinkat(a[0] as i64, at(1), a[2]),
-            SYS_RENAMEAT | SYS_RENAMEAT2 => self.renameat(a[0] as i64, at(1), a[2] as i64, at(3)),
+            SYS_WRITE => self.write(Fd::from_arg(a[0]), at(1), a[2]),
+            SYS_READ => self.read(Fd::from_arg(a[0]), at(1), a[2]),
+            SYS_WRITEV => self.writev(Fd::from_arg(a[0]), at(1), a[2]),
+            SYS_READV => self.readv(Fd::from_arg(a[0]), at(1), a[2]),
+            SYS_PREAD64 => self.pread(Fd::from_arg(a[0]), at(1), a[2], a[3]),
+            SYS_PWRITE64 => self.pwrite(Fd::from_arg(a[0]), at(1), a[2], a[3]),
+            SYS_OPENAT => self.openat(Fd::from_arg(a[0]), at(1), a[2], a[3]),
+            SYS_CLOSE => self.process.files.close(Fd::from_arg(a[0])).map(|()| Reply::Value(0)),
+            SYS_LSEEK => {
+                self.process.files.seek(Fd::from_arg(a[0]), a[1] as i64, a[2]).and_then(ok)
+            }
+            SYS_FSTAT => self.fstat(Fd::from_arg(a[0]), at(1)),
+            SYS_NEWFSTATAT => self.fstatat(Fd::from_arg(a[0]), at(1), at(2), a[3]),
+            SYS_FACCESSAT | SYS_FACCESSAT2 => self.faccessat(Fd::from_arg(a[0]), at(1)),
+            SYS_READLINKAT => self.readlinkat(Fd::from_arg(a[0]), at(1), at(2), a[3]),
+            SYS_MKDIRAT => self.mkdirat(Fd::from_arg(a[0]), at(1)),
+            SYS_UNLINKAT => self.unlinkat(Fd::from_arg(a[0]), at(1), a[2]),
+            SYS_RENAMEAT | SYS_RENAMEAT2 => {
+                self.renameat(Fd::from_arg(a[0]), at(1), Fd::from_arg(a[2]), at(3))
+            }
             SYS_GETCWD => self.getcwd(at(0), a[1]),
-            SYS_IOCTL => self.ioctl(a[0] as i64, a[1], at(2)),
+            SYS_IOCTL => self.ioctl(Fd::from_arg(a[0]), a[1], at(2)),
             SYS_BRK => {
                 let brk = self.process.set_brk(self.memory, self.frames, at(0));
                 ok(brk.val())
             }
-            SYS_MMAP => self.mmap(user_pointer(a[0]), a[1], a[2], a[3], a[4] as i64, a[5]),
+            SYS_MMAP => self.mmap(user_pointer(a[0]), a[1], a[2], a[3], Fd::from_arg(a[4]), a[5]),
             SYS_MUNMAP => {
                 self.process.unmap(self.memory, at(0), a[1]);
                 ok(0)
@@ -334,31 +338,31 @@ impl Sys<'_> {
         self.process.space.read_cstr(self.memory, vaddr, PATH_MAX).map_err(Errno::from)
     }
 
-    fn resolve(&mut self, dirfd: i64, path: VirtAddr) -> Result<std::path::PathBuf, Errno> {
+    fn resolve(&mut self, dirfd: Fd, path: VirtAddr) -> Result<std::path::PathBuf, Errno> {
         let path = self.read_path(path)?;
         self.process.files.resolve(dirfd, &path)
     }
 
-    fn write(&mut self, fd: i64, buf: VirtAddr, len: u64) -> SysResult {
+    fn write(&mut self, fd: Fd, buf: VirtAddr, len: u64) -> SysResult {
         let bytes = self.read_user(buf, len)?;
         self.process.files.write(fd, &bytes).and_then(|n| ok(n as u64))
     }
 
-    fn read(&mut self, fd: i64, buf: VirtAddr, len: u64) -> SysResult {
+    fn read(&mut self, fd: Fd, buf: VirtAddr, len: u64) -> SysResult {
         let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let bytes = self.process.files.read(fd, len)?;
         self.write_user(buf, &bytes)?;
         ok(bytes.len() as u64)
     }
 
-    fn pread(&mut self, fd: i64, buf: VirtAddr, len: u64, offset: u64) -> SysResult {
+    fn pread(&mut self, fd: Fd, buf: VirtAddr, len: u64, offset: u64) -> SysResult {
         let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let bytes = self.process.files.pread(fd, len, offset)?;
         self.write_user(buf, &bytes)?;
         ok(bytes.len() as u64)
     }
 
-    fn pwrite(&mut self, fd: i64, buf: VirtAddr, len: u64, offset: u64) -> SysResult {
+    fn pwrite(&mut self, fd: Fd, buf: VirtAddr, len: u64, offset: u64) -> SysResult {
         let bytes = self.read_user(buf, len)?;
         self.process.files.pwrite(fd, &bytes, offset).and_then(|n| ok(n as u64))
     }
@@ -381,7 +385,7 @@ impl Sys<'_> {
             .collect())
     }
 
-    fn writev(&mut self, fd: i64, iov: VirtAddr, count: u64) -> SysResult {
+    fn writev(&mut self, fd: Fd, iov: VirtAddr, count: u64) -> SysResult {
         let mut total = 0u64;
         for (base, len) in self.iovecs(iov, count)? {
             let bytes = self.read_user(base, len)?;
@@ -390,7 +394,7 @@ impl Sys<'_> {
         ok(total)
     }
 
-    fn readv(&mut self, fd: i64, iov: VirtAddr, count: u64) -> SysResult {
+    fn readv(&mut self, fd: Fd, iov: VirtAddr, count: u64) -> SysResult {
         let mut total = 0u64;
         for (base, len) in self.iovecs(iov, count)? {
             let want = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
@@ -404,15 +408,19 @@ impl Sys<'_> {
         ok(total)
     }
 
-    fn openat(&mut self, dirfd: i64, path: VirtAddr, flags: u64, mode: u64) -> SysResult {
+    fn openat(&mut self, dirfd: Fd, path: VirtAddr, flags: u64, mode: u64) -> SysResult {
         let path = self.resolve(dirfd, path)?;
         if let Some(contents) = self.generated_file(&path) {
             if flags & open_flags::O_ACCMODE != open_flags::O_RDONLY {
                 return Err(Errno::EACCES);
             }
-            return self.process.files.open_generated(contents).and_then(ok_i64);
+            return self
+                .process
+                .files
+                .open_generated(contents)
+                .and_then(|fd| ok(fd.return_value()));
         }
-        self.process.files.open(path, flags, mode).and_then(ok_i64)
+        self.process.files.open(path, flags, mode).and_then(|fd| ok(fd.return_value()))
     }
 
     /// The contents of a file the kernel generates about the machine,
@@ -427,13 +435,13 @@ impl Sys<'_> {
         Some(list.into_bytes())
     }
 
-    fn fstat(&mut self, fd: i64, buf: VirtAddr) -> SysResult {
+    fn fstat(&mut self, fd: Fd, buf: VirtAddr) -> SysResult {
         let stat = self.process.files.stat(fd)?;
         self.write_user(buf, &stat.to_bytes())?;
         ok(0)
     }
 
-    fn fstatat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, flags: u64) -> SysResult {
+    fn fstatat(&mut self, dirfd: Fd, path: VirtAddr, buf: VirtAddr, flags: u64) -> SysResult {
         let path_bytes = self.read_path(path)?;
         let stat = if path_bytes.is_empty() && flags & AT_EMPTY_PATH != 0 {
             self.process.files.stat(dirfd)?
@@ -445,13 +453,13 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn faccessat(&mut self, dirfd: i64, path: VirtAddr) -> SysResult {
+    fn faccessat(&mut self, dirfd: Fd, path: VirtAddr) -> SysResult {
         let host = self.resolve(dirfd, path)?;
         std::fs::metadata(&host).map(drop)?;
         ok(0)
     }
 
-    fn readlinkat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, size: u64) -> SysResult {
+    fn readlinkat(&mut self, dirfd: Fd, path: VirtAddr, buf: VirtAddr, size: u64) -> SysResult {
         let path_bytes = self.read_path(path)?;
         let target: Vec<u8> = if path_bytes == b"/proc/self/exe" {
             let program = self.process.program.as_deref().ok_or(Errno::ENOENT)?;
@@ -465,13 +473,13 @@ impl Sys<'_> {
         ok(len as u64)
     }
 
-    fn mkdirat(&mut self, dirfd: i64, path: VirtAddr) -> SysResult {
+    fn mkdirat(&mut self, dirfd: Fd, path: VirtAddr) -> SysResult {
         let host = self.resolve(dirfd, path)?;
         std::fs::create_dir(&host)?;
         ok(0)
     }
 
-    fn unlinkat(&mut self, dirfd: i64, path: VirtAddr, flags: u64) -> SysResult {
+    fn unlinkat(&mut self, dirfd: Fd, path: VirtAddr, flags: u64) -> SysResult {
         let host = self.resolve(dirfd, path)?;
         let removed = if flags & AT_REMOVEDIR != 0 {
             std::fs::remove_dir(&host)
@@ -484,9 +492,9 @@ impl Sys<'_> {
 
     fn renameat(
         &mut self,
-        old_dirfd: i64,
+        old_dirfd: Fd,
         old: VirtAddr,
-        new_dirfd: i64,
+        new_dirfd: Fd,
         new: VirtAddr,
     ) -> SysResult {
         let from = self.resolve(old_dirfd, old)?;
@@ -506,7 +514,7 @@ impl Sys<'_> {
         ok(cwd.len() as u64)
     }
 
-    fn ioctl(&mut self, fd: i64, request: u64, arg: VirtAddr) -> SysResult {
+    fn ioctl(&mut self, fd: Fd, request: u64, arg: VirtAddr) -> SysResult {
         if !self.process.files.is_console(fd) {
             return Err(Errno::ENOTTY);
         }
@@ -539,7 +547,7 @@ impl Sys<'_> {
         len: u64,
         prot: u64,
         flags: u64,
-        fd: i64,
+        fd: Fd,
         offset: u64,
     ) -> SysResult {
         if len == 0 {
@@ -794,11 +802,6 @@ fn cpu_list(count: usize) -> String {
 /// A pointer argument: `None` for null.
 const fn user_pointer(raw: u64) -> Option<VirtAddr> {
     if raw == 0 { None } else { Some(VirtAddr::new(raw)) }
-}
-
-#[allow(clippy::unnecessary_wraps, reason = "the handlers' common result type")]
-const fn ok_i64(value: i64) -> SysResult {
-    Ok(Reply::Value(value))
 }
 
 /// The flush the retire path applies after a syscall that changed the
