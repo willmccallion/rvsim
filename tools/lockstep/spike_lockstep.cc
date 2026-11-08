@@ -460,6 +460,10 @@ class Lockstep {
     hart_.set_privilege(reset.privilege, false);
     for (auto [index, value] : reset.xregs) state_.XPR.write(index, value);
     for (auto [index, value] : reset.fregs) state_.FPR.write(index, boxed(value));
+    // spike marks the FP state dirty on every FP CSR write and aborts when
+    // mstatus.FS is off, so the CSRs go in with FS on and mstatus last.
+    hart_.put_csr(CSR_MSTATUS, read_csr(CSR_MSTATUS) | MSTATUS_FS);
+    std::optional<uint64_t> mstatus;
     for (auto [addr, value] : reset.csrs) {
       if (addr == CSR_MISA) {
         uint64_t spike_misa = read_csr(CSR_MISA);
@@ -468,8 +472,13 @@ class Lockstep {
                                    "; spike lacks an extension rvsim has");
         continue;
       }
+      if (addr == CSR_MSTATUS) {
+        mstatus = value;
+        continue;
+      }
       hart_.put_csr(addr, value);
     }
+    if (mstatus) hart_.put_csr(CSR_MSTATUS, *mstatus);
   }
 
   void run() {
