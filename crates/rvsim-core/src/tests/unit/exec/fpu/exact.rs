@@ -102,7 +102,7 @@ fn nearest_ties_away(exact: f64) -> f32 {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 4096, ..ProptestConfig::default() })]
+    #![proptest_config(crate::tests::support::seeded_cases(4096))]
 
     #[test]
     fn a_single_precision_product_rounds_to_nearest_ties_away(a in any::<u32>(), b in any::<u32>()) {

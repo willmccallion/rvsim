@@ -150,10 +150,7 @@ fn aligned_leaf_ppn(leaf_level: usize, raw: u64) -> u64 {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 64,
-        ..ProptestConfig::default()
-    })]
+    #![proptest_config(crate::tests::support::seeded_cases(64))]
 
     /// Picking any supported mode and any allowed leaf level, an installed
     /// translation must round-trip through `Mmu::translate`.
