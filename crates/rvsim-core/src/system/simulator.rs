@@ -27,6 +27,7 @@ use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::Packet;
 use crate::sim::stats::Stats;
+use crate::soc::exit::ExitSignal;
 use crate::soc::topology::{CacheSlot, PrivateCache};
 use crate::system::dtb;
 use crate::system::gdb;
@@ -41,8 +42,6 @@ use crate::uarch::pipeline::trace::PipelineTrace;
 pub use crate::uarch::pipeline::trace::PipelineTraceFormat;
 use crate::uarch::pipeline::trace::kanata::KanataWriter;
 pub use crate::uarch::{Watch, WatchKind};
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 
 /// Where [`Simulator::run_to`] stops, besides the simulation ending.
 /// Counts are relative to where the run starts.
@@ -178,7 +177,7 @@ impl Simulator {
     /// Returns [`SimError::RamAllocation`] when the host cannot map the RAM,
     /// and [`SimError::FileRead`] when `disk` names an image it cannot read.
     pub fn build(config: &ValidConfig, disk: Option<&str>) -> Result<Self, SimError> {
-        let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+        let exit_signal = ExitSignal::new();
         Ok(Self::new(SystemState::new(config, disk, exit_signal)?))
     }
 
@@ -207,7 +206,7 @@ impl Simulator {
                 tracing::warn!(target: "rvsim::htif", tohost, fromhost = ?loaded.fromhost_addr,
                     "fromhost is not the word after tohost; HTIF syscalls will not complete");
             }
-            let exit_signal = Arc::clone(&self.state.exit_signal);
+            let exit_signal = self.state.exit_signal.clone();
             self.state.uncore.add_htif(tohost, &exit_signal, args.argv.clone());
         }
         self.reset_bare_metal(loaded.entry);

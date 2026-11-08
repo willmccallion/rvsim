@@ -16,8 +16,7 @@ use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use crate::soc::exit::ExitSignal;
 
 /// `SysCon` device structure.
 #[derive(Debug)]
@@ -25,12 +24,12 @@ pub struct SysCon {
     /// Base physical address of the device.
     base_addr: u64,
     /// Shared atomic flag to signal the simulation loop to exit.
-    exit_signal: Arc<AtomicU64>,
+    exit_signal: ExitSignal,
 }
 
 impl SysCon {
     /// Creates a new `SysCon` device.
-    pub const fn new(base_addr: u64, exit_signal: Arc<AtomicU64>) -> Self {
+    pub const fn new(base_addr: u64, exit_signal: ExitSignal) -> Self {
         Self { base_addr, exit_signal }
     }
 
@@ -38,15 +37,15 @@ impl SysCon {
         match val {
             0x5555 => {
                 tracing::info!(target: "rvsim::syscon", "poweroff");
-                self.exit_signal.store(0, Ordering::Relaxed);
+                self.exit_signal.signal(0);
             }
             0x7777 => {
                 tracing::info!(target: "rvsim::syscon", "reset, taken as exit");
-                self.exit_signal.store(0, Ordering::Relaxed);
+                self.exit_signal.signal(0);
             }
             0x3333 => {
                 tracing::info!(target: "rvsim::syscon", "failure");
-                self.exit_signal.store(1, Ordering::Relaxed);
+                self.exit_signal.signal(1);
             }
             _ => {}
         }

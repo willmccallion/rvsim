@@ -26,6 +26,7 @@ use crate::sim::memory::GlobalMemory;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
+use crate::soc::exit::ExitSignal;
 use crate::soc::terminal::SharedTerminal;
 use crate::system::process::errno::Errno;
 use crate::system::process::file_calls::{self, FileCalls, GuestMemory, PhysicalMemory};
@@ -38,8 +39,6 @@ use crate::system::process::syscall::{
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 const DEVICE_SHIFT: u64 = 56;
 const COMMAND_SHIFT: u64 = 48;
@@ -57,7 +56,7 @@ const SYS_GETMAINVARS: u64 = 2011;
 #[derive(Debug)]
 pub struct Htif {
     base_addr: u64,
-    exit_signal: Arc<AtomicU64>,
+    exit_signal: ExitSignal,
     /// What the target reads at `fromhost` until it clears it.
     fromhost: u64,
     /// The host's descriptors; 0, 1 and 2 are the simulator's console.
@@ -72,7 +71,7 @@ impl Htif {
     #[must_use]
     pub fn new(
         base_addr: u64,
-        exit_signal: Arc<AtomicU64>,
+        exit_signal: ExitSignal,
         args: Vec<String>,
         terminal: SharedTerminal,
     ) -> Self {
@@ -96,7 +95,7 @@ impl Htif {
             if code != 0 {
                 tracing::warn!(target: "rvsim::htif", test = code, tohost = val, "test failed");
             }
-            self.exit_signal.store(code, Ordering::Relaxed);
+            self.exit_signal.signal(code);
             return;
         }
         self.serve_syscall(payload, memory);
@@ -130,7 +129,7 @@ impl Htif {
         let mut calls = FileCalls { files: &mut self.files, memory: PhysicalMemory(memory) };
         match number {
             SYS_EXIT => {
-                self.exit_signal.store(a[0], Ordering::Relaxed);
+                self.exit_signal.signal(a[0]);
                 Ok(0)
             }
             SYS_WRITE => calls.write(fd, at(1), a[2]),

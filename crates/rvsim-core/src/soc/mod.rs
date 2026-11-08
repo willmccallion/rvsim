@@ -14,6 +14,8 @@ pub mod coherence;
 
 pub mod devices;
 
+pub mod exit;
+
 pub mod memory;
 
 pub mod terminal;
