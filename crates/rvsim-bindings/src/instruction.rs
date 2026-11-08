@@ -28,3 +28,10 @@ impl PyInstruction {
         format!("Instruction(pc={:#010x}, asm={:?}, cycles={})", self.pc, self.asm, self.cycles)
     }
 }
+
+/// Disassemble a 32-bit RISC-V instruction encoding into a mnemonic string.
+#[pyfunction]
+#[must_use]
+pub fn disassemble(inst: u32) -> String {
+    rvsim_core::disasm::disassemble(inst)
+}

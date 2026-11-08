@@ -38,6 +38,21 @@ pub fn component_defaults(py: Python<'_>) -> PyResult<PyObject> {
     config_to_py_dict(py, &ComponentDefaults::default())
 }
 
+/// The ISA string the configuration implements, as the device tree
+/// advertises it: its ``isa`` string resolved, or everything the simulator
+/// has.
+///
+/// Raises ``ValueError`` for an ISA string the simulator cannot implement.
+///
+/// # Errors
+///
+/// A ``ValueError`` when the dict is not a configuration or names an ISA
+/// the simulator cannot implement.
+#[pyfunction]
+pub fn isa_string(py: Python<'_>, config_dict: &Bound<'_, PyAny>) -> PyResult<String> {
+    Ok(config_from_py(py, config_dict)?.isa_string())
+}
+
 /// `config_dict` as the core reads it, with every field it has, once the
 /// core has checked it.
 ///
