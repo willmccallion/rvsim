@@ -14,11 +14,13 @@
 //! All reductions read the initial accumulator from `vs1[0]` and write the
 //! result to `vd[0]`; remaining elements of `vd` follow the tail policy.
 
+use crate::exec::compute::fpu::float::SoftF16;
 use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
+use crate::exec::compute::fpu::invalid_if_signaling;
 use crate::exec::compute::vector::context::{
     FpSew, FpWiden, VecExecCtx, VecExecResult, mask_active, widen_sew,
 };
-use crate::exec::compute::vector::fpu::{SoftF16, VecFloat};
+use crate::exec::compute::vector::fpu::VecFloat;
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::{
@@ -266,14 +268,14 @@ fn fp_reduce<F: VecFloat>(
     vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> (u64, FpFlags) {
-    let mut acc = F::from_elem(read_initial_accum(vpr, vs1, F::SEW));
+    let mut acc = F::from_raw_bits(read_initial_accum(vpr, vs1, F::SEW));
     let mut flags = FpFlags::NONE;
 
     for i in ctx.vstart..ctx.vl {
         if !ctx.vm && !mask_active(vpr, i) {
             continue;
         }
-        let elem = F::from_elem(vpr.read_element(vs2, ElemIdx::new(i), F::SEW));
+        let elem = F::from_raw_bits(vpr.read_element(vs2, ElemIdx::new(i), F::SEW));
         let (next, f) = match op {
             FpReduceOp::OSum | FpReduceOp::USum => acc.add(elem, ctx.frm),
             FpReduceOp::Min => (acc.min(elem), invalid_if_signaling(acc, elem)),
@@ -283,12 +285,7 @@ fn fp_reduce<F: VecFloat>(
         flags = flags | f;
     }
 
-    (acc.canonical_elem_bits(), flags)
-}
-
-/// NV when either operand is a signaling NaN, as minNum and maxNum raise.
-fn invalid_if_signaling<F: VecFloat>(a: F, b: F) -> FpFlags {
-    if a.is_signaling_nan() || b.is_signaling_nan() { FpFlags::NV } else { FpFlags::NONE }
+    (acc.canonical().raw_bits(), flags)
 }
 
 /// Execute a widening FP reduction.
@@ -339,13 +336,13 @@ fn fp_widen_reduce<N: VecFloat, W: VecFloat>(
     vs1: VRegIdx,
     ctx: &VecExecCtx,
 ) -> (u64, FpFlags) {
-    let mut acc = W::from_elem(read_initial_accum(vpr, vs1, W::SEW));
+    let mut acc = W::from_raw_bits(read_initial_accum(vpr, vs1, W::SEW));
     let mut flags = FpFlags::NONE;
     for i in ctx.vstart..ctx.vl {
         if !ctx.vm && !mask_active(vpr, i) {
             continue;
         }
-        let elem = N::from_elem(vpr.read_element(vs2, ElemIdx::new(i), N::SEW));
+        let elem = N::from_raw_bits(vpr.read_element(vs2, ElemIdx::new(i), N::SEW));
         match op {
             FpWidenReduceOp::OSum | FpWidenReduceOp::USum => {
                 if elem.is_signaling_nan() {
@@ -357,7 +354,7 @@ fn fp_widen_reduce<N: VecFloat, W: VecFloat>(
             }
         }
     }
-    (acc.canonical_elem_bits(), flags)
+    (acc.canonical().raw_bits(), flags)
 }
 
 #[cfg(test)]

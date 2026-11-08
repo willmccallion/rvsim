@@ -1,6 +1,7 @@
 //! Floating-point comparisons into mask registers.
 
-use super::float::{SoftF16, VecFloat};
+use crate::exec::compute::fpu::compare;
+use crate::exec::compute::fpu::float::{Float, SoftF16};
 use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{
     FpSew, VecExecCtx, VecExecResult, VecOperand, read_op1,
@@ -31,7 +32,7 @@ pub(super) fn exec_fp_comparison(
     }
 }
 
-fn compare_loop<F: VecFloat>(
+fn compare_loop<F: Float>(
     op: FpCompareOp,
     vpr: &mut impl VectorRegFile,
     (vd_idx, vs2_idx): (VRegIdx, VRegIdx),
@@ -47,33 +48,12 @@ fn compare_loop<F: VecFloat>(
             continue;
         }
 
-        let vs2 = F::from_elem(vpr.read_element(vs2_idx, ElemIdx::new(i), ctx.sew));
-        let op1 = F::from_elem(read_op1(vpr, &operand1, i, ctx.sew));
+        let vs2 = F::from_raw_bits(vpr.read_element(vs2_idx, ElemIdx::new(i), ctx.sew));
+        let op1 = F::from_raw_bits(read_op1(vpr, &operand1, i, ctx.sew));
         let (result, f) = compare(op, vs2, op1);
         flags = flags | f;
         vpr.write_mask_bit(vd_idx, ElemIdx::new(i), result);
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
-}
-
-/// Whether `a op b` holds, with the flags: equality raises NV only on a
-/// signaling NaN, the orderings on any NaN.
-fn compare<F: VecFloat>(op: FpCompareOp, a: F, b: F) -> (bool, FpFlags) {
-    let (x, y) = (a.to_f64(), b.to_f64());
-    let is_invalid = match op {
-        FpCompareOp::Eq | FpCompareOp::Ne => a.is_signaling_nan() || b.is_signaling_nan(),
-        FpCompareOp::Lt | FpCompareOp::Le | FpCompareOp::Gt | FpCompareOp::Ge => {
-            x.is_nan() || y.is_nan()
-        }
-    };
-    let holds = match op {
-        FpCompareOp::Eq => x == y,
-        FpCompareOp::Ne => x != y,
-        FpCompareOp::Lt => x < y,
-        FpCompareOp::Le => x <= y,
-        FpCompareOp::Gt => x > y,
-        FpCompareOp::Ge => x >= y,
-    };
-    (holds, if is_invalid { FpFlags::NV } else { FpFlags::NONE })
 }

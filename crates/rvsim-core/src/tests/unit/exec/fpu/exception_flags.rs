@@ -1,23 +1,26 @@
 //! RISC-V Exception Flag tests.
 //!
-//! These tests verify that `fpu::execute_full_rm()` returns both the
+//! These tests verify that `fpu::execute()` returns both the
 //! result and the correct accrued exception flags (NV, DZ, OF, NX).
 
 use crate::exec::compute::fpu;
-use crate::exec::compute::fpu::nan_handling::box_f32;
+use crate::exec::compute::fpu::float::Float;
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
 use crate::isa::op::{FmaSigns, FpArithOp, FpOp};
+
+/// `value` NaN-boxed in a 64-bit FP register.
+fn to_register(value: f32) -> u64 {
+    Float::to_register(value)
+}
 
 #[test]
 fn test_exception_dz() {
     // 1.0 / 0.0 should set DZ flag
-    let one = box_f32(1.0);
-    let zero = box_f32(0.0);
-    let (result, flags) = fpu::execute_full_rm(
+    let one = to_register(1.0);
+    let zero = to_register(0.0);
+    let (result, flags) = fpu::execute(
         FpOp::Arith(FpArithOp::Div),
-        one,
-        zero,
-        0,
+        [one, zero, 0],
         FpFormat::Single,
         RoundingMode::Rne,
     );
@@ -35,9 +38,9 @@ fn test_exception_dz() {
 #[test]
 fn test_exception_nv() {
     // sqrt(-1.0) should set NV flag
-    let neg_one = box_f32(-1.0);
+    let neg_one = to_register(-1.0);
     let (_result, flags) =
-        fpu::execute_full_rm(FpOp::Sqrt, neg_one, 0, 0, FpFormat::Single, RoundingMode::Rne);
+        fpu::execute(FpOp::Sqrt, [neg_one, 0, 0], FpFormat::Single, RoundingMode::Rne);
 
     assert!(flags.contains(FpFlags::NV), "NV flag must be set for sqrt(-1.0)");
 }
@@ -45,13 +48,11 @@ fn test_exception_nv() {
 #[test]
 fn test_exception_of_nx() {
     // Large value multiplication resulting in overflow to infinity
-    let large = box_f32(f32::MAX);
-    let two = box_f32(2.0);
-    let (result, flags) = fpu::execute_full_rm(
+    let large = to_register(f32::MAX);
+    let two = to_register(2.0);
+    let (result, flags) = fpu::execute(
         FpOp::Arith(FpArithOp::Mul),
-        large,
-        two,
-        0,
+        [large, two, 0],
         FpFormat::Single,
         RoundingMode::Rne,
     );
@@ -66,12 +67,10 @@ fn test_exception_of_nx() {
 #[test]
 fn test_exception_nv_zero_div_zero() {
     // 0.0 / 0.0 should set NV (invalid), not DZ
-    let zero = box_f32(0.0);
-    let (_result, flags) = fpu::execute_full_rm(
+    let zero = to_register(0.0);
+    let (_result, flags) = fpu::execute(
         FpOp::Arith(FpArithOp::Div),
-        zero,
-        zero,
-        0,
+        [zero, zero, 0],
         FpFormat::Single,
         RoundingMode::Rne,
     );
@@ -82,16 +81,10 @@ fn test_exception_nv_zero_div_zero() {
 
 #[test]
 fn test_no_exception_normal_add() {
-    let a = box_f32(1.0);
-    let b = box_f32(2.0);
-    let (_result, flags) = fpu::execute_full_rm(
-        FpOp::Arith(FpArithOp::Add),
-        a,
-        b,
-        0,
-        FpFormat::Single,
-        RoundingMode::Rne,
-    );
+    let a = to_register(1.0);
+    let b = to_register(2.0);
+    let (_result, flags) =
+        fpu::execute(FpOp::Arith(FpArithOp::Add), [a, b, 0], FpFormat::Single, RoundingMode::Rne);
 
     assert!(flags.is_empty(), "Normal addition should raise no flags");
 }
@@ -100,13 +93,11 @@ fn test_no_exception_normal_add() {
 fn test_exception_snan_input_sets_nv() {
     // sNaN input to addition should set NV
     let snan_bits = 0x7f800001u32; // sNaN (quiet bit=0, payload!=0)
-    let snan = box_f32(f32::from_bits(snan_bits));
-    let one = box_f32(1.0);
-    let (_result, flags) = fpu::execute_full_rm(
+    let snan = to_register(f32::from_bits(snan_bits));
+    let one = to_register(1.0);
+    let (_result, flags) = fpu::execute(
         FpOp::Arith(FpArithOp::Add),
-        snan,
-        one,
-        0,
+        [snan, one, 0],
         FpFormat::Single,
         RoundingMode::Rne,
     );
@@ -119,11 +110,9 @@ fn test_exception_dz_f64() {
     // f64: 1.0 / 0.0 should set DZ
     let one = f64::to_bits(1.0);
     let zero = f64::to_bits(0.0);
-    let (result, flags) = fpu::execute_full_rm(
+    let (result, flags) = fpu::execute(
         FpOp::Arith(FpArithOp::Div),
-        one,
-        zero,
-        0,
+        [one, zero, 0],
         FpFormat::Double,
         RoundingMode::Rne,
     );
@@ -137,7 +126,7 @@ fn test_exception_dz_f64() {
 fn test_exception_nv_sqrt_neg_f64() {
     let neg_one = f64::to_bits(-1.0);
     let (_result, flags) =
-        fpu::execute_full_rm(FpOp::Sqrt, neg_one, 0, 0, FpFormat::Double, RoundingMode::Rne);
+        fpu::execute(FpOp::Sqrt, [neg_one, 0, 0], FpFormat::Double, RoundingMode::Rne);
     assert!(flags.contains(FpFlags::NV));
 }
 
@@ -168,14 +157,8 @@ const F16_QNAN: u16 = 0x7e00;
 fn execute_f16(op: FpOp, a: u16, b: u16, c: u16) -> FpFlags {
     use crate::exec::compute::fpu::half::box_f16;
     use crate::isa::fp::{FpFormat, RoundingMode};
-    let (_, flags) = fpu::execute_full_rm(
-        op,
-        box_f16(a),
-        box_f16(b),
-        box_f16(c),
-        FpFormat::Half,
-        RoundingMode::Rne,
-    );
+    let (_, flags) =
+        fpu::execute(op, [box_f16(a), box_f16(b), box_f16(c)], FpFormat::Half, RoundingMode::Rne);
     flags
 }
 

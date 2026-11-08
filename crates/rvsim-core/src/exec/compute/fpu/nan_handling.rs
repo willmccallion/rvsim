@@ -1,15 +1,7 @@
-//! NaN boxing, unboxing, and canonical NaN propagation for the FPU.
-//!
-//! RISC-V stores single-precision (f32) values in 64-bit floating-point
-//! registers using "NaN boxing": the upper 32 bits must be all 1s.
-//!
-//! - **Boxing** ([`box_f32`]): Sets upper 32 bits to 1s when writing an f32
-//!   result into a 64-bit register.
-//! - **Unboxing** ([`unbox_f32`]): Checks that the upper 32 bits are all 1s.
-//!   If not, the value is treated as canonical NaN (RISC-V spec §12.2).
-//! - **Canonicalization** ([`canonicalize_f32`], [`canonicalize_f64`]): Any NaN
-//!   result from an arithmetic operation is replaced with the canonical quiet
-//!   NaN, discarding payload bits (RISC-V spec §11.3).
+//! NaN canonicalization, signaling-NaN tests and IEEE 754-2008 minNum and
+//! maxNum for single and double precision. A NaN result of an arithmetic
+//! operation is the canonical quiet NaN (RISC-V spec §11.3); an f32 lives in
+//! a 64-bit register NaN-boxed, its upper 32 bits all ones (§12.2).
 
 /// Canonical quiet NaN for IEEE 754 single-precision (positive, quiet, zero payload).
 const CANONICAL_NAN_F32: u32 = 0x7fc0_0000;
@@ -19,22 +11,6 @@ const CANONICAL_NAN_F64: u64 = 0x7ff8_0000_0000_0000;
 
 /// The upper 32 bits a NaN-boxed f32 has set.
 pub const F32_NAN_BOX_MASK: u64 = 0xFFFF_FFFF_0000_0000;
-
-/// Boxes an f32 value into a 64-bit NaN-boxed representation.
-///
-/// Sets the upper 32 bits to all 1s, per RISC-V spec §12.2.
-///
-/// # Arguments
-///
-/// * `f` - The 32-bit floating-point value to box.
-///
-/// # Returns
-///
-/// A 64-bit value with the f32 in the lower 32 bits and all 1s in the upper 32 bits.
-#[inline]
-pub const fn box_f32(f: f32) -> u64 {
-    (f.to_bits() as u64) | F32_NAN_BOX_MASK
-}
 
 /// Canonicalizes an f32 result and boxes it into a 64-bit NaN-boxed value.
 ///
@@ -68,29 +44,6 @@ pub const fn canonicalize_f64_bits(f: f64) -> u64 {
         bits = CANONICAL_NAN_F64;
     }
     bits
-}
-
-/// Unboxes a 64-bit register value to obtain an f32.
-///
-/// Validates that the upper 32 bits are all 1s. If valid, returns the
-/// lower 32 bits interpreted as f32. If invalid (not properly NaN-boxed),
-/// returns the canonical NaN per RISC-V spec §12.2.
-///
-/// # Arguments
-///
-/// * `val` - The 64-bit register value to unbox.
-///
-/// # Returns
-///
-/// The unboxed f32, or canonical NaN if the value was not properly NaN-boxed.
-#[inline]
-pub const fn unbox_f32(val: u64) -> f32 {
-    if (val & F32_NAN_BOX_MASK) == F32_NAN_BOX_MASK {
-        f32::from_bits(val as u32)
-    } else {
-        // Not properly NaN-boxed: treat as canonical NaN (RISC-V spec §12.2).
-        f32::from_bits(CANONICAL_NAN_F32)
-    }
 }
 
 /// IEEE 754-2008 `minNum` for single-precision (RISC-V FMIN.S).

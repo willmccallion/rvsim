@@ -2,7 +2,7 @@
 //! integral float.
 
 use crate::isa::bits::sign_extend;
-use crate::isa::op::{FpOp, IntWidth, Signedness};
+use crate::isa::op::{IntWidth, Signedness};
 
 use crate::isa::fp::{FpFlags, RoundingMode};
 
@@ -11,29 +11,22 @@ use crate::isa::fp::{FpFlags, RoundingMode};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IntTarget {
     bits: u32,
-    is_signed: bool,
+    signedness: Signedness,
 }
 
 impl IntTarget {
-    /// A `bits`-bit signed integer.
-    pub const fn signed(bits: u32) -> Self {
-        Self { bits, is_signed: true }
+    /// A `bits`-bit integer of `signedness`.
+    pub const fn new(bits: u32, signedness: Signedness) -> Self {
+        Self { bits, signedness }
     }
 
-    /// A `bits`-bit unsigned integer.
-    pub const fn unsigned(bits: u32) -> Self {
-        Self { bits, is_signed: false }
-    }
-
-    /// The target of `op`, when it converts floating point to an integer.
-    pub const fn of(op: FpOp) -> Option<Self> {
-        match op {
-            FpOp::ToInt(IntWidth::Word, Signedness::Signed) => Some(Self::signed(32)),
-            FpOp::ToInt(IntWidth::Word, Signedness::Unsigned) => Some(Self::unsigned(32)),
-            FpOp::ToInt(IntWidth::Double, Signedness::Signed) => Some(Self::signed(64)),
-            FpOp::ToInt(IntWidth::Double, Signedness::Unsigned) => Some(Self::unsigned(64)),
-            _ => None,
-        }
+    /// The integer of an `fcvt` to a `width` register value.
+    pub const fn of_width(width: IntWidth, signedness: Signedness) -> Self {
+        let bits = match width {
+            IntWidth::Word => 32,
+            IntWidth::Double => 64,
+        };
+        Self::new(bits, signedness)
     }
 
     /// Its width in bits.
@@ -49,26 +42,34 @@ impl IntTarget {
     /// The integral values that convert without overflow: from the first
     /// up to but excluding the second.
     const fn range(self) -> (f64, f64) {
-        if self.is_signed {
-            (-two_to_the(self.bits - 1), two_to_the(self.bits - 1))
-        } else {
-            (0.0, two_to_the(self.bits))
+        match self.signedness {
+            Signedness::Signed => (-two_to_the(self.bits - 1), two_to_the(self.bits - 1)),
+            Signedness::Unsigned => (0.0, two_to_the(self.bits)),
         }
     }
 
     /// The largest value's bits.
     const fn max(self) -> u64 {
-        if self.is_signed { self.mask() >> 1 } else { self.mask() }
+        match self.signedness {
+            Signedness::Signed => self.mask() >> 1,
+            Signedness::Unsigned => self.mask(),
+        }
     }
 
     /// The smallest value's bits.
     const fn min(self) -> u64 {
-        if self.is_signed { (self.mask() >> 1) + 1 } else { 0 }
+        match self.signedness {
+            Signedness::Signed => (self.mask() >> 1) + 1,
+            Signedness::Unsigned => 0,
+        }
     }
 
     /// The bits of `integral`, a value within [`Self::range`].
     const fn bits_of(self, integral: f64) -> u64 {
-        let wide = if self.is_signed { integral as i64 as u64 } else { integral as u64 };
+        let wide = match self.signedness {
+            Signedness::Signed => integral as i64 as u64,
+            Signedness::Unsigned => integral as u64,
+        };
         wide & self.mask()
     }
 }

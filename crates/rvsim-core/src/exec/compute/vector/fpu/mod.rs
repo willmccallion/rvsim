@@ -37,7 +37,7 @@ use crate::isa::op::{IntRounding, Signedness, VecClass, VecFpOp, VectorOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use arith::{StandardOp, exec_fp_standard};
 use compare::exec_fp_comparison;
-pub(super) use float::{SoftF16, VecFloat};
+pub(super) use float::VecFloat;
 use fma::exec_fp_fma;
 use moves::{SlideDirection, exec_fp_merge, exec_fp_slide1};
 use widen::{exec_fp_narrowing, exec_fp_widen_convert, exec_fp_widening, exec_fp_widening_fma};
@@ -156,10 +156,7 @@ fn float_to_int(
     bits: u32,
     frm: RoundingMode,
 ) -> (u64, FpFlags) {
-    let target = match signedness {
-        Signedness::Unsigned => IntTarget::unsigned(bits),
-        Signedness::Signed => IntTarget::signed(bits),
-    };
+    let target = IntTarget::new(bits, signedness);
     let rm = match rounding {
         IntRounding::Dynamic => frm,
         IntRounding::TowardZero => RoundingMode::Rtz,
@@ -308,6 +305,16 @@ mod tests {
 
         assert_eq!(vpr.read_element(v4, ElemIdx::new(0), Sew::E64), 1f64.to_bits());
         assert_eq!(flags, FpFlags::NONE);
+    }
+
+    #[test]
+    fn an_unsigned_zero_converts_to_positive_zero_in_every_width_and_rounding_mode() {
+        for sew in [Sew::E16, Sew::E32, Sew::E64] {
+            for rm in [RoundingMode::Rne, RoundingMode::Rtz, RoundingMode::Rdn, RoundingMode::Rup] {
+                let (bits, flags) = convert_one(VectorOp::VFCvtFXu, sew, (sew, 0), sew, rm);
+                assert_eq!((bits, flags), (0, FpFlags::NONE), "{sew:?} {rm:?}");
+            }
+        }
     }
 
     const F32_SIGNALING_NAN: u64 = 0x7f80_0001;

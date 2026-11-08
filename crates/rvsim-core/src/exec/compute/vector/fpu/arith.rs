@@ -1,14 +1,16 @@
 //! Single-width floating-point arithmetic, element by element.
 
-use super::float::{SoftF16, VecFloat};
+use super::float::VecFloat;
 use super::float_to_int;
+use crate::exec::compute::fpu::float::SoftF16;
+use crate::exec::compute::fpu::{invalid_if_signaling, sign_inject};
 use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{
     FpSew, VecExecCtx, VecExecResult, VecOperand, read_op1,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpClass, FpFlags, RoundingMode};
-use crate::isa::op::{FpBinaryOp, FpUnaryOp, IntConvert, Signedness};
+use crate::isa::op::{FpBinaryOp, FpUnaryOp, IntConvert, SignInjectOp, Signedness};
 use crate::isa::rvv::{ElemIdx, VRegIdx, Vlmax};
 
 /// A single-width operation: one SEW result per element.
@@ -56,7 +58,7 @@ fn standard_loop<F: VecFloat>(
         let (result, f) = match op {
             StandardOp::Binary(op) => {
                 let op1_val = read_op1(vpr, &operand1, i, ctx.sew);
-                binary(op, F::from_elem(vs2_val), F::from_elem(op1_val), ctx.frm)
+                binary(op, F::from_raw_bits(vs2_val), F::from_raw_bits(op1_val), ctx.frm)
             }
             StandardOp::Unary(op) => unary::<F>(op, vs2_val, ctx.frm),
         };
@@ -69,12 +71,8 @@ fn standard_loop<F: VecFloat>(
 
 /// One element of a binary operation on `vs2` (`a`) and `op1` (`b`).
 fn binary<F: VecFloat>(op: FpBinaryOp, a: F, b: F, frm: RoundingMode) -> (u64, FpFlags) {
-    let canonical = |(result, flags): (F, FpFlags)| (result.canonical_elem_bits(), flags);
-    let signaling = a.is_signaling_nan() || b.is_signaling_nan();
-    // IEEE 754-2008 minNum/maxNum raise NV only on a signaling NaN.
-    let min_max_flags = if signaling { FpFlags::NV } else { FpFlags::NONE };
-    let (a_bits, b_bits) = (a.elem_bits(), b.elem_bits());
-    let magnitude = a_bits & !F::SIGN_BIT;
+    let canonical = |(result, flags): (F, FpFlags)| (result.canonical().raw_bits(), flags);
+    let injected = |op| (sign_inject(op, a, b).raw_bits(), FpFlags::NONE);
     match op {
         FpBinaryOp::Add => canonical(a.add(b, frm)),
         FpBinaryOp::Sub => canonical(a.sub(b, frm)),
@@ -82,18 +80,18 @@ fn binary<F: VecFloat>(op: FpBinaryOp, a: F, b: F, frm: RoundingMode) -> (u64, F
         FpBinaryOp::Mul => canonical(a.mul(b, frm)),
         FpBinaryOp::Div => canonical(a.div(b, frm)),
         FpBinaryOp::RDiv => canonical(b.div(a, frm)),
-        FpBinaryOp::Min => (a.min(b).elem_bits(), min_max_flags),
-        FpBinaryOp::Max => (a.max(b).elem_bits(), min_max_flags),
-        FpBinaryOp::Sgnj => (magnitude | (b_bits & F::SIGN_BIT), FpFlags::NONE),
-        FpBinaryOp::Sgnjn => (magnitude | (!b_bits & F::SIGN_BIT), FpFlags::NONE),
-        FpBinaryOp::Sgnjx => (a_bits ^ (b_bits & F::SIGN_BIT), FpFlags::NONE),
+        FpBinaryOp::Min => (a.min(b).raw_bits(), invalid_if_signaling(a, b)),
+        FpBinaryOp::Max => (a.max(b).raw_bits(), invalid_if_signaling(a, b)),
+        FpBinaryOp::Sgnj => injected(SignInjectOp::Copy),
+        FpBinaryOp::Sgnjn => injected(SignInjectOp::Negate),
+        FpBinaryOp::Sgnjx => injected(SignInjectOp::Xor),
     }
 }
 
 /// One element of a unary operation on the `vs2` element `bits`.
 fn unary<F: VecFloat>(op: FpUnaryOp, bits: u64, frm: RoundingMode) -> (u64, FpFlags) {
-    let value = F::from_elem(bits);
-    let canonical = |(result, flags): (F, FpFlags)| (result.canonical_elem_bits(), flags);
+    let value = F::from_raw_bits(bits);
+    let canonical = |(result, flags): (F, FpFlags)| (result.canonical().raw_bits(), flags);
     match op {
         FpUnaryOp::Sqrt => canonical(value.sqrt(frm)),
         FpUnaryOp::Rsqrt7 => F::rsqrt7(bits),
@@ -103,10 +101,11 @@ fn unary<F: VecFloat>(op: FpUnaryOp, bits: u64, frm: RoundingMode) -> (u64, FpFl
             float_to_int(value.to_f64(), (signedness, rounding), F::SEW.bits() as u32, frm)
         }
         FpUnaryOp::Convert(IntConvert::FromInt(Signedness::Unsigned)) => {
-            canonical(F::from_unsigned(bits & F::SEW.mask(), frm))
+            canonical(F::from_int(bits & F::SEW.mask(), (F::INT_WIDTH, Signedness::Unsigned), frm))
         }
         FpUnaryOp::Convert(IntConvert::FromInt(Signedness::Signed)) => {
-            canonical(F::from_signed(F::SEW.sign_extend(bits), frm))
+            let value = F::SEW.sign_extend(bits) as u64;
+            canonical(F::from_int(value, (F::INT_WIDTH, Signedness::Signed), frm))
         }
     }
 }
