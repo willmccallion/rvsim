@@ -14,9 +14,10 @@ use pyo3::prelude::*;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader::KernelBoot;
-use rvsim_core::system::simulator::ProbeWidth;
 use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramImage};
+use rvsim_core::system::simulator::{ProbeWidth, StopAt, StopReason};
 use rvsim_core::{Simulator, ValidConfig};
+use std::num::NonZeroU64;
 
 /// A user program as Python hands it over: its ELF bytes, `argv` and `envp`.
 #[derive(FromPyObject)]
@@ -98,6 +99,51 @@ const SIGNAL_CHECK_INTERVAL_TICKS: u64 = 10_000;
 /// How long the gdb server sleeps between checks for a connection.
 const GDB_ACCEPT_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// A Python signal, such as Ctrl-C, that stopped a run.
+#[derive(Default)]
+struct Interrupt(Option<PyErr>);
+
+impl Interrupt {
+    /// Whether the run goes on after `checked`, Python's signal check: not
+    /// once a signal is pending, which is kept to raise.
+    fn keep_going(&mut self, checked: PyResult<()>) -> bool {
+        match checked {
+            Ok(()) => true,
+            Err(error) => {
+                self.0 = Some(error);
+                false
+            }
+        }
+    }
+
+    /// What a cancelled `what` raises: the pending signal's error, if any.
+    fn into_error(self, what: &str) -> PyErr {
+        self.0.unwrap_or_else(|| PyRuntimeError::new_err(format!("{what} cancelled")))
+    }
+}
+
+/// `cycles`, a count of cycles Python passed as `name`, which must be at
+/// least one.
+fn positive_cycles(name: &str, cycles: u64) -> PyResult<NonZeroU64> {
+    NonZeroU64::new(cycles)
+        .ok_or_else(|| PyValueError::new_err(format!("{name} must be at least 1")))
+}
+
+/// The cycle counts a run takes `chunk` at a time until it has run `limit`
+/// cycles, or forever without a limit.
+fn chunks(limit: Option<u64>, chunk: NonZeroU64) -> impl Iterator<Item = u64> {
+    let mut left = limit;
+    std::iter::from_fn(move || match &mut left {
+        None => Some(chunk.get()),
+        Some(0) => None,
+        Some(remaining) => {
+            let cycles = chunk.get().min(*remaining);
+            *remaining -= cycles;
+            Some(cycles)
+        }
+    })
+}
+
 /// The running simulator.
 #[pyclass(name = "Simulator", subclass, module = "rvsim._core")]
 #[derive(Debug)]
@@ -127,39 +173,32 @@ impl PySimulator {
         }
     }
 
-    /// Runs for up to `limit` cycles, or until the workload exits, checking
-    /// Python signals as it goes.
-    fn run_inner(&mut self, py: Python<'_>, limit: Option<u64>) -> PyResult<Option<u64>> {
-        use rvsim_core::system::simulator::{StopAt, StopReason};
-        let stop = StopAt { cycles: limit, ..StopAt::default() };
-        let mut interrupted = None;
+    /// Runs until `stop` holds, checking Python signals as it goes.
+    fn run_until_stop(&mut self, py: Python<'_>, stop: &StopAt) -> PyResult<StopReason> {
+        let mut interrupt = Interrupt::default();
         let reason = self
             .inner
-            .run_to_with(&stop, || {
+            .run_to_with(stop, || {
                 let _ = std::io::stdout().flush();
-                match py.check_signals() {
-                    Ok(()) => true,
-                    Err(error) => {
-                        interrupted = Some(error);
-                        false
-                    }
-                }
+                interrupt.keep_going(py.check_signals())
             })
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let _ = std::io::stdout().flush();
         match reason {
-            StopReason::Exited(code) => Ok(Some(code)),
-            StopReason::Cycles => Ok(None),
-            StopReason::Cancelled => {
-                Err(interrupted.unwrap_or_else(|| PyRuntimeError::new_err("run cancelled")))
-            }
-            other => Err(PyRuntimeError::new_err(format!("run stopped unexpectedly: {other:?}"))),
+            StopReason::Cancelled => Err(interrupt.into_error("run")),
+            reason => Ok(reason),
         }
     }
 
-    /// Run for exactly `cycles` cycles. Used by `run_until` and `sample`.
-    fn run_for_cycles(&mut self, py: Python<'_>, cycles: u64) -> PyResult<Option<u64>> {
-        self.run_inner(py, Some(cycles))
+    /// Runs for up to `limit` cycles, or until the workload exits; returns
+    /// its exit code if it did.
+    fn run_inner(&mut self, py: Python<'_>, limit: Option<u64>) -> PyResult<Option<u64>> {
+        let stop = StopAt { cycles: limit, ..StopAt::default() };
+        match self.run_until_stop(py, &stop)? {
+            StopReason::Exited(code) => Ok(Some(code)),
+            StopReason::Cycles => Ok(None),
+            other => Err(PyRuntimeError::new_err(format!("run stopped unexpectedly: {other:?}"))),
+        }
     }
 
     /// Run with stderr progress reporting every `progress` cycles.
@@ -167,31 +206,14 @@ impl PySimulator {
         &mut self,
         py: Python<'_>,
         limit: Option<u64>,
-        progress: u64,
+        progress: NonZeroU64,
     ) -> PyResult<Option<u64>> {
-        let mut cycles_run = 0u64;
-        loop {
-            let chunk = if let Some(max) = limit {
-                let remaining = max.saturating_sub(cycles_run);
-                if remaining == 0 {
-                    eprint!("\r\x1b[2K");
-                    let _ = std::io::stderr().flush();
-                    return Ok(None);
-                }
-                progress.min(remaining)
-            } else {
-                progress
-            };
-
-            let exit = self.run_for_cycles(py, chunk)?;
-            cycles_run += chunk;
-
-            if let Some(code) = exit {
-                eprint!("\r\x1b[2K");
-                let _ = std::io::stderr().flush();
-                return Ok(Some(code));
+        let mut exit = None;
+        for cycles in chunks(limit, progress) {
+            exit = self.run_inner(py, Some(cycles))?;
+            if exit.is_some() {
+                break;
             }
-
             eprint!(
                 "\r\x1b[36m[rvsim]\x1b[0m  {:>14} cycles  {:>14} insns",
                 fmt_commas(self.inner.cycle()),
@@ -199,6 +221,9 @@ impl PySimulator {
             );
             let _ = std::io::stderr().flush();
         }
+        eprint!("\r\x1b[2K");
+        let _ = std::io::stderr().flush();
+        Ok(exit)
     }
 }
 
@@ -577,18 +602,12 @@ impl PySimulator {
         listener.set_nonblocking(true).map_err(|e| PyOSError::new_err(e.to_string()))?;
         // The GIL is released while waiting and serving, so other Python
         // threads run; signals are checked by taking it back briefly.
-        let mut interrupted: Option<PyErr> = None;
+        let mut interrupt = Interrupt::default();
         #[allow(
             clippy::redundant_closure_for_method_calls,
             reason = "the method path is not general enough over the GIL's lifetime"
         )]
-        let mut keep_going = || match Python::with_gil(|py| py.check_signals()) {
-            Ok(()) => true,
-            Err(error) => {
-                interrupted = Some(error);
-                false
-            }
-        };
+        let mut keep_going = || interrupt.keep_going(Python::with_gil(|py| py.check_signals()));
         let inner = &mut self.inner;
         let served = py.allow_threads(move || {
             let stream = loop {
@@ -611,11 +630,7 @@ impl PySimulator {
             Outcome::Detached => ("detached".into(), None),
             Outcome::Killed => ("killed".into(), None),
             Outcome::Exited(code) => ("exit".into(), Some(code)),
-            Outcome::Interrupted => {
-                return Err(
-                    interrupted.unwrap_or_else(|| PyRuntimeError::new_err("debugging cancelled"))
-                );
-            }
+            Outcome::Interrupted => return Err(interrupt.into_error("debugging")),
         })
     }
 
@@ -668,10 +683,9 @@ impl PySimulator {
     )]
     #[pyo3(signature = (limit=None, progress=0))]
     fn run(&mut self, py: Python<'_>, limit: Option<u64>, progress: u64) -> PyResult<Option<u64>> {
-        if progress > 0 {
-            self.run_with_progress(py, limit, progress)
-        } else {
-            self.run_inner(py, limit)
+        match NonZeroU64::new(progress) {
+            Some(progress) => self.run_with_progress(py, limit, progress),
+            None => self.run_inner(py, limit),
         }
     }
 
@@ -685,37 +699,15 @@ impl PySimulator {
     ///     List of `Stats` snapshots, one per interval.
     #[pyo3(signature = (every, limit=None))]
     fn sample(&mut self, py: Python<'_>, every: u64, limit: Option<u64>) -> PyResult<Vec<PyStats>> {
-        let mut snapshots: Vec<PyStats> = Vec::new();
-        let mut cycles_run = 0u64;
-
-        loop {
-            let chunk = if let Some(max) = limit {
-                let remaining = max.saturating_sub(cycles_run);
-                if remaining == 0 {
-                    break;
-                }
-                every.min(remaining)
-            } else {
-                every
-            };
-
-            let exit = self.run_for_cycles(py, chunk)?;
-            cycles_run += chunk;
-
-            let (cycles, instructions_retired) = self.inner.stats_window();
-            let epoch = self.inner.stats_epoch();
-            snapshots.push(PyStats::new(
-                self.inner.stats().clone(),
-                cycles,
-                instructions_retired,
-                epoch,
-            ));
-
+        let every = positive_cycles("every", every)?;
+        let mut snapshots = Vec::new();
+        for cycles in chunks(limit, every) {
+            let exit = self.run_inner(py, Some(cycles))?;
+            snapshots.push(self.stats());
             if exit.is_some() {
                 break;
             }
         }
-
         Ok(snapshots)
     }
 
@@ -747,28 +739,13 @@ impl PySimulator {
             ));
         }
         let privilege = privilege.map(privilege_named).transpose()?;
+        let chunk = positive_cycles("chunk", chunk)?;
 
         let slf_py: Py<Self> = slf.unbind();
-        let mut cycles_run = 0u64;
-
-        loop {
-            let c = if let Some(max) = limit {
-                let remaining = max.saturating_sub(cycles_run);
-                if remaining == 0 {
-                    return Ok(None);
-                }
-                chunk.min(remaining)
-            } else {
-                chunk
-            };
-
-            let exit = slf_py.borrow_mut(py).run_for_cycles(py, c)?;
-            cycles_run += c;
-
-            if let Some(code) = exit {
+        for cycles in chunks(limit, chunk) {
+            if let Some(code) = slf_py.borrow_mut(py).run_inner(py, Some(cycles))? {
                 return Ok(Some(code));
             }
-
             let stop = {
                 let cpu = slf_py.borrow(py);
                 pc.is_some_and(|p| cpu.inner.hart(0).pc == VirtAddr::new(p))
@@ -777,16 +754,14 @@ impl PySimulator {
             if stop {
                 return Ok(None);
             }
-
-            if let Some(pred) = predicate {
-                let result = pred.call1((slf_py.clone_ref(py),))?;
-                if result.extract::<bool>()? {
-                    return Ok(None);
-                }
+            if let Some(pred) = predicate
+                && pred.call1((slf_py.clone_ref(py),))?.extract::<bool>()?
+            {
+                return Ok(None);
             }
-
             py.check_signals()?;
         }
+        Ok(None)
     }
 
     /// Run until a condition holds, checking after every cycle, and say
@@ -820,7 +795,6 @@ impl PySimulator {
         guest_breaks: bool,
         console_output: bool,
     ) -> PyResult<(String, Option<u64>)> {
-        use rvsim_core::system::simulator::{StopAt, StopReason};
         let pcs = match pc {
             None => Vec::new(),
             Some(PcStop::One(pc)) => vec![VirtAddr::new(pc)],
@@ -828,19 +802,7 @@ impl PySimulator {
         };
         let stop =
             StopAt { cycles, instructions, pcs, guest_breaks, console_output, ..StopAt::default() };
-        let mut interrupted = None;
-        let reason = self
-            .inner
-            .run_to_with(&stop, || match py.check_signals() {
-                Ok(()) => true,
-                Err(error) => {
-                    interrupted = Some(error);
-                    false
-                }
-            })
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        let _ = std::io::stdout().flush();
-        Ok(match reason {
+        Ok(match self.run_until_stop(py, &stop)? {
             StopReason::Exited(code) => ("exit".into(), Some(code)),
             StopReason::Cycles => ("cycles".into(), None),
             StopReason::Instructions => ("instructions".into(), None),
@@ -848,9 +810,7 @@ impl PySimulator {
             StopReason::Watch { addr, .. } => ("watch".into(), Some(addr)),
             StopReason::GuestBreak { label } => ("break".into(), Some(label)),
             StopReason::ConsoleOutput => ("console".into(), None),
-            StopReason::Cancelled => {
-                return Err(interrupted.unwrap_or_else(|| PyRuntimeError::new_err("run cancelled")));
-            }
+            StopReason::Cancelled => return Err(Interrupt::default().into_error("run")),
         })
     }
 

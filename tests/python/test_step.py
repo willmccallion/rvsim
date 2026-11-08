@@ -40,10 +40,6 @@ class Step(unittest.TestCase):
         self.assertEqual(stepped.cycles, cpu.cycle - before)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RunUntil(unittest.TestCase):
     def test_an_unknown_privilege_is_refused_before_running(self):
         cpu = Simulator(Config(), elf_data=user_elf([JAL_SELF]))
@@ -60,6 +56,14 @@ class RunUntil(unittest.TestCase):
 
         self.assertEqual(cpu.privilege, "U")
         self.assertLess(cpu.cycle, 1_000)
+
+    def test_a_zero_chunk_is_refused_before_running(self):
+        cpu = Simulator(Config(), elf_data=user_elf([JAL_SELF]))
+
+        with self.assertRaisesRegex(ValueError, "chunk must be at least 1"):
+            cpu.run_until(pc=ENTRY + 4, limit=1_000, chunk=0)
+
+        self.assertEqual(cpu.cycle, 0)
 
 
 class Run(unittest.TestCase):
@@ -79,3 +83,24 @@ class Run(unittest.TestCase):
         )
 
         self.assertEqual(result.stdout, "")
+
+
+class Sample(unittest.TestCase):
+    def test_one_snapshot_is_taken_per_interval_up_to_the_limit(self):
+        cpu = Simulator(Config(), elf_data=user_elf([JAL_SELF]))
+
+        snapshots = cpu.sample(1_000, limit=2_500)
+
+        self.assertEqual([s.cycles for s in snapshots], [1_000, 2_000, 2_500])
+
+    def test_a_zero_interval_is_refused_before_running(self):
+        cpu = Simulator(Config(), elf_data=user_elf([JAL_SELF]))
+
+        with self.assertRaisesRegex(ValueError, "every must be at least 1"):
+            cpu.sample(0, limit=1_000)
+
+        self.assertEqual(cpu.cycle, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
