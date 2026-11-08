@@ -22,8 +22,8 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import (
-    TYPE_CHECKING,
     Any,
+    Self,
     TextIO,
 )
 
@@ -45,9 +45,6 @@ from .stops import (
     When,
 )
 from .workload import Region, Workload, _digest_json
-
-if TYPE_CHECKING:
-    from typing_extensions import Self
 
 ConfigLike = Config | dict[str, Any]
 
@@ -714,7 +711,7 @@ class Session:
             "format": _META_FORMAT,
             "checkpoint_version": _core.CHECKPOINT_VERSION,
             "rvsim_version": _core.version(),
-            "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "created": datetime.datetime.now(datetime.UTC).isoformat(),
             "workload": {
                 "files": self.workload.files(),
                 "digests": self.workload.digests(),

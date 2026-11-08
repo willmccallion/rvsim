@@ -23,7 +23,7 @@ rvsim models a complete superscalar processor cycle by cycle. It implements two 
 pip install rvsim
 ```
 
-Requires Python 3.10+. Ships pre-built wheels for Linux x86_64.
+Requires Python 3.11+. Ships pre-built wheels for Linux x86_64.
 
 ## Quick Start
 
@@ -178,7 +178,7 @@ rvsim examples/analysis/o3_inorder.py --widths 1 2 4
 
 ## Building from Source
 
-Requires Rust (the version in `rust-toolchain.toml`), Python 3.10+, and two RISC-V GCCs for the bundled programs: a Linux one (`riscv64-linux-gnu-gcc`; `SE_TARGET=` overrides the prefix) and a bare-metal one (`riscv64-elf-gcc`; `TARGET=`). `nix develop` provides all of them.
+Requires Rust (the version in `rust-toolchain.toml`), Python 3.11+, and two RISC-V GCCs for the bundled programs: a Linux one (`riscv64-linux-gnu-gcc`; `SE_TARGET=` overrides the prefix) and a bare-metal one (`riscv64-elf-gcc`; `TARGET=`). `nix develop` provides all of them.
 
 ```bash
 git clone https://github.com/willmccallion/rvsim

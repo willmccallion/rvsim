@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import struct
 import sys
-from enum import Enum
+from enum import StrEnum
 from typing import TextIO
 
 from ._core import csr_names, disassemble, register_names
@@ -18,7 +18,7 @@ from ._core import csr_names, disassemble, register_names
 __all__ = ["Disassemble", "Privilege", "csr", "reg"]
 
 
-class Privilege(str, Enum):
+class Privilege(StrEnum):
     """A RISC-V privilege mode, by the letter the spec gives it; equal to
     that letter as a string."""
 
