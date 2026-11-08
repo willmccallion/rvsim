@@ -53,6 +53,40 @@ const MOP_STRIDED: u8 = 0b10;
 /// Memory addressing mode (mop): indexed ordered.
 const MOP_INDEXED_ORD: u8 = 0b11;
 
+/// Bits 29:25 of `vsetvl`, which must be zero; bit 30 set makes it `vsetivli`.
+const VSETVL_ZERO_BITS: u32 = 0x1F << 25;
+
+/// Whether `inst` sets a field `op`'s encoding fixes, which makes it
+/// reserved: the mask bit of an op that is always unmasked (or, for
+/// `vadc` and `vsbc`, always masked), a vs2 that must be zero, or a mask
+/// or whole-register access's width or field count.
+pub(super) const fn sets_fixed_field(op: VectorOp, inst: u32) -> bool {
+    let masked = !v_enc::vm(inst);
+    let vs2_set = v_enc::vs2(inst) != 0;
+    let width_is_8 = (inst >> 12) & 0b111 == VEC_WIDTH_8;
+    let fields = v_enc::nf(inst) + 1;
+    match op {
+        VectorOp::Alu(VecAluOp::Carry(CarryOp::Adc | CarryOp::Sbc)) => !masked,
+        VectorOp::Alu(VecAluOp::Merge) | VectorOp::Fp(VecFpOp::Merge) => !masked && vs2_set,
+        VectorOp::Mask(MaskOp::Id) => vs2_set,
+        VectorOp::Permute(PermuteOp::MvSX) | VectorOp::Fp(VecFpOp::MoveFromScalar) => {
+            masked || vs2_set
+        }
+        VectorOp::Load(VecLoadOp::Mask) | VectorOp::Store(VecStoreOp::Mask) => {
+            masked || !width_is_8 || fields != 1
+        }
+        VectorOp::Load(VecLoadOp::WholeRegister) => masked || !fields.is_power_of_two(),
+        VectorOp::Store(VecStoreOp::WholeRegister) => {
+            masked || !width_is_8 || !fields.is_power_of_two()
+        }
+        VectorOp::Mask(MaskOp::Logical(_))
+        | VectorOp::Permute(PermuteOp::Compress | PermuteOp::MvXS | PermuteOp::WholeMove(_))
+        | VectorOp::Fp(VecFpOp::MoveToScalar)
+        | VectorOp::Crypto(_) => masked,
+        _ => false,
+    }
+}
+
 /// Decodes a vector instruction (RVV 1.0 and the vector crypto
 /// extensions) into `c`.
 pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), Trap> {
@@ -76,6 +110,8 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                         vtype: v_enc::zimm_vsetivli(inst),
                     }));
                     c.reg_write = true;
+                } else if inst & VSETVL_ZERO_BITS != 0 {
+                    return Err(Trap::IllegalInstruction(inst));
                 } else {
                     // vsetvl: vtype from rs2
                     c.vec_op = Some(VectorOp::Config(VecConfigOp::Vsetvl));
@@ -480,7 +516,6 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VWMACCU => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccU)), true),
         v_f6::VWMACC => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::Macc)), true),
         v_f6::VWMACCSU => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccSU)), true),
-        v_f6::VWMACCUS => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccUS)), true),
         v_f6::VCLMUL => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMul)), true),
         v_f6::VCLMULH => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMulH)), true),
         _ => return Err(Trap::IllegalInstruction(inst)),
@@ -946,5 +981,147 @@ mod tests {
                 (0b01110, int(IntOp::CpopV)),
             ],
         );
+    }
+
+    /// An OP-V (or, with `opcode`, OP-V crypto) instruction word.
+    struct Arith {
+        opcode: u32,
+        funct6: u32,
+        funct3: u32,
+        vm: u32,
+        vs2: u32,
+        vs1: u32,
+        vd: u32,
+    }
+
+    impl Arith {
+        /// `funct6`/`funct3` with registers that suit any group size, unmasked.
+        const fn new(funct6: u32, funct3: u32) -> Self {
+            Self { opcode: v_opcodes::OP_V, funct6, funct3, vm: 1, vs2: 8, vs1: 4, vd: 16 }
+        }
+
+        const fn encode(&self) -> u32 {
+            self.funct6 << 26
+                | self.vm << 25
+                | self.vs2 << 20
+                | self.vs1 << 15
+                | self.funct3 << 12
+                | self.vd << 7
+                | self.opcode
+        }
+    }
+
+    /// A unit-stride-family vector load or store: `umop` is lumop/sumop.
+    const fn unit_stride(opcode: u32, nf: u32, vm: u32, umop: u32, width: u32) -> u32 {
+        nf << 29 | vm << 25 | umop << 20 | 10 << 15 | width << 12 | 8 << 7 | opcode
+    }
+
+    const LOAD_FP: u32 = 0b000_0111;
+    const STORE_FP: u32 = 0b010_0111;
+    const UMOP_WHOLE_REGISTER: u32 = 0b01000;
+    const UMOP_MASK: u32 = 0b01011;
+    const WIDTH_8: u32 = 0b000;
+    const WIDTH_32: u32 = 0b110;
+
+    fn is_illegal(inst: u32) -> bool {
+        decode_inst(inst, VirtAddr::new(0), 0).trap.is_some()
+    }
+
+    #[test]
+    fn ops_the_spec_leaves_unmasked_are_reserved_with_vm_clear() {
+        let vaesem_vv = Arith {
+            opcode: v_opcodes::OP_V_CRYPTO,
+            vs1: 0b00010,
+            ..Arith::new(v_f6::VCRYPTO_VV, v_funct3::OPMVV)
+        };
+        let unmasked = [
+            Arith::new(v_f6::VMAND, v_funct3::OPMVV),
+            Arith::new(v_f6::VMERGE_VMV, v_funct3::OPMVV),
+            Arith { vs1: 0, ..Arith::new(v_f6::VWXUNARY0, v_funct3::OPMVV) },
+            Arith { vs1: 0, ..Arith::new(v_f6::VWFUNARY0, v_funct3::OPFVV) },
+            Arith { vs2: 0, ..Arith::new(v_f6::VRXUNARY0, v_funct3::OPMVX) },
+            Arith { vs2: 0, ..Arith::new(v_f6::VRFUNARY0, v_funct3::OPFVF) },
+            Arith { vs1: 0, ..Arith::new(v_f6::VSMUL, v_funct3::OPIVI) },
+            vaesem_vv,
+        ];
+        for op in unmasked {
+            let inst = op.encode();
+            assert!(!is_illegal(inst), "{inst:#010x} unmasked is legal");
+            assert!(is_illegal(Arith { vm: 0, ..op }.encode()), "{inst:#010x} masked is reserved");
+        }
+        for (opcode, umop) in [
+            (LOAD_FP, UMOP_MASK),
+            (STORE_FP, UMOP_MASK),
+            (LOAD_FP, UMOP_WHOLE_REGISTER),
+            (STORE_FP, UMOP_WHOLE_REGISTER),
+        ] {
+            assert!(!is_illegal(unit_stride(opcode, 0, 1, umop, WIDTH_8)));
+            assert!(is_illegal(unit_stride(opcode, 0, 0, umop, WIDTH_8)));
+        }
+    }
+
+    #[test]
+    fn ops_whose_vs2_field_must_be_zero_are_reserved_with_it_set() {
+        let unmasked = |funct6, funct3| Arith { vs2: 0, ..Arith::new(funct6, funct3) };
+        let fixed_vs2 = [
+            unmasked(v_f6::VRXUNARY0, v_funct3::OPMVX),
+            unmasked(v_f6::VRFUNARY0, v_funct3::OPFVF),
+            unmasked(v_f6::VMERGE_VMV, v_funct3::OPIVV),
+            unmasked(v_f6::VMERGE_VMV, v_funct3::OPIVX),
+            unmasked(v_f6::VMERGE_VMV, v_funct3::OPIVI),
+            unmasked(v_f6::VMERGE_VMV, v_funct3::OPFVF),
+            Arith {
+                vs1: u32::from(v_f6::VMUNARY0_VID_V),
+                ..unmasked(v_f6::VMUNARY0, v_funct3::OPMVV)
+            },
+        ];
+        for op in fixed_vs2 {
+            let inst = op.encode();
+            assert!(!is_illegal(inst), "{inst:#010x} with vs2 = 0 is legal");
+            assert!(
+                is_illegal(Arith { vs2: 1, ..op }.encode()),
+                "{inst:#010x} with vs2 set is reserved"
+            );
+        }
+    }
+
+    #[test]
+    fn add_and_subtract_with_carry_are_reserved_unmasked() {
+        for funct6 in [v_f6::VADC, v_f6::VSBC] {
+            let masked = Arith { vm: 0, ..Arith::new(funct6, v_funct3::OPIVV) };
+            assert!(!is_illegal(masked.encode()));
+            assert!(is_illegal(Arith { vm: 1, ..masked }.encode()));
+        }
+    }
+
+    #[test]
+    fn mask_and_whole_register_accesses_take_only_their_widths_and_counts() {
+        assert!(is_illegal(unit_stride(LOAD_FP, 0, 1, UMOP_MASK, WIDTH_32)));
+        assert!(is_illegal(unit_stride(STORE_FP, 0, 1, UMOP_MASK, WIDTH_32)));
+        assert!(is_illegal(unit_stride(LOAD_FP, 1, 1, UMOP_MASK, WIDTH_8)));
+        assert!(is_illegal(unit_stride(STORE_FP, 0, 1, UMOP_WHOLE_REGISTER, WIDTH_32)));
+        assert!(!is_illegal(unit_stride(LOAD_FP, 0, 1, UMOP_WHOLE_REGISTER, WIDTH_32)));
+        for nf in 0..8 {
+            let is_power_of_two = (nf + 1_u32).is_power_of_two();
+            for opcode in [LOAD_FP, STORE_FP] {
+                let inst = unit_stride(opcode, nf, 1, UMOP_WHOLE_REGISTER, WIDTH_8);
+                assert_eq!(is_illegal(inst), !is_power_of_two, "{inst:#010x}");
+            }
+        }
+    }
+
+    #[test]
+    fn vsetvl_is_reserved_with_any_of_bits_29_to_25_set() {
+        let vsetvl = 1 << 31 | 2 << 20 | 1 << 15 | v_funct3::OPCFG << 12 | 3 << 7 | v_opcodes::OP_V;
+        assert!(!is_illegal(vsetvl));
+        for bit in 25..=29 {
+            assert!(is_illegal(vsetvl | 1 << bit), "bit {bit}");
+        }
+    }
+
+    #[test]
+    fn vwmaccus_has_only_a_vector_scalar_form() {
+        assert!(!is_illegal(Arith::new(v_f6::VWMACCUS, v_funct3::OPMVX).encode()));
+        assert!(is_illegal(Arith::new(v_f6::VWMACCUS, v_funct3::OPMVV).encode()));
     }
 }

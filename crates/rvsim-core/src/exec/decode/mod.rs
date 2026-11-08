@@ -40,6 +40,11 @@ fn decode_instruction(inst: u32, pc: VirtAddr, d: &Decoded) -> Result<ControlSig
         v_opcodes::OP_V | v_opcodes::OP_V_CRYPTO => vector::decode(&mut c, inst, d)?,
         _ => scalar::decode(&mut c, inst, pc, d)?,
     }
+    if let Some(op) = c.vec_op
+        && vector::sets_fixed_field(op, inst)
+    {
+        return Err(Trap::IllegalInstruction(inst));
+    }
     Ok(c)
 }
 
