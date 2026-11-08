@@ -1,6 +1,5 @@
 //! Disassembly of the vector instructions.
 
-use super::{freg, xreg};
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::Decoded;
 use crate::isa::op::{
@@ -52,8 +51,8 @@ impl Operands {
     fn of(ctrl: &ControlSignals, fields: &Decoded) -> Self {
         let (source, letter) = match ctrl.vec_src_encoding {
             VecSrcEncoding::VV | VecSrcEncoding::None => (vreg(ctrl.vs1).to_owned(), 'v'),
-            VecSrcEncoding::VX => (xreg(fields.rs1).to_owned(), 'x'),
-            VecSrcEncoding::VF => (freg(fields.rs1).to_owned(), 'f'),
+            VecSrcEncoding::VX => (fields.rs1.int_abi_name().to_owned(), 'x'),
+            VecSrcEncoding::VF => (fields.rs1.fp_abi_name().to_owned(), 'f'),
             VecSrcEncoding::VI(imm) => (imm.to_string(), 'i'),
         };
         let mask = if ctrl.vm { "" } else { ", v0.t" };
@@ -95,15 +94,17 @@ const fn vreg(idx: VRegIdx) -> &'static str {
 
 /// `vsetvli`, `vsetivli` or `vsetvl`.
 fn config(op: VecConfigOp, fields: &Decoded) -> String {
-    let rd = xreg(fields.rd);
+    let rd = fields.rd.int_abi_name();
     match op {
         VecConfigOp::Vsetvli { vtype } => {
-            format!("vsetvli {rd}, {}, {}", xreg(fields.rs1), vtype_text(vtype))
+            format!("vsetvli {rd}, {}, {}", fields.rs1.int_abi_name(), vtype_text(vtype))
         }
         VecConfigOp::Vsetivli { avl, vtype } => {
             format!("vsetivli {rd}, {avl}, {}", vtype_text(vtype))
         }
-        VecConfigOp::Vsetvl => format!("vsetvl {rd}, {}, {}", xreg(fields.rs1), xreg(fields.rs2)),
+        VecConfigOp::Vsetvl => {
+            format!("vsetvl {rd}, {}, {}", fields.rs1.int_abi_name(), fields.rs2.int_abi_name())
+        }
     }
 }
 
@@ -138,7 +139,7 @@ fn vtype_text(vtype: u16) -> String {
 /// A vector load: `vle32.v vd, (rs1)` and its strided, indexed, segment,
 /// fault-only-first, mask and whole-register forms.
 fn load(op: VecLoadOp, ctrl: &ControlSignals, fields: &Decoded, mask: &str) -> String {
-    let (vd, rs1) = (vreg(ctrl.vd), xreg(fields.rs1));
+    let (vd, rs1) = (vreg(ctrl.vd), fields.rs1.int_abi_name());
     match op {
         VecLoadOp::Unit => format!("{}.v {vd}, ({rs1}){mask}", memory_name("vl", "", "e", ctrl)),
         VecLoadOp::FaultOnlyFirst => {
@@ -151,7 +152,7 @@ fn load(op: VecLoadOp, ctrl: &ControlSignals, fields: &Decoded, mask: &str) -> S
         VecLoadOp::Strided => format!(
             "{}.v {vd}, ({rs1}), {}{mask}",
             memory_name("vl", "s", "e", ctrl),
-            xreg(fields.rs2)
+            fields.rs2.int_abi_name()
         ),
         VecLoadOp::IndexedOrdered => format!(
             "{}.v {vd}, ({rs1}), {}{mask}",
@@ -168,7 +169,7 @@ fn load(op: VecLoadOp, ctrl: &ControlSignals, fields: &Decoded, mask: &str) -> S
 
 /// A vector store, named as the load it mirrors; vd holds the data, vs3.
 fn store(op: VecStoreOp, ctrl: &ControlSignals, fields: &Decoded, mask: &str) -> String {
-    let (vs3, rs1) = (vreg(ctrl.vd), xreg(fields.rs1));
+    let (vs3, rs1) = (vreg(ctrl.vd), fields.rs1.int_abi_name());
     match op {
         VecStoreOp::Unit => format!("{}.v {vs3}, ({rs1}){mask}", memory_name("vs", "", "e", ctrl)),
         VecStoreOp::Mask => format!("vsm.v {vs3}, ({rs1})"),
@@ -176,7 +177,7 @@ fn store(op: VecStoreOp, ctrl: &ControlSignals, fields: &Decoded, mask: &str) ->
         VecStoreOp::Strided => format!(
             "{}.v {vs3}, ({rs1}), {}{mask}",
             memory_name("vs", "s", "e", ctrl),
-            xreg(fields.rs2)
+            fields.rs2.int_abi_name()
         ),
         VecStoreOp::IndexedOrdered => format!(
             "{}.v {vs3}, ({rs1}), {}{mask}",
@@ -389,7 +390,9 @@ fn floating_point(
         VecFpOp::Merge => operands.with_carry_or("vfmerge", |operands| {
             format!("vfmv.v.f {}, {}", operands.vd, operands.source)
         }),
-        VecFpOp::MoveToScalar => format!("vfmv.f.s {}, {}", freg(fields.rd), vreg(ctrl.vs2)),
+        VecFpOp::MoveToScalar => {
+            format!("vfmv.f.s {}, {}", fields.rd.fp_abi_name(), vreg(ctrl.vs2))
+        }
         VecFpOp::MoveFromScalar => format!("vfmv.s.f {}, {}", operands.vd, operands.source),
         VecFpOp::Slide1Up => operands.binary("vfslide1up", 'v'),
         VecFpOp::Slide1Down => operands.binary("vfslide1down", 'v'),
@@ -511,8 +514,8 @@ fn mask(op: MaskOp, ctrl: &ControlSignals, fields: &Decoded, operands: &Operands
         MaskOp::Logical(op) => {
             format!("{}.mm {vd}, {vs2}, {}", mask_logical_name(op), vreg(ctrl.vs1))
         }
-        MaskOp::CPop => format!("vcpop.m {}, {vs2}{mask}", xreg(fields.rd)),
-        MaskOp::First => format!("vfirst.m {}, {vs2}{mask}", xreg(fields.rd)),
+        MaskOp::CPop => format!("vcpop.m {}, {vs2}{mask}", fields.rd.int_abi_name()),
+        MaskOp::First => format!("vfirst.m {}, {vs2}{mask}", fields.rd.int_abi_name()),
         MaskOp::Set(MaskSetOp::BeforeFirst) => operands.unary("vmsbf.m"),
         MaskOp::Set(MaskSetOp::IncludingFirst) => operands.unary("vmsif.m"),
         MaskOp::Set(MaskSetOp::OnlyFirst) => operands.unary("vmsof.m"),
@@ -537,7 +540,7 @@ const fn mask_logical_name(op: MaskLogicalOp) -> &'static str {
 fn permute(op: PermuteOp, ctrl: &ControlSignals, fields: &Decoded, operands: &Operands) -> String {
     let Operands { vd, vs2, source, .. } = operands;
     match op {
-        PermuteOp::MvXS => format!("vmv.x.s {}, {vs2}", xreg(fields.rd)),
+        PermuteOp::MvXS => format!("vmv.x.s {}, {vs2}", fields.rd.int_abi_name()),
         PermuteOp::MvSX => format!("vmv.s.x {vd}, {source}"),
         PermuteOp::SlideUp(_) => operands.binary("vslideup", 'v'),
         PermuteOp::SlideDown(_) => operands.binary("vslidedown", 'v'),
