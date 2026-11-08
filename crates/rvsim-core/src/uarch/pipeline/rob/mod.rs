@@ -196,7 +196,6 @@ impl From<CsrWrite> for CsrUpdate {
 
 /// A single entry in the Reorder Buffer.
 #[derive(Clone, Debug, Default)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct RobEntry {
     /// Unique tag for this entry.
     pub tag: RobTag,
