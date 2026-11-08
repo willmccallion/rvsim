@@ -6,15 +6,21 @@
 use crate::exec::compute::fpu;
 use crate::exec::compute::fpu::nan_handling::box_f32;
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
-use crate::isa::op::AluOp;
+use crate::isa::op::{FmaSigns, FpArithOp, FpOp};
 
 #[test]
 fn test_exception_dz() {
     // 1.0 / 0.0 should set DZ flag
     let one = box_f32(1.0);
     let zero = box_f32(0.0);
-    let (result, flags) =
-        fpu::execute_full_rm(AluOp::FDiv, one, zero, 0, FpFormat::Single, RoundingMode::Rne);
+    let (result, flags) = fpu::execute_full_rm(
+        FpOp::Arith(FpArithOp::Div),
+        one,
+        zero,
+        0,
+        FpFormat::Single,
+        RoundingMode::Rne,
+    );
 
     // Result should be +infinity
     let res_f32 = f32::from_bits(result as u32);
@@ -31,7 +37,7 @@ fn test_exception_nv() {
     // sqrt(-1.0) should set NV flag
     let neg_one = box_f32(-1.0);
     let (_result, flags) =
-        fpu::execute_full_rm(AluOp::FSqrt, neg_one, 0, 0, FpFormat::Single, RoundingMode::Rne);
+        fpu::execute_full_rm(FpOp::Sqrt, neg_one, 0, 0, FpFormat::Single, RoundingMode::Rne);
 
     assert!(flags.contains(FpFlags::NV), "NV flag must be set for sqrt(-1.0)");
 }
@@ -41,8 +47,14 @@ fn test_exception_of_nx() {
     // Large value multiplication resulting in overflow to infinity
     let large = box_f32(f32::MAX);
     let two = box_f32(2.0);
-    let (result, flags) =
-        fpu::execute_full_rm(AluOp::FMul, large, two, 0, FpFormat::Single, RoundingMode::Rne);
+    let (result, flags) = fpu::execute_full_rm(
+        FpOp::Arith(FpArithOp::Mul),
+        large,
+        two,
+        0,
+        FpFormat::Single,
+        RoundingMode::Rne,
+    );
 
     let res_f32 = f32::from_bits(result as u32);
     assert!(res_f32.is_infinite(), "MAX * 2 should overflow to infinity");
@@ -55,8 +67,14 @@ fn test_exception_of_nx() {
 fn test_exception_nv_zero_div_zero() {
     // 0.0 / 0.0 should set NV (invalid), not DZ
     let zero = box_f32(0.0);
-    let (_result, flags) =
-        fpu::execute_full_rm(AluOp::FDiv, zero, zero, 0, FpFormat::Single, RoundingMode::Rne);
+    let (_result, flags) = fpu::execute_full_rm(
+        FpOp::Arith(FpArithOp::Div),
+        zero,
+        zero,
+        0,
+        FpFormat::Single,
+        RoundingMode::Rne,
+    );
 
     assert!(flags.contains(FpFlags::NV), "0/0 should set NV (invalid operation)");
     assert!(!flags.contains(FpFlags::DZ), "0/0 should NOT set DZ");
@@ -66,8 +84,14 @@ fn test_exception_nv_zero_div_zero() {
 fn test_no_exception_normal_add() {
     let a = box_f32(1.0);
     let b = box_f32(2.0);
-    let (_result, flags) =
-        fpu::execute_full_rm(AluOp::FAdd, a, b, 0, FpFormat::Single, RoundingMode::Rne);
+    let (_result, flags) = fpu::execute_full_rm(
+        FpOp::Arith(FpArithOp::Add),
+        a,
+        b,
+        0,
+        FpFormat::Single,
+        RoundingMode::Rne,
+    );
 
     assert!(flags.is_empty(), "Normal addition should raise no flags");
 }
@@ -78,8 +102,14 @@ fn test_exception_snan_input_sets_nv() {
     let snan_bits = 0x7f800001u32; // sNaN (quiet bit=0, payload!=0)
     let snan = box_f32(f32::from_bits(snan_bits));
     let one = box_f32(1.0);
-    let (_result, flags) =
-        fpu::execute_full_rm(AluOp::FAdd, snan, one, 0, FpFormat::Single, RoundingMode::Rne);
+    let (_result, flags) = fpu::execute_full_rm(
+        FpOp::Arith(FpArithOp::Add),
+        snan,
+        one,
+        0,
+        FpFormat::Single,
+        RoundingMode::Rne,
+    );
 
     assert!(flags.contains(FpFlags::NV), "sNaN input must raise NV");
 }
@@ -89,8 +119,14 @@ fn test_exception_dz_f64() {
     // f64: 1.0 / 0.0 should set DZ
     let one = f64::to_bits(1.0);
     let zero = f64::to_bits(0.0);
-    let (result, flags) =
-        fpu::execute_full_rm(AluOp::FDiv, one, zero, 0, FpFormat::Double, RoundingMode::Rne);
+    let (result, flags) = fpu::execute_full_rm(
+        FpOp::Arith(FpArithOp::Div),
+        one,
+        zero,
+        0,
+        FpFormat::Double,
+        RoundingMode::Rne,
+    );
 
     let res_f64 = f64::from_bits(result);
     assert!(res_f64.is_infinite());
@@ -101,7 +137,7 @@ fn test_exception_dz_f64() {
 fn test_exception_nv_sqrt_neg_f64() {
     let neg_one = f64::to_bits(-1.0);
     let (_result, flags) =
-        fpu::execute_full_rm(AluOp::FSqrt, neg_one, 0, 0, FpFormat::Double, RoundingMode::Rne);
+        fpu::execute_full_rm(FpOp::Sqrt, neg_one, 0, 0, FpFormat::Double, RoundingMode::Rne);
     assert!(flags.contains(FpFlags::NV));
 }
 
@@ -129,7 +165,7 @@ const F16_NEG_INF: u16 = 0xfc00;
 const F16_ONE: u16 = 0x3c00;
 const F16_QNAN: u16 = 0x7e00;
 
-fn execute_f16(op: AluOp, a: u16, b: u16, c: u16) -> FpFlags {
+fn execute_f16(op: FpOp, a: u16, b: u16, c: u16) -> FpFlags {
     use crate::exec::compute::fpu::half::box_f16;
     use crate::isa::fp::{FpFormat, RoundingMode};
     let (_, flags) = fpu::execute_full_rm(
@@ -145,20 +181,29 @@ fn execute_f16(op: AluOp, a: u16, b: u16, c: u16) -> FpFlags {
 
 #[test]
 fn a_half_precision_sum_of_opposite_infinities_is_invalid() {
-    assert!(execute_f16(AluOp::FAdd, F16_NEG_INF, F16_INF, 0).contains(FpFlags::NV));
-    assert!(execute_f16(AluOp::FSub, F16_INF, F16_INF, 0).contains(FpFlags::NV));
-    assert!(!execute_f16(AluOp::FAdd, F16_INF, F16_INF, 0).contains(FpFlags::NV));
+    assert!(
+        execute_f16(FpOp::Arith(FpArithOp::Add), F16_NEG_INF, F16_INF, 0).contains(FpFlags::NV)
+    );
+    assert!(execute_f16(FpOp::Arith(FpArithOp::Sub), F16_INF, F16_INF, 0).contains(FpFlags::NV));
+    assert!(!execute_f16(FpOp::Arith(FpArithOp::Add), F16_INF, F16_INF, 0).contains(FpFlags::NV));
 }
 
 #[test]
 fn a_half_precision_zero_times_infinity_is_invalid() {
-    assert!(execute_f16(AluOp::FMul, F16_ZERO, F16_INF, 0).contains(FpFlags::NV));
-    assert!(!execute_f16(AluOp::FMul, F16_ONE, F16_INF, 0).contains(FpFlags::NV));
+    assert!(execute_f16(FpOp::Arith(FpArithOp::Mul), F16_ZERO, F16_INF, 0).contains(FpFlags::NV));
+    assert!(!execute_f16(FpOp::Arith(FpArithOp::Mul), F16_ONE, F16_INF, 0).contains(FpFlags::NV));
 }
 
 #[test]
 fn a_half_precision_fused_zero_times_infinity_is_invalid_even_with_a_quiet_nan_addend() {
-    assert!(execute_f16(AluOp::FMAdd, F16_ZERO, F16_INF, F16_QNAN).contains(FpFlags::NV));
-    assert!(execute_f16(AluOp::FMAdd, F16_ONE, F16_INF, F16_NEG_INF).contains(FpFlags::NV));
-    assert!(!execute_f16(AluOp::FMSub, F16_ONE, F16_INF, F16_NEG_INF).contains(FpFlags::NV));
+    assert!(
+        execute_f16(FpOp::Fma(FmaSigns::Macc), F16_ZERO, F16_INF, F16_QNAN).contains(FpFlags::NV)
+    );
+    assert!(
+        execute_f16(FpOp::Fma(FmaSigns::Macc), F16_ONE, F16_INF, F16_NEG_INF).contains(FpFlags::NV)
+    );
+    assert!(
+        !execute_f16(FpOp::Fma(FmaSigns::MSac), F16_ONE, F16_INF, F16_NEG_INF)
+            .contains(FpFlags::NV)
+    );
 }

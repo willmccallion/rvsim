@@ -6,8 +6,10 @@ use crate::isa::extension::{Extension, Requirement};
 use crate::isa::fp::FpFormat;
 use crate::isa::instruction::InstructionBits;
 use crate::isa::misa::MisaLetter;
-use crate::isa::op::{AluOp, SystemOp, VectorOp};
-use crate::isa::op::{CryptoOp, IntOp, VecAluOp, VecClass};
+use crate::isa::op::{
+    AluOp, BitOp, ClmulOp, CryptoOp, FpOp, IntAluOp, IntOp, PackOp, SystemOp, VecAluOp, VecClass,
+    VectorOp,
+};
 
 /// What the instruction decoded to `ctrl` from `inst` needs the hart to
 /// implement. The base ISA, Zicsr, Zifencei, Zicntr and the hints are
@@ -33,17 +35,7 @@ pub fn requirement(ctrl: &ControlSignals, inst: u32) -> Requirement {
     if ctrl.touches_fp_registers() {
         return fp_requirement(ctrl);
     }
-    if matches!(
-        ctrl.alu,
-        AluOp::Mul
-            | AluOp::Mulh
-            | AluOp::Mulhsu
-            | AluOp::Mulhu
-            | AluOp::Div
-            | AluOp::Divu
-            | AluOp::Rem
-            | AluOp::Remu
-    ) {
+    if matches!(ctrl.alu, AluOp::Int(IntAluOp::Mul(_) | IntAluOp::Div(_))) {
         return Requirement::Letter(MisaLetter::M);
     }
     Requirement::Base
@@ -53,36 +45,20 @@ pub fn requirement(ctrl: &ControlSignals, inst: u32) -> Requirement {
 /// is not one.
 fn bit_manipulation_requirement(alu: AluOp, inst: u32) -> Option<Requirement> {
     use Extension::{Zba, Zbb, Zbc, Zbkb, Zbkc, Zbkx, Zbs};
-    let extensions: &[Extension] = match alu {
-        AluOp::Sh1Add
-        | AluOp::Sh2Add
-        | AluOp::Sh3Add
-        | AluOp::AddUw
-        | AluOp::Sh1AddUw
-        | AluOp::Sh2AddUw
-        | AluOp::Sh3AddUw
-        | AluOp::SlliUw => &[Zba],
-        AluOp::Clz
-        | AluOp::Ctz
-        | AluOp::Cpop
-        | AluOp::Max
-        | AluOp::Maxu
-        | AluOp::Min
-        | AluOp::Minu
-        | AluOp::SextB
-        | AluOp::SextH
-        | AluOp::OrcB => &[Zbb],
-        AluOp::Andn | AluOp::Orn | AluOp::Xnor | AluOp::Rol | AluOp::Ror | AluOp::Rev8 => {
-            &[Zbb, Zbkb]
-        }
-        AluOp::Clmul | AluOp::Clmulh => &[Zbc, Zbkc],
-        AluOp::Clmulr => &[Zbc],
-        AluOp::Bclr | AluOp::Bext | AluOp::Binv | AluOp::Bset => &[Zbs],
+    let AluOp::Int(IntAluOp::Bit(op)) = alu else {
+        return None;
+    };
+    let extensions: &[Extension] = match op {
+        BitOp::ShiftAdd(_) => &[Zba],
+        BitOp::Count(_) | BitOp::MinMax(_) | BitOp::SextB | BitOp::SextH | BitOp::OrcB => &[Zbb],
+        BitOp::Andn | BitOp::Orn | BitOp::Xnor | BitOp::Rotate(_) | BitOp::Rev8 => &[Zbb, Zbkb],
+        BitOp::Clmul(ClmulOp::Clmul | ClmulOp::Clmulh) => &[Zbc, Zbkc],
+        BitOp::Clmul(ClmulOp::Clmulr) => &[Zbc],
+        BitOp::SingleBit(_) => &[Zbs],
         // `zext.h` is `packw rd, rs1, x0`, and Zbb's.
-        AluOp::Packw if inst.rs2().is_zero() => &[Zbb, Zbkb],
-        AluOp::Brev8 | AluOp::Pack | AluOp::Packh | AluOp::Packw => &[Zbkb],
-        AluOp::Xperm4 | AluOp::Xperm8 => &[Zbkx],
-        _ => return None,
+        BitOp::Pack(PackOp::Packw) if inst.rs2().is_zero() => &[Zbb, Zbkb],
+        BitOp::Brev8 | BitOp::Pack(_) => &[Zbkb],
+        BitOp::Xperm4 | BitOp::Xperm8 => &[Zbkx],
     };
     Some(Requirement::any_of(extensions))
 }
@@ -91,15 +67,17 @@ fn bit_manipulation_requirement(alu: AluOp, inst: u32) -> Option<Requirement> {
 /// precision, else F or D by the operand width.
 fn fp_requirement(ctrl: &ControlSignals) -> Requirement {
     let format = ctrl.format.fp_format();
-    let half = format == FpFormat::Half
-        || matches!(ctrl.alu, AluOp::FCvtSH | AluOp::FCvtHS | AluOp::FCvtDH | AluOp::FCvtHD);
+    // A conversion needs the extensions of both its formats.
+    let half =
+        format == FpFormat::Half || matches!(ctrl.alu, AluOp::Fp(FpOp::FromFloat(FpFormat::Half)));
     if half {
         return Requirement::any_of(&[Extension::Zfh]);
     }
     let double = if ctrl.mem_read || ctrl.mem_write {
         ctrl.width.bytes() == 8
     } else {
-        format != FpFormat::Single || matches!(ctrl.alu, AluOp::FCvtSD | AluOp::FCvtDS)
+        format != FpFormat::Single
+            || matches!(ctrl.alu, AluOp::Fp(FpOp::FromFloat(FpFormat::Double)))
     };
     Requirement::Letter(if double { MisaLetter::D } else { MisaLetter::F })
 }

@@ -1,275 +1,349 @@
 //! The ALU and FPU operations an instruction decodes to.
 
-/// ALU operation types for integer and floating-point instructions.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+use super::format::{IntWidth, Signedness};
+use crate::isa::fp::FpFormat;
+
+/// The operation an integer or floating-point instruction performs, by
+/// the unit that computes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AluOp {
-    /// Default value (no operation).
-    #[default]
+    /// The integer ALU.
+    Int(IntAluOp),
+    /// The floating-point unit.
+    Fp(FpOp),
+}
+
+impl Default for AluOp {
+    /// An add, which address generation and the no-op use.
+    fn default() -> Self {
+        Self::Int(IntAluOp::Arith(ArithOp::Add))
+    }
+}
+
+/// The operations the integer ALU performs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IntAluOp {
+    /// Addition and subtraction.
+    Arith(ArithOp),
+    /// Bitwise logic and set-less-than.
+    Logic(LogicOp),
+    /// Shifts.
+    Shift(ShiftOp),
+    /// M-extension multiplication.
+    Mul(MulOp),
+    /// M-extension division and remainder.
+    Div(DivOp),
+    /// Bit manipulation (Zba, Zbb, Zbc, Zbs, Zbkb, Zbkx).
+    Bit(BitOp),
+}
+
+/// The `From` impls that lift each group of integer operations into an
+/// [`IntAluOp`] and an [`AluOp`].
+macro_rules! into_alu_op {
+    ($($group:ident => $variant:ident),*) => {$(
+        impl From<$group> for IntAluOp {
+            fn from(op: $group) -> Self {
+                Self::$variant(op)
+            }
+        }
+
+        impl From<$group> for AluOp {
+            fn from(op: $group) -> Self {
+                Self::Int(IntAluOp::$variant(op))
+            }
+        }
+    )*};
+}
+
+into_alu_op!(
+    ArithOp => Arith, LogicOp => Logic, ShiftOp => Shift, MulOp => Mul, DivOp => Div, BitOp => Bit
+);
+
+impl From<IntAluOp> for AluOp {
+    fn from(op: IntAluOp) -> Self {
+        Self::Int(op)
+    }
+}
+
+impl From<FpOp> for AluOp {
+    fn from(op: FpOp) -> Self {
+        Self::Fp(op)
+    }
+}
+
+/// Addition and subtraction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArithOp {
+    /// `add`.
     Add,
-
-    /// Integer subtraction.
+    /// `sub`.
     Sub,
+}
 
-    /// Shift left logical.
-    Sll,
-
-    /// Set less than (signed).
-    Slt,
-
-    /// Set less than unsigned.
-    Sltu,
-
-    /// Bitwise XOR.
-    Xor,
-
-    /// Shift right logical.
-    Srl,
-
-    /// Shift right arithmetic.
-    Sra,
-
-    /// Bitwise OR.
-    Or,
-
-    /// Bitwise AND.
+/// Bitwise logic and set-less-than.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogicOp {
+    /// `and`.
     And,
+    /// `or`.
+    Or,
+    /// `xor`.
+    Xor,
+    /// `slt`: signed set-less-than.
+    Slt,
+    /// `sltu`: unsigned set-less-than.
+    Sltu,
+}
 
-    /// Integer multiply (low bits).
+/// Shifts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShiftOp {
+    /// `sll`.
+    Sll,
+    /// `srl`.
+    Srl,
+    /// `sra`.
+    Sra,
+}
+
+/// M-extension multiplication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MulOp {
+    /// `mul`: the low half of the product.
     Mul,
-
-    /// Integer multiply (high bits, signed × signed).
+    /// `mulh`: the high half, both operands signed.
     Mulh,
-
-    /// Integer multiply (high bits, signed × unsigned).
+    /// `mulhsu`: the high half, `rs1` signed and `rs2` unsigned.
     Mulhsu,
-
-    /// Integer multiply (high bits, unsigned × unsigned).
+    /// `mulhu`: the high half, both unsigned.
     Mulhu,
+}
 
-    /// Integer divide (signed).
+/// M-extension division and remainder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DivOp {
+    /// `div`.
     Div,
-
-    /// Integer divide (unsigned).
+    /// `divu`.
     Divu,
-
-    /// Integer remainder (signed).
+    /// `rem`.
     Rem,
-
-    /// Integer remainder (unsigned).
+    /// `remu`.
     Remu,
+}
 
-    /// Floating-point addition.
-    FAdd,
-
-    /// Floating-point subtraction.
-    FSub,
-
-    /// Floating-point multiplication.
-    FMul,
-
-    /// Floating-point division.
-    FDiv,
-
-    /// Floating-point square root.
-    FSqrt,
-
-    /// Floating-point minimum.
-    FMin,
-
-    /// Floating-point maximum.
-    FMax,
-
-    /// Floating-point multiply-add (fused).
-    FMAdd,
-
-    /// Floating-point multiply-subtract (fused).
-    FMSub,
-
-    /// Floating-point negated multiply-add (fused).
-    FNMAdd,
-
-    /// Floating-point negated multiply-subtract (fused).
-    FNMSub,
-
-    /// Convert word to single-precision float (signed).
-    FCvtWS,
-
-    /// Convert long to single-precision float (signed).
-    FCvtLS,
-
-    /// Convert single-precision float to word (signed).
-    FCvtSW,
-
-    /// Convert single-precision float to long (signed).
-    FCvtSL,
-
-    /// Convert float to word (unsigned).
-    FCvtWUS,
-
-    /// Convert float to long (unsigned).
-    FCvtLUS,
-
-    /// Convert unsigned word to float.
-    FCvtSWU,
-
-    /// Convert unsigned long to float.
-    FCvtSLU,
-
-    /// Convert single-precision to double-precision float.
-    FCvtSD,
-
-    /// Convert double-precision to single-precision float.
-    FCvtDS,
-
-    /// Convert half-precision to single-precision float (Zfh).
-    FCvtSH,
-
-    /// Convert single-precision to half-precision float (Zfh).
-    FCvtHS,
-
-    /// Convert half-precision to double-precision float (Zfh).
-    FCvtDH,
-
-    /// Convert double-precision to half-precision float (Zfh).
-    FCvtHD,
-
-    /// Floating-point sign injection (copy sign).
-    FSgnJ,
-
-    /// Floating-point sign injection (negate sign).
-    FSgnJN,
-
-    /// Floating-point sign injection (XOR sign).
-    FSgnJX,
-
-    /// Floating-point equality comparison.
-    FEq,
-
-    /// Floating-point less-than comparison.
-    FLt,
-
-    /// Floating-point less-than-or-equal comparison.
-    FLe,
-
-    /// Floating-point classify.
-    FClass,
-
-    /// Move floating-point register to integer register.
-    FMvToX,
-
-    /// Move integer register to floating-point register.
-    FMvToF,
-
-    /// Shift-left-1 and add (sh1add).
-    Sh1Add,
-
-    /// Shift-left-2 and add (sh2add).
-    Sh2Add,
-
-    /// Shift-left-3 and add (sh3add).
-    Sh3Add,
-
-    /// Add unsigned word (add.uw) — zero-extends rs1\[31:0\] before adding.
-    AddUw,
-
-    /// Shift-left-1 and add unsigned word (sh1add.uw).
-    Sh1AddUw,
-
-    /// Shift-left-2 and add unsigned word (sh2add.uw).
-    Sh2AddUw,
-
-    /// Shift-left-3 and add unsigned word (sh3add.uw).
-    Sh3AddUw,
-
-    /// Shift-left-logical unsigned word immediate (slli.uw).
-    SlliUw,
-
-    /// Bitwise AND with complement (andn).
+/// Bit manipulation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BitOp {
+    /// Zba address generation.
+    ShiftAdd(ShiftAddOp),
+    /// `andn`: `a & !b`.
     Andn,
-
-    /// Bitwise OR with complement (orn).
+    /// `orn`: `a | !b`.
     Orn,
-
-    /// Bitwise exclusive NOR (xnor).
+    /// `xnor`: `!(a ^ b)`.
     Xnor,
-
-    /// Count leading zeros (clz / clzw).
-    Clz,
-
-    /// Count trailing zeros (ctz / ctzw).
-    Ctz,
-
-    /// Count set bits / population count (cpop / cpopw).
-    Cpop,
-
-    /// Maximum (signed).
-    Max,
-
-    /// Maximum (unsigned).
-    Maxu,
-
-    /// Minimum (signed).
-    Min,
-
-    /// Minimum (unsigned).
-    Minu,
-
-    /// Sign-extend byte.
+    /// Bit counts.
+    Count(CountOp),
+    /// Integer minimum and maximum.
+    MinMax(MinMaxOp),
+    /// `sext.b`.
     SextB,
-
-    /// Sign-extend halfword.
+    /// `sext.h`.
     SextH,
-
-    /// Rotate left (rol / rolw).
-    Rol,
-
-    /// Rotate right (ror / rorw / rori / roriw).
-    Ror,
-
-    /// OR-combine bytes (orc.b).
+    /// Rotates.
+    Rotate(RotateOp),
+    /// `orc.b`: each byte all ones if any of its bits is set.
     OrcB,
-
-    /// Byte-reverse (rev8).
+    /// `rev8`: the bytes reversed.
     Rev8,
-
-    /// Carry-less multiply (low half).
-    Clmul,
-
-    /// Carry-less multiply (high half).
-    Clmulh,
-
-    /// Carry-less multiply (reversed / remainder).
-    Clmulr,
-
-    /// Clear single bit (bclr / bclri).
-    Bclr,
-
-    /// Extract single bit (bext / bexti).
-    Bext,
-
-    /// Invert single bit (binv / binvi).
-    Binv,
-
-    /// Set single bit (bset / bseti).
-    Bset,
-
-    /// Bit-reverse within each byte (brev8).
+    /// `brev8`: the bits of each byte reversed.
     Brev8,
-
-    /// Pack lower halves of two registers (pack).
-    Pack,
-
-    /// Pack lowest bytes of two registers (packh).
-    Packh,
-
-    /// Pack lower halves, 32-bit variant (packw).
-    Packw,
-
-    /// 4-bit crossbar permutation (xperm4).
+    /// Carry-less multiplication.
+    Clmul(ClmulOp),
+    /// Single-bit operations (Zbs).
+    SingleBit(SingleBitOp),
+    /// Packing (Zbkb).
+    Pack(PackOp),
+    /// `xperm4`: a crossbar permute of nibbles.
     Xperm4,
-
-    /// 8-bit crossbar permutation (xperm8).
+    /// `xperm8`: a crossbar permute of bytes.
     Xperm8,
+}
+
+/// Zba address generation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShiftAddOp {
+    /// `sh1add`.
+    Sh1Add,
+    /// `sh2add`.
+    Sh2Add,
+    /// `sh3add`.
+    Sh3Add,
+    /// `add.uw`.
+    AddUw,
+    /// `sh1add.uw`.
+    Sh1AddUw,
+    /// `sh2add.uw`.
+    Sh2AddUw,
+    /// `sh3add.uw`.
+    Sh3AddUw,
+    /// `slli.uw`.
+    SlliUw,
+}
+
+/// Bit counts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CountOp {
+    /// `clz`: leading zeros.
+    Clz,
+    /// `ctz`: trailing zeros.
+    Ctz,
+    /// `cpop`: set bits.
+    Cpop,
+}
+
+/// Integer minimum and maximum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MinMaxOp {
+    /// `max`.
+    Max,
+    /// `maxu`.
+    Maxu,
+    /// `min`.
+    Min,
+    /// `minu`.
+    Minu,
+}
+
+/// Rotates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RotateOp {
+    /// `rol`.
+    Rol,
+    /// `ror`.
+    Ror,
+}
+
+/// Carry-less multiplication.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClmulOp {
+    /// `clmul`: the low half of the product.
+    Clmul,
+    /// `clmulh`: the high half.
+    Clmulh,
+    /// `clmulr`: bits 126 to 63.
+    Clmulr,
+}
+
+/// Single-bit operations on the bit of `rs1` that `rs2` numbers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SingleBitOp {
+    /// `bclr`.
+    Bclr,
+    /// `bext`.
+    Bext,
+    /// `binv`.
+    Binv,
+    /// `bset`.
+    Bset,
+}
+
+/// Packing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackOp {
+    /// `pack`: the low halves of `rs1` and `rs2`.
+    Pack,
+    /// `packh`: the low bytes.
+    Packh,
+    /// `packw`: the low 16 bits of each, sign-extended from a word.
+    Packw,
+}
+
+/// Floating-point operations. The format is the instruction's
+/// [`OperandFormat`](super::OperandFormat).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpOp {
+    /// Rounded binary arithmetic.
+    Arith(FpArithOp),
+    /// `fsqrt`.
+    Sqrt,
+    /// A fused multiply-add of `rs1 × rs2` and `rs3`.
+    Fma(FmaSigns),
+    /// `fmin` (IEEE 754-2008 minNum).
+    Min,
+    /// `fmax` (maxNum).
+    Max,
+    /// Sign injection.
+    SignInject(SignInjectOp),
+    /// A comparison into an integer register.
+    Compare(FpCompareOp),
+    /// `fclass`.
+    Class,
+    /// `fmv.x.*`: the bits into an integer register.
+    MoveToInt,
+    /// `fmv.*.x`: the bits from an integer register.
+    MoveFromInt,
+    /// `fcvt` to an integer.
+    ToInt(IntWidth, Signedness),
+    /// `fcvt` from an integer.
+    FromInt(IntWidth, Signedness),
+    /// `fcvt` from the floating-point format given.
+    FromFloat(FpFormat),
+}
+
+/// Rounded binary floating-point arithmetic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpArithOp {
+    /// `fadd`.
+    Add,
+    /// `fsub`.
+    Sub,
+    /// `fmul`.
+    Mul,
+    /// `fdiv`.
+    Div,
+}
+
+/// The signs of a fused multiply-add's product and addend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FmaSigns {
+    /// `+(a × b) + c`: `fmadd`, `vfmacc`.
+    Macc,
+    /// `-(a × b) - c`: `fnmadd`, `vfnmacc`.
+    NMacc,
+    /// `+(a × b) - c`: `fmsub`, `vfmsac`.
+    MSac,
+    /// `-(a × b) + c`: `fnmsub`, `vfnmsac`.
+    NMSac,
+}
+
+/// Sign injection: the magnitude of `rs1` with a sign from `rs2`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignInjectOp {
+    /// `fsgnj`: `rs2`'s sign.
+    Copy,
+    /// `fsgnjn`: its opposite.
+    Negate,
+    /// `fsgnjx`: the two signs' exclusive or.
+    Xor,
+}
+
+/// Floating-point comparisons.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FpCompareOp {
+    /// Equal (`feq`, `vmfeq`).
+    Eq,
+    /// Not equal (`vmfne`).
+    Ne,
+    /// Less than (`flt`, `vmflt`).
+    Lt,
+    /// Less than or equal (`fle`, `vmfle`).
+    Le,
+    /// Greater than (`vmfgt`).
+    Gt,
+    /// Greater than or equal (`vmfge`).
+    Ge,
 }
 
 /// Which kind of ALU or FPU operation this is, finely enough that both the
@@ -295,25 +369,15 @@ pub enum AluOpGroup {
 impl AluOp {
     /// The group this operation belongs to.
     #[must_use]
-    #[allow(clippy::enum_glob_use)]
     pub const fn group(self) -> AluOpGroup {
-        use AluOp::*;
         match self {
-            Add | Sub | Sll | Slt | Sltu | Xor | Srl | Sra | Or | And | Sh1Add | Sh2Add
-            | Sh3Add | AddUw | Sh1AddUw | Sh2AddUw | Sh3AddUw | SlliUw | Andn | Orn | Xnor
-            | Clz | Ctz | Cpop | Max | Maxu | Min | Minu | SextB | SextH | Rol | Ror | OrcB
-            | Rev8 | Clmul | Clmulh | Clmulr | Bclr | Bext | Binv | Bset | Brev8 | Pack | Packh
-            | Packw | Xperm4 | Xperm8 => AluOpGroup::IntAlu,
-            Mul | Mulh | Mulhsu | Mulhu => AluOpGroup::IntMul,
-            Div | Divu | Rem | Remu => AluOpGroup::IntDiv,
-            FAdd | FSub | FMin | FMax | FSgnJ | FSgnJN | FSgnJX | FEq | FLt | FLe | FClass
-            | FCvtWS | FCvtWUS | FCvtLS | FCvtLUS | FCvtSW | FCvtSWU | FCvtSL | FCvtSLU
-            | FCvtSD | FCvtDS | FCvtSH | FCvtHS | FCvtDH | FCvtHD | FMvToX | FMvToF => {
-                AluOpGroup::FpArith
-            }
-            FMul => AluOpGroup::FpMul,
-            FDiv | FSqrt => AluOpGroup::FpDivSqrt,
-            FMAdd | FMSub | FNMAdd | FNMSub => AluOpGroup::FpFma,
+            Self::Int(IntAluOp::Mul(_)) => AluOpGroup::IntMul,
+            Self::Int(IntAluOp::Div(_)) => AluOpGroup::IntDiv,
+            Self::Int(_) => AluOpGroup::IntAlu,
+            Self::Fp(FpOp::Arith(FpArithOp::Mul)) => AluOpGroup::FpMul,
+            Self::Fp(FpOp::Arith(FpArithOp::Div) | FpOp::Sqrt) => AluOpGroup::FpDivSqrt,
+            Self::Fp(FpOp::Fma(_)) => AluOpGroup::FpFma,
+            Self::Fp(_) => AluOpGroup::FpArith,
         }
     }
 }

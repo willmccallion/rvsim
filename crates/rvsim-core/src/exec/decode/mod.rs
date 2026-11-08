@@ -12,7 +12,7 @@ use crate::exec::compute::vector::mem::{
 use crate::exec::signals::{ControlSignals, OpASrc, OpBSrc};
 use crate::isa::encoding::rvv::opcodes as v_opcodes;
 use crate::isa::instruction::{Decoded, decode as instruction_decode};
-use crate::isa::op::{AluOp, SystemOp, VectorOp};
+use crate::isa::op::{AluOp, ArithOp, IntAluOp, SystemOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
 use crate::isa::rvv::{VtypeFields, parse_vtype};
@@ -34,7 +34,7 @@ fn decode_instruction(inst: u32, pc: VirtAddr, d: &Decoded) -> Result<ControlSig
     let mut c = ControlSignals {
         a_src: OpASrc::Reg1,
         b_src: OpBSrc::Imm,
-        alu: AluOp::Add,
+        alu: AluOp::Int(IntAluOp::Arith(ArithOp::Add)),
         ..Default::default()
     };
 

@@ -6,13 +6,14 @@
 use crate::exec::compute::fpu;
 use crate::exec::compute::fpu::nan_handling::box_f32;
 use crate::isa::fp::{FpFormat, RoundingMode};
-use crate::isa::op::AluOp;
+use crate::isa::op::{FpArithOp, FpCompareOp, FpOp, SignInjectOp};
 
 /// Helper: box two f32 values, execute with rounding mode, unbox result.
 fn fadd_f32_rm(a: f32, b: f32, rm: RoundingMode) -> f32 {
     let ba = box_f32(a);
     let bb = box_f32(b);
-    let result = fpu::execute_full_rm(AluOp::FAdd, ba, bb, 0, FpFormat::Single, rm).0;
+    let result =
+        fpu::execute_full_rm(FpOp::Arith(FpArithOp::Add), ba, bb, 0, FpFormat::Single, rm).0;
     f32::from_bits(result as u32)
 }
 
@@ -108,7 +109,8 @@ fn rounding_mode_irrelevant_for_comparisons() {
         RoundingMode::Rup,
         RoundingMode::Rmm,
     ] {
-        let result = fpu::execute_full_rm(AluOp::FEq, a, b, 0, FpFormat::Single, rm).0;
+        let result =
+            fpu::execute_full_rm(FpOp::Compare(FpCompareOp::Eq), a, b, 0, FpFormat::Single, rm).0;
         assert_eq!(result, 0, "FEq(1.0, 2.0) should be 0 for all rounding modes");
     }
 }
@@ -125,7 +127,15 @@ fn rounding_mode_irrelevant_for_sign_injection() {
         RoundingMode::Rup,
         RoundingMode::Rmm,
     ] {
-        let result = fpu::execute_full_rm(AluOp::FSgnJ, pos, neg, 0, FpFormat::Single, rm).0;
+        let result = fpu::execute_full_rm(
+            FpOp::SignInject(SignInjectOp::Copy),
+            pos,
+            neg,
+            0,
+            FpFormat::Single,
+            rm,
+        )
+        .0;
         let res_f32 = f32::from_bits(result as u32);
         assert!(res_f32.is_sign_negative(), "FSgnJ(+, -) should produce negative");
         #[allow(clippy::approx_constant)]

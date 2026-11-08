@@ -6,7 +6,7 @@
 //! Multiply/Divide (M) and Bit-Manipulation (B) extension operations.
 //!
 //! Operations are organized into submodules by category:
-//! - [`arithmetic`]: Add, Sub, Mul, Mulh, Mulhsu, Mulhu, Div, Divu, Rem, Remu
+//! - [`arithmetic`]: add and subtract, the M extension's multiply and divide
 //! - [`logic`]:      Or, And, Xor, Slt, Sltu
 //! - [`shifts`]:     Sll, Srl, Sra
 //! - [`bitmanip`]:   Zba (address gen), Zbb (basic bitmanip), Zbc (clmul), Zbs (single-bit)
@@ -19,81 +19,17 @@ pub mod logic;
 
 pub mod shifts;
 
-use crate::isa::op::{AluOp, IntWidth};
+use crate::isa::op::{IntAluOp, IntWidth};
 
-/// Executes an integer ALU operation.
-///
-/// Dispatches to the appropriate submodule based on the operation type.
-/// Supports both 32-bit and 64-bit operations by `width`.
-///
-/// # Arguments
-///
-/// * `op`   - The ALU operation to perform
-/// * `a`    - First operand (64-bit value)
-/// * `b`    - Second operand (64-bit value, also used as shift amount)
-/// * `width` - `Word` for the 32-bit (W-suffix) variant.
-///
-/// # Returns
-///
-/// The 64-bit result of the ALU operation. For 32-bit operations,
-/// the result is sign-extended to 64 bits.
-pub fn execute(op: AluOp, a: u64, b: u64, width: IntWidth) -> u64 {
+/// Executes an integer ALU operation on `a` (rs1) and `b` (rs2 or the
+/// immediate). A `Word` operation's result is sign-extended from bit 31.
+pub fn execute(op: IntAluOp, a: u64, b: u64, width: IntWidth) -> u64 {
     match op {
-        AluOp::Add
-        | AluOp::Sub
-        | AluOp::Mul
-        | AluOp::Mulh
-        | AluOp::Mulhsu
-        | AluOp::Mulhu
-        | AluOp::Div
-        | AluOp::Divu
-        | AluOp::Rem
-        | AluOp::Remu => arithmetic::execute(op, a, b, width),
-
-        AluOp::Or | AluOp::And | AluOp::Xor | AluOp::Slt | AluOp::Sltu => {
-            logic::execute(op, a, b, width)
-        }
-
-        AluOp::Sll | AluOp::Srl | AluOp::Sra => shifts::execute(op, a, b, width),
-
-        AluOp::Sh1Add
-        | AluOp::Sh2Add
-        | AluOp::Sh3Add
-        | AluOp::AddUw
-        | AluOp::Sh1AddUw
-        | AluOp::Sh2AddUw
-        | AluOp::Sh3AddUw
-        | AluOp::SlliUw
-        | AluOp::Andn
-        | AluOp::Orn
-        | AluOp::Xnor
-        | AluOp::Clz
-        | AluOp::Ctz
-        | AluOp::Cpop
-        | AluOp::Max
-        | AluOp::Maxu
-        | AluOp::Min
-        | AluOp::Minu
-        | AluOp::SextB
-        | AluOp::SextH
-        | AluOp::Rol
-        | AluOp::Ror
-        | AluOp::OrcB
-        | AluOp::Rev8
-        | AluOp::Clmul
-        | AluOp::Clmulh
-        | AluOp::Clmulr
-        | AluOp::Bclr
-        | AluOp::Bext
-        | AluOp::Binv
-        | AluOp::Bset
-        | AluOp::Brev8
-        | AluOp::Pack
-        | AluOp::Packh
-        | AluOp::Packw
-        | AluOp::Xperm4
-        | AluOp::Xperm8 => bitmanip::execute(op, a, b, width),
-
-        _ => 0,
+        IntAluOp::Arith(op) => arithmetic::add_sub(op, a, b, width),
+        IntAluOp::Mul(op) => arithmetic::multiply(op, a, b, width),
+        IntAluOp::Div(op) => arithmetic::divide(op, a, b, width),
+        IntAluOp::Logic(op) => logic::execute(op, a, b, width),
+        IntAluOp::Shift(op) => shifts::execute(op, a, b, width),
+        IntAluOp::Bit(op) => bitmanip::execute(op, a, b, width),
     }
 }

@@ -19,7 +19,11 @@ use crate::isa::fence::Fence;
 use crate::isa::fp::{FpFormat, Rounding};
 use crate::isa::instruction::{Decoded, InstructionBits};
 use crate::isa::op::pseudo::PseudoOp;
-use crate::isa::op::{AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp};
+use crate::isa::op::{
+    AluOp, ArithOp, AtomicOp, BitOp, ClmulOp, CountOp, CsrOp, DivOp, FmaSigns, FpArithOp,
+    FpCompareOp, FpOp, IntAluOp, IntWidth, LogicOp, MemWidth, MinMaxOp, MulOp, OperandFormat,
+    PackOp, RotateOp, ShiftAddOp, ShiftOp, SignInjectOp, Signedness, SingleBitOp, SystemOp,
+};
 use crate::isa::privileged::Trap;
 
 /// JALR's only defined funct3.
@@ -100,22 +104,22 @@ pub(super) fn decode(
         }
         i_opcodes::OP_IMM => {
             c.reg_write = true;
-            c.alu = op_imm(inst, d).ok_or_else(illegal)?;
+            c.alu = AluOp::Int(op_imm(inst, d).ok_or_else(illegal)?);
         }
         i_opcodes::OP_IMM_32 => {
             c.reg_write = true;
-            c.alu = op_imm_32(inst, d).ok_or_else(illegal)?;
+            c.alu = AluOp::Int(op_imm_32(inst, d).ok_or_else(illegal)?);
             c.format = OperandFormat::Int(word_op_width(c.alu));
         }
         i_opcodes::OP_REG => {
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            c.alu = op(d).ok_or_else(illegal)?;
+            c.alu = AluOp::Int(op(d).ok_or_else(illegal)?);
         }
         i_opcodes::OP_REG_32 => {
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            c.alu = op_32(d).ok_or_else(illegal)?;
+            c.alu = AluOp::Int(op_32(d).ok_or_else(illegal)?);
             c.format = OperandFormat::Int(word_op_width(c.alu));
         }
         a_opcodes::OP_AMO => decode_amo(c, inst, d).ok_or_else(illegal)?,
@@ -145,15 +149,16 @@ pub(super) fn decode(
             c.rs2_fp = true;
             c.fp_reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            c.alu = op_fp(c, d).ok_or_else(illegal)?;
-            if rounds(c.alu) {
+            let op = op_fp(c, d).ok_or_else(illegal)?;
+            c.alu = AluOp::Fp(op);
+            if rounds(op) {
                 c.fp_rm = Some(rounding(inst, d)?);
             }
         }
-        d_opcodes::OP_FMADD => decode_fused(c, inst, d, AluOp::FMAdd)?,
-        d_opcodes::OP_FMSUB => decode_fused(c, inst, d, AluOp::FMSub)?,
-        d_opcodes::OP_FNMADD => decode_fused(c, inst, d, AluOp::FNMAdd)?,
-        d_opcodes::OP_FNMSUB => decode_fused(c, inst, d, AluOp::FNMSub)?,
+        d_opcodes::OP_FMADD => decode_fused(c, inst, d, FmaSigns::Macc)?,
+        d_opcodes::OP_FMSUB => decode_fused(c, inst, d, FmaSigns::MSac)?,
+        d_opcodes::OP_FNMADD => decode_fused(c, inst, d, FmaSigns::NMacc)?,
+        d_opcodes::OP_FNMSUB => decode_fused(c, inst, d, FmaSigns::NMSac)?,
         sys_ops::OP_SYSTEM => decode_system(c, inst, pc, d)?,
         sys_ops::OP_PSEUDO => c.system_op = SystemOp::Pseudo(PseudoOp::of(inst)),
         i_opcodes::OP_MISC_MEM => c.system_op = misc_mem_op(d).ok_or_else(illegal)?,
@@ -278,41 +283,42 @@ impl FcvtInt {
     }
 }
 
-/// The OP-FP operation `d` encodes, with where its operands come from and
-/// its result goes set in `c`; `None` for a reserved encoding.
-fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<AluOp> {
+/// The floating-point operation an OP-FP word `d` encodes, with where its
+/// operands come from and its result goes set in `c`; `None` for a
+/// reserved encoding.
+fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<FpOp> {
     let rs2 = d.rs2.as_u8();
     Some(match d.funct7 {
-        f_funct7::FADD | d_funct7::FADD_D | h_funct7::FADD_H => AluOp::FAdd,
-        f_funct7::FSUB | d_funct7::FSUB_D | h_funct7::FSUB_H => AluOp::FSub,
-        f_funct7::FMUL | d_funct7::FMUL_D | h_funct7::FMUL_H => AluOp::FMul,
-        f_funct7::FDIV | d_funct7::FDIV_D | h_funct7::FDIV_H => AluOp::FDiv,
-        f_funct7::FSQRT | d_funct7::FSQRT_D | h_funct7::FSQRT_H if rs2 == 0 => AluOp::FSqrt,
+        f_funct7::FADD | d_funct7::FADD_D | h_funct7::FADD_H => FpOp::Arith(FpArithOp::Add),
+        f_funct7::FSUB | d_funct7::FSUB_D | h_funct7::FSUB_H => FpOp::Arith(FpArithOp::Sub),
+        f_funct7::FMUL | d_funct7::FMUL_D | h_funct7::FMUL_H => FpOp::Arith(FpArithOp::Mul),
+        f_funct7::FDIV | d_funct7::FDIV_D | h_funct7::FDIV_H => FpOp::Arith(FpArithOp::Div),
+        f_funct7::FSQRT | d_funct7::FSQRT_D | h_funct7::FSQRT_H if rs2 == 0 => FpOp::Sqrt,
         f_funct7::FSGNJ | d_funct7::FSGNJ_D | h_funct7::FSGNJ_H => match d.funct3 {
-            f_funct3::FSGNJ => AluOp::FSgnJ,
-            f_funct3::FSGNJN => AluOp::FSgnJN,
-            f_funct3::FSGNJX => AluOp::FSgnJX,
+            f_funct3::FSGNJ => FpOp::SignInject(SignInjectOp::Copy),
+            f_funct3::FSGNJN => FpOp::SignInject(SignInjectOp::Negate),
+            f_funct3::FSGNJX => FpOp::SignInject(SignInjectOp::Xor),
             _ => return None,
         },
         f_funct7::FMIN_MAX | d_funct7::FMIN_MAX_D | h_funct7::FMIN_MAX_H => match d.funct3 {
-            f_funct3::FMIN => AluOp::FMin,
-            f_funct3::FMAX => AluOp::FMax,
+            f_funct3::FMIN => FpOp::Min,
+            f_funct3::FMAX => FpOp::Max,
             _ => return None,
         },
         f_funct7::FCMP | d_funct7::FCMP_D | h_funct7::FCMP_H => {
             writes_int_register(c);
             match d.funct3 {
-                f_funct3::FEQ => AluOp::FEq,
-                f_funct3::FLT => AluOp::FLt,
-                f_funct3::FLE => AluOp::FLe,
+                f_funct3::FEQ => FpOp::Compare(FpCompareOp::Eq),
+                f_funct3::FLT => FpOp::Compare(FpCompareOp::Lt),
+                f_funct3::FLE => FpOp::Compare(FpCompareOp::Le),
                 _ => return None,
             }
         }
         f_funct7::FCLASS_MV_X_F | d_funct7::FCLASS_MV_X_D | h_funct7::FCLASS_MV_X_H if rs2 == 0 => {
             writes_int_register(c);
             match d.funct3 {
-                f_funct3::FMV_X_W => AluOp::FMvToX,
-                f_funct3::FCLASS => AluOp::FClass,
+                f_funct3::FMV_X_W => FpOp::MoveToInt,
+                f_funct3::FCLASS => FpOp::Class,
                 _ => return None,
             }
         }
@@ -320,48 +326,48 @@ fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<AluOp> {
             if rs2 == 0 && d.funct3 == f_funct3::FMV_X_W =>
         {
             c.rs1_fp = false;
-            AluOp::FMvToF
+            FpOp::MoveFromInt
         }
         f_funct7::FCVT_W_F | d_funct7::FCVT_W_D | h_funct7::FCVT_W_H => {
             writes_int_register(c);
             match FcvtInt::of(rs2)? {
-                FcvtInt::W => AluOp::FCvtWS,
-                FcvtInt::Wu => AluOp::FCvtWUS,
-                FcvtInt::L => AluOp::FCvtLS,
-                FcvtInt::Lu => AluOp::FCvtLUS,
+                FcvtInt::W => FpOp::ToInt(IntWidth::Word, Signedness::Signed),
+                FcvtInt::Wu => FpOp::ToInt(IntWidth::Word, Signedness::Unsigned),
+                FcvtInt::L => FpOp::ToInt(IntWidth::Double, Signedness::Signed),
+                FcvtInt::Lu => FpOp::ToInt(IntWidth::Double, Signedness::Unsigned),
             }
         }
         f_funct7::FCVT_F_W | d_funct7::FCVT_D_W | h_funct7::FCVT_H_W => {
             c.rs1_fp = false;
             match FcvtInt::of(rs2)? {
-                FcvtInt::W => AluOp::FCvtSW,
-                FcvtInt::Wu => AluOp::FCvtSWU,
-                FcvtInt::L => AluOp::FCvtSL,
-                FcvtInt::Lu => AluOp::FCvtSLU,
+                FcvtInt::W => FpOp::FromInt(IntWidth::Word, Signedness::Signed),
+                FcvtInt::Wu => FpOp::FromInt(IntWidth::Word, Signedness::Unsigned),
+                FcvtInt::L => FpOp::FromInt(IntWidth::Double, Signedness::Signed),
+                FcvtInt::Lu => FpOp::FromInt(IntWidth::Double, Signedness::Unsigned),
             }
         }
         // FP↔FP conversion: the target fmt is funct7's, the source fmt rs2's.
         f_funct7::FCVT_DS => {
             c.format = OperandFormat::Fp(FpFormat::Double);
             match u32::from(rs2) {
-                FP_FMT_SINGLE => AluOp::FCvtDS,
-                FP_FMT_HALF => AluOp::FCvtDH,
+                FP_FMT_SINGLE => FpOp::FromFloat(FpFormat::Single),
+                FP_FMT_HALF => FpOp::FromFloat(FpFormat::Half),
                 _ => return None,
             }
         }
         d_funct7::FCVT_S_D => {
             c.format = OperandFormat::Fp(FpFormat::Single);
             match u32::from(rs2) {
-                FP_FMT_DOUBLE => AluOp::FCvtSD,
-                FP_FMT_HALF => AluOp::FCvtSH,
+                FP_FMT_DOUBLE => FpOp::FromFloat(FpFormat::Double),
+                FP_FMT_HALF => FpOp::FromFloat(FpFormat::Half),
                 _ => return None,
             }
         }
         h_funct7::FCVT_H_FP => {
             c.format = OperandFormat::Fp(FpFormat::Half);
             match u32::from(rs2) {
-                FP_FMT_SINGLE => AluOp::FCvtHS,
-                FP_FMT_DOUBLE => AluOp::FCvtHD,
+                FP_FMT_SINGLE => FpOp::FromFloat(FpFormat::Single),
+                FP_FMT_DOUBLE => FpOp::FromFloat(FpFormat::Double),
                 _ => return None,
             }
         }
@@ -375,8 +381,13 @@ const fn writes_int_register(c: &mut ControlSignals) {
     c.reg_write = true;
 }
 
-/// Decodes a fused multiply-add, `op`, into `c`.
-fn decode_fused(c: &mut ControlSignals, inst: u32, d: &Decoded, op: AluOp) -> Result<(), Trap> {
+/// Decodes a fused multiply-add with the `signs` into `c`.
+fn decode_fused(
+    c: &mut ControlSignals,
+    inst: u32,
+    d: &Decoded,
+    signs: FmaSigns,
+) -> Result<(), Trap> {
     c.rs1_fp = true;
     c.rs2_fp = true;
     c.rs3_fp = true;
@@ -384,7 +395,7 @@ fn decode_fused(c: &mut ControlSignals, inst: u32, d: &Decoded, op: AluOp) -> Re
     c.b_src = OpBSrc::Reg2;
     c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(Trap::IllegalInstruction(inst))?);
     c.fp_rm = Some(rounding(inst, d)?);
-    c.alu = op;
+    c.alu = AluOp::Fp(FpOp::Fma(signs));
     Ok(())
 }
 
@@ -447,9 +458,13 @@ const fn imm12(inst: u32) -> u32 {
 /// W opcodes but produce a full 64-bit result.
 const fn word_op_width(op: AluOp) -> IntWidth {
     match op {
-        AluOp::AddUw | AluOp::Sh1AddUw | AluOp::Sh2AddUw | AluOp::Sh3AddUw | AluOp::SlliUw => {
-            IntWidth::Double
-        }
+        AluOp::Int(IntAluOp::Bit(BitOp::ShiftAdd(
+            ShiftAddOp::AddUw
+            | ShiftAddOp::Sh1AddUw
+            | ShiftAddOp::Sh2AddUw
+            | ShiftAddOp::Sh3AddUw
+            | ShiftAddOp::SlliUw,
+        ))) => IntWidth::Double,
         _ => IntWidth::Word,
     }
 }
@@ -465,39 +480,39 @@ const fn fp_format(funct7: u32) -> Option<FpFormat> {
     }
 }
 
-/// The operation an OP-IMM word encodes, or `None` for a reserved one.
-const fn op_imm(inst: u32, d: &Decoded) -> Option<AluOp> {
+/// The integer operation an OP-IMM word encodes, or `None` for a reserved one.
+const fn op_imm(inst: u32, d: &Decoded) -> Option<IntAluOp> {
     let funct6 = d.funct7 >> 1;
     Some(match d.funct3 {
-        i_funct3::ADD_SUB => AluOp::Add,
-        i_funct3::SLT => AluOp::Slt,
-        i_funct3::SLTU => AluOp::Sltu,
-        i_funct3::XOR => AluOp::Xor,
-        i_funct3::OR => AluOp::Or,
-        i_funct3::AND => AluOp::And,
+        i_funct3::ADD_SUB => IntAluOp::Arith(ArithOp::Add),
+        i_funct3::SLT => IntAluOp::Logic(LogicOp::Slt),
+        i_funct3::SLTU => IntAluOp::Logic(LogicOp::Sltu),
+        i_funct3::XOR => IntAluOp::Logic(LogicOp::Xor),
+        i_funct3::OR => IntAluOp::Logic(LogicOp::Or),
+        i_funct3::AND => IntAluOp::Logic(LogicOp::And),
         i_funct3::SLL => match imm12(inst) {
-            b_funct3::CLZ_IMM => AluOp::Clz,
-            b_funct3::CTZ_IMM => AluOp::Ctz,
-            b_funct3::CPOP_IMM => AluOp::Cpop,
-            b_funct3::SEXT_B_IMM => AluOp::SextB,
-            b_funct3::SEXT_H_IMM => AluOp::SextH,
+            b_funct3::CLZ_IMM => IntAluOp::Bit(BitOp::Count(CountOp::Clz)),
+            b_funct3::CTZ_IMM => IntAluOp::Bit(BitOp::Count(CountOp::Ctz)),
+            b_funct3::CPOP_IMM => IntAluOp::Bit(BitOp::Count(CountOp::Cpop)),
+            b_funct3::SEXT_B_IMM => IntAluOp::Bit(BitOp::SextB),
+            b_funct3::SEXT_H_IMM => IntAluOp::Bit(BitOp::SextH),
             _ => match funct6 {
-                SLLI_SRLI_FUNCT6 => AluOp::Sll,
-                BCLRI_FUNCT6 => AluOp::Bclr,
-                BINVI_FUNCT6 => AluOp::Binv,
-                BSETI_FUNCT6 => AluOp::Bset,
+                SLLI_SRLI_FUNCT6 => IntAluOp::Shift(ShiftOp::Sll),
+                BCLRI_FUNCT6 => IntAluOp::Bit(BitOp::SingleBit(SingleBitOp::Bclr)),
+                BINVI_FUNCT6 => IntAluOp::Bit(BitOp::SingleBit(SingleBitOp::Binv)),
+                BSETI_FUNCT6 => IntAluOp::Bit(BitOp::SingleBit(SingleBitOp::Bset)),
                 _ => return None,
             },
         },
         i_funct3::SRL_SRA => match imm12(inst) {
-            b_funct3::ORC_B_IMM => AluOp::OrcB,
-            b_funct3::REV8_IMM => AluOp::Rev8,
-            b_funct3::BREV8_IMM => AluOp::Brev8,
+            b_funct3::ORC_B_IMM => IntAluOp::Bit(BitOp::OrcB),
+            b_funct3::REV8_IMM => IntAluOp::Bit(BitOp::Rev8),
+            b_funct3::BREV8_IMM => IntAluOp::Bit(BitOp::Brev8),
             _ => match funct6 {
-                SLLI_SRLI_FUNCT6 => AluOp::Srl,
-                SRAI_FUNCT6 => AluOp::Sra,
-                RORI_FUNCT6 => AluOp::Ror,
-                BEXTI_FUNCT6 => AluOp::Bext,
+                SLLI_SRLI_FUNCT6 => IntAluOp::Shift(ShiftOp::Srl),
+                SRAI_FUNCT6 => IntAluOp::Shift(ShiftOp::Sra),
+                RORI_FUNCT6 => IntAluOp::Bit(BitOp::Rotate(RotateOp::Ror)),
+                BEXTI_FUNCT6 => IntAluOp::Bit(BitOp::SingleBit(SingleBitOp::Bext)),
                 _ => return None,
             },
         },
@@ -505,96 +520,104 @@ const fn op_imm(inst: u32, d: &Decoded) -> Option<AluOp> {
     })
 }
 
-/// The operation an OP-IMM-32 word encodes, or `None` for a reserved one.
-const fn op_imm_32(inst: u32, d: &Decoded) -> Option<AluOp> {
+/// The integer operation an OP-IMM-32 word encodes, or `None` for a reserved one.
+const fn op_imm_32(inst: u32, d: &Decoded) -> Option<IntAluOp> {
     Some(match d.funct3 {
-        i_funct3::ADD_SUB => AluOp::Add,
+        i_funct3::ADD_SUB => IntAluOp::Arith(ArithOp::Add),
         i_funct3::SLL => match imm12(inst) {
-            b_funct3::CLZ_IMM => AluOp::Clz,
-            b_funct3::CTZ_IMM => AluOp::Ctz,
-            b_funct3::CPOP_IMM => AluOp::Cpop,
-            _ if d.funct7 == i_funct7::DEFAULT => AluOp::Sll,
-            _ if d.funct7 >> 1 == SLLI_UW_FUNCT6 => AluOp::SlliUw,
+            b_funct3::CLZ_IMM => IntAluOp::Bit(BitOp::Count(CountOp::Clz)),
+            b_funct3::CTZ_IMM => IntAluOp::Bit(BitOp::Count(CountOp::Ctz)),
+            b_funct3::CPOP_IMM => IntAluOp::Bit(BitOp::Count(CountOp::Cpop)),
+            _ if d.funct7 == i_funct7::DEFAULT => IntAluOp::Shift(ShiftOp::Sll),
+            _ if d.funct7 >> 1 == SLLI_UW_FUNCT6 => {
+                IntAluOp::Bit(BitOp::ShiftAdd(ShiftAddOp::SlliUw))
+            }
             _ => return None,
         },
         i_funct3::SRL_SRA => match d.funct7 {
-            i_funct7::DEFAULT => AluOp::Srl,
-            i_funct7::SRA => AluOp::Sra,
-            b_funct7::ROTATE_RIGHT => AluOp::Ror,
+            i_funct7::DEFAULT => IntAluOp::Shift(ShiftOp::Srl),
+            i_funct7::SRA => IntAluOp::Shift(ShiftOp::Sra),
+            b_funct7::ROTATE_RIGHT => IntAluOp::Bit(BitOp::Rotate(RotateOp::Ror)),
             _ => return None,
         },
         _ => return None,
     })
 }
 
-/// The operation an OP word encodes, or `None` for a reserved one.
-const fn op(d: &Decoded) -> Option<AluOp> {
+/// The integer operation an OP word encodes, or `None` for a reserved one.
+const fn op(d: &Decoded) -> Option<IntAluOp> {
     Some(match (d.funct7, d.funct3) {
-        (i_funct7::DEFAULT, i_funct3::ADD_SUB) => AluOp::Add,
-        (i_funct7::SUB, i_funct3::ADD_SUB) => AluOp::Sub,
-        (i_funct7::DEFAULT, i_funct3::SLL) => AluOp::Sll,
-        (i_funct7::DEFAULT, i_funct3::SLT) => AluOp::Slt,
-        (i_funct7::DEFAULT, i_funct3::SLTU) => AluOp::Sltu,
-        (i_funct7::DEFAULT, i_funct3::XOR) => AluOp::Xor,
-        (i_funct7::DEFAULT, i_funct3::SRL_SRA) => AluOp::Srl,
-        (i_funct7::SRA, i_funct3::SRL_SRA) => AluOp::Sra,
-        (i_funct7::DEFAULT, i_funct3::OR) => AluOp::Or,
-        (i_funct7::DEFAULT, i_funct3::AND) => AluOp::And,
-        (m_opcodes::M_EXTENSION, m_funct3::MUL) => AluOp::Mul,
-        (m_opcodes::M_EXTENSION, m_funct3::MULH) => AluOp::Mulh,
-        (m_opcodes::M_EXTENSION, m_funct3::MULHSU) => AluOp::Mulhsu,
-        (m_opcodes::M_EXTENSION, m_funct3::MULHU) => AluOp::Mulhu,
-        (m_opcodes::M_EXTENSION, m_funct3::DIV) => AluOp::Div,
-        (m_opcodes::M_EXTENSION, m_funct3::DIVU) => AluOp::Divu,
-        (m_opcodes::M_EXTENSION, m_funct3::REM) => AluOp::Rem,
-        (m_opcodes::M_EXTENSION, m_funct3::REMU) => AluOp::Remu,
-        (b_funct7::SH_ADD, b_funct3::SH1ADD) => AluOp::Sh1Add,
-        (b_funct7::SH_ADD, b_funct3::SH2ADD) => AluOp::Sh2Add,
-        (b_funct7::SH_ADD, b_funct3::SH3ADD) => AluOp::Sh3Add,
-        (b_funct7::LOGICAL_NEG, b_funct3::ANDN) => AluOp::Andn,
-        (b_funct7::LOGICAL_NEG, b_funct3::ORN) => AluOp::Orn,
-        (b_funct7::LOGICAL_NEG, b_funct3::XNOR) => AluOp::Xnor,
-        (b_funct7::MIN_MAX, b_funct3::MAX) => AluOp::Max,
-        (b_funct7::MIN_MAX, b_funct3::MAXU) => AluOp::Maxu,
-        (b_funct7::MIN_MAX, b_funct3::MIN) => AluOp::Min,
-        (b_funct7::MIN_MAX, b_funct3::MINU) => AluOp::Minu,
-        (b_funct7::ROTATE, b_funct3::ROL) => AluOp::Rol,
-        (b_funct7::ROTATE_RIGHT, b_funct3::ROR) => AluOp::Ror,
-        (b_funct7::CLMUL, b_funct3::CLMUL) => AluOp::Clmul,
-        (b_funct7::CLMUL, b_funct3::CLMULH) => AluOp::Clmulh,
-        (b_funct7::CLMUL, b_funct3::CLMULR) => AluOp::Clmulr,
-        (b_funct7::BCLR, b_funct3::BCLR) => AluOp::Bclr,
-        (b_funct7::BEXT, b_funct3::BEXT) => AluOp::Bext,
-        (b_funct7::BINV, b_funct3::BINV) => AluOp::Binv,
-        (b_funct7::BSET, b_funct3::BSET) => AluOp::Bset,
-        (b_funct7::PACK, b_funct3::PACK) => AluOp::Pack,
-        (b_funct7::PACK, b_funct3::PACKH) => AluOp::Packh,
-        (b_funct7::XPERM, b_funct3::XPERM4) => AluOp::Xperm4,
-        (b_funct7::XPERM, b_funct3::XPERM8) => AluOp::Xperm8,
+        (i_funct7::DEFAULT, i_funct3::ADD_SUB) => IntAluOp::Arith(ArithOp::Add),
+        (i_funct7::SUB, i_funct3::ADD_SUB) => IntAluOp::Arith(ArithOp::Sub),
+        (i_funct7::DEFAULT, i_funct3::SLL) => IntAluOp::Shift(ShiftOp::Sll),
+        (i_funct7::DEFAULT, i_funct3::SLT) => IntAluOp::Logic(LogicOp::Slt),
+        (i_funct7::DEFAULT, i_funct3::SLTU) => IntAluOp::Logic(LogicOp::Sltu),
+        (i_funct7::DEFAULT, i_funct3::XOR) => IntAluOp::Logic(LogicOp::Xor),
+        (i_funct7::DEFAULT, i_funct3::SRL_SRA) => IntAluOp::Shift(ShiftOp::Srl),
+        (i_funct7::SRA, i_funct3::SRL_SRA) => IntAluOp::Shift(ShiftOp::Sra),
+        (i_funct7::DEFAULT, i_funct3::OR) => IntAluOp::Logic(LogicOp::Or),
+        (i_funct7::DEFAULT, i_funct3::AND) => IntAluOp::Logic(LogicOp::And),
+        (m_opcodes::M_EXTENSION, m_funct3::MUL) => IntAluOp::Mul(MulOp::Mul),
+        (m_opcodes::M_EXTENSION, m_funct3::MULH) => IntAluOp::Mul(MulOp::Mulh),
+        (m_opcodes::M_EXTENSION, m_funct3::MULHSU) => IntAluOp::Mul(MulOp::Mulhsu),
+        (m_opcodes::M_EXTENSION, m_funct3::MULHU) => IntAluOp::Mul(MulOp::Mulhu),
+        (m_opcodes::M_EXTENSION, m_funct3::DIV) => IntAluOp::Div(DivOp::Div),
+        (m_opcodes::M_EXTENSION, m_funct3::DIVU) => IntAluOp::Div(DivOp::Divu),
+        (m_opcodes::M_EXTENSION, m_funct3::REM) => IntAluOp::Div(DivOp::Rem),
+        (m_opcodes::M_EXTENSION, m_funct3::REMU) => IntAluOp::Div(DivOp::Remu),
+        (b_funct7::SH_ADD, b_funct3::SH1ADD) => IntAluOp::Bit(BitOp::ShiftAdd(ShiftAddOp::Sh1Add)),
+        (b_funct7::SH_ADD, b_funct3::SH2ADD) => IntAluOp::Bit(BitOp::ShiftAdd(ShiftAddOp::Sh2Add)),
+        (b_funct7::SH_ADD, b_funct3::SH3ADD) => IntAluOp::Bit(BitOp::ShiftAdd(ShiftAddOp::Sh3Add)),
+        (b_funct7::LOGICAL_NEG, b_funct3::ANDN) => IntAluOp::Bit(BitOp::Andn),
+        (b_funct7::LOGICAL_NEG, b_funct3::ORN) => IntAluOp::Bit(BitOp::Orn),
+        (b_funct7::LOGICAL_NEG, b_funct3::XNOR) => IntAluOp::Bit(BitOp::Xnor),
+        (b_funct7::MIN_MAX, b_funct3::MAX) => IntAluOp::Bit(BitOp::MinMax(MinMaxOp::Max)),
+        (b_funct7::MIN_MAX, b_funct3::MAXU) => IntAluOp::Bit(BitOp::MinMax(MinMaxOp::Maxu)),
+        (b_funct7::MIN_MAX, b_funct3::MIN) => IntAluOp::Bit(BitOp::MinMax(MinMaxOp::Min)),
+        (b_funct7::MIN_MAX, b_funct3::MINU) => IntAluOp::Bit(BitOp::MinMax(MinMaxOp::Minu)),
+        (b_funct7::ROTATE, b_funct3::ROL) => IntAluOp::Bit(BitOp::Rotate(RotateOp::Rol)),
+        (b_funct7::ROTATE_RIGHT, b_funct3::ROR) => IntAluOp::Bit(BitOp::Rotate(RotateOp::Ror)),
+        (b_funct7::CLMUL, b_funct3::CLMUL) => IntAluOp::Bit(BitOp::Clmul(ClmulOp::Clmul)),
+        (b_funct7::CLMUL, b_funct3::CLMULH) => IntAluOp::Bit(BitOp::Clmul(ClmulOp::Clmulh)),
+        (b_funct7::CLMUL, b_funct3::CLMULR) => IntAluOp::Bit(BitOp::Clmul(ClmulOp::Clmulr)),
+        (b_funct7::BCLR, b_funct3::BCLR) => IntAluOp::Bit(BitOp::SingleBit(SingleBitOp::Bclr)),
+        (b_funct7::BEXT, b_funct3::BEXT) => IntAluOp::Bit(BitOp::SingleBit(SingleBitOp::Bext)),
+        (b_funct7::BINV, b_funct3::BINV) => IntAluOp::Bit(BitOp::SingleBit(SingleBitOp::Binv)),
+        (b_funct7::BSET, b_funct3::BSET) => IntAluOp::Bit(BitOp::SingleBit(SingleBitOp::Bset)),
+        (b_funct7::PACK, b_funct3::PACK) => IntAluOp::Bit(BitOp::Pack(PackOp::Pack)),
+        (b_funct7::PACK, b_funct3::PACKH) => IntAluOp::Bit(BitOp::Pack(PackOp::Packh)),
+        (b_funct7::XPERM, b_funct3::XPERM4) => IntAluOp::Bit(BitOp::Xperm4),
+        (b_funct7::XPERM, b_funct3::XPERM8) => IntAluOp::Bit(BitOp::Xperm8),
         _ => return None,
     })
 }
 
-/// The operation an OP-32 word encodes, or `None` for a reserved one.
-const fn op_32(d: &Decoded) -> Option<AluOp> {
+/// The integer operation an OP-32 word encodes, or `None` for a reserved one.
+const fn op_32(d: &Decoded) -> Option<IntAluOp> {
     Some(match (d.funct7, d.funct3) {
-        (i_funct7::DEFAULT, i_funct3::ADD_SUB) => AluOp::Add,
-        (i_funct7::SUB, i_funct3::ADD_SUB) => AluOp::Sub,
-        (i_funct7::DEFAULT, i_funct3::SLL) => AluOp::Sll,
-        (i_funct7::DEFAULT, i_funct3::SRL_SRA) => AluOp::Srl,
-        (i_funct7::SRA, i_funct3::SRL_SRA) => AluOp::Sra,
-        (m_opcodes::M_EXTENSION, m_funct3::MUL) => AluOp::Mul,
-        (m_opcodes::M_EXTENSION, m_funct3::DIV) => AluOp::Div,
-        (m_opcodes::M_EXTENSION, m_funct3::DIVU) => AluOp::Divu,
-        (m_opcodes::M_EXTENSION, m_funct3::REM) => AluOp::Rem,
-        (m_opcodes::M_EXTENSION, m_funct3::REMU) => AluOp::Remu,
-        (b_funct7::ADD_UW, b_funct3::ADD_UW) => AluOp::AddUw,
-        (b_funct7::SH_ADD, b_funct3::SH1ADD_UW) => AluOp::Sh1AddUw,
-        (b_funct7::SH_ADD, b_funct3::SH2ADD_UW) => AluOp::Sh2AddUw,
-        (b_funct7::SH_ADD, b_funct3::SH3ADD_UW) => AluOp::Sh3AddUw,
-        (b_funct7::ROTATE, b_funct3::ROL) => AluOp::Rol,
-        (b_funct7::ROTATE_RIGHT, b_funct3::ROR) => AluOp::Ror,
-        (b_funct7::PACK, b_funct3::PACKW) => AluOp::Packw,
+        (i_funct7::DEFAULT, i_funct3::ADD_SUB) => IntAluOp::Arith(ArithOp::Add),
+        (i_funct7::SUB, i_funct3::ADD_SUB) => IntAluOp::Arith(ArithOp::Sub),
+        (i_funct7::DEFAULT, i_funct3::SLL) => IntAluOp::Shift(ShiftOp::Sll),
+        (i_funct7::DEFAULT, i_funct3::SRL_SRA) => IntAluOp::Shift(ShiftOp::Srl),
+        (i_funct7::SRA, i_funct3::SRL_SRA) => IntAluOp::Shift(ShiftOp::Sra),
+        (m_opcodes::M_EXTENSION, m_funct3::MUL) => IntAluOp::Mul(MulOp::Mul),
+        (m_opcodes::M_EXTENSION, m_funct3::DIV) => IntAluOp::Div(DivOp::Div),
+        (m_opcodes::M_EXTENSION, m_funct3::DIVU) => IntAluOp::Div(DivOp::Divu),
+        (m_opcodes::M_EXTENSION, m_funct3::REM) => IntAluOp::Div(DivOp::Rem),
+        (m_opcodes::M_EXTENSION, m_funct3::REMU) => IntAluOp::Div(DivOp::Remu),
+        (b_funct7::ADD_UW, b_funct3::ADD_UW) => IntAluOp::Bit(BitOp::ShiftAdd(ShiftAddOp::AddUw)),
+        (b_funct7::SH_ADD, b_funct3::SH1ADD_UW) => {
+            IntAluOp::Bit(BitOp::ShiftAdd(ShiftAddOp::Sh1AddUw))
+        }
+        (b_funct7::SH_ADD, b_funct3::SH2ADD_UW) => {
+            IntAluOp::Bit(BitOp::ShiftAdd(ShiftAddOp::Sh2AddUw))
+        }
+        (b_funct7::SH_ADD, b_funct3::SH3ADD_UW) => {
+            IntAluOp::Bit(BitOp::ShiftAdd(ShiftAddOp::Sh3AddUw))
+        }
+        (b_funct7::ROTATE, b_funct3::ROL) => IntAluOp::Bit(BitOp::Rotate(RotateOp::Rol)),
+        (b_funct7::ROTATE_RIGHT, b_funct3::ROR) => IntAluOp::Bit(BitOp::Rotate(RotateOp::Ror)),
+        (b_funct7::PACK, b_funct3::PACKW) => IntAluOp::Bit(BitOp::Pack(PackOp::Packw)),
         _ => return None,
     })
 }
@@ -609,27 +632,9 @@ const fn rounding(inst: u32, d: &Decoded) -> Result<Rounding, Trap> {
 }
 
 /// True for the OP-FP operations whose funct3 is a rounding mode.
-const fn rounds(op: AluOp) -> bool {
+const fn rounds(op: FpOp) -> bool {
     matches!(
         op,
-        AluOp::FAdd
-            | AluOp::FSub
-            | AluOp::FMul
-            | AluOp::FDiv
-            | AluOp::FSqrt
-            | AluOp::FCvtWS
-            | AluOp::FCvtWUS
-            | AluOp::FCvtLS
-            | AluOp::FCvtLUS
-            | AluOp::FCvtSW
-            | AluOp::FCvtSWU
-            | AluOp::FCvtSL
-            | AluOp::FCvtSLU
-            | AluOp::FCvtDS
-            | AluOp::FCvtDH
-            | AluOp::FCvtSD
-            | AluOp::FCvtSH
-            | AluOp::FCvtHS
-            | AluOp::FCvtHD
+        FpOp::Arith(_) | FpOp::Sqrt | FpOp::ToInt(..) | FpOp::FromInt(..) | FpOp::FromFloat(_)
     )
 }
