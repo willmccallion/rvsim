@@ -141,8 +141,6 @@ class Fu:
         def __repr__(self) -> str:
             return f"Fu.Mem(count={self.count}, latency={self.latency})"
 
-    # ── Vector FU classes (factory-generated) ──────────────────────────────
-
     @staticmethod
     def _make_vec_fu(name, doc, default_count, default_latency):
         def init(self, count=default_count, latency=default_latency):

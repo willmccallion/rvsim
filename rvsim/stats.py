@@ -141,9 +141,6 @@ class Stats(dict):
         return "\n".join(parts)
 
 
-# ── Formatting helpers ───────────────────────────────────────────────────────
-
-
 def _as_count_if_whole(path: str, value: float) -> Any:
     """Counters come back from the core as floats; report them as ints."""
     if not _is_rate(path) and value.is_integer():
