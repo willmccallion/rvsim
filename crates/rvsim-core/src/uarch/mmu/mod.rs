@@ -86,7 +86,7 @@ impl Mmu {
     /// TLB. The caller also clears the hart's reservation.
     pub fn sfence_vma(&mut self, info: &SfenceVmaInfo) {
         let vpn = || VirtAddr::new(info.rs1_val).page_number();
-        let asid = || Asid::new(info.rs2_val as u16);
+        let asid = || Asid::from_register(info.rs2_val);
         for tlb in [&mut self.dtlb, &mut self.itlb, &mut self.l2_tlb] {
             match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
                 (false, false) => tlb.flush(),

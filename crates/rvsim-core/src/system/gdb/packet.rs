@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(checksum(b"g"), 0x67);
         assert_eq!(
             checksum(b"qSupported"),
-            b"qSupported".iter().map(|&b| u32::from(b)).sum::<u32>() as u8
+            b"qSupported".iter().fold(0u8, |sum, &b| sum.wrapping_add(b))
         );
     }
 

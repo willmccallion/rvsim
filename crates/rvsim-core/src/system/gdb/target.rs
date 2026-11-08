@@ -55,13 +55,13 @@ pub fn description() -> String {
     let mut xml = String::from(
         "<?xml version=\"1.0\"?>\n<!DOCTYPE target SYSTEM \"gdb-target.dtd\">\n<target version=\"1.0\">\n  <architecture>riscv:rv64</architecture>\n  <feature name=\"org.gnu.gdb.riscv.cpu\">\n",
     );
-    for (n, name) in X_NAMES.iter().enumerate() {
+    for (n, name) in (0u32..).zip(X_NAMES) {
         let kind = match n {
             1 => "code_ptr",
             2 | 3 | 4 | 8 => "data_ptr",
             _ => "int",
         };
-        xml.push_str(&reg(name, 64, kind, n as u32));
+        xml.push_str(&reg(name, 64, kind, n));
     }
     xml.push_str(&reg("pc", 64, "code_ptr", PC_REGNUM));
     xml.push_str("  </feature>\n  <feature name=\"org.gnu.gdb.riscv.fpu\">\n");

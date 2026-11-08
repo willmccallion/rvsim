@@ -75,7 +75,7 @@ impl PageSize {
     /// Bytes in a page of this size.
     #[must_use]
     pub const fn bytes(self) -> u64 {
-        1u64 << (PAGE_SHIFT as u32 + self.vpn_offset_bits())
+        (1u64 << PAGE_SHIFT) << self.vpn_offset_bits()
     }
 }
 

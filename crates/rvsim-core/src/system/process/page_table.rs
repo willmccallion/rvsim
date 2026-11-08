@@ -175,12 +175,7 @@ impl AddressSpace {
     }
 
     const fn levels(&self) -> u32 {
-        match self.mode {
-            PagingMode::Bare => 0,
-            PagingMode::Sv39 => 3,
-            PagingMode::Sv48 => 4,
-            PagingMode::Sv57 => 5,
-        }
+        self.mode.levels()
     }
 
     /// Whether `vaddr` is one a user program may use.
@@ -329,7 +324,7 @@ impl AddressSpace {
         let mut cursor = vaddr;
         while out.len() < limit {
             let paddr = self.translate(cursor).ok_or(SpaceError::Unmapped(cursor))?;
-            let byte = memory.read(paddr, 1).ok_or(SpaceError::Unmapped(cursor))? as u8;
+            let [byte] = memory.read_array(paddr).ok_or(SpaceError::Unmapped(cursor))?;
             if byte == 0 {
                 break;
             }

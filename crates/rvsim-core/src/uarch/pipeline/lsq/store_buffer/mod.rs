@@ -344,7 +344,7 @@ impl StoreBuffer {
         let covers = store.start <= load_start && store.end >= load_end;
         match store.data {
             Some(StoreData::Bytes(value)) if covers => {
-                let offset = (load_start - store.start) as u32;
+                let offset = load_start - store.start;
                 let shifted = value >> (offset * 8);
                 let mask = if load_size >= 8 { u64::MAX } else { (1u64 << (load_size * 8)) - 1 };
                 ForwardResult::Hit(shifted & mask)

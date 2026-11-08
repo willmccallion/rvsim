@@ -72,7 +72,7 @@ impl PagingMode {
     }
 
     /// Number of page-table levels to walk for this mode.
-    pub const fn levels(self) -> usize {
+    pub const fn levels(self) -> u32 {
         match self {
             Self::Bare => 0,
             Self::Sv39 => 3,

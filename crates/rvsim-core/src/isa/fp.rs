@@ -219,6 +219,12 @@ impl FpFlags {
         Self(val & 0x1F)
     }
 
+    /// The flags a CSR write of `val` sets: its low five bits.
+    #[must_use]
+    pub const fn from_csr(val: u64) -> Self {
+        Self::from_bits(val as u8)
+    }
+
     /// Returns the raw 5-bit flag value for writing into `fcsr`.
     pub const fn bits(self) -> u8 {
         self.0

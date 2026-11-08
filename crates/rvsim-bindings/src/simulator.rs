@@ -879,10 +879,11 @@ impl PySimulator {
         } else {
             let mut buf = vec![0u8; length];
             for (i, byte) in buf.iter_mut().enumerate() {
-                *byte = self.inner.probe_mem_load(
+                let probed = self.inner.probe_mem_load(
                     rvsim_core::common::PhysAddr::new(paddr + i as u64),
                     ProbeWidth::B1,
-                ) as u8;
+                );
+                *byte = probed.to_le_bytes()[0];
             }
             pyo3::types::PyBytes::new(py, &buf)
         }

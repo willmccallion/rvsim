@@ -309,6 +309,12 @@ pub enum Vxrm {
 }
 
 impl Vxrm {
+    /// The mode a CSR write of `val` sets: its low two bits.
+    #[must_use]
+    pub const fn from_csr(val: u64) -> Self {
+        Self::from_bits(val as u8)
+    }
+
     /// Decode from the 2-bit vxrm CSR encoding.
     #[inline(always)]
     pub const fn from_bits(val: u8) -> Self {

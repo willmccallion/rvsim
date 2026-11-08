@@ -79,7 +79,12 @@ impl CoreCtx<'_> {
         } else {
             self.hart.pc.val()
         };
-        let inst = self.uncore.kernel.memory.read(PhysAddr::new(paddr_raw), 4).unwrap_or(0) as u32;
+        let inst = self
+            .uncore
+            .kernel
+            .memory
+            .read_array(PhysAddr::new(paddr_raw))
+            .map_or(0, u32::from_le_bytes);
         if inst == WFI {
             trace_trap!(self.uncore.kernel.config.general.trace_instructions;
                 event = "wfi-wait",
@@ -185,23 +190,18 @@ mod tests {
         let paths = state.hart_paths();
         state.hart.privilege = PrivilegeMode::User;
         state.track_mode_cycles();
-        assert_eq!(state.uncore.kernel.stats.get(paths.cycles_user).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.uncore.kernel.stats.get(paths.cycles_user), Some(1.0));
 
         state.hart.privilege = PrivilegeMode::Supervisor;
         state.track_mode_cycles();
-        assert_eq!(state.uncore.kernel.stats.get(paths.cycles_kernel).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.uncore.kernel.stats.get(paths.cycles_kernel), Some(1.0));
 
         state.hart.privilege = PrivilegeMode::Machine;
         state.track_mode_cycles();
-        assert_eq!(state.uncore.kernel.stats.get(paths.cycles_machine).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.uncore.kernel.stats.get(paths.cycles_machine), Some(1.0));
         assert_eq!(
-            state
-                .uncore
-                .kernel
-                .stats
-                .get(state.core.stat_paths.pipeline.cycles_total)
-                .unwrap_or(0.0) as u64,
-            3
+            state.uncore.kernel.stats.get(state.core.stat_paths.pipeline.cycles_total),
+            Some(3.0)
         );
     }
 

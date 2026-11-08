@@ -240,8 +240,8 @@ impl UserContext {
         Self {
             pc,
             satp: csrs.satp,
-            gprs: std::array::from_fn(|i| hart.regs.read(RegIdx::new(i as u8))),
-            fprs: std::array::from_fn(|i| hart.regs.read_f(RegIdx::new(i as u8))),
+            gprs: std::array::from_fn(|i| hart.regs.read(RegIdx::from(i))),
+            fprs: std::array::from_fn(|i| hart.regs.read_f(RegIdx::from(i))),
             vprs: hart.regs.vpr().bytes().to_vec(),
             fflags: csrs.fflags,
             frm: csrs.frm,
