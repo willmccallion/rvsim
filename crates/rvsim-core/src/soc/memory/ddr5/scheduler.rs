@@ -70,7 +70,7 @@ impl MemScheduler for FrFcfs {
 impl SchedulerKind {
     /// Instantiates the policy.
     #[must_use]
-    pub fn build(self) -> Box<dyn MemScheduler> {
+    pub(crate) fn build(self) -> Box<dyn MemScheduler> {
         match self {
             Self::Fcfs => Box::new(Fcfs),
             Self::FrFcfs => Box::new(FrFcfs),

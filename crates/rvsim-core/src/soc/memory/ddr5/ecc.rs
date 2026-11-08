@@ -44,7 +44,7 @@ impl EccPolicy for SideBandEcc {
 impl EccKind {
     /// Instantiates the policy.
     #[must_use]
-    pub fn build(self) -> Box<dyn EccPolicy> {
+    pub(crate) fn build(self) -> Box<dyn EccPolicy> {
         match self {
             Self::None => Box::new(NoEcc),
             Self::SecDed { patrol_scrub_ns } | Self::ChipKill { patrol_scrub_ns } => {

@@ -600,7 +600,7 @@ impl Simulator {
     #[must_use]
     pub fn pipeline_snapshot(&self, core: usize) -> PipelineSnapshot {
         let width = self.state.uncore.kernel.config.pipeline.width;
-        PipelineSnapshot::from(&self.state.cores[core].pipeline.snapshot(width))
+        PipelineSnapshot::of(&self.state.cores[core].pipeline.snapshot(width))
     }
 
     /// Every coherence invariant the private caches and the home agent

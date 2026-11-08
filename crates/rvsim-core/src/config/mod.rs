@@ -31,7 +31,7 @@ pub use coherence::{
     CoherenceConfig, CoherenceProtocolConfig, HomeAgentConfig, InterconnectConfig,
 };
 pub use components::{ComponentDefaults, InOrderDefaults, TageScLDefaults};
-pub use general::{Console, GeneralConfig};
+pub use general::{Console, GeneralConfig, SePagingMode};
 pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind};
 pub use pipeline::{
     BackendKind, CsrSquash, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, PipelineConfig,
