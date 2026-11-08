@@ -22,6 +22,8 @@ All notable changes to this project are documented here. The format is based on 
   (`STDOUT`, `STDERR`, `QUIET`, `CAPTURED`) or its name as a string;
   `uart_quiet` and `uart_to_stderr` are gone (use `console="Quiet"` and
   `console="Stderr"`), and an unknown mode raises `ValueError`.
+- `sim.harts[n].vmem32` and `vmem64` read through hart `n`'s page tables;
+  `sim.vmem32` and `vmem64` are hart 0's, as before.
 - A run fails when a hart outside WFI retires no instruction for
   `Simulator.stall_limit` cycles (1,000,000 by default; `None` turns the
   check off), with an error naming the hart and its PC, instead of running
