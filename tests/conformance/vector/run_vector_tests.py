@@ -16,10 +16,8 @@ Usage:
 """
 
 import argparse
-import concurrent.futures as cf
 import contextlib
 import glob
-import json
 import os
 import subprocess
 import sys
@@ -29,7 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 sys.path.insert(0, REPO_ROOT)
 
-from tests.conformance.common import BUILDS, SPIKE, read_signature
+from tests.conformance.common import BUILDS, SPIKE, Sweep, read_signature, run_sweep
 
 RVSIM_WORKER = os.path.join(HERE, "rvsim_run.py")
 PYTHON = os.path.join(REPO_ROOT, ".venv", "bin", "python3")
@@ -89,13 +87,13 @@ def run_one(args):
     try:
         spike_sig, spike_err = run_spike(elf_path, vlen, march, spike_sig_path)
         if spike_sig is None:
-            return {"name": name, "status": "skip", "reason": spike_err}
+            return {"test": name, "status": "skip", "reason": spike_err}
 
         rvsim_sig, rvsim_err = run_rvsim(elf_path, rvsim_sig_path)
         if rvsim_sig is None:
             # rvsim crashed/panicked — count as fail with the error captured
             return {
-                "name": name,
+                "test": name,
                 "status": "error",
                 "reason": rvsim_err,
                 "seconds": round(time.time() - t0, 2),
@@ -103,7 +101,7 @@ def run_one(args):
 
         if len(rvsim_sig) == len(spike_sig) and rvsim_sig == spike_sig:
             return {
-                "name": name,
+                "test": name,
                 "status": "pass",
                 "seconds": round(time.time() - t0, 2),
             }
@@ -111,17 +109,18 @@ def run_one(args):
         n = min(len(rvsim_sig), len(spike_sig))
         diff_at = next((i for i in range(n) if rvsim_sig[i] != spike_sig[i]), n)
         return {
-            "name": name,
+            "test": name,
             "status": "fail",
             "seconds": round(time.time() - t0, 2),
             "diff_at": diff_at,
+            "reason": f"signature differs at byte {diff_at}",
             "spike_len": len(spike_sig),
             "rvsim_len": len(rvsim_sig),
         }
     except subprocess.TimeoutExpired:
-        return {"name": name, "status": "timeout", "seconds": TIMEOUT_SEC}
+        return {"test": name, "status": "timeout", "seconds": TIMEOUT_SEC}
     except Exception as e:
-        return {"name": name, "status": "error", "reason": f"{type(e).__name__}: {e}"}
+        return {"test": name, "status": "error", "reason": f"{type(e).__name__}: {e}"}
     finally:
         for p in (spike_sig_path, rvsim_sig_path):
             with contextlib.suppress(OSError):
@@ -161,77 +160,19 @@ def main():
             f"Run build_tests.sh first."
         )
 
-    os.makedirs(args.out, exist_ok=True)
     scratch = os.path.join(args.out, "scratch")
     os.makedirs(scratch, exist_ok=True)
-    out_file = os.path.join(args.out, f"results-vlen{args.vlen}.json")
-
     print(f"Running {len(elfs)} vector tests (vlen={args.vlen}, jobs={args.jobs})")
-    print(f"streaming results to: {out_file}")
-    results = []
-    counts = {}
-
-    def write_partial():
-        with open(out_file, "w") as f:
-            json.dump(
-                {
-                    "vlen": args.vlen,
-                    "march": args.march,
-                    "total_planned": len(elfs),
-                    "completed": len(results),
-                    "counts": counts,
-                    "results": sorted(results, key=lambda r: r["name"]),
-                },
-                f,
-                indent=2,
-            )
-
-    try:
-        with cf.ProcessPoolExecutor(max_workers=args.jobs) as ex:
-            futs = {
-                ex.submit(run_one, (e, args.vlen, args.march, scratch)): e for e in elfs
-            }
-            for i, fut in enumerate(cf.as_completed(futs), 1):
-                try:
-                    r = fut.result()
-                except Exception as e:
-                    elf = futs[fut]
-                    r = {
-                        "name": os.path.basename(elf)[:-4],
-                        "status": "error",
-                        "reason": f"{type(e).__name__}: {e}",
-                    }
-                results.append(r)
-                counts[r["status"]] = counts.get(r["status"], 0) + 1
-                mark = {
-                    "pass": ".",
-                    "fail": "F",
-                    "timeout": "T",
-                    "skip": "s",
-                    "error": "E",
-                }.get(r["status"], "?")
-                extra = ""
-                if r["status"] == "fail":
-                    extra = f" diff@{r.get('diff_at', '?')}"
-                elif r["status"] in ("skip", "error"):
-                    extra = f" ({(r.get('reason') or '')[:60]})"
-                print(f"[{i:5}/{len(elfs)}] {mark} {r['name']}{extra}", flush=True)
-                # Stream incremental results every 50 tests so a crash leaves
-                # something behind to triage from.
-                if i % 50 == 0:
-                    write_partial()
-    finally:
-        write_partial()
-
-    print()
-    print(f"=== vlen={args.vlen}: {len(results)} / {len(elfs)} completed ===")
-    for k in ("pass", "fail", "timeout", "skip", "error"):
-        if k in counts:
-            print(f"  {k:8} {counts[k]}")
-    print(f"results: {out_file}")
-
-    failed = counts.get("fail", 0) + counts.get("timeout", 0) + counts.get("error", 0)
-    sys.exit(0 if failed == 0 else 1)
+    sweep = Sweep(
+        title=f"vlen={args.vlen}",
+        run_one=run_one,
+        work=[(elf, args.vlen, args.march, scratch) for elf in elfs],
+        out=os.path.join(args.out, f"results-vlen{args.vlen}.json"),
+        describe=lambda run: (os.path.basename(run[0])[:-4], None),
+        jobs=args.jobs,
+        header={"vlen": args.vlen, "march": args.march},
+    )
+    sys.exit(run_sweep(sweep))
 
 
 if __name__ == "__main__":

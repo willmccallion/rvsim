@@ -15,9 +15,7 @@ Usage:
 """
 
 import argparse
-import concurrent.futures as cf
 import glob
-import json
 import os
 import subprocess
 import sys
@@ -26,6 +24,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
+from tests.conformance.common import Sweep, run_sweep, select_pipelines
 from tests.conformance.configs.pipelines import PIPELINES, SMOKE_PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
@@ -122,7 +121,7 @@ def run_one(args):
     }
 
 
-def main():
+def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--pipelines",
@@ -143,30 +142,14 @@ def main():
         help="Run every test on a system with this many harts",
     )
     ap.add_argument("--out", default=os.path.join(RESULTS_DIR, "riscv-tests.json"))
-    args = ap.parse_args()
+    return ap.parse_args()
 
-    if args.hart_count:
-        os.environ["RVSIM_HART_COUNT"] = str(args.hart_count)
 
-    tests = find_tests(args.filter)
-    if not tests:
-        sys.exit(f"ERROR: no tests found in {ISA_DIR}\nRun: make riscv-tests-build")
-
-    selected_pipelines = PIPELINES
-    if args.pipelines:
-        wanted = {p.strip() for p in args.pipelines.split(",")}
-        selected_pipelines = [(label, c) for label, c in PIPELINES if label in wanted]
-        missing = wanted - {label for label, _ in selected_pipelines}
-        if missing:
-            sys.exit(f"unknown pipeline label(s): {sorted(missing)}")
-    if args.smoke:
-        selected_pipelines = [
-            (lbl, c) for lbl, c in PIPELINES if lbl in SMOKE_PIPELINES
-        ]
-
-    work = []
-    skipped = []
-    for label, cfg in selected_pipelines:
+def plan(tests, pipelines):
+    """The runs of `tests` on `pipelines`, and the skip results of those a
+    pipeline cannot run."""
+    work, skipped = [], []
+    for label, cfg in pipelines:
         for name, path in tests:
             reason = not_applicable(name, cfg)
             if reason is None:
@@ -180,77 +163,37 @@ def main():
                         "reason": reason,
                     }
                 )
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+    return work, skipped
 
+
+def main():
+    args = parse_args()
+    if args.hart_count:
+        os.environ["RVSIM_HART_COUNT"] = str(args.hart_count)
+    tests = find_tests(args.filter)
+    if not tests:
+        sys.exit(f"ERROR: no tests found in {ISA_DIR}\nRun: make riscv-tests-build")
+    pipelines = select_pipelines(
+        PIPELINES, args.pipelines, SMOKE_PIPELINES if args.smoke else None
+    )
+    work, skipped = plan(tests, pipelines)
     print(
-        f"riscv-tests: {len(tests)} tests x {len(selected_pipelines)} pipelines "
+        f"riscv-tests: {len(tests)} tests x {len(pipelines)} pipelines "
         f"= {len(work)} runs (jobs={args.jobs}), {len(skipped)} not applicable"
     )
     for r in skipped:
         print(f"  SKIP    {r['pipeline']:24} {r['test']} ({r['reason']})")
-    print(f"streaming results to: {args.out}")
-
-    results = list(skipped)
-    counts = {"skip": len(skipped)} if skipped else {}
-
-    def write_partial():
-        with open(args.out, "w") as f:
-            json.dump(
-                {
-                    "total_planned": len(work) + len(skipped),
-                    "completed": len(results),
-                    "counts": counts,
-                    "pipelines": [label for label, _ in selected_pipelines],
-                    "results": results,
-                },
-                f,
-                indent=2,
-            )
-
-    try:
-        with cf.ProcessPoolExecutor(max_workers=args.jobs) as ex:
-            futs = {ex.submit(run_one, w): w for w in work}
-            for i, fut in enumerate(cf.as_completed(futs), 1):
-                try:
-                    r = fut.result()
-                except Exception as e:
-                    w = futs[fut]
-                    r = {
-                        "test": w[0],
-                        "pipeline": w[2],
-                        "status": "error",
-                        "reason": f"{type(e).__name__}: {e}",
-                    }
-                results.append(r)
-                counts[r["status"]] = counts.get(r["status"], 0) + 1
-                if r["status"] != "pass":
-                    extra = ""
-                    if r["status"] in ("fail", "error"):
-                        extra = f" ({(r.get('reason') or '')[:60]})"
-                    print(
-                        f"[{i:6}/{len(work)}] {r['status'].upper():7} "
-                        f"{r['pipeline']:24} {r['test']}{extra}",
-                        flush=True,
-                    )
-                if i % 200 == 0:
-                    write_partial()
-                    pct = 100 * i / len(work)
-                    print(
-                        f"  ... {i}/{len(work)} ({pct:.1f}%) — "
-                        + " ".join(f"{k}={v}" for k, v in sorted(counts.items())),
-                        flush=True,
-                    )
-    finally:
-        write_partial()
-
-    print()
-    print(f"=== riscv-tests: {len(results) - len(skipped)} / {len(work)} completed ===")
-    for k in ("pass", "fail", "timeout", "error", "skip"):
-        if k in counts:
-            print(f"  {k:8} {counts[k]}")
-    print(f"results: {args.out}")
-    failed = sum(counts.get(k, 0) for k in ("fail", "timeout", "error"))
-    sys.exit(0 if failed == 0 else 1)
+    sweep = Sweep(
+        title="riscv-tests",
+        run_one=run_one,
+        work=work,
+        out=args.out,
+        describe=lambda run: (run[0], run[2]),
+        jobs=args.jobs,
+        header={"pipelines": [label for label, _ in pipelines]},
+        skipped=skipped,
+    )
+    sys.exit(run_sweep(sweep))
 
 
 if __name__ == "__main__":

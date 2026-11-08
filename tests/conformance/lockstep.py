@@ -17,9 +17,7 @@ Usage:
 """
 
 import argparse
-import concurrent.futures as cf
 import glob
-import json
 import os
 import re
 import subprocess
@@ -30,6 +28,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
+from tests.conformance.common import Sweep, run_sweep, select_pipelines
 from tests.conformance.configs.pipelines import PIPELINES, SMOKE_PIPELINES
 from tests.conformance.riscv_tests import find_tests as find_riscv_tests
 
@@ -187,17 +186,10 @@ def main():
     if not workloads:
         sys.exit("ERROR: no workloads found\nRun: make riscv-tests-build software")
 
-    pipelines = PIPELINES
-    if args.pipelines:
-        wanted = {p.strip() for p in args.pipelines.split(",")}
-        pipelines = [(label, c) for label, c in PIPELINES if label in wanted]
-        missing = wanted - {label for label, _ in pipelines}
-        if missing:
-            sys.exit(f"unknown pipeline label(s): {sorted(missing)}")
-    if args.smoke:
-        pipelines = [(label, c) for label, c in PIPELINES if label in SMOKE_PIPELINES]
+    pipelines = select_pipelines(
+        PIPELINES, args.pipelines, SMOKE_PIPELINES if args.smoke else None
+    )
     pipelines = [(label, c) for label, c in pipelines if c.hart_count == 1]
-
     work = [
         (name, path, label, args.cycle_limit)
         for label, _ in pipelines
@@ -207,51 +199,16 @@ def main():
         f"lockstep: {len(workloads)} workloads x {len(pipelines)} pipelines "
         f"= {len(work)} runs (jobs={args.jobs})"
     )
-
-    results = []
-    counts = {}
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    try:
-        with cf.ProcessPoolExecutor(max_workers=args.jobs) as ex:
-            futures = {ex.submit(lockstep_one, w): w for w in work}
-            for i, future in enumerate(cf.as_completed(futures), 1):
-                try:
-                    r = future.result()
-                except Exception as e:
-                    name, _, label, _ = futures[future]
-                    r = {
-                        "test": name,
-                        "pipeline": label,
-                        "status": "error",
-                        "reason": f"{type(e).__name__}: {e}",
-                    }
-                results.append(r)
-                counts[r["status"]] = counts.get(r["status"], 0) + 1
-                if r["status"] != "pass":
-                    print(
-                        f"[{i:6}/{len(work)}] {r['status'].upper():8} {r['pipeline']:24} "
-                        f"{r['test']}: {r.get('reason', '')}",
-                        flush=True,
-                    )
-    finally:
-        with open(args.out, "w") as f:
-            json.dump(
-                {
-                    "counts": counts,
-                    "pipelines": [label for label, _ in pipelines],
-                    "results": results,
-                },
-                f,
-                indent=2,
-            )
-
-    print()
-    print(f"=== lockstep: {len(results)} / {len(work)} completed ===")
-    for status in ("pass", "diverged", "timeout", "error"):
-        if status in counts:
-            print(f"  {status:9} {counts[status]}")
-    print(f"results: {args.out}")
-    sys.exit(0 if counts.get("pass", 0) == len(work) else 1)
+    sweep = Sweep(
+        title="lockstep",
+        run_one=lockstep_one,
+        work=work,
+        out=args.out,
+        describe=lambda run: (run[0], run[2]),
+        jobs=args.jobs,
+        header={"pipelines": [label for label, _ in pipelines]},
+    )
+    sys.exit(run_sweep(sweep))
 
 
 if __name__ == "__main__":
