@@ -65,6 +65,13 @@ impl FdtBuilder {
         self.push_u32(FDT_END_NODE);
     }
 
+    /// Writes a node named `name` whose properties and children `body` writes.
+    fn node(&mut self, name: &str, body: impl FnOnce(&mut Self)) {
+        self.begin_node(name);
+        body(self);
+        self.end_node();
+    }
+
     fn string_offset(&mut self, name: &str) -> u32 {
         for (s, off) in &self.string_offsets {
             if s == name {
@@ -238,217 +245,165 @@ const fn mmu_type(paging: PagingMode) -> &'static str {
 ///   mode as `mmu-type`, and the block size Zicbom and Zicboz work on)
 ///   and a `cpu-map`
 pub fn generate_dtb(config: &Config) -> Vec<u8> {
-    let ram_base = config.system.ram_base;
-    let ram_size = config.memory.ram_size as u64;
-    let uart_base = config.system.uart_base;
-    let disk_base = config.system.disk_base;
-    let clint_base = config.system.clint_base;
-    let syscon_base = config.system.syscon_base;
-    let rtc_base = RTC_BASE;
-    let plic_base = PLIC_BASE;
-    let timebase_freq = config.system.timebase_hz;
     let hart_count = u32::try_from(config.system.hart_count.max(1)).unwrap_or(u32::MAX);
-
-    let bootargs =
-        format!("root=/dev/vda rw console=ttyS0 earlycon=uart8250,mmio,{uart_base:#x} rootwait");
-    let stdout_path = format!("/soc/uart@{uart_base:x}");
-
     let phandles = Phandles { hart_count };
-    let plic_phandle = phandles.plic();
-    let isa_string = config.isa_string();
-    let extensions = isa_extensions(config);
+    let mut fdt = FdtBuilder::new();
+    fdt.node("", |fdt| {
+        fdt.prop_u32("#address-cells", 2);
+        fdt.prop_u32("#size-cells", 2);
+        fdt.prop_string("compatible", "riscv-virtio");
+        fdt.prop_string("model", "riscv-virtio,qemu");
+        add_chosen(fdt, config);
+        add_cpus(fdt, config, &phandles);
+        add_memory(fdt, config);
+        add_soc(fdt, config, &phandles);
+    });
+    fdt.finalize()
+}
+
+/// `/chosen`: the kernel command line and the console.
+fn add_chosen(fdt: &mut FdtBuilder, config: &Config) {
+    let uart_base = config.system.uart_base;
+    fdt.node("chosen", |fdt| {
+        fdt.prop_string(
+            "bootargs",
+            &format!(
+                "root=/dev/vda rw console=ttyS0 earlycon=uart8250,mmio,{uart_base:#x} rootwait"
+            ),
+        );
+        fdt.prop_string("stdout-path", &format!("/soc/uart@{uart_base:x}"));
+    });
+}
+
+/// `/cpus`: a `cpu@N` with its interrupt controller per hart, and a
+/// `cpu-map` of one cluster with a core per hart.
+fn add_cpus(fdt: &mut FdtBuilder, config: &Config, phandles: &Phandles) {
+    fdt.node("cpus", |fdt| {
+        fdt.prop_u32("#address-cells", 1);
+        fdt.prop_u32("#size-cells", 0);
+        fdt.prop_u32("timebase-frequency", config.system.timebase_hz);
+        for hart in 0..phandles.hart_count {
+            add_cpu(fdt, config, phandles, hart);
+        }
+        fdt.node("cpu-map", |fdt| {
+            fdt.node("cluster0", |fdt| {
+                for hart in 0..phandles.hart_count {
+                    fdt.node(&format!("core{hart}"), |fdt| fdt.prop_u32("cpu", phandles.cpu(hart)));
+                }
+            });
+        });
+    });
+}
+
+/// `cpu@hart`: its ISA, paging mode and cache-block sizes.
+fn add_cpu(fdt: &mut FdtBuilder, config: &Config, phandles: &Phandles, hart: u32) {
     let cache_block = u32::try_from(CBOZ_BLOCK_SIZE).unwrap_or(u32::MAX);
-
-    let mut b = FdtBuilder::new();
-
-    // Root node
-    b.begin_node("");
-    b.prop_u32("#address-cells", 2);
-    b.prop_u32("#size-cells", 2);
-    b.prop_string("compatible", "riscv-virtio");
-    b.prop_string("model", "riscv-virtio,qemu");
-
-    // /chosen
-    b.begin_node("chosen");
-    b.prop_string("bootargs", &bootargs);
-    b.prop_string("stdout-path", &stdout_path);
-    b.end_node();
-
-    // /cpus
-    b.begin_node("cpus");
-    b.prop_u32("#address-cells", 1);
-    b.prop_u32("#size-cells", 0);
-    b.prop_u32("timebase-frequency", timebase_freq);
-
-    for hart in 0..hart_count {
-        b.begin_node(&format!("cpu@{hart}"));
-        b.prop_string("device_type", "cpu");
-        b.prop_reg_1_0(hart);
-        b.prop_string("status", "okay");
-        b.prop_string("compatible", "riscv");
-        b.prop_string("riscv,isa", &isa_string);
-        b.prop_string("riscv,isa-base", "rv64i");
-        b.prop_string_list("riscv,isa-extensions", &extensions);
-        b.prop_string("mmu-type", mmu_type(config.memory.paging_mode_max));
+    fdt.node(&format!("cpu@{hart}"), |fdt| {
+        fdt.prop_string("device_type", "cpu");
+        fdt.prop_reg_1_0(hart);
+        fdt.prop_string("status", "okay");
+        fdt.prop_string("compatible", "riscv");
+        fdt.prop_string("riscv,isa", &config.isa_string());
+        fdt.prop_string("riscv,isa-base", "rv64i");
+        fdt.prop_string_list("riscv,isa-extensions", &isa_extensions(config));
+        fdt.prop_string("mmu-type", mmu_type(config.memory.paging_mode_max));
         if config.extensions().contains(Extension::Zicbom) {
-            b.prop_u32("riscv,cbom-block-size", cache_block);
+            fdt.prop_u32("riscv,cbom-block-size", cache_block);
         }
         if config.extensions().contains(Extension::Zicboz) {
-            b.prop_u32("riscv,cboz-block-size", cache_block);
+            fdt.prop_u32("riscv,cboz-block-size", cache_block);
         }
-        b.prop_u32("phandle", phandles.cpu(hart));
+        fdt.prop_u32("phandle", phandles.cpu(hart));
+        fdt.node("interrupt-controller", |fdt| {
+            fdt.prop_u32("#interrupt-cells", 1);
+            fdt.prop_empty("interrupt-controller");
+            fdt.prop_string("compatible", "riscv,cpu-intc");
+            fdt.prop_u32("phandle", Phandles::cpu_intc(hart));
+        });
+    });
+}
 
-        b.begin_node("interrupt-controller");
-        b.prop_u32("#interrupt-cells", 1);
-        b.prop_empty("interrupt-controller");
-        b.prop_string("compatible", "riscv,cpu-intc");
-        b.prop_u32("phandle", Phandles::cpu_intc(hart));
-        b.end_node(); // interrupt-controller
+/// `/memory`: the RAM.
+fn add_memory(fdt: &mut FdtBuilder, config: &Config) {
+    let ram_base = config.system.ram_base;
+    fdt.node(&format!("memory@{ram_base:x}"), |fdt| {
+        fdt.prop_string("device_type", "memory");
+        fdt.prop_reg_2_2(ram_base, config.memory.ram_size as u64);
+    });
+}
 
-        b.end_node(); // cpu@N
+/// `/soc`: the devices on the bus.
+fn add_soc(fdt: &mut FdtBuilder, config: &Config, phandles: &Phandles) {
+    let system = &config.system;
+    fdt.node("soc", |fdt| {
+        fdt.prop_u32("#address-cells", 2);
+        fdt.prop_u32("#size-cells", 2);
+        fdt.prop_string("compatible", "simple-bus");
+        fdt.prop_empty("ranges");
+        fdt.node(&format!("clint@{:x}", system.clint_base), |fdt| {
+            fdt.prop_string("compatible", "riscv,clint0");
+            fdt.prop_reg_2_2(system.clint_base, CLINT_REGION_BYTES);
+            let causes = [interrupt::MACHINE_SOFTWARE, interrupt::MACHINE_TIMER];
+            fdt.prop_bytes("interrupts-extended", &interrupts_extended(phandles, &causes));
+        });
+        fdt.node(&format!("uart@{:x}", system.uart_base), |fdt| {
+            fdt.prop_string("compatible", "ns16550a");
+            fdt.prop_reg_2_2(system.uart_base, UART_REGION_BYTES);
+            fdt.prop_u32("clock-frequency", UART_CLOCK_HZ);
+            fdt.prop_u32("interrupt-parent", phandles.plic());
+            fdt.prop_bytes("interrupts", &Uart::IRQ.val().to_be_bytes());
+            fdt.prop_string("status", "okay");
+        });
+        fdt.node(&format!("virtio_mmio@{:x}", system.disk_base), |fdt| {
+            fdt.prop_string("compatible", "virtio,mmio");
+            fdt.prop_reg_2_2(system.disk_base, VIRTIO_REGION_BYTES);
+            fdt.prop_u32("interrupt-parent", phandles.plic());
+            fdt.prop_bytes("interrupts", &VirtioBlock::IRQ.val().to_be_bytes());
+        });
+        add_plic(fdt, phandles);
+        add_syscon(fdt, system.syscon_base, phandles);
+        fdt.node(&format!("rtc@{RTC_BASE:x}"), |fdt| {
+            fdt.prop_string("compatible", "google,goldfish-rtc");
+            fdt.prop_reg_2_2(RTC_BASE, RTC_REGION_BYTES);
+            fdt.prop_u32("interrupt-parent", phandles.plic());
+            fdt.prop_bytes("interrupts", &GoldfishRtc::IRQ.val().to_be_bytes());
+        });
+    });
+}
+
+/// The PLIC, with machine and supervisor external interrupts per hart.
+fn add_plic(fdt: &mut FdtBuilder, phandles: &Phandles) {
+    fdt.node(&format!("interrupt-controller@{PLIC_BASE:x}"), |fdt| {
+        fdt.prop_string("compatible", "riscv,plic0");
+        fdt.prop_reg_2_2(PLIC_BASE, PLIC_REGION_BYTES);
+        fdt.prop_u32("#interrupt-cells", 1);
+        fdt.prop_empty("interrupt-controller");
+        let causes = [interrupt::MACHINE_EXTERNAL, interrupt::SUPERVISOR_EXTERNAL];
+        fdt.prop_bytes("interrupts-extended", &interrupts_extended(phandles, &causes));
+        fdt.prop_u32("riscv,ndev", PLIC_ADVERTISED_SOURCES);
+        fdt.prop_u32("phandle", phandles.plic());
+    });
+}
+
+/// `SysCon` at `base`, and the poweroff and reboot nodes that write its
+/// commands to offset 0.
+fn add_syscon(fdt: &mut FdtBuilder, base: u64, phandles: &Phandles) {
+    fdt.node(&format!("syscon@{base:x}"), |fdt| {
+        fdt.prop_string("compatible", "syscon");
+        fdt.prop_reg_2_2(base, SYSCON_REGION_BYTES);
+        fdt.prop_u32("phandle", phandles.syscon());
+    });
+    for (name, compatible, command) in [
+        ("poweroff", "syscon-poweroff", SysCon::POWER_OFF),
+        ("reboot", "syscon-reboot", SysCon::RESET),
+    ] {
+        fdt.node(name, |fdt| {
+            fdt.prop_string("compatible", compatible);
+            fdt.prop_u32("regmap", phandles.syscon());
+            fdt.prop_u32("offset", 0);
+            fdt.prop_u32("value", command);
+        });
     }
-
-    // /cpus/cpu-map: one cluster, one core per hart.
-    b.begin_node("cpu-map");
-    b.begin_node("cluster0");
-    for hart in 0..hart_count {
-        b.begin_node(&format!("core{hart}"));
-        b.prop_u32("cpu", phandles.cpu(hart));
-        b.end_node();
-    }
-    b.end_node(); // cluster0
-    b.end_node(); // cpu-map
-
-    b.end_node(); // cpus
-
-    // /memory
-    {
-        let node_name = format!("memory@{ram_base:x}");
-        b.begin_node(&node_name);
-        b.prop_string("device_type", "memory");
-        b.prop_reg_2_2(ram_base, ram_size);
-        b.end_node();
-    }
-
-    // /soc
-    b.begin_node("soc");
-    b.prop_u32("#address-cells", 2);
-    b.prop_u32("#size-cells", 2);
-    b.prop_string("compatible", "simple-bus");
-    b.prop_empty("ranges");
-
-    // /soc/clint
-    {
-        let node_name = format!("clint@{clint_base:x}");
-        b.begin_node(&node_name);
-        b.prop_string("compatible", "riscv,clint0");
-        b.prop_reg_2_2(clint_base, CLINT_REGION_BYTES);
-        b.prop_bytes(
-            "interrupts-extended",
-            &interrupts_extended(
-                &phandles,
-                &[
-                    interrupt_code(interrupt::MACHINE_SOFTWARE),
-                    interrupt_code(interrupt::MACHINE_TIMER),
-                ],
-            ),
-        );
-        b.end_node();
-    }
-
-    // /soc/uart
-    {
-        let node_name = format!("uart@{uart_base:x}");
-        b.begin_node(&node_name);
-        b.prop_string("compatible", "ns16550a");
-        b.prop_reg_2_2(uart_base, UART_REGION_BYTES);
-        b.prop_u32("clock-frequency", UART_CLOCK_HZ);
-        b.prop_u32("interrupt-parent", plic_phandle);
-        b.prop_bytes("interrupts", &Uart::IRQ.val().to_be_bytes());
-        b.prop_string("status", "okay");
-        b.end_node();
-    }
-
-    // /soc/virtio_mmio
-    {
-        let node_name = format!("virtio_mmio@{disk_base:x}");
-        b.begin_node(&node_name);
-        b.prop_string("compatible", "virtio,mmio");
-        b.prop_reg_2_2(disk_base, VIRTIO_REGION_BYTES);
-        b.prop_u32("interrupt-parent", plic_phandle);
-        b.prop_bytes("interrupts", &VirtioBlock::IRQ.val().to_be_bytes());
-        b.end_node();
-    }
-
-    // /soc/plic
-    {
-        let node_name = format!("interrupt-controller@{plic_base:x}");
-        b.begin_node(&node_name);
-        b.prop_string("compatible", "riscv,plic0");
-        b.prop_reg_2_2(plic_base, PLIC_REGION_BYTES);
-        b.prop_u32("#interrupt-cells", 1);
-        b.prop_empty("interrupt-controller");
-        b.prop_bytes(
-            "interrupts-extended",
-            &interrupts_extended(
-                &phandles,
-                &[
-                    interrupt_code(interrupt::MACHINE_EXTERNAL),
-                    interrupt_code(interrupt::SUPERVISOR_EXTERNAL),
-                ],
-            ),
-        );
-        b.prop_u32("riscv,ndev", PLIC_ADVERTISED_SOURCES);
-        b.prop_u32("phandle", plic_phandle);
-        b.end_node();
-    }
-
-    // /soc/syscon (with poweroff and reboot sub-nodes)
-    let syscon_phandle = phandles.syscon();
-    {
-        let node_name = format!("syscon@{syscon_base:x}");
-        b.begin_node(&node_name);
-        b.prop_string("compatible", "syscon");
-        b.prop_reg_2_2(syscon_base, SYSCON_REGION_BYTES);
-        b.prop_u32("phandle", syscon_phandle);
-        b.end_node();
-    }
-
-    // /soc/poweroff: SysCon::POWER_OFF to syscon offset 0
-    {
-        b.begin_node("poweroff");
-        b.prop_string("compatible", "syscon-poweroff");
-        b.prop_u32("regmap", syscon_phandle);
-        b.prop_u32("offset", 0x00);
-        b.prop_u32("value", SysCon::POWER_OFF);
-        b.end_node();
-    }
-
-    // /soc/reboot: SysCon::RESET to syscon offset 0
-    {
-        b.begin_node("reboot");
-        b.prop_string("compatible", "syscon-reboot");
-        b.prop_u32("regmap", syscon_phandle);
-        b.prop_u32("offset", 0x00);
-        b.prop_u32("value", SysCon::RESET);
-        b.end_node();
-    }
-
-    // /soc/rtc (Goldfish RTC)
-    {
-        let node_name = format!("rtc@{rtc_base:x}");
-        b.begin_node(&node_name);
-        b.prop_string("compatible", "google,goldfish-rtc");
-        b.prop_reg_2_2(rtc_base, RTC_REGION_BYTES);
-        b.prop_u32("interrupt-parent", plic_phandle);
-        b.prop_bytes("interrupts", &GoldfishRtc::IRQ.val().to_be_bytes());
-        b.end_node();
-    }
-
-    b.end_node(); // soc
-    b.end_node(); // root
-
-    b.finalize()
 }
 
 /// The interrupt number of `cause`, an interrupt's `mcause`.
@@ -457,13 +412,13 @@ const fn interrupt_code(cause: u64) -> u32 {
 }
 
 /// `interrupts-extended` cells naming every hart's interrupt controller once
-/// per entry in `irqs`: `<&intc0 irqs[0]> <&intc0 irqs[1]> <&intc1 irqs[0]> ...`.
-fn interrupts_extended(phandles: &Phandles, irqs: &[u32]) -> Vec<u8> {
-    let mut cells = Vec::with_capacity(phandles.hart_count as usize * irqs.len() * 8);
+/// per interrupt in `causes`: `<&intc0 c0> <&intc0 c1> <&intc1 c0> ...`.
+fn interrupts_extended(phandles: &Phandles, causes: &[u64]) -> Vec<u8> {
+    let mut cells = Vec::with_capacity(phandles.hart_count as usize * causes.len() * 8);
     for hart in 0..phandles.hart_count {
-        for irq in irqs {
+        for &cause in causes {
             cells.extend_from_slice(&Phandles::cpu_intc(hart).to_be_bytes());
-            cells.extend_from_slice(&irq.to_be_bytes());
+            cells.extend_from_slice(&interrupt_code(cause).to_be_bytes());
         }
     }
     cells
