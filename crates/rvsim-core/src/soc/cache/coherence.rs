@@ -182,7 +182,7 @@ impl Cache {
             return false;
         }
         let Some(way) = self.find_way(line.val()) else { return false };
-        let index = self.set_index(line.val()) * self.ways + way;
+        let index = self.slot(self.set_index(line.val()), way);
         let dirty = self.lines[index].dirty();
         if dirty && write_back_dirty {
             self.write_back(line, true, WritebackCause::Demanded, ctx);

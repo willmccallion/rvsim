@@ -60,7 +60,7 @@ impl Cache {
     /// `source` dropped its copy of the line holding `addr`.
     pub(super) fn forget_upper_copy(&mut self, addr: u64, source: ComponentId) {
         if let Some(way) = self.find_way(addr) {
-            let index = self.set_index(addr) * self.ways + way;
+            let index = self.slot(self.set_index(addr), way);
             self.lines[index].upper &= !self.upstream_bit(source);
         }
     }
@@ -74,7 +74,7 @@ impl Cache {
         }
         match self.find_way(line.val()) {
             Some(way) => {
-                let bits = self.lines[self.set_index(line.val()) * self.ways + way].upper;
+                let bits = self.lines[self.slot(self.set_index(line.val()), way)].upper;
                 self.upstream
                     .iter()
                     .enumerate()

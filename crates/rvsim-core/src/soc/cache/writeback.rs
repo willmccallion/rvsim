@@ -45,7 +45,7 @@ impl Cache {
         }
         self.note_fetch_probe_writeback(line, dirty);
         if let Some(way) = self.find_way(addr) {
-            let index = self.set_index(addr) * self.ways + way;
+            let index = self.slot(self.set_index(addr), way);
             // A writeback carries data, never permission. Held Shared, the
             // line was downgraded by a probe whose answer already carried
             // this dirty data; the writeback merely arrived after it.

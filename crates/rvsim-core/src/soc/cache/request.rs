@@ -111,15 +111,15 @@ impl Cache {
         let set_index = self.set_index(addr);
         let present = self.find_way(addr);
         if let Some(way) = present {
-            self.note_request_for(set_index * self.ways + way, ctx.stats);
+            self.note_request_for(self.slot(set_index, way), ctx.stats);
         }
         let needs_permission = is_write
             && present.is_some_and(|way| {
-                self.lines[set_index * self.ways + way].state == MesiState::Shared
+                self.lines[self.slot(set_index, way)].state == MesiState::Shared
             });
         if let Some(way) = present.filter(|_| !needs_permission) {
             self.policy.update(set_index, way);
-            let index = set_index * self.ways + way;
+            let index = self.slot(set_index, way);
             if is_write {
                 self.lines[index].state = MesiState::Modified;
             }
@@ -145,7 +145,7 @@ impl Cache {
                 && matches!(req.source, ComponentId::Cache(_))
             {
                 // The upper level now owns the line.
-                self.drop_line(set_index * self.ways + way, ctx.stats);
+                self.drop_line(self.slot(set_index, way), ctx.stats);
                 let _ = self.handed_up.insert(self.line_of(addr));
             }
             self.observe_prefetcher(addr, req.pc, true, ctx);
@@ -341,7 +341,7 @@ impl Cache {
     /// True when the line holding `addr` is here, writable if `exclusive`.
     fn holds_for(&self, addr: u64, exclusive: bool) -> bool {
         let Some(way) = self.find_way(addr) else { return false };
-        let state = self.lines[self.set_index(addr) * self.ways + way].state;
+        let state = self.lines[self.slot(self.set_index(addr), way)].state;
         !exclusive || state != MesiState::Shared
     }
 
@@ -403,7 +403,7 @@ impl Cache {
             Some(placement) => self.fill(&mshr, granted, placement, ctx),
         };
         if let Some(way) = self.find_way(mshr.line.val()) {
-            let index = self.set_index(mshr.line.val()) * self.ways + way;
+            let index = self.slot(self.set_index(mshr.line.val()), way);
             for target in &mshr.targets {
                 self.note_upper_copy(index, target.source);
             }
@@ -436,8 +436,7 @@ impl Cache {
         if let Some(way) = self.find_way(addr) {
             return Placement::Held(way);
         }
-        if let Some(free) = (0..self.ways).find(|&w| !self.lines[set_index * self.ways + w].valid())
-        {
+        if let Some(free) = (0..self.ways).find(|&w| !self.lines[self.slot(set_index, w)].valid()) {
             return Placement::Free(free);
         }
         Placement::Victim(self.policy.get_victim(set_index))
@@ -457,7 +456,7 @@ impl Cache {
     /// Whether evicting the line in `way` of `addr`'s set sends it to the
     /// next level, which needs a writeback-buffer slot.
     fn victim_needs_a_slot(&self, addr: u64, way: usize) -> bool {
-        let victim = self.lines[self.set_index(addr) * self.ways + way];
+        let victim = self.lines[self.slot(self.set_index(addr), way)];
         victim.valid() && (victim.dirty() || self.clean_victims_to_downstream)
     }
 
@@ -480,8 +479,8 @@ impl Cache {
         let way = self.place(addr, placement, ctx);
         let state = if dirty { MesiState::Modified } else { MesiState::Exclusive };
         let tag = self.tag_of(addr);
-        self.lines[set_index * self.ways + way] =
-            CacheLine { tag, state, upper: 0, prefetched: false };
+        let slot = self.slot(set_index, way);
+        self.lines[slot] = CacheLine { tag, state, upper: 0, prefetched: false };
         self.policy.insert(set_index, way);
     }
 
@@ -528,7 +527,7 @@ impl Cache {
             self.start_fetch(line, deferred, FetchOrigin::Demand, MemOp::ReadOwn, ctx);
             return;
         };
-        let index = self.set_index(line.val()) * self.ways + way;
+        let index = self.slot(self.set_index(line.val()), way);
         self.lines[index].state = MesiState::Modified;
         let answered_at = ctx.cycle + self.response_latency;
         for target in &deferred {
@@ -565,7 +564,7 @@ impl Cache {
 
         let way = self.place(addr, placement, ctx);
         let state = fetched_state(mshr, granted);
-        let index = set_index * self.ways + way;
+        let index = self.slot(set_index, way);
         let state = if self.lines[index].dirty() { MesiState::Modified } else { state };
         let kept = self.lines[index].valid().then_some(self.lines[index]);
         let upper = kept.map_or(0, |line| line.upper);
@@ -579,7 +578,7 @@ impl Cache {
     /// ones for an exclusive pair) go to the writeback buffer, and
     /// inclusive upper levels are told to drop their copies.
     pub(super) fn evict(&mut self, set_index: usize, way: usize, ctx: &mut HandleCtx<'_>) {
-        let index = set_index * self.ways + way;
+        let index = self.slot(set_index, way);
         let victim = self.lines[index];
         if !victim.valid() {
             return;
