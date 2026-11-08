@@ -11,7 +11,7 @@ use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::builder::instruction::{InstructionBuilder, trap_recorder};
 use crate::tests::support::harness::{TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A0, A1, A2, A3, X0};
@@ -27,8 +27,6 @@ const DATA_VA: u64 = 0x4000_0000;
 const FIRST_PA: u64 = 0x8030_0000;
 const ADJACENT_PA: u64 = FIRST_PA + 0x1000;
 const FAR_PA: u64 = 0x8032_0000;
-const MCAUSE: u32 = 0x342;
-const MTVAL: u32 = 0x343;
 const LOAD_ADDRESS_MISALIGNED: u64 = 4;
 const LOAD_PAGE_FAULT: u64 = 13;
 const PTE_V: u64 = 1;
@@ -55,16 +53,6 @@ fn program() -> Vec<u32> {
     ]
 }
 
-/// The machine-mode handler records `mcause` and `mtval` and spins.
-fn handler() -> Vec<u32> {
-    let i = InstructionBuilder::new;
-    vec![
-        i().csrrs(A2, MCAUSE, X0).build(),
-        i().csrrs(A3, MTVAL, X0).build(),
-        i().jal(X0, 0).build(),
-    ]
-}
-
 struct Outcome {
     loaded: u64,
     mcause: u64,
@@ -81,7 +69,7 @@ fn run(backend: BackendKind, second_pa: Option<u64>) -> Outcome {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     store_program(&mut ctx, CODE, &program());
-    store_program(&mut ctx, HANDLER, &handler());
+    store_program(&mut ctx, HANDLER, &trap_recorder());
     for (offset, byte) in (0u64..).zip(0x11u64..=0x18) {
         let pa = if offset < 4 {
             FIRST_PA + 0xFFC + offset

@@ -3,14 +3,12 @@
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_DIRTY, MSTATUS_FS_INIT};
 use crate::isa::privileged::PrivilegeMode;
-use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
+use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF, trap_recorder};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A1, A2, A3, T1, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
-const MCAUSE: u32 = 0x342;
-const MTVAL: u32 = 0x343;
 const CYCLE: u32 = 0xC00;
 const FFLAGS: u32 = 0x001;
 const HPMCOUNTER3: u32 = 0xC03;
@@ -33,22 +31,13 @@ struct Outcome {
     ran_on: bool,
 }
 
-fn handler() -> Vec<u32> {
-    let i = InstructionBuilder::new;
-    vec![
-        i().csrrs(A2, MCAUSE, X0).build(),
-        i().csrrs(A3, MTVAL, X0).build(),
-        i().jal(X0, 0).build(),
-    ]
-}
-
 fn context(backend: BackendKind, isa: Option<&str>, program: &[u32]) -> TestContext {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
     config.isa.string = isa.map(str::to_owned);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
-    store_words(&mut ctx.sim, HANDLER, &handler());
+    store_words(&mut ctx.sim, HANDLER, &trap_recorder());
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx
 }
