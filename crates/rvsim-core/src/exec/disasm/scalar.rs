@@ -1,6 +1,5 @@
 //! Disassembly of the scalar instructions.
 
-use super::{freg, reg, xreg};
 use crate::exec::signals::{BranchCond, ControlFlow, ControlSignals, JumpKind, OpASrc, OpBSrc};
 use crate::isa::fence::{Fence, FenceSet};
 use crate::isa::fp::FpFormat;
@@ -54,15 +53,20 @@ fn branch(cond: BranchCond, fields: &Decoded) -> String {
         BranchCond::Ltu => "bltu",
         BranchCond::Geu => "bgeu",
     };
-    format!("{name} {}, {}, {}", xreg(fields.rs1), xreg(fields.rs2), fields.imm)
+    format!("{name} {}, {}, {}", fields.rs1.int_abi_name(), fields.rs2.int_abi_name(), fields.imm)
 }
 
 /// `jal rd, offset` or `jalr rd, offset(rs1)`.
 fn jump(kind: JumpKind, fields: &Decoded) -> String {
     match kind {
-        JumpKind::Jal => format!("jal {}, {}", xreg(fields.rd), fields.imm),
+        JumpKind::Jal => format!("jal {}, {}", fields.rd.int_abi_name(), fields.imm),
         JumpKind::Jalr => {
-            format!("jalr {}, {}({})", xreg(fields.rd), fields.imm, xreg(fields.rs1))
+            format!(
+                "jalr {}, {}({})",
+                fields.rd.int_abi_name(),
+                fields.imm,
+                fields.rs1.int_abi_name()
+            )
         }
     }
 }
@@ -70,21 +74,21 @@ fn jump(kind: JumpKind, fields: &Decoded) -> String {
 /// An integer or floating-point load: `ld rd, offset(rs1)`.
 fn load(ctrl: &ControlSignals, fields: &Decoded) -> String {
     let (name, rd) = if ctrl.fp_reg_write {
-        (fp_load_name(ctrl.width), freg(fields.rd))
+        (fp_load_name(ctrl.width), fields.rd.fp_abi_name())
     } else {
-        (int_load_name(ctrl.width, ctrl.signed_load), xreg(fields.rd))
+        (int_load_name(ctrl.width, ctrl.signed_load), fields.rd.int_abi_name())
     };
-    format!("{name} {rd}, {}({})", fields.imm, xreg(fields.rs1))
+    format!("{name} {rd}, {}({})", fields.imm, fields.rs1.int_abi_name())
 }
 
 /// An integer or floating-point store: `sd rs2, offset(rs1)`.
 fn store(ctrl: &ControlSignals, fields: &Decoded) -> String {
     let (name, rs2) = if ctrl.rs2_fp {
-        (fp_store_name(ctrl.width), freg(fields.rs2))
+        (fp_store_name(ctrl.width), fields.rs2.fp_abi_name())
     } else {
-        (int_store_name(ctrl.width), xreg(fields.rs2))
+        (int_store_name(ctrl.width), fields.rs2.int_abi_name())
     };
-    format!("{name} {rs2}, {}({})", fields.imm, xreg(fields.rs1))
+    format!("{name} {rs2}, {}({})", fields.imm, fields.rs1.int_abi_name())
 }
 
 const fn int_load_name(width: MemWidth, signed: bool) -> &'static str {
@@ -133,13 +137,13 @@ fn atomic(op: AtomicOp, ctrl: &ControlSignals, fields: &Decoded) -> String {
         (false, true) => ".rl",
         (false, false) => "",
     };
-    let (rd, rs1) = (xreg(fields.rd), xreg(fields.rs1));
+    let (rd, rs1) = (fields.rd.int_abi_name(), fields.rs1.int_abi_name());
     let name = match op {
         AtomicOp::Lr => return format!("lr.{width}{ordering} {rd}, ({rs1})"),
         AtomicOp::Sc => "sc",
         AtomicOp::Amo(amo) => amo_name(amo),
     };
-    format!("{name}.{width}{ordering} {rd}, {}, ({rs1})", xreg(fields.rs2))
+    format!("{name}.{width}{ordering} {rd}, {}, ({rs1})", fields.rs2.int_abi_name())
 }
 
 const fn amo_name(op: AmoOp) -> &'static str {
@@ -158,7 +162,7 @@ const fn amo_name(op: AmoOp) -> &'static str {
 
 /// The privileged, fence, cache-block, CSR and pseudo instructions.
 fn system(ctrl: &ControlSignals, fields: &Decoded) -> Option<String> {
-    let rs1 = xreg(fields.rs1);
+    let rs1 = fields.rs1.int_abi_name();
     Some(match ctrl.system_op {
         SystemOp::Csr => return csr(ctrl, fields),
         SystemOp::Ecall => "ecall".to_owned(),
@@ -167,7 +171,7 @@ fn system(ctrl: &ControlSignals, fields: &Decoded) -> Option<String> {
         SystemOp::Wfi => "wfi".to_owned(),
         SystemOp::FenceI => "fence.i".to_owned(),
         SystemOp::Fence(fence) => fence_text(fence),
-        SystemOp::SfenceVma => format!("sfence.vma {rs1}, {}", xreg(fields.rs2)),
+        SystemOp::SfenceVma => format!("sfence.vma {rs1}, {}", fields.rs2.int_abi_name()),
         SystemOp::CboZero => format!("cbo.zero ({rs1})"),
         SystemOp::CboInval => format!("cbo.inval ({rs1})"),
         SystemOp::CboClean => format!("cbo.clean ({rs1})"),
@@ -180,15 +184,15 @@ fn system(ctrl: &ControlSignals, fields: &Decoded) -> Option<String> {
 /// `csrrw rd, csr, rs1`, or an immediate form with its 5-bit `uimm`.
 fn csr(ctrl: &ControlSignals, fields: &Decoded) -> Option<String> {
     let (name, source) = match ctrl.csr_op {
-        CsrOp::Rw => ("csrrw", xreg(fields.rs1).to_owned()),
-        CsrOp::Rs => ("csrrs", xreg(fields.rs1).to_owned()),
-        CsrOp::Rc => ("csrrc", xreg(fields.rs1).to_owned()),
+        CsrOp::Rw => ("csrrw", fields.rs1.int_abi_name().to_owned()),
+        CsrOp::Rs => ("csrrs", fields.rs1.int_abi_name().to_owned()),
+        CsrOp::Rc => ("csrrc", fields.rs1.int_abi_name().to_owned()),
         CsrOp::Rwi => ("csrrwi", fields.rs1.as_u8().to_string()),
         CsrOp::Rsi => ("csrrsi", fields.rs1.as_u8().to_string()),
         CsrOp::Rci => ("csrrci", fields.rs1.as_u8().to_string()),
         CsrOp::None => return None,
     };
-    Some(format!("{name} {}, {:#05x}, {source}", xreg(fields.rd), ctrl.csr_addr.as_u32()))
+    Some(format!("{name} {}, {:#05x}, {source}", fields.rd.int_abi_name(), ctrl.csr_addr.as_u32()))
 }
 
 /// `fence pred,succ`, each set as the letters of `iorw` it orders.
@@ -231,7 +235,7 @@ fn pseudo_text(op: PseudoOp) -> String {
 /// An integer ALU instruction in its register, immediate, unary or upper-
 /// immediate form.
 fn integer(op: IntAluOp, ctrl: &ControlSignals, fields: &Decoded) -> String {
-    let (rd, rs1) = (xreg(fields.rd), xreg(fields.rs1));
+    let (rd, rs1) = (fields.rd.int_abi_name(), fields.rs1.int_abi_name());
     match (ctrl.a_src, ctrl.b_src) {
         (OpASrc::Zero, _) => {
             format!("lui {rd}, {:#x}", (fields.imm >> 12) & UPPER_IMMEDIATE_MASK)
@@ -245,7 +249,7 @@ fn integer(op: IntAluOp, ctrl: &ControlSignals, fields: &Decoded) -> String {
             format!("{} {rd}, {rs1}, {imm}", int_immediate_name(op, ctrl))
         }
         (OpASrc::Reg1, OpBSrc::Reg2 | OpBSrc::Zero) => {
-            format!("{} {rd}, {rs1}, {}", int_name(op, ctrl), xreg(fields.rs2))
+            format!("{} {rd}, {rs1}, {}", int_name(op, ctrl), fields.rs2.int_abi_name())
         }
     }
 }
@@ -394,14 +398,14 @@ fn floating_point(op: FpOp, ctrl: &ControlSignals, fields: &Decoded) -> Option<S
         return None;
     };
     let p = format_suffix(format);
-    let rd = if ctrl.fp_reg_write { freg(fields.rd) } else { xreg(fields.rd) };
-    let rs1 = reg(ctrl.src1(fields.rs1));
-    let rs2 = reg(ctrl.src2(fields.rs2));
+    let rd = if ctrl.fp_reg_write { fields.rd.fp_abi_name() } else { fields.rd.int_abi_name() };
+    let rs1 = ctrl.src1(fields.rs1).abi_name();
+    let rs2 = ctrl.src2(fields.rs2).abi_name();
     Some(match op {
         FpOp::Arith(op) => format!("{}.{p} {rd}, {rs1}, {rs2}", fp_arith_name(op)),
         FpOp::Sqrt => format!("fsqrt.{p} {rd}, {rs1}"),
         FpOp::Fma(signs) => {
-            let rs3 = freg(fields.raw.rs3());
+            let rs3 = fields.raw.rs3().fp_abi_name();
             format!("{}.{p} {rd}, {rs1}, {rs2}, {rs3}", fma_name(signs))
         }
         FpOp::Min => format!("fmin.{p} {rd}, {rs1}, {rs2}"),

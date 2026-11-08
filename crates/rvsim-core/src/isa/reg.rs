@@ -89,11 +89,39 @@ impl From<RegIdx> for u8 {
     }
 }
 
+impl RegIdx {
+    /// The ABI name of integer register `x{self}`, like `"a0"`.
+    #[must_use]
+    pub const fn int_abi_name(self) -> &'static str {
+        INT_ABI_NAMES[self.as_usize()]
+    }
+
+    /// The ABI name of floating-point register `f{self}`, like `"fa0"`.
+    #[must_use]
+    pub const fn fp_abi_name(self) -> &'static str {
+        FP_ABI_NAMES[self.as_usize()]
+    }
+}
+
 impl std::fmt::Display for RegIdx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "x{}", self.0)
     }
 }
+
+/// ABI names of x0–x31.
+const INT_ABI_NAMES: [&str; 32] = [
+    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
+    "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4",
+    "t5", "t6",
+];
+
+/// ABI names of f0–f31.
+const FP_ABI_NAMES: [&str; 32] = [
+    "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1", "fa0", "fa1", "fa2",
+    "fa3", "fa4", "fa5", "fa6", "fa7", "fs2", "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9",
+    "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
+];
 
 /// An architectural integer or floating-point register.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -105,6 +133,15 @@ pub enum ArchReg {
 }
 
 impl ArchReg {
+    /// The register's ABI name, in whichever register file it is.
+    #[must_use]
+    pub const fn abi_name(self) -> &'static str {
+        match self {
+            Self::Int(idx) => idx.int_abi_name(),
+            Self::Fp(idx) => idx.fp_abi_name(),
+        }
+    }
+
     /// Whether this is `x0`, which reads as zero and discards writes.
     #[inline(always)]
     pub const fn is_hardwired_zero(self) -> bool {

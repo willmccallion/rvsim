@@ -2,6 +2,7 @@
 //! how they are numbered, in GDB's `riscv:rv64` layout.
 
 use crate::isa::csr;
+use crate::isa::reg::RegIdx;
 
 /// GDB's number for `pc`, after `x0` to `x31`.
 pub const PC_REGNUM: u32 = 32;
@@ -42,11 +43,14 @@ pub const CSRS: &[(&str, u32)] = &[
     ("mhartid", 0xF14),
 ];
 
-const X_NAMES: [&str; 32] = [
-    "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "fp", "s1", "a0", "a1", "a2", "a3", "a4",
-    "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4",
-    "t5", "t6",
-];
+/// GDB's name for integer register `idx`: its ABI name, except that
+/// GDB's `riscv:rv64` feature names `x8` `fp`.
+fn xreg_name(idx: RegIdx) -> &'static str {
+    if idx == REG_FP { "fp" } else { idx.int_abi_name() }
+}
+
+/// `x8`, the frame pointer.
+const REG_FP: RegIdx = RegIdx::new(8);
 
 /// The `target.xml` GDB reads: the integer, floating-point and control
 /// registers of a 64-bit hart.
@@ -55,13 +59,13 @@ pub fn description() -> String {
     let mut xml = String::from(
         "<?xml version=\"1.0\"?>\n<!DOCTYPE target SYSTEM \"gdb-target.dtd\">\n<target version=\"1.0\">\n  <architecture>riscv:rv64</architecture>\n  <feature name=\"org.gnu.gdb.riscv.cpu\">\n",
     );
-    for (n, name) in (0u32..).zip(X_NAMES) {
+    for (n, idx) in (0u32..).zip(RegIdx::all()) {
         let kind = match n {
             1 => "code_ptr",
             2 | 3 | 4 | 8 => "data_ptr",
             _ => "int",
         };
-        xml.push_str(&reg(name, 64, kind, n));
+        xml.push_str(&reg(xreg_name(idx), 64, kind, n));
     }
     xml.push_str(&reg("pc", 64, "code_ptr", PC_REGNUM));
     xml.push_str("  </feature>\n  <feature name=\"org.gnu.gdb.riscv.fpu\">\n");
@@ -101,5 +105,15 @@ mod tests {
             65 + 0x300
         )));
         assert!(xml.contains("<architecture>riscv:rv64</architecture>"));
+    }
+
+    #[test]
+    fn integer_registers_carry_their_abi_names_with_x8_as_fp() {
+        let xml = description();
+
+        assert!(xml.contains("name=\"zero\" bitsize=\"64\" type=\"int\" regnum=\"0\""));
+        assert!(xml.contains("name=\"fp\" bitsize=\"64\" type=\"data_ptr\" regnum=\"8\""));
+        assert!(xml.contains("name=\"a0\" bitsize=\"64\" type=\"int\" regnum=\"10\""));
+        assert!(xml.contains("name=\"t6\" bitsize=\"64\" type=\"int\" regnum=\"31\""));
     }
 }
