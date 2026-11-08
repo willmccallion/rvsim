@@ -85,35 +85,69 @@ impl BankCounters {
 /// Leaked static path strings for one controller's stats.
 #[derive(Debug)]
 pub struct ControllerStatPaths {
-    subchannels: Vec<SubchannelPaths>,
+    subchannels: Vec<SubchannelStats>,
     subchannels_per_channel: usize,
     banks_per_rank: usize,
 }
 
+crate::sim::stats::paths::stat_paths! {
+    /// One subchannel's paths, under `memctrl<N>.ch<C>.sc<S>`.
+    SubchannelPaths {
+        /// Demand reads admitted to the read queue.
+        reads: "reads" => Events,
+        /// Writes admitted to the write queue.
+        writes: "writes" => Events,
+        /// Writes merged into a queued write to the same line.
+        writes_merged: "writes_merged" => Events,
+        /// Reads answered from the write queue.
+        reads_hit_write_queue: "reads_hit_write_queue" => Events,
+        /// Patrol-scrub reads issued.
+        scrub_reads: "scrub_reads" => Events,
+        /// ACTIVATE commands.
+        activates: "activates" => Events,
+        /// Single-bank PRECHARGE commands.
+        precharges: "precharges" => Events,
+        /// PRECHARGE-ALL commands issued ahead of a refresh.
+        precharge_alls: "precharge_alls" => Events,
+        /// REFRESH commands.
+        refreshes: "refreshes" => Events,
+        /// Column commands that found their row open.
+        row_hits: "row_hits" => Events,
+        /// Column commands that needed an ACTIVATE first.
+        row_misses: "row_misses" => Events,
+        /// Power-down entries.
+        power_down_entries: "power_down_entries" => Events,
+        /// Power-down exits.
+        power_down_exits: "power_down_exits" => Events,
+        /// Clocks the data bus carried a burst.
+        bus_busy_clocks: "bus_busy_clocks" => Cycles,
+        /// DRAM clocks elapsed.
+        clocks: "clocks" => Cycles,
+        /// Clocks an arrived read waited for a read-queue slot.
+        read_admission_stalls: "read_admission_stalls" => Cycles,
+        /// Clocks an arrived write waited for a write-queue slot.
+        write_admission_stalls: "write_admission_stalls" => Cycles,
+    }
+    histograms {
+        /// Cycles from a read's arrival to its data.
+        read_latency: "read_latency" => Cycles,
+        /// Read-queue occupancy, sampled each clock.
+        read_queue_depth: "read_queue_depth" => Events,
+        /// Write-queue occupancy, sampled each clock.
+        write_queue_depth: "write_queue_depth" => Events,
+    }
+    derived {
+        /// Row hits over row hits and misses.
+        row_hit_rate: "row_hit_rate",
+        /// Bus-busy clocks over all clocks.
+        data_bus_utilization: "data_bus_utilization",
+    }
+}
+
+/// One subchannel's paths and its banks', in rank-major order.
 #[derive(Debug)]
-struct SubchannelPaths {
-    reads: StatId,
-    writes: StatId,
-    writes_merged: StatId,
-    reads_hit_write_queue: StatId,
-    scrub_reads: StatId,
-    activates: StatId,
-    precharges: StatId,
-    precharge_alls: StatId,
-    refreshes: StatId,
-    row_hits: StatId,
-    row_misses: StatId,
-    row_hit_rate: StatId,
-    power_down_entries: StatId,
-    power_down_exits: StatId,
-    bus_busy_clocks: StatId,
-    clocks: StatId,
-    data_bus_utilization: StatId,
-    read_admission_stalls: StatId,
-    write_admission_stalls: StatId,
-    read_latency: StatId,
-    read_queue_depth: StatId,
-    write_queue_depth: StatId,
+struct SubchannelStats {
+    paths: SubchannelPaths,
     banks: Vec<BankPaths>,
 }
 
@@ -153,31 +187,8 @@ impl ControllerStatPaths {
                         });
                     }
                 }
-                subchannels.push(SubchannelPaths {
-                    reads: StatId::of(&format!("{prefix}.reads")),
-                    writes: StatId::of(&format!("{prefix}.writes")),
-                    writes_merged: StatId::of(&format!("{prefix}.writes_merged")),
-                    reads_hit_write_queue: StatId::of(&format!("{prefix}.reads_hit_write_queue")),
-                    scrub_reads: StatId::of(&format!("{prefix}.scrub_reads")),
-                    activates: StatId::of(&format!("{prefix}.activates")),
-                    precharges: StatId::of(&format!("{prefix}.precharges")),
-                    precharge_alls: StatId::of(&format!("{prefix}.precharge_alls")),
-                    refreshes: StatId::of(&format!("{prefix}.refreshes")),
-                    row_hits: StatId::of(&format!("{prefix}.row_hits")),
-                    row_misses: StatId::of(&format!("{prefix}.row_misses")),
-                    row_hit_rate: StatId::of(&format!("{prefix}.row_hit_rate")),
-                    power_down_entries: StatId::of(&format!("{prefix}.power_down_entries")),
-                    power_down_exits: StatId::of(&format!("{prefix}.power_down_exits")),
-                    bus_busy_clocks: StatId::of(&format!("{prefix}.bus_busy_clocks")),
-                    clocks: StatId::of(&format!("{prefix}.clocks")),
-                    data_bus_utilization: StatId::of(&format!("{prefix}.data_bus_utilization")),
-                    read_admission_stalls: StatId::of(&format!("{prefix}.read_admission_stalls")),
-                    write_admission_stalls: StatId::of(&format!("{prefix}.write_admission_stalls")),
-                    read_latency: StatId::of(&format!("{prefix}.read_latency")),
-                    read_queue_depth: StatId::of(&format!("{prefix}.read_queue_depth")),
-                    write_queue_depth: StatId::of(&format!("{prefix}.write_queue_depth")),
-                    banks,
-                });
+                let paths = SubchannelPaths::under(&prefix);
+                subchannels.push(SubchannelStats { paths, banks });
             }
         }
         Self { subchannels, subchannels_per_channel, banks_per_rank }
@@ -185,27 +196,9 @@ impl ControllerStatPaths {
 
     /// Registers metadata and derived stats for every subchannel.
     pub fn register(&self, stats: &mut Stats) {
-        for sc in &self.subchannels {
-            stats.register(sc.reads, Unit::Events);
-            stats.register(sc.writes, Unit::Events);
-            stats.register(sc.writes_merged, Unit::Events);
-            stats.register(sc.reads_hit_write_queue, Unit::Events);
-            stats.register(sc.scrub_reads, Unit::Events);
-            stats.register(sc.activates, Unit::Events);
-            stats.register(sc.precharges, Unit::Events);
-            stats.register(sc.precharge_alls, Unit::Events);
-            stats.register(sc.refreshes, Unit::Events);
-            stats.register(sc.row_hits, Unit::Events);
-            stats.register(sc.row_misses, Unit::Events);
-            stats.register(sc.power_down_entries, Unit::Events);
-            stats.register(sc.power_down_exits, Unit::Events);
-            stats.register(sc.bus_busy_clocks, Unit::Cycles);
-            stats.register(sc.clocks, Unit::Cycles);
-            stats.register(sc.read_admission_stalls, Unit::Cycles);
-            stats.register(sc.write_admission_stalls, Unit::Cycles);
-            stats.register_histogram(sc.read_latency, Unit::Cycles);
-            stats.register_histogram(sc.read_queue_depth, Unit::Events);
-            stats.register_histogram(sc.write_queue_depth, Unit::Events);
+        for subchannel in &self.subchannels {
+            let sc = &subchannel.paths;
+            sc.register_counters(stats);
             stats.derive(
                 sc.row_hit_rate,
                 Formula::Ratio { numerator: sc.row_hits, other: sc.row_misses },
@@ -228,7 +221,8 @@ impl ControllerStatPaths {
         subchannel_index: usize,
         subchannel: &mut Subchannel,
     ) {
-        let paths = &self.subchannels[channel * self.subchannels_per_channel + subchannel_index];
+        let entry = &self.subchannels[channel * self.subchannels_per_channel + subchannel_index];
+        let paths = &entry.paths;
         let c = &mut subchannel.counters;
         stats.counter(paths.reads).add(c.reads);
         stats.counter(paths.writes).add(c.writes);
@@ -263,7 +257,7 @@ impl ControllerStatPaths {
         }
         for (rank_index, rank) in subchannel.ranks.iter_mut().enumerate() {
             for (bank_index, bank) in rank.banks.iter_mut().enumerate() {
-                let bank_paths = &paths.banks[rank_index * self.banks_per_rank + bank_index];
+                let bank_paths = &entry.banks[rank_index * self.banks_per_rank + bank_index];
                 publish_bank(stats, bank_paths, bank);
             }
         }
