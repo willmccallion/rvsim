@@ -23,6 +23,7 @@ use crate::sim::packet::coherence::{CoherenceMsg, Node, ReqKind, SnoopKind};
 use crate::sim::packet::{
     AccessSize, Maintenance, MemOp, MemRespData, MesiState, Packet, WriteData,
 };
+use crate::sim::stats::StatId;
 
 /// Where a transaction is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -284,33 +285,9 @@ impl CoherenceFabric {
     /// Starts a request's transaction, or queues it while its line is busy
     /// or the transaction table is full.
     fn admit(&mut self, waiting: Waiting, ctx: &mut HandleCtx<'_>) {
-        let CoherenceMsg::Req { txn, line, kind, requester } = waiting.msg else { return };
-        if kind == ReqKind::Evict {
-            ctx.stats.counter(self.stat_paths.home.evicts).inc();
-            self.tracking.on_release(line, requester);
-            return;
-        }
-        if self.line_busy(line) {
-            ctx.stats.counter(self.stat_paths.home.serialised).inc();
-            self.waiting.push_back(waiting);
-            return;
-        }
-        if self.txns.len() >= self.txn_capacity {
-            ctx.stats.counter(self.stat_paths.home.txn_full_stalls).inc();
-            self.waiting.push_back(waiting);
-            return;
-        }
-        let stat = match kind {
-            ReqKind::ReadShared => self.stat_paths.home.read_shared,
-            ReqKind::ReadUnique => self.stat_paths.home.read_unique,
-            ReqKind::CleanUnique => self.stat_paths.home.clean_unique,
-            ReqKind::WriteBack { .. } => self.stat_paths.home.writebacks,
-            ReqKind::Evict => self.stat_paths.home.evicts,
-            ReqKind::Maintain { .. } => self.stat_paths.home.maintenance,
-        };
-        ctx.stats.counter(stat).inc();
-        let mut txn = Txn {
-            id: txn,
+        let CoherenceMsg::Req { txn: id, line, kind, requester } = waiting.msg else { return };
+        let txn = Txn {
+            id,
             line,
             kind: TxnKind::Request { kind, requester },
             phase: Phase::Snooping,
@@ -320,60 +297,132 @@ impl CoherenceFabric {
             dirty_from: None,
             started_at: waiting.arrived,
         };
+        let home = self.stat_paths.home;
         match kind {
+            ReqKind::Evict => self.admit_evict(line, requester, ctx),
             ReqKind::WriteBack { dirty } => {
-                // A snoop that already collected the line made this
-                // writeback stale: its data went with the snoop response.
-                let stale = self
-                    .tracking
-                    .exact_holders(line)
-                    .is_some_and(|h| !h.sharers.contains(requester));
-                self.tracking.on_release(line, requester);
-                if stale {
-                    ctx.stats.counter(self.stat_paths.home.stale_writebacks).inc();
-                    self.txns.push(txn);
-                    let comp = CoherenceMsg::Comp {
-                        txn: txn.id,
-                        line,
-                        to: requester,
-                        state: MesiState::Invalid,
-                    };
-                    self.complete(txn.id, comp, MesiState::Invalid, ctx);
-                    return;
-                }
-                let llc_req = self.fabric_req_id();
-                txn.llc_req = Some(llc_req);
-                txn.phase = Phase::WritingBack;
-                self.txns.push(txn);
-                self.send_llc(llc_req, line, MemOp::Writeback { dirty }, ctx);
+                self.admit_writeback(waiting, txn, requester, dirty, ctx);
             }
-            ReqKind::Evict => {}
-            ReqKind::Maintain { op, .. } => {
-                // The requester dropped its copy before asking; a clean
-                // leaves it holding the line as before.
-                if op != Maintenance::Clean {
-                    self.tracking.on_release(line, requester);
-                }
+            ReqKind::Maintain { op, .. } => self.admit_maintain(waiting, txn, requester, op, ctx),
+            ReqKind::ReadShared => self.admit_read(waiting, txn, home.read_shared, ctx),
+            ReqKind::ReadUnique => self.admit_read(waiting, txn, home.read_unique, ctx),
+            ReqKind::CleanUnique => self.admit_read(waiting, txn, home.clean_unique, ctx),
+        }
+    }
+
+    /// Whether `waiting` may open its transaction on `line` now, counted
+    /// under `stat`; otherwise it waits for the line or for a free entry.
+    fn may_open(
+        &mut self,
+        waiting: Waiting,
+        line: LineAddr,
+        stat: StatId,
+        ctx: &mut HandleCtx<'_>,
+    ) -> bool {
+        if self.line_busy(line) {
+            ctx.stats.counter(self.stat_paths.home.serialised).inc();
+            self.waiting.push_back(waiting);
+            return false;
+        }
+        if self.txns.len() >= self.txn_capacity {
+            ctx.stats.counter(self.stat_paths.home.txn_full_stalls).inc();
+            self.waiting.push_back(waiting);
+            return false;
+        }
+        ctx.stats.counter(stat).inc();
+        true
+    }
+
+    /// A clean line the requester dropped: it no longer holds it.
+    fn admit_evict(&mut self, line: LineAddr, requester: CoreId, ctx: &mut HandleCtx<'_>) {
+        ctx.stats.counter(self.stat_paths.home.evicts).inc();
+        self.tracking.on_release(line, requester);
+    }
+
+    /// A line the requester wrote back: the LLC takes it, unless a snoop
+    /// already collected it and the writeback is stale.
+    fn admit_writeback(
+        &mut self,
+        waiting: Waiting,
+        mut txn: Txn,
+        requester: CoreId,
+        dirty: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        if !self.may_open(waiting, txn.line, self.stat_paths.home.writebacks, ctx) {
+            return;
+        }
+        // A snoop that already collected the line made this writeback
+        // stale: its data went with the snoop response.
+        let stale =
+            self.tracking.exact_holders(txn.line).is_some_and(|h| !h.sharers.contains(requester));
+        self.tracking.on_release(txn.line, requester);
+        if stale {
+            ctx.stats.counter(self.stat_paths.home.stale_writebacks).inc();
+            self.txns.push(txn);
+            let comp = CoherenceMsg::Comp {
+                txn: txn.id,
+                line: txn.line,
+                to: requester,
+                state: MesiState::Invalid,
+            };
+            self.complete(txn.id, comp, MesiState::Invalid, ctx);
+            return;
+        }
+        let llc_req = self.fabric_req_id();
+        txn.llc_req = Some(llc_req);
+        txn.phase = Phase::WritingBack;
+        self.txns.push(txn);
+        self.send_llc(llc_req, txn.line, MemOp::Writeback { dirty }, ctx);
+    }
+
+    /// A cache-maintenance operation, which snoops every other holder.
+    fn admit_maintain(
+        &mut self,
+        waiting: Waiting,
+        txn: Txn,
+        requester: CoreId,
+        op: Maintenance,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        if !self.may_open(waiting, txn.line, self.stat_paths.home.maintenance, ctx) {
+            return;
+        }
+        // The requester dropped its copy before asking; a clean leaves it
+        // holding the line as before.
+        if op != Maintenance::Clean {
+            self.tracking.on_release(txn.line, requester);
+        }
+        self.txns.push(txn);
+        self.start_snoops(txn.id, ctx);
+    }
+
+    /// A read, which needs a tracking entry for its line: one free, or one
+    /// a recall frees.
+    fn admit_read(
+        &mut self,
+        waiting: Waiting,
+        mut txn: Txn,
+        stat: StatId,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        if !self.may_open(waiting, txn.line, stat, ctx) {
+            return;
+        }
+        let in_flight: Vec<LineAddr> = self.txns.iter().map(|t| t.line).collect();
+        match self.tracking.room_for(txn.line, &in_flight) {
+            Room::Available => {
                 self.txns.push(txn);
                 self.start_snoops(txn.id, ctx);
             }
-            ReqKind::ReadShared | ReqKind::ReadUnique | ReqKind::CleanUnique => {
-                let in_flight: Vec<LineAddr> = self.txns.iter().map(|t| t.line).collect();
-                match self.tracking.room_for(line, &in_flight) {
-                    Room::Available => {
-                        self.txns.push(txn);
-                        self.start_snoops(txn.id, ctx);
-                    }
-                    Room::Recall(victim) => {
-                        txn.phase = Phase::Recalling { victim };
-                        self.txns.push(txn);
-                        self.start_recall(victim, ctx);
-                    }
-                    Room::AllBusy => {
-                        ctx.stats.counter(self.stat_paths.home.txn_full_stalls).inc();
-                        self.waiting.push_back(waiting);
-                    }
-                }
+            Room::Recall(victim) => {
+                txn.phase = Phase::Recalling { victim };
+                self.txns.push(txn);
+                self.start_recall(victim, ctx);
+            }
+            Room::AllBusy => {
+                ctx.stats.counter(self.stat_paths.home.txn_full_stalls).inc();
+                self.waiting.push_back(waiting);
             }
         }
     }
