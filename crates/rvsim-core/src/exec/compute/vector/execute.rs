@@ -16,7 +16,7 @@ use crate::exec::compute::vector::{crypto, fpu, mask, permute, reduction};
 use crate::exec::inst::Inst;
 use crate::isa::op::{
     FpNarrowConvertOp, FpWidenConvertOp, IntConvert, ReduceOp, VecAluOp, VecFpOp, VecSrcEncoding,
-    VectorOp,
+    VectorCompute, VectorOp,
 };
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, VectorConfig, VectorRounding, Vlmul, parse_vtype_with_elen};
@@ -107,13 +107,23 @@ fn fp_widths_supported(op: VectorOp, sew: Sew, zvfh: bool, elen: usize) -> bool 
     }
 }
 
+/// The vector state an instruction executes under: the CSRs it reads and
+/// what the hart supports.
+#[derive(Clone, Copy, Debug)]
+pub struct VecEnv {
+    /// `vtype`, `vl` and `vstart`.
+    pub config: VectorConfig,
+    /// `vxrm` and `frm`.
+    pub rounding: VectorRounding,
+    /// The hart's ELEN in bits.
+    pub elen: usize,
+    /// Whether the hart has Zvfh.
+    pub zvfh: bool,
+}
+
 /// Build execution context from the CSR snapshot (no `SystemState` reference needed).
-const fn build_ctx_from_csrs(
-    config: VectorConfig,
-    rounding: VectorRounding,
-    elen: usize,
-    zvfh: bool,
-) -> VecExecCtx {
+const fn build_ctx_from_csrs(env: VecEnv) -> VecExecCtx {
+    let VecEnv { config, rounding, elen, zvfh } = env;
     let vtype = parse_vtype_with_elen(config.vtype, elen);
     VecExecCtx {
         sew: vtype.vsew,
@@ -141,24 +151,19 @@ const fn build_ctx_from_csrs(
 ///
 pub fn execute_vec_op_on<V: VectorRegFile>(
     vpr: &mut V,
-    config: VectorConfig,
-    rounding: VectorRounding,
-    elen: usize,
-    zvfh: bool,
+    op: VectorCompute,
     inst: &Inst,
+    env: VecEnv,
 ) -> Result<VecExecResult, Trap> {
-    let Some(vec_op) = inst.ctrl.vec_op else {
-        debug_assert!(false, "execute_vec_op_on called with a scalar op");
-        return Ok(VecExecResult::default());
-    };
-    check_vill(vec_op, inst.bits, config.vtype, elen)?;
-    let vtype = parse_vtype_with_elen(config.vtype, elen);
+    let vec_op = VectorOp::from(op);
+    check_vill(vec_op, inst.bits, env.config.vtype, env.elen)?;
+    let vtype = parse_vtype_with_elen(env.config.vtype, env.elen);
     check_widening_lmul(inst.bits, vec_op, vtype.vlmul)?;
-    if !fp_widths_supported(vec_op, vtype.vsew, zvfh, elen) {
+    if !fp_widths_supported(vec_op, vtype.vsew, env.zvfh, env.elen) {
         return Err(Trap::IllegalInstruction(inst.bits));
     }
 
-    let mut ctx = build_ctx_from_csrs(config, rounding, elen, zvfh);
+    let mut ctx = build_ctx_from_csrs(env);
     ctx.vm = inst.ctrl.vm;
     if ctx.vstart >= ctx.vl && !vec_op.executes_without_body() {
         return Ok(VecExecResult::default());
@@ -167,26 +172,16 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     let (vd, vs2, vs1) = (inst.ctrl.vd, inst.ctrl.vs2, inst.ctrl.vs1);
     let sources = VecSources { operand1, vs1, rs1: inst.rv1 };
 
-    let result = match vec_op {
-        VectorOp::Fp(op) => fpu::vec_fp_execute(op, vpr, vd, vs2, sources, &ctx),
-        VectorOp::Reduce(op) => reduction::vec_reduce(op, vpr, vd, vs2, vs1, &ctx),
-        VectorOp::Mask(op) => {
-            let result = mask::vec_mask_execute(op, vpr, vd, vs2, vs1, &ctx);
-            VecExecResult { scalar_result: result.scalar_result, ..VecExecResult::default() }
-        }
-        VectorOp::Permute(op) => {
-            let result = permute::vec_permute_execute(op, vpr, vd, vs2, sources, &ctx);
-            VecExecResult { scalar_result: result.scalar_result, ..VecExecResult::default() }
-        }
-        VectorOp::Crypto(op) => {
+    let result = match op {
+        VectorCompute::Fp(op) => fpu::vec_fp_execute(op, vpr, vd, vs2, sources, &ctx),
+        VectorCompute::Reduce(op) => reduction::vec_reduce(op, vpr, vd, vs2, vs1, &ctx),
+        VectorCompute::Mask(op) => mask::vec_mask_execute(op, vpr, vd, vs2, vs1, &ctx),
+        VectorCompute::Permute(op) => permute::vec_permute_execute(op, vpr, vd, vs2, sources, &ctx),
+        VectorCompute::Crypto(op) => {
             crypto::execute_crypto(op, vpr, &inst.ctrl, &ctx);
             VecExecResult::default()
         }
-        VectorOp::Alu(op) => vec_execute(op, vpr, vd, vs2, operand1, &ctx),
-        VectorOp::Config(_) | VectorOp::Load(_) | VectorOp::Store(_) => {
-            debug_assert!(false, "execute_vec_op_on called with a config or memory op");
-            VecExecResult::default()
-        }
+        VectorCompute::Alu(op) => vec_execute(op, vpr, vd, vs2, operand1, &ctx),
     };
     Ok(result)
 }
@@ -233,7 +228,8 @@ mod tests {
     fn run(vpr: &mut Vpr, vec_op: VectorOp, vl: u64, vstart: u64) -> VecExecResult {
         let inst = vector_inst(vec_op);
         let config = VectorConfig { vtype: E32_M1_TAIL_AGNOSTIC, vl, vstart };
-        execute_vec_op_on(vpr, config, VectorRounding::default(), ELEN, false, &inst).unwrap()
+        let env = VecEnv { config, rounding: VectorRounding::default(), elen: ELEN, zvfh: false };
+        execute_vec_op_on(vpr, vec_op.compute().unwrap(), &inst, env).unwrap()
     }
 
     fn vd_elements(vpr: &Vpr) -> Vec<u64> {
@@ -284,7 +280,8 @@ mod tests {
         let vtype = u64::from(sew.to_encoding()) << 3;
         let inst = vector_inst(vec_op);
         let config = VectorConfig { vtype, vl: 1, vstart: 0 };
-        execute_vec_op_on(&mut vpr, config, VectorRounding::default(), elen, zvfh, &inst).is_ok()
+        let env = VecEnv { config, rounding: VectorRounding::default(), elen, zvfh };
+        execute_vec_op_on(&mut vpr, vec_op.compute().unwrap(), &inst, env).is_ok()
     }
 
     #[test]

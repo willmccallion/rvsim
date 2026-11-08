@@ -57,21 +57,6 @@ pub enum FuType {
 pub const FU_TYPE_COUNT: usize = 17;
 
 impl FuType {
-    /// Returns true if this FU type is a vector execution unit.
-    pub const fn is_vector(self) -> bool {
-        matches!(
-            self,
-            Self::VecIntAlu
-                | Self::VecIntMul
-                | Self::VecIntDiv
-                | Self::VecFpAlu
-                | Self::VecFpFma
-                | Self::VecFpDivSqrt
-                | Self::VecMem
-                | Self::VecPermute
-        )
-    }
-
     /// Classify an instruction's FU type from its control signals.
     pub fn classify(ctrl: &ControlSignals) -> Self {
         if let Some(op) = ctrl.vec_op {
