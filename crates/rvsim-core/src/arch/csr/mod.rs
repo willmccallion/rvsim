@@ -275,7 +275,7 @@ impl Csrs {
     /// The vector configuration `vtype`, `vl` and `vstart` hold.
     #[must_use]
     pub const fn vector_config(&self) -> crate::isa::rvv::VectorConfig {
-        crate::isa::rvv::VectorConfig { vtype: self.vtype, vl: self.vl, vstart: self.vstart }
+        crate::isa::rvv::VectorConfig::new(self.vtype, self.vl, self.vstart)
     }
 
     /// Marks the FP state dirty, as every write to it does.

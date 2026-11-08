@@ -17,7 +17,7 @@ use crate::exec::signals::ControlSignals;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::{MemWidth, VecLoadOp, VecStoreOp, VectorOp};
 use crate::isa::privileged::Trap;
-use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen, parse_vtype};
+use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen};
 use crate::uarch::pipeline::latches::{
     ExMem1Entry, InFlightOp, Mem2WbEntry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
 };
@@ -148,7 +148,7 @@ pub fn expected_load_micro_ops(
     vlen: Vlen,
     width: usize,
 ) -> usize {
-    if parse_vtype(config.vtype).vill && ctrl.vec_op.is_some_and(VectorOp::depends_on_vtype) {
+    if config.fields().vill && ctrl.vec_op.is_some_and(VectorOp::depends_on_vtype) {
         return 1;
     }
     let body = usize_of(config.vl.saturating_sub(config.vstart));
@@ -573,7 +573,7 @@ mod tests {
     }
 
     fn config(vtype: u64, vl: u64) -> VectorConfig {
-        VectorConfig { vtype, vl, vstart: 0 }
+        VectorConfig::new(vtype, vl, 0)
     }
 
     const E8_M8: u64 = 0b011;

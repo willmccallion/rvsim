@@ -102,7 +102,7 @@ pub const fn accrue_fp_flags(hart: &mut Hart, flags: FpFlags) {
 
 /// Applies what a `vset{i}vl{i}` computed.
 pub const fn apply_vector_config(hart: &mut Hart, config: VectorConfig) {
-    hart.csrs.vtype = config.vtype;
+    hart.csrs.vtype = config.vtype();
     hart.csrs.vl = config.vl;
     mark_vector_retired(hart);
 }

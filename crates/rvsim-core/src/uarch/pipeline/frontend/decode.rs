@@ -65,7 +65,7 @@ pub fn decode_stage(
 
         let inst = if_entry.bits;
 
-        let DecodedInst { fields: mut d, mut ctrl, mut fault } = decode_inst(inst, vector.vtype);
+        let DecodedInst { fields: mut d, mut ctrl, mut fault } = decode_inst(inst, vector.vtype());
         // An instruction of an extension the hart does not implement is
         // illegal on it, as on hardware without the extension.
         if fault.is_none() && !state.core().isa.permits(requirement(&ctrl, inst)) {
