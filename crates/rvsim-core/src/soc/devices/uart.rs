@@ -239,14 +239,6 @@ impl Uart {
         }
     }
 
-    /// Types `bytes` into the console and receives them at once.
-    pub fn send_input(&mut self, bytes: &[u8]) {
-        if let Ok(mut terminal) = self.terminal.lock() {
-            terminal.type_input(bytes);
-        }
-        self.check_stdin();
-    }
-
     /// Takes the console's input into the RX queue; newly arrived data
     /// raises the receive interrupt after the delay.
     fn check_stdin(&mut self) {

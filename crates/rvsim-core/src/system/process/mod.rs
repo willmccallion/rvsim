@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::NANOS_PER_SECOND;
 use crate::common::VirtAddr;
-use crate::isa::privileged::PagingMode;
 use crate::sim::memory::GlobalMemory;
 use crate::soc::terminal::SharedTerminal;
 
@@ -163,18 +162,6 @@ impl Process {
     pub fn cycle_at_nanoseconds(&self, ns: u128) -> u64 {
         let cycles = (ns * u128::from(self.clock_hz.max(1))).div_ceil(u128::from(NANOS_PER_SECOND));
         u64::try_from(cycles).unwrap_or(u64::MAX)
-    }
-
-    /// The paging mode the program runs under.
-    #[must_use]
-    pub const fn paging_mode(&self) -> PagingMode {
-        self.space.mode()
-    }
-
-    /// The current program break.
-    #[must_use]
-    pub const fn brk(&self) -> VirtAddr {
-        self.brk
     }
 
     /// Moves the program break to `new_brk`, mapping or unmapping the

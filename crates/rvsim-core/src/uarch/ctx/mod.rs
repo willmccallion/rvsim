@@ -21,8 +21,8 @@ pub use stage::StageCtx;
 use std::ops::{Deref, DerefMut};
 
 use crate::arch::Hart;
+use crate::common::InstSeq;
 use crate::common::PhysAddr;
-use crate::common::{InstSeq, VirtAddr};
 use crate::isa::op::MemWidth;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::stats::paths::HartPaths;
@@ -73,11 +73,6 @@ impl CoreCtx<'_> {
             None
         };
         self.park_thread(run_exit);
-    }
-
-    /// Reports a fetched instruction to the open pipeline trace, if any.
-    pub fn trace_fetched(&mut self, seq: InstSeq, pc: VirtAddr) {
-        self.uncore.trace_fetched(self.hart.hart_id, seq, pc);
     }
 
     /// Reports a stage entry to the open pipeline trace, if any.

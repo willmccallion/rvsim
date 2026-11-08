@@ -54,11 +54,6 @@ impl Terminal {
         Arc::new(Mutex::new(Self::new(mode)))
     }
 
-    #[must_use]
-    pub const fn mode(&self) -> Console {
-        self.mode
-    }
-
     /// Hands the console's input to `reader`.
     pub const fn read_input_through(&mut self, reader: InputReader) {
         self.reader = reader;
