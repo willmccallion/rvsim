@@ -1,6 +1,7 @@
 //! TAGE and its banking, hashing, history, allocation and update options.
 
-use crate::config::defaults;
+use crate::config::checks::check_bank_list;
+use crate::config::{ConfigError, defaults};
 use serde::{Deserialize, Serialize};
 
 /// TAGE (Tagged Geometric) predictor configuration.
@@ -274,6 +275,70 @@ impl TageConfig {
     #[must_use]
     pub fn bimodal_entries(&self) -> usize {
         self.bimodal_entries.unwrap_or(self.table_size)
+    }
+}
+
+impl TageConfig {
+    /// Checks the banks, tables, histories and counters the predictor can
+    /// build.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`ConfigError`] found.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.use_alt_counters == 0 || !(2..=8).contains(&self.use_alt_bits) {
+            return Err(ConfigError::TageUseAlt {
+                counters: self.use_alt_counters,
+                bits: self.use_alt_bits,
+            });
+        }
+        if self.num_banks > MAX_TAGE_BANKS {
+            return Err(ConfigError::TageBanks(self.num_banks));
+        }
+        check_bank_list("tage", "history_lengths", self.history_lengths.len(), self.num_banks)?;
+        check_bank_list("tage", "tag_widths", self.tag_widths.len(), self.num_banks)?;
+        if let Some(banking) = &self.banking {
+            let fits = banking.enabled.len() == self.num_banks
+                && banking.first_long_bank < self.num_banks
+                && banking.short_factor > 0
+                && banking.long_factor > 0;
+            if !fits {
+                return Err(ConfigError::TageBanking);
+            }
+        }
+        self.validate_tables()
+    }
+
+    /// The tables, histories and allocation counters.
+    fn validate_tables(&self) -> Result<(), ConfigError> {
+        if !self.table_size.is_power_of_two() {
+            return Err(ConfigError::NotPowerOfTwo {
+                field: "tage table_size",
+                value: self.table_size,
+            });
+        }
+        let bimodal = self.bimodal_entries();
+        if !bimodal.is_power_of_two() || (bimodal >> self.bimodal_hysteresis_share_log) == 0 {
+            return Err(ConfigError::TageBimodal {
+                entries: bimodal,
+                share_log: self.bimodal_hysteresis_share_log,
+            });
+        }
+        if !(1..=31).contains(&self.path_history_bits) {
+            return Err(ConfigError::TagePathBits(self.path_history_bits));
+        }
+        if let Some(&length) =
+            self.history_lengths.iter().find(|&&length| length > MAX_TAGE_HISTORY)
+        {
+            return Err(ConfigError::TageHistoryLength(length));
+        }
+        if !(1..=8).contains(&self.useful_bits) || self.max_allocations == 0 {
+            return Err(ConfigError::TageAllocation {
+                useful_bits: self.useful_bits,
+                max_allocations: self.max_allocations,
+            });
+        }
+        Ok(())
     }
 }
 
