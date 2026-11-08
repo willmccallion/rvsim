@@ -233,6 +233,50 @@ impl PhysAddr {
     }
 }
 
+/// The physical addresses `[base, base + size)`: a device's register
+/// window or the RAM.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhysRange {
+    /// The first address.
+    pub base: PhysAddr,
+    /// How many bytes it spans.
+    pub size: u64,
+}
+
+impl PhysRange {
+    /// The `size` bytes from `base`.
+    #[must_use]
+    pub const fn new(base: u64, size: u64) -> Self {
+        Self { base: PhysAddr::new(base), size }
+    }
+
+    /// One past the last address.
+    #[must_use]
+    pub const fn end(self) -> u64 {
+        self.base.val().saturating_add(self.size)
+    }
+
+    /// True when `addr` is inside.
+    #[must_use]
+    pub const fn contains(self, addr: PhysAddr) -> bool {
+        addr.val() >= self.base.val() && addr.val() < self.end()
+    }
+
+    /// True when the `len` bytes from `start` lie wholly inside.
+    #[must_use]
+    pub const fn covers(self, start: PhysAddr, len: u64) -> bool {
+        match start.val().checked_add(len) {
+            Some(end) => start.val() >= self.base.val() && end <= self.end(),
+            None => false,
+        }
+    }
+
+    /// True when the `len` bytes from `start` share an address with it.
+    #[must_use]
+    pub const fn overlaps(self, start: PhysAddr, len: u64) -> bool {
+        start.val() < self.end() && start.val().saturating_add(len) > self.base.val()
+    }
+}
 /// A cache-line-aligned physical address.
 ///
 /// Wraps a [`PhysAddr`] whose low bits (log2 of the cache line size) are zero.

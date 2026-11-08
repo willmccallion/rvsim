@@ -18,7 +18,8 @@ fn goldfish_rtc_name() {
 #[test]
 fn goldfish_rtc_address_range() {
     let rtc = GoldfishRtc::new(0x101000, EPOCH_NS, CLOCK_MHZ);
-    let (base, size) = rtc.address_range();
+    let region = rtc.region();
+    let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, 0x101000);
     assert_eq!(size, 0x1000);
 }

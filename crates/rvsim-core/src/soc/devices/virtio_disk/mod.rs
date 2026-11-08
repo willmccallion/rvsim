@@ -6,7 +6,7 @@
 mod checkpoint;
 mod queue;
 
-use crate::common::{IrqId, PhysAddr};
+use crate::common::{IrqId, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
@@ -488,8 +488,8 @@ impl Device for VirtioBlock {
         DeviceKind::VirtioBlk
     }
 
-    fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, crate::config::VIRTIO_REGION_BYTES)
+    fn region(&self) -> PhysRange {
+        PhysRange::new(self.base_addr, crate::config::VIRTIO_REGION_BYTES)
     }
 
     fn tick(&mut self) -> bool {

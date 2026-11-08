@@ -5,7 +5,7 @@
 //! page offset calculations, and comparison logic to ensure robust memory
 //! management within the RISC-V emulator.
 
-use crate::common::addr::{PhysAddr, VirtAddr};
+use crate::common::addr::{PhysAddr, PhysRange, VirtAddr};
 
 /// Tests the creation of a [`VirtAddr`] and verifies that the stored value
 /// can be retrieved correctly.
@@ -118,4 +118,33 @@ fn virt_and_phys_same_value_not_interchangeable() {
     let v = VirtAddr::new(0x1234);
     let p = PhysAddr::new(0x1234);
     assert_eq!(v.val(), p.val());
+}
+
+#[test]
+fn a_range_contains_its_base_but_not_its_end() {
+    let range = PhysRange::new(0x1000, 0x100);
+
+    assert!(range.contains(PhysAddr::new(0x1000)));
+    assert!(range.contains(PhysAddr::new(0x10ff)));
+    assert!(!range.contains(PhysAddr::new(0x1100)));
+    assert!(!range.contains(PhysAddr::new(0xfff)));
+}
+
+#[test]
+fn a_range_covers_an_access_only_when_all_of_it_is_inside() {
+    let range = PhysRange::new(0x1000, 0x100);
+
+    assert!(range.covers(PhysAddr::new(0x10f8), 8));
+    assert!(!range.covers(PhysAddr::new(0x10fc), 8));
+    assert!(!range.covers(PhysAddr::new(u64::MAX - 3), 8), "the access wraps");
+}
+
+#[test]
+fn ranges_overlap_only_when_they_share_an_address() {
+    let range = PhysRange::new(0x1000, 0x100);
+
+    assert!(range.overlaps(PhysAddr::new(0xffc), 8));
+    assert!(range.overlaps(PhysAddr::new(0x10fc), 8));
+    assert!(!range.overlaps(PhysAddr::new(0xff8), 8));
+    assert!(!range.overlaps(PhysAddr::new(0x1100), 8));
 }

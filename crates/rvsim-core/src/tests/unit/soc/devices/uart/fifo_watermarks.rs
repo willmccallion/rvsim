@@ -22,7 +22,8 @@ fn uart_name() {
 #[test]
 fn uart_address_range() {
     let uart = uart(0x1000_0000, crate::config::Console::Quiet, 2400);
-    let (base, size) = uart.address_range();
+    let region = uart.region();
+    let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, 0x1000_0000);
     assert_eq!(size, 0x100);
 }

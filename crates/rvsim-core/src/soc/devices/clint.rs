@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::HartId;
+use crate::common::{HartId, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -241,8 +241,8 @@ impl Device for Clint {
         DeviceKind::Clint
     }
 
-    fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, crate::config::CLINT_REGION_BYTES)
+    fn region(&self) -> PhysRange {
+        PhysRange::new(self.base_addr, crate::config::CLINT_REGION_BYTES)
     }
 
     /// Advances `mtime` by one divider step. Timer and software interrupt

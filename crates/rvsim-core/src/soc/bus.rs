@@ -8,7 +8,7 @@ use super::devices::Device;
 use super::devices::clint::Clint;
 use super::devices::plic::Plic;
 use super::devices::uart::Uart;
-use crate::common::{HartId, PhysAddr};
+use crate::common::{HartId, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
@@ -32,12 +32,11 @@ pub struct HartIrqs {
     pub seip: bool,
 }
 
-/// The RAM range `[start, end)` and the memory controller serving it.
+/// The RAM and the memory controller serving it.
 #[derive(Clone, Copy, Debug)]
 struct RamWindow {
     ctrl: MemCtrlId,
-    start: u64,
-    end: u64,
+    range: PhysRange,
 }
 
 /// System bus that routes packets to MMIO devices or the memory controller.
@@ -55,9 +54,9 @@ pub struct Bus {
     hart_irqs: Vec<HartIrqs>,
     /// The RAM range and the memory controller that serves it.
     ram: Option<RamWindow>,
-    /// HTIF address range, checked before the RAM fast path so HTIF tohost
+    /// HTIF's window, checked before the RAM fast path so HTIF tohost
     /// stores route through the device.
-    htif_range: Option<(u64, u64)>,
+    htif_range: Option<PhysRange>,
     /// In-flight RAM `MemReq`s forwarded to the memory controller, keyed by
     /// `ReqId` so the matching `MemResp` from the controller can be routed back
     /// to the originating upstream component (typically the LLC).
@@ -138,7 +137,7 @@ impl Bus {
     /// Registers a device on the bus; devices are sorted by base address for lookup.
     pub fn add_device(&mut self, dev: Box<dyn Device>) {
         self.devices.push(dev);
-        self.devices.sort_by_key(|d| d.address_range().0);
+        self.devices.sort_by_key(|d| d.region().base);
         self.uart_idx = self.position_of(DeviceKind::Uart);
         self.clint_idx = self.position_of(DeviceKind::Clint);
         self.plic_idx = self.position_of(DeviceKind::Plic);
@@ -151,34 +150,30 @@ impl Bus {
     }
 
     fn refresh_htif_range(&mut self) {
-        self.htif_range = self.devices.iter().find(|d| d.kind() == DeviceKind::Htif).map(|d| {
-            let (start, size) = d.address_range();
-            (start, start + size)
-        });
+        self.htif_range =
+            self.devices.iter().find(|d| d.kind() == DeviceKind::Htif).map(|d| d.region());
     }
 
     /// Each device's name and register window, in address order.
     #[cfg(test)]
     pub(crate) fn device_windows(&self) -> impl Iterator<Item = (&str, u64, u64)> {
         self.devices.iter().map(|d| {
-            let (base, size) = d.address_range();
-            (d.name(), base, size)
+            let region = d.region();
+            (d.name(), region.base.val(), region.size)
         })
     }
 
     /// Tells the bus that `ctrl` serves the `size` bytes of RAM at `base`.
     pub const fn attach_ram(&mut self, ctrl: MemCtrlId, base: u64, size: u64) {
-        self.ram = Some(RamWindow { ctrl, start: base, end: base + size });
+        self.ram = Some(RamWindow { ctrl, range: PhysRange::new(base, size) });
     }
 
     /// True when `[paddr, paddr + size)` is plain RAM: inside the RAM range
     /// and clear of the HTIF window a device overlays on it.
     #[must_use]
     pub fn is_ram(&self, paddr: PhysAddr, size: u64) -> bool {
-        let paddr = paddr.val();
-        let Some(end) = paddr.checked_add(size) else { return false };
-        self.ram.is_some_and(|ram| paddr >= ram.start && end <= ram.end)
-            && !self.htif_range.is_some_and(|(start, stop)| paddr < stop && end > start)
+        self.ram.is_some_and(|ram| ram.range.covers(paddr, size))
+            && !self.htif_range.is_some_and(|htif| htif.overlaps(paddr, size))
     }
 
     /// Returns cycles = base latency plus ceiling(bytes / `width_bytes`) transfers.
@@ -209,17 +204,10 @@ impl Bus {
 
     /// Returns whether the given physical address is backed by any device or RAM.
     pub fn is_valid_address(&self, paddr: PhysAddr) -> bool {
-        let raw = paddr.val();
-        if self.ram.is_some_and(|ram| raw >= ram.start && raw < ram.end) {
-            return true;
-        }
-        self.devices.iter().any(|dev| {
-            let (start, size) = dev.address_range();
-            raw >= start && raw < start + size
-        })
+        self.ram.is_some_and(|ram| ram.range.contains(paddr))
+            || self.devices.iter().any(|dev| dev.region().contains(paddr))
     }
 
-    /// Interrupt lines for `hart` as sampled by the last [`Bus::tick`].
     /// Finishes every device's work in flight before a checkpoint.
     pub fn drain_devices(&mut self, memory: &mut GlobalMemory) {
         for device in &mut self.devices {
@@ -347,18 +335,11 @@ impl Bus {
     }
 
     fn find_device_idx(&self, paddr: PhysAddr) -> Option<usize> {
-        let raw = paddr.val();
         // HTIF is checked first because its range overlaps RAM.
-        if let Some((start, end)) = self.htif_range
-            && raw >= start
-            && raw < end
-        {
+        if self.htif_range.is_some_and(|htif| htif.contains(paddr)) {
             return self.position_of(DeviceKind::Htif);
         }
-        self.devices.iter().position(|dev| {
-            let (start, size) = dev.address_range();
-            raw >= start && raw < start + size
-        })
+        self.devices.iter().position(|dev| dev.region().contains(paddr))
     }
 }
 
@@ -416,10 +397,8 @@ impl Handle for Bus {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
         match packet {
             Packet::MemReq { req_id, paddr, .. } => {
-                let raw = paddr.val();
-                let ram_hit = self.ram.filter(|ram| raw >= ram.start && raw < ram.end);
-                let is_htif =
-                    self.htif_range.is_some_and(|(hstart, hend)| raw >= hstart && raw < hend);
+                let ram_hit = self.ram.filter(|ram| ram.range.contains(paddr));
+                let is_htif = self.htif_range.is_some_and(|htif| htif.contains(paddr));
                 if let Some(ram) = ram_hit
                     && !is_htif
                 {

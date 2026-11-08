@@ -11,6 +11,7 @@
 //!   * `0x7777`: Reset
 //!   * `0x3333`: Failure/Panic
 
+use crate::common::PhysRange;
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -96,8 +97,8 @@ impl Device for SysCon {
         DeviceKind::SysCon
     }
 
-    fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, crate::config::SYSCON_REGION_BYTES)
+    fn region(&self) -> PhysRange {
+        PhysRange::new(self.base_addr, crate::config::SYSCON_REGION_BYTES)
     }
 
     fn quiet_ticks(&self) -> Option<u64> {

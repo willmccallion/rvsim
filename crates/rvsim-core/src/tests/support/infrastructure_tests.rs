@@ -343,7 +343,8 @@ fn mock_memory_address_range() {
     use crate::soc::devices::Device;
 
     let mem = MockMemory::new(4096, 0x8000_0000);
-    let (base, size) = mem.address_range();
+    let region = mem.region();
+    let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, 0x8000_0000);
     assert_eq!(size, 4096);
 }

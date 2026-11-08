@@ -9,7 +9,7 @@
 //! * `0x00`: Time (Low 32 bits)
 //! * `0x04`: Time (High 32 bits)
 
-use crate::common::IrqId;
+use crate::common::{IrqId, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -79,8 +79,8 @@ impl Device for GoldfishRtc {
         DeviceKind::GoldfishRtc
     }
 
-    fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, crate::config::RTC_REGION_BYTES)
+    fn region(&self) -> PhysRange {
+        PhysRange::new(self.base_addr, crate::config::RTC_REGION_BYTES)
     }
 
     fn quiet_ticks(&self) -> Option<u64> {

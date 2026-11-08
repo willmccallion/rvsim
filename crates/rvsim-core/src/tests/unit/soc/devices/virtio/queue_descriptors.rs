@@ -73,7 +73,8 @@ fn virtio_name() {
 #[test]
 fn virtio_address_range() {
     let vio = make_virtio();
-    let (base, size) = vio.address_range();
+    let region = vio.region();
+    let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, 0x1000_1000);
     assert_eq!(size, 0x1000);
 }

@@ -24,7 +24,8 @@ fn plic_name() {
 #[test]
 fn plic_address_range() {
     let plic = Plic::new(0xC00_0000, 1);
-    let (base, size) = plic.address_range();
+    let region = plic.region();
+    let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, 0xC00_0000);
     assert_eq!(size, 0x400_0000);
 }
