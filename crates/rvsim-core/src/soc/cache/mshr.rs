@@ -65,6 +65,13 @@ pub struct Mshr {
 }
 
 impl Mshr {
+    /// Whether the prefetcher started the fetch and no request has joined
+    /// it yet.
+    #[must_use]
+    pub const fn is_unrequested_prefetch(&self) -> bool {
+        matches!(self.origin, FetchOrigin::Prefetch) && self.target_count() == 0
+    }
+
     /// Requests waiting for the line, deferred ones included.
     #[must_use]
     pub const fn target_count(&self) -> usize {
