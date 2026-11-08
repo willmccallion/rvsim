@@ -209,7 +209,7 @@ impl O3Engine {
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),
             load_queue: LoadQueue::new(config.pipeline.load_queue_size),
             prf,
-            free_list: FreeList::new(prf_total, ARCH_SCALAR_REGS),
+            free_list: FreeList::new((ARCH_SCALAR_REGS..prf_total).map(PhysReg::from_index)),
             rename_map: RenameMap::new(),
             committed_rename_map: RenameMap::new(),
             issue_queue: IssueQueue::new(config.pipeline.issue_queue_size),
@@ -241,7 +241,9 @@ impl O3Engine {
                 vprf.mark_arch_ready(ARCH_VECTOR_REGS);
                 vprf
             },
-            vec_free_list: FreeList::new(config.pipeline.prf_vpr_size, ARCH_VECTOR_REGS),
+            vec_free_list: FreeList::new(
+                (ARCH_VECTOR_REGS..config.pipeline.prf_vpr_size).map(VecPhysReg::from_index),
+            ),
             vec_pending: Vec::new(),
             num_vec_lanes: NumLanes::new(config.pipeline.vector_lanes()),
             vec_mem_pending: std::collections::VecDeque::new(),
@@ -488,6 +490,9 @@ mod tests {
         state.hart.regs.write(RegIdx::new(1), 42);
         engine.sync_arch_regs(&state);
 
-        assert_eq!(engine.prf.read(crate::uarch::pipeline::rename::prf::PhysReg::new(1)), 42);
+        assert_eq!(
+            engine.prf.read(crate::uarch::pipeline::rename::prf::PhysReg::from_index(1)),
+            42
+        );
     }
 }

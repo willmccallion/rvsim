@@ -31,6 +31,29 @@ impl VRegIdx {
         Self(val)
     }
 
+    /// Vector register `index`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= 32`.
+    #[inline(always)]
+    #[must_use]
+    pub const fn from_index(index: usize) -> Self {
+        assert!(index < Self::COUNT, "vector register index out of range");
+        Self(index as u8)
+    }
+
+    /// The register `n` past this one, as a register group's members are.
+    ///
+    /// # Panics
+    ///
+    /// Panics if that is past v31.
+    #[inline(always)]
+    #[must_use]
+    pub const fn offset(self, n: usize) -> Self {
+        Self::from_index(self.as_usize() + n)
+    }
+
     /// Returns the raw index.
     #[inline(always)]
     pub const fn as_u8(self) -> u8 {

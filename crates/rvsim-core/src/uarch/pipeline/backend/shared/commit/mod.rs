@@ -290,7 +290,7 @@ mod tests {
                 },
                 crate::common::InstSeq::default(),
                 crate::uarch::pipeline::rob::RenamedDst {
-                    phys: crate::uarch::pipeline::rename::prf::PhysReg::new(1),
+                    phys: crate::uarch::pipeline::rename::prf::PhysReg::from_index(1),
                     old: crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
                 },
             )

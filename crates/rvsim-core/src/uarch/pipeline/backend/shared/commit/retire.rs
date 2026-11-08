@@ -16,7 +16,6 @@ use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::reg::REG_A0;
 use crate::isa::reg::REG_A1;
 use crate::isa::reg::{ArchReg, RegIdx};
-use crate::isa::rvv::VRegIdx;
 use crate::soc::uncore::SimOp;
 use crate::soc::uncore::debug::PC_TRACE_MAX;
 use crate::system::host_files;
@@ -283,9 +282,8 @@ fn write_destinations(
         retire::apply_vector_writes(state.hart, writes);
     }
     if !entry.vec_dst.is_empty() {
-        let vd_base = entry.ctrl.vd.as_u8();
         for i in 0..usize::from(entry.vec_dst.len()) {
-            let vreg = VRegIdx::new(vd_base + i as u8);
+            let vreg = entry.ctrl.vd.offset(i);
             registers.retire_vec(state.hart.regs.vpr_mut(), entry, i, vreg);
         }
         retire::mark_vector_retired(state.hart);

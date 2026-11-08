@@ -15,6 +15,7 @@
 //!
 //! See `docs/architecture/stats.md` for the design rationale.
 
+use crate::common::ids::impl_id_from_index;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write};
 use std::sync::{LazyLock, RwLock};
@@ -153,6 +154,8 @@ impl Histogram {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StatId(u32);
 
+impl_id_from_index!(StatId, u32);
+
 /// Every interned path and the id it has.
 #[derive(Default)]
 struct Registry {
@@ -177,7 +180,7 @@ impl StatId {
         if let Some(&id) = registry.ids.get(path) {
             return id;
         }
-        let id = Self(u32::try_from(registry.paths.len()).unwrap_or(u32::MAX));
+        let id = Self::from_index(registry.paths.len());
         let text: &'static str = Box::leak(path.to_owned().into_boxed_str());
         registry.paths.push(text);
         let _ = registry.ids.insert(text, id);
@@ -276,7 +279,7 @@ impl<T> Store<T> {
         let registry = registry();
         let mut ids: Vec<StatId> = (0..self.values.len())
             .filter(|&index| self.present[index])
-            .map(|index| StatId(index as u32))
+            .map(StatId::from_index)
             .collect();
         ids.sort_by_key(|id| registry.paths[id.index()]);
         ids
@@ -286,7 +289,7 @@ impl<T> Store<T> {
     /// `earlier` holds for it, if any.
     fn map_since(&self, earlier: &Self, f: impl Fn(&T, Option<&T>) -> T) -> Self {
         let values = (0..self.values.len())
-            .map(|index| f(&self.values[index], earlier.get(StatId(index as u32))))
+            .map(|index| f(&self.values[index], earlier.get(StatId::from_index(index))))
             .collect();
         Self { values, present: self.present.clone() }
     }

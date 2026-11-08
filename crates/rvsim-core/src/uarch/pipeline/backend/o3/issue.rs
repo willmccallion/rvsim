@@ -144,7 +144,7 @@ impl O3Engine {
     /// The speculative rename map's vector mappings, one per architectural
     /// register.
     fn vec_rename_view(&self) -> [VecPhysReg; 32] {
-        std::array::from_fn(|i| self.rename_map.get_vec(VRegIdx::new(i as u8)))
+        std::array::from_fn(|i| self.rename_map.get_vec(VRegIdx::from_index(i)))
     }
 
     /// Runs a vector arithmetic instruction on the registers it renamed,

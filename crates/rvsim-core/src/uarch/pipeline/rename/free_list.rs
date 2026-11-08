@@ -1,8 +1,7 @@
 //! Physical register free list for O3 rename.
 //!
-//! Tracks which physical registers are available for allocation.
-//! On init: arch regs `0..num_arch` are "in use" (held in rename map).
-//! Regs `num_arch..prf_size` are free.
+//! Tracks which physical registers are available for allocation. The
+//! architectural registers' initial mappings are never on it.
 //!
 //! Generic over `PhysRegister` to support both scalar `PhysReg` and `VecPhysReg`.
 
@@ -12,8 +11,6 @@ use std::collections::VecDeque;
 pub trait PhysRegister: Copy + Eq + std::fmt::Debug {
     /// True for a hardwired register, which is never renamed or reclaimed.
     fn is_hardwired(self) -> bool;
-    /// Construct a physical register from a raw index.
-    fn from_index(idx: u16) -> Self;
 }
 
 /// FIFO free list of available physical registers.
@@ -23,15 +20,9 @@ pub struct FreeList<R: PhysRegister> {
 }
 
 impl<R: PhysRegister> FreeList<R> {
-    /// Create a new free list.
-    /// `prf_size` = total physical registers.
-    /// `num_arch` = architectural registers (`0..num_arch` are in use at init).
-    pub fn new(prf_size: usize, num_arch: usize) -> Self {
-        let mut queue = VecDeque::with_capacity(prf_size);
-        for i in num_arch..prf_size {
-            queue.push_back(R::from_index(i as u16));
-        }
-        Self { queue }
+    /// A free list holding `free`, to be allocated in that order.
+    pub fn new(free: impl IntoIterator<Item = R>) -> Self {
+        Self { queue: free.into_iter().collect() }
     }
 
     /// Allocate a free physical register. Returns None if no registers are free.
@@ -84,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_allocate_reclaim_roundtrip() {
-        let mut fl = FreeList::<PhysReg>::new(64, 32);
+        let mut fl = FreeList::new((32..64).map(PhysReg::from_index));
         assert_eq!(fl.available(), 32); // 64-32 = 32 free
 
         let p = fl.allocate().unwrap();
@@ -96,14 +87,14 @@ mod tests {
 
     #[test]
     fn test_underflow_returns_none() {
-        let mut fl = FreeList::<PhysReg>::new(4, 4); // all in use
+        let mut fl = FreeList::new((4..4).map(PhysReg::from_index)); // all in use
         assert_eq!(fl.available(), 0);
         assert!(fl.allocate().is_none());
     }
 
     #[test]
     fn test_reclaim_zero_noop() {
-        let mut fl = FreeList::<PhysReg>::new(8, 4);
+        let mut fl = FreeList::new((4..8).map(PhysReg::from_index));
         let initial = fl.available();
         fl.reclaim(PhysReg::ZERO); // x0 should not be reclaimed
         assert_eq!(fl.available(), initial);
@@ -111,15 +102,15 @@ mod tests {
 
     #[test]
     fn architectural_registers_start_allocated() {
-        let fl = FreeList::<PhysReg>::new(128, 32);
+        let fl = FreeList::new((32..128).map(PhysReg::from_index));
         assert_eq!(fl.available(), 96);
     }
 
     #[test]
     fn a_reservation_hands_out_the_registers_allocate_would() {
-        let mut fl = FreeList::<PhysReg>::new(8, 4);
+        let mut fl = FreeList::new((4..8).map(PhysReg::from_index));
         let expected: Vec<PhysReg> = {
-            let mut probe = FreeList::<PhysReg>::new(8, 4);
+            let mut probe = FreeList::new((4..8).map(PhysReg::from_index));
             (0..3).map(|_| probe.allocate().unwrap()).collect()
         };
 
@@ -131,7 +122,7 @@ mod tests {
 
     #[test]
     fn a_reservation_beyond_the_free_registers_is_refused_and_takes_nothing() {
-        let mut fl = FreeList::<PhysReg>::new(8, 4);
+        let mut fl = FreeList::new((4..8).map(PhysReg::from_index));
 
         assert!(fl.reserve(5).is_none());
         assert_eq!(fl.available(), 4);
@@ -139,7 +130,7 @@ mod tests {
 
     #[test]
     fn a_dropped_reservation_leaves_the_list_untouched() {
-        let mut fl = FreeList::<PhysReg>::new(8, 4);
+        let mut fl = FreeList::new((4..8).map(PhysReg::from_index));
 
         assert!(fl.reserve(2).is_some());
 
@@ -148,11 +139,11 @@ mod tests {
 
     #[test]
     fn test_vec_phys_reg_free_list() {
-        let mut fl = FreeList::<VecPhysReg>::new(64, 32);
+        let mut fl = FreeList::new((32..64).map(VecPhysReg::from_index));
         assert_eq!(fl.available(), 32);
 
         let p = fl.allocate().unwrap();
-        assert_eq!(p, VecPhysReg::new(32));
+        assert_eq!(p, VecPhysReg::from_index(32));
         assert_eq!(fl.available(), 31);
 
         fl.reclaim(p);
@@ -161,7 +152,7 @@ mod tests {
 
     #[test]
     fn vector_register_zero_is_reclaimed_like_any_other() {
-        let mut fl = FreeList::<VecPhysReg>::new(8, 4);
+        let mut fl = FreeList::new((4..8).map(VecPhysReg::from_index));
         let initial = fl.available();
 
         fl.reclaim(VecPhysReg::ZERO);

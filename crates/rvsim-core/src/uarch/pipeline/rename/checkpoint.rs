@@ -7,12 +7,15 @@
 //! to O(1).
 
 use super::map::RenameMap;
+use crate::common::ids::impl_id_from_index;
 use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::squash::SquashScope;
 
 /// Index into the checkpoint table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CheckpointId(pub u8);
+
+impl_id_from_index!(CheckpointId, u8);
 
 /// A single rename map snapshot associated with a branch/jump.
 #[derive(Clone, Debug)]
@@ -40,7 +43,7 @@ impl FreeCheckpoint {
         debug_assert!(table.slots[self.0].is_none(), "a slot was filled after free_slot");
         table.slots[self.0] = Some(Checkpoint { branch_tag, rename_map: rename_map.clone() });
         table.count += 1;
-        CheckpointId(self.0 as u8)
+        CheckpointId::from_index(self.0)
     }
 }
 
@@ -139,9 +142,9 @@ mod tests {
     use crate::isa::reg::{ArchReg, RegIdx};
     use crate::uarch::pipeline::rename::prf::PhysReg;
 
-    fn make_rename_map(marker: u16) -> RenameMap {
+    fn make_rename_map(marker: usize) -> RenameMap {
         let mut rm = RenameMap::new();
-        rm.set(ArchReg::Int(RegIdx::new(1)), PhysReg::new(marker));
+        rm.set(ArchReg::Int(RegIdx::new(1)), PhysReg::from_index(marker));
         rm
     }
 
@@ -158,7 +161,7 @@ mod tests {
 
         let ckpt = table.find_by_tag(tag).unwrap();
         assert_eq!(ckpt.branch_tag, tag);
-        assert_eq!(ckpt.rename_map.get(ArchReg::Int(RegIdx::new(1))), PhysReg::new(100));
+        assert_eq!(ckpt.rename_map.get(ArchReg::Int(RegIdx::new(1))), PhysReg::from_index(100));
 
         table.free(id);
         assert_eq!(table.available(), 4);
