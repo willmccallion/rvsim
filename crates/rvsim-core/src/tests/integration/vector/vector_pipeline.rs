@@ -10,6 +10,7 @@
 
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
+use crate::isa::privileged::cause::exception;
 use crate::tests::support::harness::TestContext;
 
 /// `jal x0, 0`: holds the program at its end instead of running into zeros.
@@ -54,13 +55,19 @@ const LMUL_M8: u32 = 0b011;
 const LMUL_MF8: u32 = 0b101;
 
 fn run_program(config: &Config, program: &[u32], cycles: u64) -> TestContext {
+    let mut ctx = load_program(config, program);
+    ctx.run(cycles);
+    ctx
+}
+
+/// A system with `program` at `RAM_BASE` and the PC on its first instruction.
+fn load_program(config: &Config, program: &[u32]) -> TestContext {
     let mut ctx = TestContext::new_with_config(config).with_memory(RAM_SIZE, RAM_BASE);
     for (i, inst) in program.iter().enumerate() {
         let addr = RAM_BASE + (i as u64) * 4;
         ctx.sim.probe_mem_store(PhysAddr::new(addr), u64::from(*inst), 4);
     }
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
-    ctx.run(cycles);
     ctx
 }
 
@@ -172,9 +179,8 @@ fn vwaddu_vv(vd: u32, vs2: u32, vs1: u32) -> u32 {
 }
 
 /// Encode `vid.v vd` (VMUNARY0 funct6=0b010100 with vs1=0b10001, vm=1).
-/// The vs2 field is part of the opcode (must be 0 per spec) and is not a
-/// register operand. Optionally pass a non-zero `vs2_field` to verify the
-/// implementation tolerates non-canonical encodings (spike does).
+/// The vs2 field is part of the opcode and must be 0; any other
+/// `vs2_field` makes a reserved encoding.
 fn vid_v(vd: u32, vs2_field: u32) -> u32 {
     (0b010100 << 26)
         | (1 << 25)
@@ -214,33 +220,26 @@ fn vwaddu_vv_at_mf8_does_not_trap_for_odd_vd() {
     assert_eq!(ctx.cpu().harts[0].csrs.vl, 2);
 }
 
-/// `vid.v` does not read any vector source register — its vs2 field is part
-/// of the opcode (the spec requires it to be 0, but spike tolerates other
-/// values). The decode-time alignment check must NOT treat the vs2 field as
-/// a vector register operand, otherwise a non-canonical (yet harmless)
-/// encoding will fault as illegal-instruction.
-///
-/// Regression for the chipsalliance vid_v-0/-1 fails: rvsim's
-/// `operand_groups` was claiming `vs2: lmul` for VIdV, so the alignment
-/// check rejected encodings whose vs2 field happened to be non-zero
-/// (e.g. test programs setting vs2_field=1 with LMUL=m2).
+/// `vid.v`'s vs2 field is part of its opcode: spike's decoder fixes it at
+/// zero (`MASK_VID_V`), so any other value is an illegal instruction.
 #[test]
-fn vid_v_does_not_check_vs2_alignment() {
+fn vid_v_with_its_vs2_field_set_is_illegal() {
     let program: Vec<u32> = std::iter::empty()
         .chain([
             addi(5, 0, 4),                                      // li t0, 4
             vsetvli(6, 5, vtype(SEW_E8, 0b001 /* m2 */, 0, 0)), // vl=4 at e8/m2
-            // Non-canonical vs2_field=1 would be misaligned at lmul=m2 if treated as an operand.
             vid_v(12, 1),
+            SPIN,
         ])
-        .chain(std::iter::repeat_n(NOP, 32))
-        .chain([SPIN])
         .collect();
+    let vid_v_address = RAM_BASE + 2 * 4;
+    let mut ctx = load_program(&wide_inorder_config(), &program);
+    ctx.sim.state.harts[0].csrs.mtvec = vid_v_address + 4;
 
-    let ctx = run_program(&wide_inorder_config(), &program, 500);
+    ctx.run(500);
 
-    let mcause = ctx.cpu().harts[0].csrs.mcause;
-    assert_eq!(mcause, 0, "vid.v with vs2_field=1 must not trap (mcause={:#x})", mcause);
+    let csrs = &ctx.cpu().harts[0].csrs;
+    assert_eq!((csrs.mcause, csrs.mepc), (exception::ILLEGAL_INSTRUCTION, vid_v_address));
 }
 
 /// Encode a masked-off (`vm = 1`) vector-vector op.
