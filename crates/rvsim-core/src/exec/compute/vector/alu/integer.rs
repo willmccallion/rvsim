@@ -39,6 +39,7 @@ pub(super) const fn rounding_incr(v: u64, d: u32, vxrm: Vxrm) -> u64 {
 
 /// Compute one element for standard (non-widening, non-narrowing) integer ops.
 #[inline]
+#[expect(clippy::too_many_lines, reason = "one arm per integer op")]
 pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vxrm) -> (u64, bool) {
     let mask = sew.mask();
     let bits = sew.bits();

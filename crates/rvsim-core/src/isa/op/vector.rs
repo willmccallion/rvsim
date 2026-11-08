@@ -180,6 +180,7 @@ impl VectorOp {
 
     /// The group this operation belongs to.
     #[must_use]
+    #[expect(clippy::too_many_lines, reason = "a table of every operation's group")]
     pub const fn group(self) -> VecOpGroup {
         match self {
             Self::Config(_) => VecOpGroup::Config,
@@ -350,6 +351,7 @@ impl VectorOp {
     /// LMUL and M1 — they all share group=1). `lmul_is_fractional` distinguishes
     /// fractional LMUL (Mf8/Mf4/Mf2) from M1: it matters for widening, where
     /// `2*LMUL` for fractional still fits in 1 register but `2*M1 = M2` needs 2.
+    #[expect(clippy::too_many_lines, reason = "a table of every operation's register groups")]
     pub fn operand_groups(
         self,
         lmul: u8,
