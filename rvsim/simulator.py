@@ -13,8 +13,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import Enum
 
-__all__ = ["Instruction", "PipelineSnapshot", "Program", "Simulator"]
+__all__ = [
+    "DebugEnd",
+    "Instruction",
+    "PipelineSnapshot",
+    "Program",
+    "Simulator",
+    "StopReason",
+]
 
 from typing import TYPE_CHECKING
 
@@ -25,6 +33,36 @@ from .config._config import _config_to_dict
 
 if TYPE_CHECKING:
     from typing_extensions import Self
+
+
+class StopReason(str, Enum):
+    """Why ``Simulator.run_to`` stopped; equal to its value as a string.
+    The value ``run_to`` pairs with it is the exit code for ``EXIT``, the
+    hart for ``PC``, the address for ``WATCH`` and the label for ``BREAK``,
+    else ``None``."""
+
+    EXIT = "exit"
+    CYCLES = "cycles"
+    INSTRUCTIONS = "instructions"
+    PC = "pc"
+    WATCH = "watch"
+    BREAK = "break"
+    CONSOLE = "console"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class DebugEnd(str, Enum):
+    """How a ``Simulator.gdb`` session ended; equal to its value as a
+    string. ``gdb`` pairs ``EXIT`` with the exit code, else ``None``."""
+
+    DETACHED = "detached"
+    KILLED = "killed"
+    EXIT = "exit"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 @dataclass(frozen=True)

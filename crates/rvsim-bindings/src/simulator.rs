@@ -4,6 +4,7 @@
 use crate::conversion::config_from_py;
 use crate::errors::{SimulationError, checkpoint_error, sim_error};
 use crate::instruction::PyInstruction;
+use crate::python_enums;
 use crate::snapshot::PyPipelineSnapshot;
 use crate::stats::PyStats;
 use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory, Width};
@@ -169,14 +170,6 @@ fn privilege_named(letter: &str) -> PyResult<PrivilegeMode> {
 }
 
 impl PySimulator {
-    pub fn privilege_str(&self, hart: usize) -> &'static str {
-        match self.inner.hart(hart).privilege {
-            PrivilegeMode::Machine => "M",
-            PrivilegeMode::Supervisor => "S",
-            PrivilegeMode::User => "U",
-        }
-    }
-
     /// Runs until `stop` holds, checking Python signals as it goes.
     fn run_until_stop(&mut self, py: Python<'_>, stop: &StopAt) -> PyResult<StopReason> {
         let mut interrupt = Interrupt::default();
@@ -322,10 +315,10 @@ impl PySimulator {
         self.inner.set_pc(0, VirtAddr::new(value));
     }
 
-    /// Current privilege level: ``"M"``, ``"S"``, or ``"U"`` (read-only).
+    /// Hart 0's privilege mode, a `Privilege` (read-only).
     #[getter]
-    fn privilege(&self) -> &'static str {
-        self.privilege_str(0)
+    fn privilege<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        python_enums::privilege(py, self.inner.hart(0).privilege)
     }
 
     /// Whether instruction tracing is armed (read/write). Events go to
@@ -591,11 +584,16 @@ impl PySimulator {
     /// kills the run, or the guest exits. Each hart is a thread to it;
     /// breakpoints are stops at a PC, so no guest code is patched.
     ///
-    /// Returns ``("detached", None)``, ``("killed", None)`` or
-    /// ``("exit", code)``. Ctrl-C in the terminal ends the session with
-    /// ``KeyboardInterrupt``.
+    /// Returns how the session ended, a `DebugEnd`, and the exit code for
+    /// ``DebugEnd.EXIT``, else ``None``. Ctrl-C in the terminal ends the
+    /// session with ``KeyboardInterrupt``.
     #[pyo3(signature = (port, *, host = "127.0.0.1"))]
-    fn gdb(&mut self, py: Python<'_>, port: u16, host: &str) -> PyResult<(String, Option<u64>)> {
+    fn gdb<'py>(
+        &mut self,
+        py: Python<'py>,
+        port: u16,
+        host: &str,
+    ) -> PyResult<(Bound<'py, PyAny>, Option<u64>)> {
         use rvsim_core::system::gdb::Outcome;
         let listener = std::net::TcpListener::bind((host, port))
             .map_err(|e| PyOSError::new_err(format!("cannot listen on {host}:{port}: {e}")))?;
@@ -626,12 +624,13 @@ impl PySimulator {
             inner.serve_gdb(stream, keep_going).map_err(|e| sim_error(&e))
         });
         let _ = std::io::stdout().flush();
-        Ok(match served? {
-            Outcome::Detached => ("detached".into(), None),
-            Outcome::Killed => ("killed".into(), None),
-            Outcome::Exited(code) => ("exit".into(), Some(code)),
+        let (end, code) = match served? {
+            Outcome::Detached => ("detached", None),
+            Outcome::Killed => ("killed", None),
+            Outcome::Exited(code) => ("exit", Some(code)),
             Outcome::Interrupted => return Err(interrupt.into_error("debugging")),
-        })
+        };
+        Ok((python_enums::debug_end(py, end)?, code))
     }
 
     /// Execute until one instruction commits.
@@ -765,9 +764,8 @@ impl PySimulator {
     }
 
     /// Run until a condition holds, checking after every cycle, and say
-    /// which: ``("exit", code)``, ``("cycles", None)``,
-    /// ``("instructions", None)``, ``("pc", hart)``, ``("break", label)`` or
-    /// ``("console", None)``.
+    /// which: a `StopReason` and the value that goes with it, the exit
+    /// code, hart, address or label, else ``None``.
     ///
     /// Args:
     ///     cycles: Stop after this many cycles.
@@ -786,15 +784,15 @@ impl PySimulator {
         reason = "Google-style Args: names are bare for the docs generator"
     )]
     #[pyo3(signature = (*, cycles=None, instructions=None, pc=None, guest_breaks=true, console_output=false))]
-    fn run_to(
+    fn run_to<'py>(
         &mut self,
-        py: Python<'_>,
+        py: Python<'py>,
         cycles: Option<u64>,
         instructions: Option<u64>,
         pc: Option<PcStop>,
         guest_breaks: bool,
         console_output: bool,
-    ) -> PyResult<(String, Option<u64>)> {
+    ) -> PyResult<(Bound<'py, PyAny>, Option<u64>)> {
         let pcs = match pc {
             None => Vec::new(),
             Some(PcStop::One(pc)) => vec![VirtAddr::new(pc)],
@@ -802,16 +800,17 @@ impl PySimulator {
         };
         let stop =
             StopAt { cycles, instructions, pcs, guest_breaks, console_output, ..StopAt::default() };
-        Ok(match self.run_until_stop(py, &stop)? {
-            StopReason::Exited(code) => ("exit".into(), Some(code)),
-            StopReason::Cycles => ("cycles".into(), None),
-            StopReason::Instructions => ("instructions".into(), None),
-            StopReason::Pc { hart } => ("pc".into(), Some(hart as u64)),
-            StopReason::Watch { addr, .. } => ("watch".into(), Some(addr)),
-            StopReason::GuestBreak { label } => ("break".into(), Some(label)),
-            StopReason::ConsoleOutput => ("console".into(), None),
+        let (reason, value) = match self.run_until_stop(py, &stop)? {
+            StopReason::Exited(code) => ("exit", Some(code)),
+            StopReason::Cycles => ("cycles", None),
+            StopReason::Instructions => ("instructions", None),
+            StopReason::Pc { hart } => ("pc", Some(hart as u64)),
+            StopReason::Watch { addr, .. } => ("watch", Some(addr)),
+            StopReason::GuestBreak { label } => ("break", Some(label)),
+            StopReason::ConsoleOutput => ("console", None),
             StopReason::Cancelled => return Err(Interrupt::default().into_error("run")),
-        })
+        };
+        Ok((python_enums::stop_reason(py, reason)?, value))
     }
 
     /// The console output since the last call, when the config's

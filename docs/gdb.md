@@ -34,10 +34,11 @@ cpu.run(limit=100_000)
 outcome, code = cpu.gdb(1234)
 ```
 
-`gdb` returns `("exit", code)` when the guest exits under the debugger,
-`("detached", None)` when GDB detaches (`detach`, or `quit`), and
-`("killed", None)` after `kill`; a detached run goes on with `run` or
-`run_to` as before. From the command line a detached run goes on to its
+`gdb` returns `(DebugEnd.EXIT, code)` when the guest exits under the
+debugger, `(DebugEnd.DETACHED, None)` when GDB detaches (`detach`, or
+`quit`), and `(DebugEnd.KILLED, None)` after `kill`; each `DebugEnd`
+equals its lower-case name as a string. A detached run goes on with `run`
+or `run_to` as before. From the command line a detached run goes on to its
 exit as if GDB had never been there.
 
 A session with GDB 17 on the bundled `qsort` program:

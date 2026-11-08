@@ -10,6 +10,7 @@ use rvsim_core::isa::csr::CsrAddr;
 use rvsim_core::isa::reg::RegIdx;
 use rvsim_core::system::simulator::ProbeWidth;
 
+use crate::python_enums;
 use crate::simulator::PySimulator;
 
 /// CSR names accepted by `sim.csrs[...]`, with their addresses.
@@ -179,10 +180,10 @@ impl Hart {
         self.sim.borrow_mut(py).inner.set_pc(self.index, VirtAddr::new(value));
     }
 
-    /// Current privilege level: ``"M"``, ``"S"``, or ``"U"``.
+    /// The hart's privilege mode, a `Privilege`.
     #[getter]
-    fn privilege(&self, py: Python<'_>) -> &'static str {
-        self.sim.borrow(py).privilege_str(self.index)
+    fn privilege<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        python_enums::privilege(py, self.sim.borrow(py).inner.hart(self.index).privilege)
     }
 
     /// Instructions this hart has retired.
@@ -210,7 +211,7 @@ impl Hart {
             "Hart(id={}, pc={:#x}, privilege={})",
             self.index,
             hart.pc,
-            sim.privilege_str(self.index)
+            python_enums::privilege_letter(hart.privilege)
         )
     }
 }

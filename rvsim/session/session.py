@@ -30,7 +30,7 @@ from typing import (
 from .. import _core, presets
 from ..config import Config
 from ..config._config import _config_to_dict
-from ..simulator import Simulator
+from ..simulator import Simulator, StopReason
 from .cache import _META_FORMAT, _Cache, _read_meta, build_digest, default_cache_dir
 from .stops import (
     LOGIN_SHELL,
@@ -825,16 +825,16 @@ class _Run:
                 return self._stopped(stop)
         return None
 
-    def _stopped_by(self, reason: str, value: int | None) -> Stopped | None:
+    def _stopped_by(self, reason: StopReason, value: int | None) -> Stopped | None:
         """The stop ``run_to``'s ``reason`` means, if it is one of ours."""
-        if reason == "exit":
+        if reason is StopReason.EXIT:
             return self._stopped(self.exit, exit_code=value)
-        if reason == "pc":
+        if reason is StopReason.PC:
             assert value is not None
             pc = self.sim.harts[value].pc
             stop = next(s for s in self.pc_stops if pc in s.addresses)
             return self._stopped(stop, hart=value)
-        if reason == "break":
+        if reason is StopReason.BREAK:
             for marker in self.markers:
                 if marker.label is None or marker.label == value:
                     return self._stopped(marker, label=value)

@@ -47,7 +47,7 @@ from .config import (
     StorePrefetcher,
 )
 from .experiment import Environment, Result
-from .isa import Disassemble, csr, reg
+from .isa import Disassemble, Privilege, csr, reg
 from .session import Region, Session, WorkloadEnded
 from .session.stops import (
     LOGIN_SHELL,
@@ -63,7 +63,14 @@ from .session.stops import (
     Stopped,
     When,
 )
-from .simulator import Instruction, PipelineSnapshot, Program, Simulator
+from .simulator import (
+    DebugEnd,
+    Instruction,
+    PipelineSnapshot,
+    Program,
+    Simulator,
+    StopReason,
+)
 from .stats import Stats, Table
 from .sweep import Sweep, SweepResults
 
@@ -94,6 +101,7 @@ __all__ = [
     "ConfigError",
     "Console",
     "Cycles",
+    "DebugEnd",
     "Disassemble",
     "Environment",
     "Exit",
@@ -113,6 +121,7 @@ __all__ = [
     "Pc",
     "PipelineSnapshot",
     "Prefetcher",
+    "Privilege",
     "Program",
     "Region",
     "ReplacementPolicy",
@@ -123,6 +132,7 @@ __all__ = [
     "Stalled",
     "Stats",
     "Stop",
+    "StopReason",
     "Stopped",
     "StorePrefetcher",
     "Sweep",
