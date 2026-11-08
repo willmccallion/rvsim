@@ -28,6 +28,8 @@ All notable changes to this project are documented here. The format is based on 
   (which gains `MCOUNTINHIBIT`, the vector CSRs, the trigger CSRs and the
   rest) and GDB's target description all read one table in the core. A CSR
   address beyond 12 bits raises `KeyError` rather than wrapping.
+- `Config` takes keyword arguments only, and `Config.replace()` reports an
+  unknown field as `Config.__init__()` does.
 - A run fails when a hart outside WFI retires no instruction for
   `Simulator.stall_limit` cycles (1,000,000 by default; `None` turns the
   check off), with an error naming the hart and its PC, instead of running
