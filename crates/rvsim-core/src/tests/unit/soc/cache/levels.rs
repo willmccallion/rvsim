@@ -678,7 +678,7 @@ fn inclusive_evictions_back_invalidate_upstream_and_nine_ones_do_not() {
         [(InclusionPolicy::Inclusive, true), (InclusionPolicy::Nine, false)]
     {
         let mut cache = cache_with(&test_config());
-        cache.add_upstream(UPSTREAM);
+        cache.add_upstream(UPSTREAM).expect("room for an upstream");
         cache.set_upstream_inclusion(policy);
         let mut bench = Bench::new(cache);
         bench.install_from(UPSTREAM, 1, 0x0000, MemOp::Read);
@@ -702,7 +702,7 @@ fn inclusive_evictions_back_invalidate_upstream_and_nine_ones_do_not() {
 #[test]
 fn back_invalidation_of_a_dirty_line_writes_it_back_and_propagates() {
     let mut cache = cache_with(&test_config());
-    cache.add_upstream(UPSTREAM);
+    cache.add_upstream(UPSTREAM).expect("room for an upstream");
     cache.set_upstream_inclusion(InclusionPolicy::Inclusive);
     let mut bench = Bench::new(cache);
     bench.install_from(
@@ -1071,7 +1071,7 @@ fn a_late_dirty_writeback_does_not_upgrade_a_shared_line() {
 #[test]
 fn exclusive_lower_level_gives_up_its_copy_when_it_fills_the_upper_one() {
     let mut cache = cache_with(&test_config());
-    cache.add_upstream(UPSTREAM);
+    cache.add_upstream(UPSTREAM).expect("room for an upstream");
     cache.set_upstream_inclusion(InclusionPolicy::Exclusive);
     let mut bench = Bench::new(cache);
     bench.install(1, 0x1000, MemOp::Read);
@@ -1114,7 +1114,7 @@ fn exclusive_upper_level_hands_clean_victims_down() {
 /// An exclusive cache with one cache above it.
 fn exclusive_bench() -> Bench {
     let mut cache = cache_with(&test_config());
-    cache.add_upstream(UPSTREAM);
+    cache.add_upstream(UPSTREAM).expect("room for an upstream");
     cache.set_upstream_inclusion(InclusionPolicy::Exclusive);
     Bench::new(cache)
 }
@@ -1448,8 +1448,8 @@ fn a_probe_that_hits_an_in_flight_fetch_leaves_the_fill_alone() {
 fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
     let third = ComponentId::Cache(CacheId::new(3));
     let mut cache = cache_with(&test_config());
-    cache.add_upstream(UPSTREAM);
-    cache.add_upstream(third);
+    cache.add_upstream(UPSTREAM).expect("room for an upstream");
+    cache.add_upstream(third).expect("room for an upstream");
     let mut bench = Bench::new(cache);
     bench.install_from(UPSTREAM, 1, 0x1000, MemOp::Read);
     bench.request_from(third, 2, 0x1000, MemOp::Read);
@@ -1491,8 +1491,8 @@ fn a_probe_is_forwarded_upstream_and_answered_once_every_copy_replied() {
 fn a_probe_goes_only_to_the_caches_above_that_were_given_the_line() {
     let third = ComponentId::Cache(CacheId::new(3));
     let mut cache = cache_with(&test_config());
-    cache.add_upstream(UPSTREAM);
-    cache.add_upstream(third);
+    cache.add_upstream(UPSTREAM).expect("room for an upstream");
+    cache.add_upstream(third).expect("room for an upstream");
     let mut bench = Bench::new(cache);
     bench.install_from(UPSTREAM, 1, 0x1000, MemOp::Read);
 
@@ -1506,7 +1506,7 @@ fn a_probe_goes_only_to_the_caches_above_that_were_given_the_line() {
 #[test]
 fn a_probe_for_a_line_no_cache_above_holds_is_answered_at_once() {
     let mut cache = cache_with(&test_config());
-    cache.add_upstream(UPSTREAM);
+    cache.add_upstream(UPSTREAM).expect("room for an upstream");
     let mut bench = Bench::new(cache);
     bench.install(1, 0x1000, MemOp::Read);
 
@@ -1522,7 +1522,7 @@ fn a_probe_for_a_line_no_cache_above_holds_is_answered_at_once() {
 #[test]
 fn a_cache_above_that_evicted_its_copy_is_no_longer_probed() {
     let mut cache = cache_with(&test_config());
-    cache.add_upstream(UPSTREAM);
+    cache.add_upstream(UPSTREAM).expect("room for an upstream");
     let mut bench = Bench::new(cache);
     bench.install_from(UPSTREAM, 1, 0x1000, MemOp::Read);
     bench.request_from(UPSTREAM, 2, 0x1000, MemOp::Writeback { dirty: false });
@@ -1549,7 +1549,7 @@ mod coherent {
         let config = CacheConfig { enabled, ..test_config() };
         let mut cache = Cache::new(CacheId::new(0), CacheLevel::L2, &config, "test");
         cache.set_downstream(DOWNSTREAM);
-        cache.add_upstream(UPSTREAM);
+        cache.add_upstream(UPSTREAM).expect("room for an upstream");
         cache.set_coherent(CORE);
         Bench::new(cache)
     }
@@ -1813,7 +1813,7 @@ mod coherent {
         let config = CacheConfig { targets_per_mshr: count(2), ..test_config() };
         let mut cache = Cache::new(CacheId::new(0), CacheLevel::L2, &config, "test");
         cache.set_downstream(DOWNSTREAM);
-        cache.add_upstream(UPSTREAM);
+        cache.add_upstream(UPSTREAM).expect("room for an upstream");
         cache.set_coherent(CORE);
         let mut bench = Bench::new(cache);
         bench.install_coherent(1, 0x1000, MemOp::Read, MesiState::Shared);
@@ -1929,4 +1929,21 @@ mod coherent {
                 .any(|e| e.target == DOWNSTREAM && matches!(e.packet, Packet::MemReq { .. }))
         );
     }
+}
+
+/// A line tracks at most eight caches above, so a ninth is refused rather
+/// than sharing a bit with the first.
+#[test]
+fn a_cache_refuses_more_upstreams_than_a_line_tracks() {
+    let mut cache = cache_with(&CacheConfig::default());
+    for id in 1..=8 {
+        cache.add_upstream(ComponentId::Cache(CacheId::new(id))).expect("room for eight");
+    }
+
+    let ninth = cache.add_upstream(ComponentId::Cache(CacheId::new(9)));
+
+    assert!(
+        matches!(ninth, Err(crate::common::SimError::TooManyUpstreams { cache }) if cache == CacheId::new(0)),
+        "{ninth:?}"
+    );
 }

@@ -1,5 +1,6 @@
 //! Inclusion: which upper-level caches hold a line, and back-invalidation.
 
+use super::UpperMask;
 use crate::common::LineAddr;
 use crate::config::InclusionPolicy;
 use crate::sim::components::ComponentId;
@@ -46,22 +47,22 @@ impl Cache {
         self.back_invalidate(line, &holders, ctx);
     }
 
-    /// The bit `source` holds in a line's `upper` mask; zero when it is not
-    /// a cache above this one.
-    pub(super) fn upstream_bit(&self, source: ComponentId) -> u8 {
-        self.upstream.iter().position(|&up| up == source).map_or(0, |i| 1 << i)
+    /// `source`'s place in a line's `upper` mask; empty when it is not a
+    /// cache above this one.
+    pub(super) fn upstream_bit(&self, source: ComponentId) -> UpperMask {
+        self.upstream.iter().position(|&up| up == source).map(UpperMask::of).unwrap_or_default()
     }
 
     /// `source` was given the line in `index`.
     pub(super) fn note_upper_copy(&mut self, index: usize, source: ComponentId) {
-        self.lines[index].upper |= self.upstream_bit(source);
+        self.lines[index].upper = self.lines[index].upper.with(self.upstream_bit(source));
     }
 
     /// `source` dropped its copy of the line holding `addr`.
     pub(super) fn forget_upper_copy(&mut self, addr: u64, source: ComponentId) {
         if let Some(way) = self.find_way(addr) {
             let index = self.slot(self.set_index(addr), way);
-            self.lines[index].upper &= !self.upstream_bit(source);
+            self.lines[index].upper = self.lines[index].upper.without(self.upstream_bit(source));
         }
     }
 
@@ -78,7 +79,7 @@ impl Cache {
                 self.upstream
                     .iter()
                     .enumerate()
-                    .filter(|(i, _)| bits & (1 << i) != 0)
+                    .filter(|&(position, _)| bits.holds(position))
                     .map(|(_, &up)| up)
                     .collect()
             }
