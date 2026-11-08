@@ -250,70 +250,88 @@ const fn source_bit(irq_id: u32) -> Option<(usize, u32)> {
     Some((irq_id as usize / 32, 1 << (irq_id % 32)))
 }
 
+/// A PLIC register, as an offset into its window names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlicReg {
+    /// A source's priority.
+    Priority(usize),
+    /// A word of pending bits.
+    Pending(usize),
+    /// A word of a context's enable bits.
+    Enable {
+        /// The context.
+        ctx: usize,
+        /// The word.
+        word: usize,
+    },
+    /// A context's priority threshold.
+    Threshold(usize),
+    /// A context's claim/complete register.
+    Claim(usize),
+}
+
+/// The threshold's offset in a context's block.
+const THRESHOLD_OFFSET: u64 = 0;
+
+/// The claim/complete register's offset in a context's block.
+const CLAIM_OFFSET: u64 = 4;
+
 impl Plic {
-    fn read_u32_reg(&mut self, offset: u64) -> u32 {
-        #[allow(clippy::absurd_extreme_comparisons)]
-        if (PLIC_PRIORITY_BASE..PLIC_PENDING_BASE).contains(&offset) {
-            let idx = (offset - PLIC_PRIORITY_BASE) as usize / 4;
-            if idx < self.priorities.len() {
-                return self.priorities[idx];
-            }
-        } else if (PLIC_PENDING_BASE..PLIC_ENABLE_BASE).contains(&offset) {
-            let idx = (offset - PLIC_PENDING_BASE) as usize / 4;
-            if idx < self.pending.len() {
-                return self.pending[idx];
-            }
-        } else if (PLIC_ENABLE_BASE..PLIC_CONTEXT_BASE).contains(&offset) {
-            let rel = offset - PLIC_ENABLE_BASE;
-            let ctx = (rel / ENABLE_STRIDE) as usize;
-            let word_idx = ((rel % ENABLE_STRIDE) / 4) as usize;
-            if ctx < self.context_count() && word_idx < ENABLE_WORDS_PER_CONTEXT {
-                return self.enables[ctx][word_idx];
-            }
-        } else if offset >= PLIC_CONTEXT_BASE {
-            let ctx = ((offset - PLIC_CONTEXT_BASE) / CONTEXT_STRIDE) as usize;
-            let reg = offset & 0xFFF;
-            if ctx < self.context_count() {
-                if reg == 0 {
-                    return self.thresholds[ctx];
-                }
-                if reg == 4 {
-                    let irq_id = self.claims[ctx];
-                    self.claim(irq_id);
-                    return irq_id;
-                }
-            }
+    /// The register `offset` names, when it names one this PLIC has.
+    fn decode(&self, offset: u64) -> Option<PlicReg> {
+        if offset < PLIC_PENDING_BASE {
+            let source = ((offset - PLIC_PRIORITY_BASE) / 4) as usize;
+            return (source < self.priorities.len()).then_some(PlicReg::Priority(source));
         }
-        0
+        if offset < PLIC_ENABLE_BASE {
+            let word = ((offset - PLIC_PENDING_BASE) / 4) as usize;
+            return (word < self.pending.len()).then_some(PlicReg::Pending(word));
+        }
+        if offset < PLIC_CONTEXT_BASE {
+            let within = offset - PLIC_ENABLE_BASE;
+            let ctx = (within / ENABLE_STRIDE) as usize;
+            let word = ((within % ENABLE_STRIDE) / 4) as usize;
+            let exists = ctx < self.context_count() && word < ENABLE_WORDS_PER_CONTEXT;
+            return exists.then_some(PlicReg::Enable { ctx, word });
+        }
+        let within = offset - PLIC_CONTEXT_BASE;
+        let ctx = (within / CONTEXT_STRIDE) as usize;
+        if ctx >= self.context_count() {
+            return None;
+        }
+        match within % CONTEXT_STRIDE {
+            THRESHOLD_OFFSET => Some(PlicReg::Threshold(ctx)),
+            CLAIM_OFFSET => Some(PlicReg::Claim(ctx)),
+            _ => None,
+        }
+    }
+
+    fn read_u32_reg(&mut self, offset: u64) -> u32 {
+        match self.decode(offset) {
+            Some(PlicReg::Priority(source)) => self.priorities[source],
+            Some(PlicReg::Pending(word)) => self.pending[word],
+            Some(PlicReg::Enable { ctx, word }) => self.enables[ctx][word],
+            Some(PlicReg::Threshold(ctx)) => self.thresholds[ctx],
+            Some(PlicReg::Claim(ctx)) => {
+                let irq_id = self.claims[ctx];
+                self.claim(irq_id);
+                irq_id
+            }
+            None => 0,
+        }
     }
 
     fn write_u32_reg(&mut self, offset: u64, val: u32) {
-        #[allow(clippy::absurd_extreme_comparisons)]
-        if (PLIC_PRIORITY_BASE..PLIC_PENDING_BASE).contains(&offset) {
-            let idx = (offset - PLIC_PRIORITY_BASE) as usize / 4;
-            if idx < self.priorities.len() {
-                self.priorities[idx] = val;
+        match self.decode(offset) {
+            Some(PlicReg::Priority(source)) => self.priorities[source] = val,
+            Some(PlicReg::Enable { ctx, word }) => self.enables[ctx][word] = val,
+            Some(PlicReg::Threshold(ctx)) => self.thresholds[ctx] = val,
+            Some(PlicReg::Claim(ctx)) => {
+                self.clear_pending(val);
+                self.complete(val);
+                self.claims[ctx] = 0;
             }
-        } else if (PLIC_ENABLE_BASE..PLIC_CONTEXT_BASE).contains(&offset) {
-            let rel = offset - PLIC_ENABLE_BASE;
-            let ctx = (rel / ENABLE_STRIDE) as usize;
-            let word_idx = ((rel % ENABLE_STRIDE) / 4) as usize;
-            if ctx < self.context_count() && word_idx < ENABLE_WORDS_PER_CONTEXT {
-                self.enables[ctx][word_idx] = val;
-            }
-        } else if offset >= PLIC_CONTEXT_BASE {
-            let ctx = ((offset - PLIC_CONTEXT_BASE) / CONTEXT_STRIDE) as usize;
-            let reg = offset & 0xFFF;
-            if ctx < self.context_count() {
-                if reg == 0 {
-                    self.thresholds[ctx] = val;
-                }
-                if reg == 4 {
-                    self.clear_pending(val);
-                    self.complete(val);
-                    self.claims[ctx] = 0;
-                }
-            }
+            Some(PlicReg::Pending(_)) | None => {}
         }
     }
 }
