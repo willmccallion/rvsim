@@ -12,6 +12,7 @@ use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
+use crate::soc::traits::RestoreError;
 use std::collections::HashMap;
 
 /// Interrupt lines presented to one hart, sampled by [`Bus::tick`] each cycle.
@@ -229,14 +230,13 @@ impl Bus {
         serde_json::Value::Object(states)
     }
 
-    /// Restores the devices named in `states`, as [`Bus::checkpoint_devices`]
-    /// produced them.
-    /// Checks that every device would take its state from `states`.
+    /// Checks that every device would take its state from `states`, as
+    /// [`Bus::checkpoint_devices`] produced them.
     ///
     /// # Errors
     ///
-    /// Describes the first device that would not.
-    pub fn check_device_states(&self, states: &serde_json::Value) -> Result<(), String> {
+    /// Why the first device that would not cannot.
+    pub fn check_device_states(&self, states: &serde_json::Value) -> Result<(), RestoreError> {
         for device in &self.devices {
             if let Some(state) = states.get(device.name()) {
                 device.check_restore(state)?;
@@ -249,8 +249,8 @@ impl Bus {
     ///
     /// # Errors
     ///
-    /// Describes the first device that cannot take its state.
-    pub fn restore_devices(&mut self, states: &serde_json::Value) -> Result<(), String> {
+    /// Why the first device that cannot take its state cannot.
+    pub fn restore_devices(&mut self, states: &serde_json::Value) -> Result<(), RestoreError> {
         for device in &mut self.devices {
             if let Some(state) = states.get(device.name()) {
                 device.restore(state)?;

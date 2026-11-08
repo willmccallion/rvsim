@@ -20,6 +20,7 @@ use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
+use crate::soc::traits::{RestoreError, parse_state};
 
 /// Base offset for PLIC priority registers (one per interrupt source).
 const PLIC_PRIORITY_BASE: u64 = 0x000000;
@@ -389,9 +390,8 @@ impl Device for Plic {
         serde_json::to_value(self.state()).ok()
     }
 
-    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
-        let state = serde_json::from_value::<PlicState>(state.clone())
-            .map_err(|error| format!("PLIC state: {error}"))?;
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
+        let state: PlicState = parse_state("PLIC", state)?;
         self.set_state(&state);
         Ok(())
     }

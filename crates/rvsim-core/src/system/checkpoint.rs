@@ -23,6 +23,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 use crate::sim::memory::Ram;
+pub use crate::soc::traits::RestoreError;
 use crate::system::process::{Processes, ProcessesState};
 use crate::system::simulator::Simulator;
 
@@ -57,7 +58,7 @@ pub enum CheckpointError {
     /// A device cannot take its state, such as a disk whose image differs
     /// from the one the checkpoint was taken on.
     #[error("checkpoint device: {0}")]
-    Device(String),
+    Device(#[from] RestoreError),
     /// The system being restored into differs in a way the state cannot
     /// carry over.
     #[error("checkpoint has {what} {saved}, this system has {current}")]

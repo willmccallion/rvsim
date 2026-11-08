@@ -28,6 +28,7 @@ use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Pa
 use crate::soc::devices::Device;
 use crate::soc::exit::ExitSignal;
 use crate::soc::terminal::SharedTerminal;
+use crate::soc::traits::{RestoreError, parse_state};
 use crate::system::process::errno::Errno;
 use crate::system::process::file_calls::{self, FileCalls, GuestMemory, PhysicalMemory};
 use crate::system::process::files::{AT_FDCWD, Fd, FileTable, PATH_MAX};
@@ -283,12 +284,6 @@ struct HtifState {
     host_files_open: usize,
 }
 
-impl HtifState {
-    fn parse(state: &serde_json::Value) -> Result<Self, String> {
-        serde_json::from_value(state.clone()).map_err(|error| format!("HTIF state: {error}"))
-    }
-}
-
 impl Device for Htif {
     fn name(&self) -> &'static str {
         "HTIF"
@@ -300,20 +295,17 @@ impl Device for Htif {
         serde_json::to_value(state).ok()
     }
 
-    fn check_restore(&self, state: &serde_json::Value) -> Result<(), String> {
-        let state = HtifState::parse(state)?;
+    fn check_restore(&self, state: &serde_json::Value) -> Result<(), RestoreError> {
+        let state: HtifState = parse_state("HTIF", state)?;
         if state.host_files_open > 0 {
-            return Err(format!(
-                "HTIF: the program had {} host files open at the checkpoint, which a restored run cannot get back",
-                state.host_files_open
-            ));
+            return Err(RestoreError::HostFilesOpen { count: state.host_files_open });
         }
         Ok(())
     }
 
-    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
         self.check_restore(state)?;
-        self.fromhost = HtifState::parse(state)?.fromhost;
+        self.fromhost = parse_state::<HtifState>("HTIF", state)?.fromhost;
         Ok(())
     }
 

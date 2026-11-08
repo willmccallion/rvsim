@@ -9,6 +9,50 @@ use crate::common::IrqId;
 use crate::sim::handle::Handle;
 use crate::sim::memory::GlobalMemory;
 use crate::soc::devices::{Clint, Plic, Uart};
+use serde::de::DeserializeOwned;
+
+/// Why a device cannot take the state a checkpoint holds for it.
+#[derive(Debug, thiserror::Error)]
+pub enum RestoreError {
+    /// The state is not in the device's checkpoint format.
+    #[error("{device} state: {source}")]
+    Malformed {
+        /// The device.
+        device: &'static str,
+        /// What the state lacked or got wrong.
+        source: serde_json::Error,
+    },
+    /// HTIF's program had host files open, which a restored run cannot
+    /// get back.
+    #[error(
+        "HTIF: the program had {count} host files open at the checkpoint, which a restored run cannot get back"
+    )]
+    HostFilesOpen {
+        /// How many.
+        count: usize,
+    },
+    /// The disk image is not the one the checkpoint was taken on.
+    #[error("the disk image differs from the one the checkpoint was taken on")]
+    DiskImageDiffers,
+    /// A written sector's contents are not hex.
+    #[error("a written sector is not hex")]
+    WrittenSectorNotHex,
+    /// A written sector lies past the end of the disk.
+    #[error("a written sector lies past the end of the disk")]
+    WrittenSectorPastDisk,
+}
+
+/// `state` as `device`'s checkpoint type.
+///
+/// # Errors
+///
+/// [`RestoreError::Malformed`] when it is not in that format.
+pub fn parse_state<T: DeserializeOwned>(
+    device: &'static str,
+    state: &serde_json::Value,
+) -> Result<T, RestoreError> {
+    T::deserialize(state).map_err(|source| RestoreError::Malformed { device, source })
+}
 
 /// Trait for memory-mapped I/O devices attached to the system bus.
 ///
@@ -75,8 +119,8 @@ pub trait Device: Handle + Send + Sync {
     ///
     /// # Errors
     ///
-    /// Describes why the state cannot be restored into this device.
-    fn check_restore(&self, _state: &serde_json::Value) -> Result<(), String> {
+    /// Why the state cannot be restored into this device.
+    fn check_restore(&self, _state: &serde_json::Value) -> Result<(), RestoreError> {
         Ok(())
     }
 
@@ -84,8 +128,8 @@ pub trait Device: Handle + Send + Sync {
     ///
     /// # Errors
     ///
-    /// Describes why the state cannot be restored into this device.
-    fn restore(&mut self, _state: &serde_json::Value) -> Result<(), String> {
+    /// Why the state cannot be restored into this device.
+    fn restore(&mut self, _state: &serde_json::Value) -> Result<(), RestoreError> {
         Ok(())
     }
 }
