@@ -33,7 +33,7 @@ use self::policies::{
 };
 use self::stats::CacheStatPaths;
 use self::writeback_buffer::WritebackBuffer;
-use crate::common::{CoreId, LineAddr, PhysAddr, VirtAddr};
+use crate::common::{CoreId, LineAddr, PhysAddr, SimError, VirtAddr};
 use crate::config::{CacheConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind};
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
@@ -47,13 +47,41 @@ use crate::soc::cache::prefetch::{
 };
 
 /// One tag-array entry.
+/// Which of a cache's upstreams, by their place in its `upstream` list,
+/// hold a line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct UpperMask(u8);
+
+impl UpperMask {
+    /// How many upstreams a mask tracks.
+    const CAPACITY: usize = u8::BITS as usize;
+
+    /// Just the upstream at `position`, which `add_upstream` keeps below
+    /// [`Self::CAPACITY`].
+    const fn of(position: usize) -> Self {
+        Self(1 << position)
+    }
+
+    const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    const fn without(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+
+    const fn holds(self, position: usize) -> bool {
+        self.0 & Self::of(position).0 != 0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct CacheLine {
     tag: u64,
     state: MesiState,
-    /// Bit `i` set: `upstream[i]` was given this line and has not told us
-    /// it dropped it. Probes and back-invalidations go only to those.
-    upper: u8,
+    /// The caches above that were given this line and have not said they
+    /// dropped it. Probes and back-invalidations go only to those.
+    upper: UpperMask,
     /// Installed by one of our prefetches and not yet requested from above.
     prefetched: bool,
 }
@@ -326,8 +354,17 @@ impl Cache {
     }
 
     /// Adds a cache above this one.
-    pub fn add_upstream(&mut self, upstream: ComponentId) {
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::TooManyUpstreams`] when this cache already has as many
+    /// as a line's [`UpperMask`] tracks.
+    pub fn add_upstream(&mut self, upstream: ComponentId) -> Result<(), SimError> {
+        if self.upstream.len() >= UpperMask::CAPACITY {
+            return Err(SimError::TooManyUpstreams { cache: self.id });
+        }
         self.upstream.push(upstream);
+        Ok(())
     }
 
     /// Sets how this cache treats the caches above it: `Inclusive` back-
@@ -435,8 +472,12 @@ impl Cache {
     #[cfg(test)]
     pub fn plant_line(&mut self, way: usize, addr: u64, state: MesiState) {
         let index = self.slot(self.set_index(addr), way);
-        self.lines[index] =
-            CacheLine { tag: self.tag_of(addr), state, upper: 0, prefetched: false };
+        self.lines[index] = CacheLine {
+            tag: self.tag_of(addr),
+            state,
+            upper: UpperMask::default(),
+            prefetched: false,
+        };
     }
 
     /// Adds `mshr` without the allocation checks, so audit tests can plant

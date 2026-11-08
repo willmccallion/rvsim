@@ -295,12 +295,12 @@ impl SystemState {
             .cores
             .iter()
             .map(|c| CoreUnits::new(c.core_id, config, c.l1i.val(), topology.llc))
-            .collect();
+            .collect::<Result<_, _>>()?;
         let coherence = if units.len() > 1 {
-            Some(Self::attach_coherence_fabric(config, &mut units, &mut l3_cache))
+            Some(Self::attach_coherence_fabric(config, &mut units, &mut l3_cache)?)
         } else {
             for core in &units {
-                l3_cache.add_upstream(ComponentId::Cache(core.l2_cache.id));
+                l3_cache.add_upstream(ComponentId::Cache(core.l2_cache.id))?;
             }
             None
         };
@@ -356,7 +356,7 @@ impl SystemState {
         config: &Config,
         cores: &mut [CoreUnits],
         llc: &mut Cache,
-    ) -> CoherenceFabric {
+    ) -> Result<CoherenceFabric, SimError> {
         let agents: Vec<ComponentId> =
             cores.iter().map(|core| ComponentId::Cache(core.l2_cache.id)).collect();
         let caches_lines =
@@ -368,16 +368,16 @@ impl SystemState {
             }
             core.l2_cache.set_upstream_inclusion(InclusionPolicy::Inclusive);
         }
-        llc.add_upstream(ComponentId::Fabric);
+        llc.add_upstream(ComponentId::Fabric)?;
         llc.set_upstream_inclusion(InclusionPolicy::Nine);
         let line_bytes = llc.line_bytes();
         let private_l2_lines = cores.iter().map(|core| core.l2_cache.line_count()).sum();
-        coherence::build(
+        Ok(coherence::build(
             &config.coherence,
             FabricGeometry { line_bytes, private_l2_lines },
             ComponentId::Cache(llc.id),
             agents,
-        )
+        ))
     }
 }
 

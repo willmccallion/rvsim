@@ -85,6 +85,12 @@ pub enum SimError {
         cycles: u64,
     },
 
+    /// A cache was given more caches above it than a line can track.
+    #[error("cache {cache:?} has more upstream caches than a line tracks")]
+    TooManyUpstreams {
+        /// The cache.
+        cache: crate::sim::components::CacheId,
+    },
     /// With the cache audit on, an event left a cache invariant broken.
     #[error("cache invariant broken at cycle {cycle}: {violation}")]
     CacheInvariant {

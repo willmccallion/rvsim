@@ -18,7 +18,7 @@ pub mod prefetch;
 
 pub mod vector;
 
-use crate::common::{CoreId, VirtAddr};
+use crate::common::{CoreId, SimError, VirtAddr};
 use crate::config::{Config, InclusionPolicy, LoadPrefetcherConfig, StorePrefetcherConfig};
 use crate::isa::extension::Isa;
 use crate::sim::components::{CacheId, ComponentId};
@@ -94,7 +94,16 @@ impl CoreUnits {
     /// caches are wired to forward downstream to the L2; the L2 is wired to
     /// forward downstream to the shared LLC (`l3_id`). The shared LLC adds
     /// this L2 as an upstream consumer separately.
-    pub fn new(core_id: CoreId, config: &Config, cache_id_base: u32, l3_id: CacheId) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::TooManyUpstreams`] if the L2 cannot track its L1s.
+    pub fn new(
+        core_id: CoreId,
+        config: &Config,
+        cache_id_base: u32,
+        l3_id: CacheId,
+    ) -> Result<Self, SimError> {
         let l1i_id = CacheId::new(cache_id_base);
         let l1d_id = CacheId::new(cache_id_base + 1);
         let l2_id = CacheId::new(cache_id_base + 2);
@@ -122,11 +131,11 @@ impl CoreUnits {
         let mut l2_cache =
             Cache::new(l2_id, CacheLevel::L2, &config.cache.l2, &format!("{subject}.l2"));
         l2_cache.set_downstream(ComponentId::Cache(l3_id));
-        l2_cache.add_upstream(ComponentId::Cache(l1i_id));
-        l2_cache.add_upstream(ComponentId::Cache(l1d_id));
+        l2_cache.add_upstream(ComponentId::Cache(l1i_id))?;
+        l2_cache.add_upstream(ComponentId::Cache(l1d_id))?;
         l2_cache.set_upstream_inclusion(inclusion);
 
-        Self {
+        Ok(Self {
             core_id,
             l1_i_cache,
             l1_d_cache,
@@ -149,7 +158,7 @@ impl CoreUnits {
             stop_pcs: Vec::new(),
             watches: Vec::new(),
             watch_hit: None,
-        }
+        })
     }
 }
 

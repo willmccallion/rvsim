@@ -11,7 +11,7 @@ use crate::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, M
 
 use super::Cache;
 use super::writeback_buffer::WritebackCause;
-use super::{BlockedRequest, CacheLine, WaitingFill};
+use super::{BlockedRequest, CacheLine, UpperMask, WaitingFill};
 
 impl Cache {
     pub(super) const fn alloc_req_id(&mut self) -> ReqId {
@@ -507,7 +507,7 @@ impl Cache {
         let state = if dirty { MesiState::Modified } else { MesiState::Exclusive };
         let tag = self.tag_of(addr);
         let slot = self.slot(set_index, way);
-        self.lines[slot] = CacheLine { tag, state, upper: 0, prefetched: false };
+        self.lines[slot] = CacheLine { tag, state, upper: UpperMask::default(), prefetched: false };
         self.policy.insert(set_index, way);
     }
 
@@ -583,7 +583,7 @@ impl Cache {
         let index = self.slot(set_index, way);
         let state = if self.lines[index].dirty() { MesiState::Modified } else { state };
         let kept = self.lines[index].valid().then_some(self.lines[index]);
-        let upper = kept.map_or(0, |line| line.upper);
+        let upper = kept.map(|line| line.upper).unwrap_or_default();
         let prefetched = mshr.is_unrequested_prefetch() || kept.is_some_and(|line| line.prefetched);
         self.lines[index] = CacheLine { tag, state, upper, prefetched };
         self.policy.insert(set_index, way);
