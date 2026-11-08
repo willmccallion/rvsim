@@ -260,7 +260,7 @@ impl CoherenceFabric {
     fn all_cores(&self) -> CoreSet {
         let mut set = CoreSet::EMPTY;
         for index in 0..self.agents.len() {
-            set.insert(CoreId::new(u32::try_from(index).unwrap_or(u32::MAX)));
+            set.insert(CoreId::from_index(index));
         }
         set
     }
@@ -726,7 +726,7 @@ impl CoherenceFabric {
         self.agents
             .iter()
             .position(|a| *a == source)
-            .map(|index| Node::Core(CoreId::new(u32::try_from(index).unwrap_or(u32::MAX))))
+            .map(|index| Node::Core(CoreId::from_index(index)))
     }
 }
 

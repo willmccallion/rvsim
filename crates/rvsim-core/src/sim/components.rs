@@ -4,6 +4,8 @@
 //! Each kind of component has its own ID newtype, so the compiler refuses
 //! to mix, say, a `CacheId` with a `MemCtrlId` even though both wrap `u32`.
 
+use crate::common::ids::{impl_id_from_index, impl_id_index, impl_id_new, impl_id_val};
+
 /// A cache at any level; the topology says which core's, or the LLC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct CacheId(u32);
@@ -48,42 +50,6 @@ pub struct RowId(u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct ReqId(u64);
 
-macro_rules! impl_id_new {
-    ($id:ident, $raw:ty) => {
-        impl $id {
-            /// Creates a new identifier from a raw value.
-            #[inline(always)]
-            pub const fn new(val: $raw) -> Self {
-                Self(val)
-            }
-        }
-    };
-}
-
-macro_rules! impl_id_val {
-    ($id:ident, $raw:ty) => {
-        impl $id {
-            /// Returns the raw value.
-            #[inline(always)]
-            pub const fn val(self) -> $raw {
-                self.0
-            }
-        }
-    };
-}
-
-macro_rules! impl_id_index {
-    ($id:ident) => {
-        impl $id {
-            /// Returns the value as a `usize` for use as a vector index.
-            #[inline(always)]
-            pub const fn as_index(self) -> usize {
-                self.0 as usize
-            }
-        }
-    };
-}
-
 impl ReqId {
     /// A correlator for a request a cache originates itself (a line fetch
     /// or a writeback). The top bit marks the cache namespace so it can
@@ -118,8 +84,8 @@ impl_id_val!(PipelineId, u32);
 impl_id_index!(PipelineId);
 impl_id_new!(MemCtrlId, u32);
 impl_id_val!(MemCtrlId, u32);
-impl_id_new!(DeviceId, u32);
 impl_id_index!(DeviceId);
+impl_id_from_index!(DeviceId, u32);
 impl_id_new!(ReqId, u64);
 impl_id_new!(ChannelId, u8);
 impl_id_val!(ChannelId, u8);
@@ -165,7 +131,7 @@ mod tests {
         assert_eq!(c.val(), 7);
         let p = PipelineId::new(2);
         let m = MemCtrlId::new(0);
-        let d = DeviceId::new(3);
+        let d = DeviceId::from_index(3);
         assert_eq!(p.val(), 2);
         assert_eq!(p.as_index(), 2);
         assert_eq!(m.val(), 0);
