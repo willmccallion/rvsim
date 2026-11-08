@@ -41,6 +41,14 @@ All notable changes to this project are documented here. The format is based on 
   `StatsTree`. The `Fu` unit types are dataclasses, so two units with the
   same count and latency compare equal.
 - `Config.coherence` is always a `Coherence`; it no longer takes `None`.
+- The commit log records memory written from outside the harts (HTIF's
+  syscall results, virtio DMA, the SE host's syscalls) as `core   0: host
+  write 0x<paddr> 0x<bytes>` lines before the next instruction, so a
+  reference model replaying the log sees every value a load reads.
+  `make lockstep` checks the bare-metal builds of the bundled programs
+  again, and they all pass on the smoke configurations; the bare-metal
+  link script gives
+  `.tohost` a page of its own, as riscv-tests do.
 - `load_config()` raises `TypeError` naming the file when its entry point
   gives something other than a `Config`, which used to fail later, inside
   the simulator.
