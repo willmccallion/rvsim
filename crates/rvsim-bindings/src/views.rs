@@ -6,65 +6,30 @@
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError};
 use pyo3::prelude::*;
 use rvsim_core::common::{PhysAddr, VirtAddr};
-use rvsim_core::isa::csr::CsrAddr;
+use rvsim_core::isa::csr::{self, CsrAddr};
 use rvsim_core::isa::reg::RegIdx;
 use rvsim_core::system::simulator::ProbeWidth;
 
 use crate::python_enums;
 use crate::simulator::PySimulator;
 
-/// CSR names accepted by `sim.csrs[...]`, with their addresses.
-const CSR_NAMES: &[(&str, u32)] = &[
-    ("fflags", 0x001),
-    ("frm", 0x002),
-    ("fcsr", 0x003),
-    ("vstart", 0x008),
-    ("vxsat", 0x009),
-    ("vxrm", 0x00A),
-    ("vcsr", 0x00F),
-    ("sstatus", 0x100),
-    ("sie", 0x104),
-    ("stvec", 0x105),
-    ("scounteren", 0x106),
-    ("senvcfg", 0x10A),
-    ("sscratch", 0x140),
-    ("sepc", 0x141),
-    ("scause", 0x142),
-    ("stval", 0x143),
-    ("sip", 0x144),
-    ("stimecmp", 0x14D),
-    ("satp", 0x180),
-    ("mstatus", 0x300),
-    ("misa", 0x301),
-    ("medeleg", 0x302),
-    ("mideleg", 0x303),
-    ("mie", 0x304),
-    ("mtvec", 0x305),
-    ("mcounteren", 0x306),
-    ("menvcfg", 0x30A),
-    ("mcountinhibit", 0x320),
-    ("mscratch", 0x340),
-    ("mepc", 0x341),
-    ("mcause", 0x342),
-    ("mtval", 0x343),
-    ("mip", 0x344),
-    ("mcycle", 0xB00),
-    ("minstret", 0xB02),
-    ("cycle", 0xC00),
-    ("time", 0xC01),
-    ("instret", 0xC02),
-    ("vl", 0xC20),
-    ("vtype", 0xC21),
-    ("vlenb", 0xC22),
-    ("mvendorid", 0xF11),
-    ("marchid", 0xF12),
-    ("mimpid", 0xF13),
-    ("mhartid", 0xF14),
-];
-
-fn csr_name_to_addr(name: &str) -> Option<u32> {
-    CSR_NAMES.iter().find(|(n, _)| *n == name).map(|(_, addr)| *addr)
+/// The CSR `key` names: an address, or a name the privileged spec gives it.
+fn csr_address(key: &Bound<'_, PyAny>) -> PyResult<CsrAddr> {
+    if let Ok(addr) = key.extract::<u64>() {
+        return u16::try_from(addr)
+            .ok()
+            .filter(|&addr| addr <= MAX_CSR_ADDRESS)
+            .map(CsrAddr::new)
+            .ok_or_else(|| PyKeyError::new_err(format!("{addr:#x} is not a 12-bit CSR address")));
+    }
+    let name: String =
+        key.extract().map_err(|_| PyTypeError::new_err("a CSR key is a name or an address"))?;
+    csr::named(&name.to_lowercase())
+        .ok_or_else(|| PyKeyError::new_err(format!("unknown CSR name {name:?}")))
 }
+
+/// The highest CSR address, in 12 bits.
+const MAX_CSR_ADDRESS: u16 = 0xFFF;
 
 /// Subscript register access returned by `sim.regs` and `sim.harts[n].regs`.
 ///
@@ -130,19 +95,10 @@ pub struct Csrs {
 #[pymethods]
 impl Csrs {
     fn __getitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<u64> {
-        let addr = if let Ok(addr) = key.extract::<u32>() {
-            addr
-        } else if let Ok(name) = key.extract::<String>() {
-            csr_name_to_addr(&name.to_lowercase())
-                .ok_or_else(|| PyKeyError::new_err(format!("unknown CSR name {name:?}")))?
-        } else {
-            return Err(PyTypeError::new_err("CSR key must be a str or int"));
-        };
-        self.sim
-            .borrow_mut(py)
-            .inner
-            .read_csr(self.hart, CsrAddr::from_u32(addr))
-            .ok_or_else(|| PyKeyError::new_err(format!("CSR {addr:#x} is not implemented")))
+        let addr = csr_address(key)?;
+        self.sim.borrow_mut(py).inner.read_csr(self.hart, addr).ok_or_else(|| {
+            PyKeyError::new_err(format!("CSR {:#x} is not implemented", addr.as_u32()))
+        })
     }
 
     fn __repr__(&self) -> String {

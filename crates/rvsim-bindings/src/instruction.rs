@@ -35,3 +35,18 @@ impl PyInstruction {
 pub fn disassemble(inst: u32) -> String {
     rvsim_core::disasm::disassemble(inst)
 }
+
+/// Every CSR the simulator implements that has a name, as ``(name,
+/// address)`` pairs.
+#[pyfunction]
+#[must_use]
+pub fn csr_names() -> Vec<(&'static str, u32)> {
+    rvsim_core::isa::csr::NAMED.iter().map(|&(name, addr)| (name, addr.as_u32())).collect()
+}
+
+/// The ABI names of `x0` to `x31`.
+#[pyfunction]
+#[must_use]
+pub fn register_names() -> Vec<&'static str> {
+    rvsim_core::isa::reg::RegIdx::all().map(rvsim_core::isa::reg::RegIdx::int_abi_name).collect()
+}

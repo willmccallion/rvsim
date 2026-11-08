@@ -10,7 +10,7 @@ import struct
 import sys
 from enum import Enum
 
-from ._core import disassemble
+from ._core import csr_names, disassemble, register_names
 
 __all__ = ["Disassemble", "Privilege", "csr", "reg"]
 
@@ -107,42 +107,7 @@ class Disassemble:
         return self
 
 
-# ── Register name ↔ index helpers ────────────────────────────────────────────
-
-_REG_NAMES: list[str] = [
-    "zero",
-    "ra",
-    "sp",
-    "gp",
-    "tp",
-    "t0",
-    "t1",
-    "t2",
-    "s0",
-    "s1",
-    "a0",
-    "a1",
-    "a2",
-    "a3",
-    "a4",
-    "a5",
-    "a6",
-    "a7",
-    "s2",
-    "s3",
-    "s4",
-    "s5",
-    "s6",
-    "s7",
-    "s8",
-    "s9",
-    "s10",
-    "s11",
-    "t3",
-    "t4",
-    "t5",
-    "t6",
-]
+_REG_NAMES: list[str] = register_names()
 
 _REG_BY_NAME: dict[str, int] = {name: idx for idx, name in enumerate(_REG_NAMES)}
 _REG_BY_NAME["fp"] = 8
@@ -151,7 +116,8 @@ for _i in range(32):
 
 
 class _RegLookup:
-    """Callable register lookup with attribute constants.
+    """Callable register lookup, with each register as an upper-case
+    attribute.
 
     Usage::
 
@@ -161,39 +127,11 @@ class _RegLookup:
         reg("x5")    # 5
     """
 
-    ZERO = 0
-    RA = 1
-    SP = 2
-    GP = 3
-    TP = 4
-    T0 = 5
-    T1 = 6
-    T2 = 7
-    S0 = 8
-    FP = 8
-    S1 = 9
-    A0 = 10
-    A1 = 11
-    A2 = 12
-    A3 = 13
-    A4 = 14
-    A5 = 15
-    A6 = 16
-    A7 = 17
-    S2 = 18
-    S3 = 19
-    S4 = 20
-    S5 = 21
-    S6 = 22
-    S7 = 23
-    S8 = 24
-    S9 = 25
-    S10 = 26
-    S11 = 27
-    T3 = 28
-    T4 = 29
-    T5 = 30
-    T6 = 31
+    def __getattr__(self, name: str) -> int:
+        try:
+            return _REG_BY_NAME[name.lower()]
+        except KeyError:
+            raise AttributeError(f"no register named {name!r}") from None
 
     def __call__(self, name) -> int:
         if isinstance(name, int):
@@ -211,47 +149,13 @@ class _RegLookup:
 reg = _RegLookup()
 
 
-# ── CSR name ↔ address helpers ───────────────────────────────────────────────
-
-_CSR_BY_NAME: dict[str, int] = {
-    # Supervisor
-    "sstatus": 0x100,
-    "sie": 0x104,
-    "stvec": 0x105,
-    "sscratch": 0x140,
-    "sepc": 0x141,
-    "scause": 0x142,
-    "stval": 0x143,
-    "sip": 0x144,
-    "satp": 0x180,
-    # Machine
-    "mstatus": 0x300,
-    "misa": 0x301,
-    "medeleg": 0x302,
-    "mideleg": 0x303,
-    "mie": 0x304,
-    "mtvec": 0x305,
-    "mscratch": 0x340,
-    "mepc": 0x341,
-    "mcause": 0x342,
-    "mtval": 0x343,
-    "mip": 0x344,
-    # Counters
-    "cycle": 0xC00,
-    "time": 0xC01,
-    "instret": 0xC02,
-    "mcycle": 0xB00,
-    "minstret": 0xB02,
-    "mcountinhibit": 0x320,
-    # Stimecmp (Sstc extension)
-    "stimecmp": 0x14D,
-}
-
+_CSR_BY_NAME: dict[str, int] = dict(csr_names())
 _CSR_BY_ADDR: dict[int, str] = {addr: name for name, addr in _CSR_BY_NAME.items()}
 
 
 class _CsrLookup:
-    """Callable CSR lookup with attribute constants.
+    """Callable CSR lookup, with each CSR the simulator implements as an
+    upper-case attribute.
 
     Usage::
 
@@ -260,36 +164,11 @@ class _CsrLookup:
         csr("mstatus") # 0x300
     """
 
-    # Supervisor
-    SSTATUS = 0x100
-    SIE = 0x104
-    STVEC = 0x105
-    SSCRATCH = 0x140
-    SEPC = 0x141
-    SCAUSE = 0x142
-    STVAL = 0x143
-    SIP = 0x144
-    SATP = 0x180
-    # Machine
-    MSTATUS = 0x300
-    MISA = 0x301
-    MEDELEG = 0x302
-    MIDELEG = 0x303
-    MIE = 0x304
-    MTVEC = 0x305
-    MSCRATCH = 0x340
-    MEPC = 0x341
-    MCAUSE = 0x342
-    MTVAL = 0x343
-    MIP = 0x344
-    # Counters
-    CYCLE = 0xC00
-    TIME = 0xC01
-    INSTRET = 0xC02
-    MCYCLE = 0xB00
-    MINSTRET = 0xB02
-    # Sstc
-    STIMECMP = 0x14D
+    def __getattr__(self, name: str) -> int:
+        try:
+            return _CSR_BY_NAME[name.lower()]
+        except KeyError:
+            raise AttributeError(f"no CSR named {name!r}") from None
 
     def __call__(self, name) -> int:
         if isinstance(name, int):
