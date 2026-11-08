@@ -111,7 +111,7 @@ pub fn read_file(state: &mut CoreCtx<'_>) -> Result<u64, Errno> {
 ///
 /// `EFAULT` when the buffer or name is not mapped, or why the host file
 /// could not be written.
-pub fn write_file(state: &mut CoreCtx<'_>) -> Result<u64, Errno> {
+pub fn write_file(state: &CoreCtx<'_>) -> Result<u64, Errno> {
     let [buffer, len, offset, name] =
         [REG_A0, REG_A1, REG_A2, REG_A3].map(|reg| state.hart.regs.read(reg));
     let result = state
