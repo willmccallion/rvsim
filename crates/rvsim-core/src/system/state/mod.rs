@@ -10,7 +10,7 @@ use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
-use crate::common::{HartId, NANOS_PER_SECOND, SimError, VirtAddr};
+use crate::common::{HartId, NANOS_PER_SECOND, SimError};
 use crate::config::{Config, InclusionPolicy, MemoryControllerKind, ValidConfig};
 use crate::isa::csr::MSTATUS_DEFAULT_RV64;
 use crate::isa::privileged::PrivilegeMode;
@@ -145,7 +145,7 @@ fn build_harts(config: &Config, hart_count: usize) -> Vec<Hart> {
             Hart::new(HartInit {
                 hart_id: HartId::from_index(index),
                 regs: RegisterFile::new(config.pipeline.vlen),
-                pc: VirtAddr::new(config.general.start_pc),
+                pc: config.general.start_pc,
                 csrs: csrs.clone(),
                 privilege: PrivilegeMode::Machine,
                 pmp: Pmp::new(),
@@ -315,7 +315,7 @@ impl SystemState {
             .zip(units)
             .map(|(c, units)| Core {
                 units,
-                pipeline: PipelineDispatch::new(config, c, VirtAddr::new(config.general.start_pc)),
+                pipeline: PipelineDispatch::new(config, c, config.general.start_pc),
             })
             .collect();
 
