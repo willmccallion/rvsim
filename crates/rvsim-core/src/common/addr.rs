@@ -43,7 +43,7 @@ impl Asid {
     /// `rs2` does.
     #[inline(always)]
     #[must_use]
-    #[allow(clippy::cast_possible_truncation, reason = "bits above the ASID are ignored")]
+    #[expect(clippy::cast_possible_truncation, reason = "bits above the ASID are ignored")]
     pub const fn from_register(val: u64) -> Self {
         Self(val as u16)
     }

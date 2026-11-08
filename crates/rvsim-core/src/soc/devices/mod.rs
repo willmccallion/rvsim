@@ -4,6 +4,11 @@
 //! found in the system-on-chip, such as timers (CLINT), interrupt controllers (PLIC),
 //! serial ports (UART), and block devices (virtio).
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "device registers are 8-, 16- and 32-bit windows onto wider values"
+)]
+
 pub mod clint;
 
 pub mod goldfish_rtc;

@@ -1,6 +1,11 @@
 //! Disassembly: an instruction word as assembly text, from what decode
 //! makes of it, so an encoding prints exactly when the simulator runs it.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "disassembly slices fields and immediates out of an instruction word"
+)]
+
 mod scalar;
 mod vector;
 

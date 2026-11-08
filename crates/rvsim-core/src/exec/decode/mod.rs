@@ -1,6 +1,11 @@
 //! Instruction decoding: an instruction word to the control signals that
 //! say what it does.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "decode slices fields and immediates out of a 32-bit instruction word"
+)]
+
 pub mod requirement;
 mod scalar;
 mod vector;

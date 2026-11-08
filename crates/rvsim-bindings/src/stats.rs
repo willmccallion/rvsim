@@ -5,6 +5,8 @@
 //! subject aggregation, and the auto-summary all live on one class — no
 //! separate dict interface.
 
+#![expect(clippy::cast_precision_loss, reason = "stats report counts as f64, exact below 2^53")]
+
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyList};
 use rvsim_core::stats::Stats;

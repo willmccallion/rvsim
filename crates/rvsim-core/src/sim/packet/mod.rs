@@ -45,7 +45,7 @@ pub enum AccessSize {
 impl AccessSize {
     /// A vector access's `bytes` (at most a 64-byte line) within one line.
     #[must_use]
-    #[allow(clippy::cast_possible_truncation, reason = "a span is at most a line")]
+    #[expect(clippy::cast_possible_truncation, reason = "a span is at most a line")]
     pub const fn span(bytes: usize) -> Self {
         Self::Span(bytes as u8)
     }
@@ -65,6 +65,7 @@ impl AccessSize {
 
     /// The size of an access of `bytes` (at most 8) bytes.
     #[must_use]
+    #[expect(clippy::cast_possible_truncation, reason = "an access is at most 8 bytes")]
     pub const fn of_bytes(bytes: usize) -> Self {
         match bytes {
             1 => Self::B1,

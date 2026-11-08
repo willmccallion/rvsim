@@ -43,6 +43,7 @@ impl PerceptronPredictor {
     pub fn new(config: &PerceptronConfig) -> Self {
         let table_entries = 1 << config.table_bits;
         let hist_len = config.history_length;
+        #[expect(clippy::cast_precision_loss, reason = "a history length is far below 2^53")]
         let threshold = THETA_COEFF.mul_add(hist_len as f64, THETA_BIAS) as i32;
         let row_size = hist_len + 1;
 

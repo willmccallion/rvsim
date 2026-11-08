@@ -3,6 +3,12 @@
 //! This module contains the interface and implementations for various
 //! hardware prefetchers used to hide memory latency.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    reason = "prefetch candidates step over addresses by signed strides"
+)]
+
 pub mod next_line;
 
 pub mod store_stream;

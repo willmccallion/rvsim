@@ -962,6 +962,7 @@ fn emit_load_req<E: ExecutionEngine>(
     }
 
     let side_effecting = matches!(target, ComponentId::Bus) || ex.op.ctrl.performs_at_rob_head();
+    #[expect(clippy::cast_possible_truncation, reason = "a split access is at most 8 bytes")]
     let parts = low_bytes.map_or(LoadParts::Whole(None), |low| LoadParts::Split {
         low_bytes: low as u8,
         low: None,

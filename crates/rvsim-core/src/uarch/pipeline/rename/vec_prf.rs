@@ -47,6 +47,7 @@ impl VecRegGroup {
 
     /// The group of `regs`, at most [`MAX_GROUP_REGS`] of them.
     #[must_use]
+    #[expect(clippy::cast_possible_truncation, reason = "the copy bounds it by MAX_GROUP_REGS")]
     pub fn from_slice(regs: &[VecPhysReg]) -> Self {
         let mut group = Self::EMPTY;
         group.regs[..regs.len()].copy_from_slice(regs);

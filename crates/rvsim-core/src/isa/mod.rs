@@ -3,6 +3,11 @@
 //! Encodings, instruction fields, and the vocabulary the rest of the
 //! simulator speaks. Nothing here holds state.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "instruction fields, immediates and CSR values are bit slices of fixed-width words"
+)]
+
 pub mod bits;
 
 pub mod config;

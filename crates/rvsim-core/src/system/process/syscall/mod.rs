@@ -4,6 +4,12 @@
 //! about threads and processes are in [`thread`]; the rest work on the
 //! calling thread's process.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the syscall ABI passes C ints in 64-bit registers and returns time in 64-bit fields"
+)]
+
 mod thread;
 
 use thread::ThreadCall;

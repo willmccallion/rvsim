@@ -91,13 +91,6 @@ unreadable_literal = "allow"      # RV64 masks like 0xFFFF_FFFF_0000_0000
 many_single_char_names = "allow"  # PTE fields: r, w, x, u, d are RISC-V spec names
 inline_always = "allow"           # Hot-path annotations are intentional
 
-# Cast allows: RISC-V arithmetic requires intentional truncation and sign
-# manipulation for W-variant (32-bit) instructions and register-width semantics.
-# These are not bugs — they implement the RISC-V spec (§2.4, §7.1, §7.2).
-cast_precision_loss = "allow"
-cast_possible_truncation = "allow"
-cast_sign_loss = "allow"
-cast_possible_wrap = "allow"
 bool_to_int_with_if = "allow"     # (cond) as u64 is idiomatic for flag extraction
 
 # Execute stages and decode functions are necessarily large in a full ISA impl.
