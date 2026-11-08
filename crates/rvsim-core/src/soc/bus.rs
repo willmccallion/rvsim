@@ -329,9 +329,9 @@ impl Bus {
         device_as_mut::<Uart>(&mut self.devices, self.uart_idx)
     }
 
-    /// Returns whether the UART device has detected a kernel panic pattern.
-    pub fn check_kernel_panic(&mut self) -> bool {
-        self.uart_mut().is_some_and(Uart::check_kernel_panic)
+    /// Whether the UART has printed the kernel's panic message.
+    pub fn check_kernel_panic(&self) -> bool {
+        device_as::<Uart>(&self.devices, self.uart_idx).is_some_and(Uart::check_kernel_panic)
     }
 
     fn find_device_idx(&self, paddr: PhysAddr) -> Option<usize> {
