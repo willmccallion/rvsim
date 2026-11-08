@@ -1,7 +1,7 @@
 //! `vfrsqrt7` and `vfrec7`: the 7-bit reciprocal square-root and reciprocal
 //! estimates, from the spec's lookup tables.
 
-use crate::exec::compute::fpu::half::CANONICAL_NAN_F16;
+use crate::exec::compute::fpu::half::{CANONICAL_NAN_F16, F16_INFINITY, F16_MAX_FINITE, F16_SIGN};
 use crate::exec::compute::fpu::nan_handling::{
     F32_NAN_BOX_MASK, box_f32_canon, canonicalize_f64_bits,
 };
@@ -162,7 +162,7 @@ pub(super) fn vfrsqrt7_16(bits: u16) -> (u16, FpFlags) {
         return (0, FpFlags::NONE);
     }
     if exp == 0 && sig == 0 {
-        let r: u16 = if sign != 0 { 0xFC00 } else { 0x7C00 };
+        let r: u16 = if sign != 0 { F16_SIGN | F16_INFINITY } else { F16_INFINITY };
         return (r, FpFlags::DZ);
     }
     if sign != 0 {
@@ -213,7 +213,7 @@ pub(super) fn vfrec7_16(bits: u16, frm: RoundingMode) -> (u16, FpFlags) {
         return ((sign << 15) as u16, FpFlags::NONE);
     }
     if exp == 0 && sig == 0 {
-        return (((sign << 15) | 0x7C00) as u16, FpFlags::DZ);
+        return (((sign << 15) | u32::from(F16_INFINITY)) as u16, FpFlags::DZ);
     }
 
     let sub = exp == 0;
@@ -237,8 +237,8 @@ pub(super) fn vfrec7_16(bits: u16, frm: RoundingMode) -> (u16, FpFlags) {
                 RoundingMode::Rup => sign != 0,
                 _ => true,
             };
-            let abs_max = if saturate_to_max_normal { 0x7BFF } else { 0x7C00 };
-            return (((sign << 15) | abs_max) as u16, FpFlags::OF | FpFlags::NX);
+            let abs_max = if saturate_to_max_normal { F16_MAX_FINITE } else { F16_INFINITY };
+            return (((sign << 15) | u32::from(abs_max)) as u16, FpFlags::OF | FpFlags::NX);
         }
     }
 
