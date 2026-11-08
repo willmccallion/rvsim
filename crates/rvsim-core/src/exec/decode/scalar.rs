@@ -27,9 +27,6 @@ use crate::isa::op::{
 };
 use crate::isa::privileged::Trap;
 
-/// JALR's only defined funct3.
-const JALR_FUNCT3: u32 = 0b000;
-
 /// funct6 (bits 31:26) of the 64-bit shift-immediate encodings, whose low
 /// six immediate bits are the shift amount.
 const SLLI_SRLI_FUNCT6: u32 = i_funct7::DEFAULT >> 1;
@@ -86,7 +83,7 @@ pub(super) fn decode(
             c.reg_write = true;
             c.control_flow = ControlFlow::Jump(JumpKind::Jal);
         }
-        i_opcodes::OP_JALR if d.funct3 == JALR_FUNCT3 => {
+        i_opcodes::OP_JALR if d.funct3 == i_funct3::JALR => {
             c.reg_write = true;
             c.control_flow = ControlFlow::Jump(JumpKind::Jalr);
         }
