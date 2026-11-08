@@ -32,6 +32,7 @@ import os
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
@@ -79,14 +80,14 @@ def fmt_counts(d):
     return " ".join(f"{k}={v}" for k, v in sorted(d.items()))
 
 
-def main():
+def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--vlen", type=int, default=128)
     ap.add_argument(
         "--pipelines",
         default=None,
         help="Comma-separated PIPELINES labels to test (default: all). "
-        "Forwarded to the riscv-tests and vector runners.",
+        "Forwarded to the riscv-tests, vector and lockstep runners.",
     )
     ap.add_argument(
         "--skip",
@@ -100,85 +101,75 @@ def main():
         action="store_true",
         help="Run each suite's smoke subset",
     )
-    args = ap.parse_args()
+    return ap.parse_args()
 
-    suites = []
 
-    if "riscv-tests" not in args.skip:
-        out = os.path.join(RESULTS_DIR, "riscv-tests.json")
-        cmd = [
-            PYTHON,
-            os.path.join(ROOT, "tests/conformance/riscv_tests.py"),
-            "--out",
-            out,
-        ]
-        if args.pipelines:
-            cmd += ["--pipelines", args.pipelines]
-        if args.smoke:
-            cmd += ["--smoke"]
-        suites.append(("riscv-tests multi-config", cmd, out))
+@dataclass
+class Suite:
+    """A conformance runner, the arguments it is given and where it writes."""
 
-    if "vector" not in args.skip:
-        out = os.path.join(RESULTS_DIR, "vector-multi.json")
-        cmd = [
-            PYTHON,
-            os.path.join(ROOT, "tests/conformance/vector_tests.py"),
-            "--vlen",
-            str(args.vlen),
-            "--out",
-            out,
-        ]
-        if args.pipelines:
-            cmd += ["--pipelines", args.pipelines]
-        if args.smoke:
-            cmd += ["--smoke", "--build-dir", VECTOR_SMOKE_BUILD]
-        suites.append((f"vector multi-config (vlen={args.vlen})", cmd, out))
+    key: str
+    name: str
+    script: str
+    args: list[str]
+    out: str
+    takes_pipelines: bool
 
-    if "multicore" not in args.skip:
-        out = os.path.join(RESULTS_DIR, "multicore.json")
-        cmd = [
-            PYTHON,
-            os.path.join(ROOT, "tests/conformance/multicore_tests.py"),
-            "--out",
-            out,
-        ]
-        if args.smoke:
-            cmd += ["--smoke"]
-        suites.append(("multicore", cmd, out))
+    def command(self, pipelines):
+        cmd = [PYTHON, os.path.join(ROOT, "tests", "conformance", self.script)]
+        cmd += ["--out", self.out, *self.args]
+        if pipelines and self.takes_pipelines:
+            cmd += ["--pipelines", pipelines]
+        return cmd
 
-    if "lockstep" not in args.skip and not args.smoke:
-        out = os.path.join(RESULTS_DIR, "lockstep.json")
-        cmd = [
-            PYTHON,
-            os.path.join(ROOT, "tests/conformance/lockstep.py"),
-            "--out",
-            out,
-        ]
-        if args.pipelines:
-            cmd += ["--pipelines", args.pipelines]
-        suites.append(("lockstep against spike", cmd, out))
 
-    if not suites:
-        sys.exit("nothing to run (everything was skipped)")
+def suites_for(args):
+    """The suites `args` asks for, in the order they run. Lockstep has no
+    smoke subset, so a smoke run leaves it out."""
+    smoke = ["--smoke"] if args.smoke else []
+    vector_smoke = ["--smoke", "--build-dir", VECTOR_SMOKE_BUILD] if args.smoke else []
+    suites = [
+        Suite(
+            "riscv-tests",
+            "riscv-tests multi-config",
+            "riscv_tests.py",
+            smoke,
+            os.path.join(RESULTS_DIR, "riscv-tests.json"),
+            takes_pipelines=True,
+        ),
+        Suite(
+            "vector",
+            f"vector multi-config (vlen={args.vlen})",
+            "vector_tests.py",
+            ["--vlen", str(args.vlen), *vector_smoke],
+            os.path.join(RESULTS_DIR, "vector-multi.json"),
+            takes_pipelines=True,
+        ),
+        Suite(
+            "multicore",
+            "multicore",
+            "multicore_tests.py",
+            smoke,
+            os.path.join(RESULTS_DIR, "multicore.json"),
+            takes_pipelines=False,
+        ),
+        Suite(
+            "lockstep",
+            "lockstep against spike",
+            "lockstep.py",
+            [],
+            os.path.join(RESULTS_DIR, "lockstep.json"),
+            takes_pipelines=True,
+        ),
+    ]
+    return [
+        suite
+        for suite in suites
+        if suite.key not in args.skip and not (args.smoke and suite.key == "lockstep")
+    ]
 
-    print()
-    print("rvsim — full regression sweep")
-    print(f"  suites: {[s[0] for s in suites]}")
-    print(f"  results: {RESULTS_DIR}")
 
-    overall_rc = 0
-    suite_results = []
-    t_overall = time.time()
-    for name, cmd, out in suites:
-        rc, elapsed = run_suite(name, cmd)
-        if rc != 0:
-            overall_rc = rc
-        summary = load_summary(out) if out else None
-        suite_results.append((name, rc, elapsed, summary))
-
-    total = time.time() - t_overall
-
-    # ── Final unified summary ────────────────────────────────────────────────
+def print_summary(suite_results, total, overall_rc):
     print()
     print("=" * 78)
     print("  UNIFIED SUMMARY")
@@ -193,11 +184,11 @@ def main():
     print(f"  total: {fmt_seconds(total)}, overall rc={overall_rc}")
     print("=" * 78)
 
-    # ── Failure breakdown ────────────────────────────────────────────────────
-    # The point of running every test on every pipeline config is to learn
-    # which failures are config-invariant (real bugs in correctness logic) vs.
-    # config-specific (a particular pipeline knob trips a corner case). Group
-    # failures by test name and show the pipeline count.
+
+def print_failure_breakdown(suite_results):
+    """Each suite's failing tests with how many configs each fails on: a
+    test failing on every config is a correctness bug, one failing on some
+    a particular knob tripping a corner case."""
     any_failures = False
     for name, _rc, _elapsed, summary in suite_results:
         if not summary or "results" not in summary:
@@ -208,11 +199,9 @@ def main():
         any_failures = True
         print()
         print(f"  {name} — {len(bad)} non-pass results")
-        # Group by test name → set of pipelines
         by_test = {}
         for r in bad:
-            key = r.get("test", r.get("name", "?"))
-            by_test.setdefault(key, []).append(r.get("pipeline", "?"))
+            by_test.setdefault(r["test"], []).append(r.get("pipeline", "?"))
         total_pipelines = len(summary.get("pipelines") or [None])
         for test in sorted(by_test):
             pipes = by_test[test]
@@ -230,6 +219,28 @@ def main():
             "missing extension)"
         )
         print("  → 'N/M configs' = config-specific (a particular knob trips it)")
+
+
+def main():
+    args = parse_args()
+    suites = suites_for(args)
+    if not suites:
+        sys.exit("nothing to run (everything was skipped)")
+    print()
+    print("rvsim — full regression sweep")
+    print(f"  suites: {[suite.name for suite in suites]}")
+    print(f"  results: {RESULTS_DIR}")
+
+    overall_rc = 0
+    suite_results = []
+    started = time.time()
+    for suite in suites:
+        rc, elapsed = run_suite(suite.name, suite.command(args.pipelines))
+        overall_rc = rc or overall_rc
+        suite_results.append((suite.name, rc, elapsed, load_summary(suite.out)))
+
+    print_summary(suite_results, time.time() - started, overall_rc)
+    print_failure_breakdown(suite_results)
     sys.exit(overall_rc)
 
 
