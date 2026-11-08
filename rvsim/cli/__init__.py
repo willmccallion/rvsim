@@ -13,12 +13,13 @@ import os
 import pathlib
 import runpy
 import sys
+from dataclasses import dataclass, field
+from typing import Any
 
 from ..config import ConsoleMode
+from ..config._units import _parse_cycles
 from ..presets import PRESETS
 from ..simulator import DebugEnd
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 _PROGRAM_DESCRIPTIONS = {
     "chess": "alpha-beta chess engine, searches to fixed depth",
@@ -95,105 +96,275 @@ def _cmd_list():
     print()
 
 
+@dataclass(frozen=True)
+class _Option:
+    """A command-line option: its flags, the argparse settings it takes,
+    and the help both the rich help and ``--help`` show."""
+
+    flags: tuple[str, ...]
+    help: str
+    settings: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def shown(self) -> str:
+        """The option as the rich help lists it, with its value's name."""
+        metavar = self.settings.get("metavar")
+        return f"{self.flags[0]} [cyan]{metavar}[/cyan]" if metavar else self.flags[0]
+
+
+_OPTIONS = (
+    _Option(
+        ("--watch",),
+        "live dashboard: IPC, cache hit rates, branch accuracy, stalls",
+        {"action": "store_true"},
+    ),
+    _Option(
+        ("--limit",),
+        "stop after N cycles (e.g. 5M, 500K, 1G)",
+        {"metavar": "N", "type": _parse_cycles},
+    ),
+    _Option(
+        ("--no-stats",),
+        "run without printing the stats table",
+        {"action": "store_true"},
+    ),
+    _Option(
+        ("--quiet",),
+        "suppress all output, including the program's",
+        {"action": "store_true"},
+    ),
+    _Option(
+        ("--config",),
+        "Python config file, which exports a Config or a function returning one",
+        {"metavar": "FILE"},
+    ),
+    _Option(
+        ("--preset",),
+        f"built-in config: {', '.join(PRESETS)}",
+        {"choices": list(PRESETS), "metavar": "NAME"},
+    ),
+    _Option(("--json",), "write the run's stats as JSON to FILE", {"metavar": "FILE"}),
+    _Option(
+        ("--harts",),
+        "run with N harts (overrides the config's hart_count)",
+        {"metavar": "N", "type": int},
+    ),
+    _Option(
+        ("--env",),
+        "an environment entry for a Linux user program; repeatable",
+        {"metavar": "NAME=VALUE", "action": "append", "default": []},
+    ),
+    _Option(
+        ("--program",),
+        "another Linux user program, with its arguments (shell-split), on its own hart; repeatable",
+        {"metavar": "'BINARY [ARG...]'", "action": "append", "default": []},
+    ),
+    _Option(
+        ("--mode",),
+        "run the ELF as a Linux user program (se) or a bare-metal image (bare); by default an "
+        "entry below RAM with no tohost symbol means se",
+        {"choices": ["se", "bare"], "metavar": "se|bare"},
+    ),
+    _Option(
+        ("--script",),
+        "the file the guest's readfile pseudo-operation reads",
+        {"metavar": "FILE"},
+    ),
+    _Option(
+        ("--outdir",),
+        "the directory the guest's writefile pseudo-operation writes into",
+        {"metavar": "DIR"},
+    ),
+    _Option(
+        ("--gdb",),
+        "wait for GDB on this TCP port and run under it (in gdb: target remote :PORT)",
+        {"metavar": "PORT", "type": int},
+    ),
+    _Option(
+        ("--pipeline-trace",),
+        "write where every instruction is each cycle, as a Kanata log for Konata",
+        {"metavar": "FILE"},
+    ),
+)
+
+_MODES = (
+    (".elf", "static Linux user program (SE mode) or bare-metal image"),
+    (".py", "Python script: use the rvsim API for full control"),
+    ("other", "kernel image"),
+)
+
+_EXAMPLES = (
+    ("rvsim mandelbrot.elf", "run, print stats on exit"),
+    ("rvsim prog.elf -- a b", "run a Linux user program with arguments"),
+    ("rvsim mandelbrot.elf --watch", "live dashboard while running"),
+    ("rvsim mandelbrot.elf --limit 5M", "stop after 5 million cycles"),
+    ("rvsim mandelbrot.elf --quiet", "suppress all output"),
+    ("rvsim mandelbrot.elf --json out.json", "save stats to JSON"),
+    ("rvsim qsort.elf --preset fast", "run on the M4-class preset"),
+    ("rvsim qsort.elf --config p550.py", "run with a custom pipeline config"),
+    ("rvsim spinlock.elf --harts 4", "run a multi-hart program on four harts"),
+    ("rvsim experiment.py", "run a Python script through the rvsim API"),
+    ("rvsim bench coremark stream", "benchmarks inside Linux; the boot is cached"),
+    ("rvsim bench --help", "options: core config, harts, warm-up, JSON"),
+    ("rvsim list", "list bundled programs and benchmarks"),
+)
+
+_TIP = (
+    "For pipeline config, cache tuning and sweeps, write a .py script and pass it here."
+)
+
+
+def _rows(title: str, rows, styles: tuple[str, str]):
+    """A borderless two-column table of ``rows`` under ``title``."""
+    from rich.table import Table
+
+    table = Table(
+        title=title,
+        title_justify="left",
+        title_style="bold",
+        show_header=False,
+        box=None,
+        padding=(0, 2),
+    )
+    table.add_column(style=styles[0], no_wrap=True)
+    table.add_column(style="dim")
+    for row in rows:
+        table.add_row(*row)
+    return table
+
+
 def _print_help() -> None:
     from rich.console import Console
     from rich.padding import Padding
-    from rich.table import Table
 
     console = Console()
-
-    console.print()
     console.print(
-        "  [bold cyan]rvsim[/] [dim]—[/] RISC-V cycle-level simulator",
+        "\n  [bold cyan]rvsim[/] [dim]—[/] RISC-V cycle-level simulator\n",
         highlight=False,
     )
-    console.print()
-
-    # Usage
     console.print("  [bold]Usage[/]", highlight=False)
-    console.print(
-        "    [cyan]rvsim[/] [green]<file>[/] [dim][[/][yellow]options[/][dim]][/]",
-        highlight=False,
-    )
-    console.print(
-        "    [cyan]rvsim[/] [green]bench[/] [dim][[/][yellow]names[/][dim]] [[/][yellow]options[/][dim]][/]",
-        highlight=False,
-    )
-    console.print("    [cyan]rvsim[/] [green]list[/]", highlight=False)
+    for usage in (
+        "[green]<file>[/] [dim][[/][yellow]options[/][dim]][/]",
+        "[green]bench[/] [dim][[/][yellow]names[/][dim]] [[/][yellow]options[/][dim]][/]",
+        "[green]list[/]",
+    ):
+        console.print(f"    [cyan]rvsim[/] {usage}", highlight=False)
     console.print()
-
-    # Mode detection
-    console.print(
-        "  [bold]Modes[/]  [dim](auto-detected from file extension)[/]", highlight=False
+    tables = (
+        _rows("Modes (from the file extension)", _MODES, ("green", "dim")),
+        _rows(
+            "Options",
+            [(option.shown, option.help) for option in _OPTIONS],
+            ("yellow", "dim"),
+        ),
+        _rows("Examples", _EXAMPLES, ("cyan", "dim")),
     )
-    mode_table = Table(show_header=False, box=None, padding=(0, 2))
-    mode_table.add_column(style="green", width=8)
-    mode_table.add_column(style="dim")
-    mode_table.add_row(
-        ".elf", "static Linux user program (SE mode) or bare-metal image"
-    )
-    mode_table.add_row(".py", "Python script — use the rvsim API for full control")
-    mode_table.add_row("other", "kernel image")
-    console.print(Padding(mode_table, (0, 2)))
-    console.print()
-
-    # Options
-    console.print("  [bold]Options[/]", highlight=False)
-    opt_table = Table(show_header=False, box=None, padding=(0, 2))
-    opt_table.add_column(style="yellow", no_wrap=True)
-    opt_table.add_column(style="dim")
-    opt_table.add_row(
-        "--watch", "live dashboard — IPC, cache hit rates, branch accuracy, stalls"
-    )
-    opt_table.add_row(
-        "--limit [cyan]N[/cyan]", "stop after N cycles  [dim](e.g. 5M, 500K, 1G)[/dim]"
-    )
-    opt_table.add_row("--no-stats", "run without printing the stats table")
-    opt_table.add_row("--quiet", "suppress all output, including program stdout")
-    opt_table.add_row(
-        "--config [cyan]FILE[/cyan]",
-        "Python config file  [dim](must export config or get_config)[/dim]",
-    )
-    opt_table.add_row(
-        "--preset [cyan]NAME[/cyan]",
-        f"built-in config  [dim]({', '.join(PRESETS)})[/dim]",
-    )
-    opt_table.add_row("--json [cyan]FILE[/cyan]", "write stats as JSON to FILE")
-    console.print(Padding(opt_table, (0, 2)))
-    console.print()
-
-    # Examples
-    console.print("  [bold]Examples[/]", highlight=False)
-    ex_table = Table(show_header=False, box=None, padding=(0, 2))
-    ex_table.add_column(style="cyan", no_wrap=True)
-    ex_table.add_column(style="dim")
-    ex_table.add_row("rvsim mandelbrot.elf", "run, print stats on exit")
-    ex_table.add_row("rvsim mandelbrot.elf --watch", "live dashboard while running")
-    ex_table.add_row("rvsim mandelbrot.elf --limit 5M", "stop after 5 million cycles")
-    ex_table.add_row("rvsim mandelbrot.elf --quiet", "suppress all output")
-    ex_table.add_row("rvsim mandelbrot.elf --json out.json", "save stats to JSON")
-    ex_table.add_row("rvsim qsort.elf --preset fast", "run on the M4-class preset")
-    ex_table.add_row(
-        "rvsim qsort.elf --config p550.py", "run with a custom pipeline config"
-    )
-    ex_table.add_row("rvsim experiment.py", "run a Python script via the rvsim API")
-    ex_table.add_row(
-        "rvsim bench coremark stream", "benchmarks inside Linux; the boot is cached"
-    )
-    ex_table.add_row("rvsim bench --help", "options: core config, harts, warm-up, JSON")
-    ex_table.add_row("rvsim list", "list bundled programs and benchmarks")
-    console.print(Padding(ex_table, (0, 2)))
-    console.print()
-
-    # Tip
-    console.print(
-        "  [dim]For pipeline config, cache tuning, sweeps — write a .py script and pass it here.[/]",
-        highlight=False,
-    )
-    console.print()
+    for table in tables:
+        console.print(Padding(table, (0, 2)))
+        console.print()
+    console.print(f"  [dim]{_TIP}[/]\n", highlight=False)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+def _build_parser() -> argparse.ArgumentParser:
+    """The parser for ``rvsim <file>``, from `_OPTIONS`, with `_MODES` and
+    `_EXAMPLES` as its description and epilog."""
+    from .. import __version__
+
+    modes = "\n".join(f"  {ext:<6} {what}" for ext, what in _MODES)
+    examples = "\n".join(f"  {command:<40} {what}" for command, what in _EXAMPLES)
+    parser = argparse.ArgumentParser(
+        prog="rvsim",
+        description=f"rvsim: RISC-V cycle-level simulator\n\nThe mode comes from the file extension:\n{modes}\n\n{_TIP}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"examples:\n{examples}",
+    )
+    parser.add_argument("--version", action="version", version=f"rvsim {__version__}")
+    for option in _OPTIONS:
+        parser.add_argument(*option.flags, help=option.help, **option.settings)
+    parser.add_argument("positional_args", nargs="*", help=argparse.SUPPRESS)
+    return parser
+
+
+@dataclass(frozen=True)
+class _Invocation:
+    """What to run: the file, the mode its extension picks, and the
+    program's own command line after it."""
+
+    target: str
+    mode: str
+    program_args: list[str]
+
+
+def _parse_invocation(parser, args, remaining: list[str]) -> _Invocation:
+    """The file and the program's arguments, after `--` when they start
+    with a dash, checked against what the mode takes."""
+    target = args.positional_args[0]
+    mode = _detect_mode(target)
+    program_args = args.positional_args[1:] + remaining
+    if program_args[:1] == ["--"]:
+        program_args = program_args[1:]
+    if mode == "kernel" and program_args:
+        parser.error(f"unrecognized arguments: {' '.join(program_args)}")
+    for entry in args.env:
+        if "=" not in entry:
+            parser.error(f"--env takes NAME=VALUE, not {entry!r}")
+    if args.config and args.preset:
+        parser.error("--config and --preset are mutually exclusive")
+    if args.gdb is not None and args.watch:
+        parser.error("--gdb cannot be combined with --watch")
+    if args.harts is not None and args.harts < 1:
+        parser.error("--harts must be at least 1")
+    return _Invocation(target, mode, program_args)
+
+
+def _select_config(args, mode: str):
+    """The config the options name, with their hart count and console."""
+    from ..config import Config, load_config
+
+    if args.preset:
+        cfg = PRESETS[args.preset]()
+    elif args.config:
+        cfg = load_config(args.config)
+    else:
+        cfg = Config()
+    if args.harts is not None:
+        cfg.hart_count = args.harts
+    if args.quiet:
+        cfg.console = ConsoleMode.QUIET
+    elif args.watch or mode == "kernel":
+        # The dashboard redraws stdout, and a kernel's console is a log:
+        # either way the guest's output goes to stderr.
+        cfg.console = ConsoleMode.STDERR
+    return cfg
+
+
+def _build_simulator(parser, args, cfg, run: _Invocation):
+    """The simulator for `run`: a kernel, several programs, or one binary."""
+    import shlex
+
+    from ..simulator import Program, Simulator
+
+    host_files = {"script": args.script, "outdir": args.outdir}
+    if run.mode == "kernel":
+        return Simulator(cfg, kernel=run.target, **host_files)
+    if not args.program:
+        return Simulator(
+            cfg,
+            binary=run.target,
+            args=[run.target, *run.program_args],
+            env=args.env,
+            mode=args.mode,
+            **host_files,
+        )
+    programs = [Program(run.target, run.program_args, args.env)]
+    for entry in args.program:
+        words = shlex.split(entry)
+        if not words:
+            parser.error("--program needs a binary")
+        programs.append(Program(words[0], words[1:], args.env))
+    if args.harts is None:
+        cfg.hart_count = max(cfg.hart_count, len(programs))
+    return Simulator(cfg, programs=programs, **host_files)
 
 
 def _run_under_gdb(sim, port: int, *, limit) -> int | None:
@@ -208,286 +379,86 @@ def _run_under_gdb(sim, port: int, *, limit) -> int | None:
     return code
 
 
+def _run_watched(build, args, target: str) -> tuple[Any, int | None]:
+    """Builds the simulator with setup chatter kept off the dashboard, then
+    runs it under the live dashboard."""
+    import io
+
+    from .watch import run_watch
+
+    real_stderr = sys.stderr
+    sys.stderr = io.StringIO()
+    try:
+        sim = build()
+    finally:
+        sys.stderr = real_stderr
+    if args.pipeline_trace:
+        sim.open_pipeline_trace(args.pipeline_trace)
+    exit_code = run_watch(
+        sim,
+        limit=args.limit,
+        binary=os.path.basename(target),
+        print_stats=not (args.quiet or args.no_stats),
+    )
+    return sim, exit_code
+
+
+def _run_plain(build, args) -> tuple[Any, int | None]:
+    """Builds the simulator and runs it, under GDB if asked, then prints the
+    stats unless told not to."""
+    sim = build()
+    if args.pipeline_trace:
+        sim.open_pipeline_trace(args.pipeline_trace)
+    if args.gdb is not None:
+        exit_code = _run_under_gdb(sim, args.gdb, limit=args.limit)
+    else:
+        exit_code = sim.run(limit=args.limit)
+    if not (args.quiet or args.no_stats):
+        print(sim.stats.summary())
+    return sim, exit_code
+
+
+def _write_json(path: str, sim) -> None:
+    import json
+
+    from ..stats import Stats
+
+    with open(path, "w") as f:
+        json.dump(Stats.from_core(sim.stats), f, indent=2)
+
+
 def main() -> None:
-    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help")):
+    argv = sys.argv[1:]
+    if not argv or argv in (["-h"], ["--help"]):
         _print_help()
         sys.exit(0)
-
-    if len(sys.argv) >= 2 and sys.argv[1] == "list":
+    if argv[0] == "list":
         _cmd_list()
         return
-
-    if len(sys.argv) >= 2 and sys.argv[1] == "bench":
+    if argv[0] == "bench":
         from .bench import main as bench
 
-        sys.exit(bench(sys.argv[2:]))
+        sys.exit(bench(argv[1:]))
 
-    from importlib.metadata import (
-        PackageNotFoundError as _PkgNotFound,
-    )
-    from importlib.metadata import (
-        version as _meta_version,
-    )
-
-    from ..config._units import _parse_cycles
-
-    def _rvsim_version() -> str:
-        try:
-            return _meta_version("rvsim")
-        except _PkgNotFound:
-            return "0.0.0+dev"
-
-    parser = argparse.ArgumentParser(
-        prog="rvsim",
-        description=(
-            "rvsim — RISC-V cycle-level simulator\n"
-            "\n"
-            "Run a bare-metal ELF, kernel image, or Python script.\n"
-            "The mode is auto-detected from the file extension:\n"
-            "  .elf  → bare-metal binary\n"
-            "  .py   → Python script (use the rvsim Python API for full control)\n"
-            "  other → kernel image\n"
-            "\n"
-            "For anything beyond a quick one-off run — configuring the pipeline,\n"
-            "cache hierarchy, branch predictor, sweeps — write a Python script\n"
-            "and pass it here instead."
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "examples:\n"
-            "  rvsim mandelbrot.elf               run with default config, print stats\n"
-            "  rvsim prog -- a b                   run a static Linux user program with arguments\n"
-            "  rvsim mandelbrot.elf --watch        live dashboard (IPC, cache, branch, stalls)\n"
-            "  rvsim mandelbrot.elf --limit 5M     stop after 5 million cycles\n"
-            "  rvsim mandelbrot.elf --preset fast   run on the M4-class preset\n"
-            "  rvsim spinlock.elf --harts 4         run a multi-hart program on four harts\n"
-            "  rvsim mandelbrot.elf --no-stats     run without printing stats\n"
-            "  rvsim mandelbrot.elf --quiet        suppress all output including program stdout\n"
-            "  rvsim mandelbrot.elf --json out.json  save stats to JSON\n"
-            "  rvsim experiment.py                 run a Python script via the rvsim API\n"
-            "  rvsim list                          list bundled programs and benchmarks\n"
-        ),
-    )
-
-    parser.add_argument(
-        "--version", action="version", version=f"rvsim {_rvsim_version()}"
-    )
-    parser.add_argument(
-        "--limit",
-        metavar="N",
-        type=_parse_cycles,
-        default=None,
-        help="stop after N cycles (e.g. 5M, 500K)",
-    )
-    parser.add_argument(
-        "--watch",
-        action="store_true",
-        default=False,
-        help="live dashboard while the simulation runs",
-    )
-    parser.add_argument(
-        "--quiet",
-        action="store_true",
-        default=False,
-        help="suppress all output (program stdout and stats)",
-    )
-    parser.add_argument(
-        "--no-stats",
-        action="store_true",
-        default=False,
-        help="suppress stats table but still show program output",
-    )
-    parser.add_argument(
-        "--config",
-        metavar="FILE",
-        default=None,
-        help="Python config file (must export a Config object or callable)",
-    )
-    parser.add_argument(
-        "--preset",
-        choices=list(PRESETS),
-        default=None,
-        help="use a built-in config preset",
-    )
-    parser.add_argument(
-        "--json",
-        metavar="FILE",
-        default=None,
-        help="write stats as JSON to FILE",
-    )
-    parser.add_argument(
-        "--harts",
-        metavar="N",
-        type=int,
-        default=None,
-        help="run with N harts (overrides the config's hart_count)",
-    )
-    parser.add_argument(
-        "--env",
-        metavar="NAME=VALUE",
-        action="append",
-        default=[],
-        help="an environment entry for a Linux user program (SE mode); repeatable",
-    )
-    parser.add_argument(
-        "--program",
-        metavar="'BINARY [ARG...]'",
-        action="append",
-        default=[],
-        help="another static Linux user program to run on its own hart beside the "
-        "first, with its arguments (shell-split); repeatable. The harts default "
-        "to the number of programs",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["se", "bare"],
-        default=None,
-        help="run the ELF as a Linux user program (se) or a bare-metal image (bare); "
-        "by default an entry below RAM with no tohost symbol means se",
-    )
-    parser.add_argument(
-        "--script",
-        metavar="FILE",
-        default=None,
-        help="the file the guest's readfile pseudo-operation reads",
-    )
-    parser.add_argument(
-        "--outdir",
-        metavar="DIR",
-        default=None,
-        help="the directory the guest's writefile pseudo-operation writes into",
-    )
-    parser.add_argument(
-        "--gdb",
-        metavar="PORT",
-        type=int,
-        default=None,
-        help="wait for GDB on this TCP port and run under it (in gdb: target remote :PORT)",
-    )
-    parser.add_argument(
-        "--pipeline-trace",
-        metavar="FILE",
-        help="write where every instruction is each cycle, as a Kanata log for Konata",
-    )
-    parser.add_argument("positional_args", nargs="*", help=argparse.SUPPRESS)
-
-    args, remaining = parser.parse_known_args()
-
+    parser = _build_parser()
+    args, remaining = parser.parse_known_args(argv)
     if not args.positional_args:
         _print_help()
         sys.exit(0)
-
-    target = args.positional_args[0]
-    mode = _detect_mode(target)
-    # What follows the program (after `--` when it starts with a dash) is
-    # the program's own command line.
-    extra_args = args.positional_args[1:] + remaining
-    if extra_args[:1] == ["--"]:
-        extra_args = extra_args[1:]
-
-    if mode == "kernel" and extra_args:
-        parser.error(f"unrecognized arguments: {' '.join(extra_args)}")
-    for entry in args.env:
-        if "=" not in entry:
-            parser.error(f"--env takes NAME=VALUE, not {entry!r}")
-
-    # ── Execute ───────────────────────────────────────────────────────────────
-
-    if mode == "script":
-        sys.argv = [target] + extra_args
-        runpy.run_path(target, run_name="__main__")
+    run = _parse_invocation(parser, args, remaining)
+    if run.mode == "script":
+        sys.argv = [run.target, *run.program_args]
+        runpy.run_path(run.target, run_name="__main__")
         return
 
-    from ..config import Config, load_config
-    from ..simulator import Program, Simulator
+    cfg = _select_config(args, run.mode)
 
-    if args.config and args.preset:
-        parser.error("--config and --preset are mutually exclusive")
-    if args.gdb is not None and args.watch:
-        parser.error("--gdb cannot be combined with --watch")
+    def build():
+        return _build_simulator(parser, args, cfg, run)
 
-    if args.preset:
-        cfg = PRESETS[args.preset]()
-    elif args.config:
-        cfg = load_config(args.config)
-    else:
-        cfg = Config()
-    if args.harts is not None:
-        if args.harts < 1:
-            parser.error("--harts must be at least 1")
-        cfg.hart_count = args.harts
-    if args.quiet:
-        cfg.console = ConsoleMode.QUIET
-    elif args.watch:
-        # Redirect program output to stderr so Live doesn't see stdout being
-        # written mid-render (which causes the duplicate frame).
-        cfg.console = ConsoleMode.STDERR
-    elif mode == "kernel":
-        cfg.console = ConsoleMode.STDERR
-
-    def build_simulator() -> Simulator:
-        host_files = {"script": args.script, "outdir": args.outdir}
-        if mode == "kernel":
-            return Simulator(cfg, kernel=target, **host_files)
-        if args.program:
-            import shlex
-
-            programs = [Program(target, extra_args, args.env)]
-            for entry in args.program:
-                words = shlex.split(entry)
-                if not words:
-                    parser.error("--program needs a binary")
-                programs.append(Program(words[0], words[1:], args.env))
-            if args.harts is None:
-                cfg.hart_count = max(cfg.hart_count, len(programs))
-            return Simulator(cfg, programs=programs, **host_files)
-        return Simulator(
-            cfg,
-            binary=target,
-            args=[target, *extra_args],
-            env=args.env,
-            mode=args.mode,
-            **host_files,
-        )
-
-    if args.watch:
-        import io
-
-        from .watch import run_watch
-
-        # Suppress setup chatter so it doesn't appear above the dashboard.
-        _real_stderr = sys.stderr
-        sys.stderr = io.StringIO()
-        try:
-            sim = build_simulator()
-        finally:
-            sys.stderr = _real_stderr
-        if args.pipeline_trace:
-            sim.open_pipeline_trace(args.pipeline_trace)
-        print_stats = not args.quiet and not args.no_stats
-        exit_code = run_watch(
-            sim,
-            limit=args.limit,
-            binary=os.path.basename(target),
-            print_stats=print_stats,
-        )
-    else:
-        sim = build_simulator()
-        if args.pipeline_trace:
-            sim.open_pipeline_trace(args.pipeline_trace)
-        if args.gdb is not None:
-            exit_code = _run_under_gdb(sim, args.gdb, limit=args.limit)
-        else:
-            exit_code = sim.run(limit=args.limit)
-        if not (args.quiet or args.no_stats):
-            print(sim.stats.summary())
-
+    sim, exit_code = (
+        _run_watched(build, args, run.target) if args.watch else _run_plain(build, args)
+    )
     if args.json:
-        import json
-
-        from ..stats import Stats
-
-        with open(args.json, "w") as f:
-            json.dump(Stats.from_core(sim.stats), f, indent=2)
-
+        _write_json(args.json, sim)
     sys.exit(exit_code if exit_code is not None else 1)
