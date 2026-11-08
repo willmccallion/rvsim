@@ -108,6 +108,7 @@ impl CoreCtx<'_> {
     }
 
     /// Writes a value to a Control and Status Register (CSR).
+    #[expect(clippy::too_many_lines, reason = "one arm per CSR with a write side effect")]
     pub fn csr_write(&mut self, addr: CsrAddr, val: u64) {
         match addr {
             csr::FFLAGS => {

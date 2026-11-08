@@ -93,8 +93,6 @@ inline_always = "allow"           # Hot-path annotations are intentional
 
 bool_to_int_with_if = "allow"     # (cond) as u64 is idiomatic for flag extraction
 
-# Execute stages and decode functions are necessarily large in a full ISA impl.
-too_many_lines = "allow"
 # as *const / *mut casts between raw pointer types are idiomatic in unsafe memory code.
 ptr_as_ptr = "allow"
 

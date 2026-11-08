@@ -94,6 +94,7 @@ fn write_egs8_u32(vpr: &mut impl VectorRegFile, vreg: VRegIdx, base_elem: usize,
 /// instead of a per-group key.
 ///
 /// Returns nothing; results are written directly to `vd` in `vpr`.
+#[expect(clippy::too_many_lines, reason = "one arm per crypto operation")]
 pub fn execute_crypto(
     op: CryptoOp,
     vpr: &mut impl VectorRegFile,
