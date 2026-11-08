@@ -1065,11 +1065,7 @@ impl Simulator {
     /// The first cache invariant broken now, as the error a tick returns.
     fn first_cache_violation(&self) -> Option<SimError> {
         let violation = cache_audit::audit(&self.state).into_iter().next()?;
-        Some(SimError::CacheInvariant {
-            cycle: self.state.cycle,
-            line: violation.line.val(),
-            what: violation.kind.to_string(),
-        })
+        Some(SimError::CacheInvariant { cycle: self.state.cycle, violation })
     }
 
     /// Routes a single event to its target component.
