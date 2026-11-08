@@ -11,11 +11,15 @@
 use super::Prefetcher;
 use crate::common::VirtAddr;
 
+/// The most confidence a stream builds up.
+const MAX_CONFIDENCE: u8 = 3;
+
+/// The confidence from which the prefetcher follows a stream.
+const PREFETCH_CONFIDENCE: u8 = 2;
+
 /// Direction of the memory stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Direction {
-    /// No stable direction detected.
-    None,
     /// Ascending memory addresses.
     Ascending,
     /// Descending memory addresses.
@@ -31,8 +35,8 @@ pub struct StreamPrefetcher {
     degree: usize,
     /// The address the previous access touched.
     last_addr: u64,
-    /// The current detected stream direction.
-    direction: Direction,
+    /// The current detected stream direction, if any.
+    direction: Option<Direction>,
     /// Confidence counter for the current stream.
     confidence: u8,
 }
@@ -44,7 +48,7 @@ impl StreamPrefetcher {
             line_bytes: line_bytes as u64,
             degree: if degree == 0 { 1 } else { degree },
             last_addr: 0,
-            direction: Direction::None,
+            direction: None,
             confidence: 0,
         }
     }
@@ -58,32 +62,31 @@ impl Prefetcher for StreamPrefetcher {
         let diff = (addr as i64) - (self.last_addr as i64);
         let line_sz = self.line_bytes as i64;
 
-        let current_dir = if diff == line_sz {
-            Direction::Ascending
+        let step = if diff == line_sz {
+            Some(Direction::Ascending)
         } else if diff == -line_sz {
-            Direction::Descending
+            Some(Direction::Descending)
         } else {
-            Direction::None
+            None
         };
 
-        if current_dir != Direction::None {
-            if current_dir == self.direction {
-                if self.confidence < 3 {
+        match step {
+            Some(_) if step == self.direction => {
+                if self.confidence < MAX_CONFIDENCE {
                     self.confidence += 1;
                 }
-            } else {
-                self.direction = current_dir;
+            }
+            Some(_) => {
+                self.direction = step;
                 self.confidence = 1;
             }
-        } else if self.confidence > 0 {
-            self.confidence -= 1;
-        } else {
-            self.direction = Direction::None;
+            None if self.confidence > 0 => self.confidence -= 1,
+            None => self.direction = None,
         }
 
-        if self.confidence >= 2 {
+        if let Some(direction) = self.direction.filter(|_| self.confidence >= PREFETCH_CONFIDENCE) {
             for k in 1..=self.degree {
-                let offset = if self.direction == Direction::Ascending {
+                let offset = if direction == Direction::Ascending {
                     (k as u64) * self.line_bytes
                 } else {
                     ((k as i64) * -(line_sz)) as u64
