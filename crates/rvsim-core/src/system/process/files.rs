@@ -7,28 +7,46 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-/// Linux `errno` values a syscall returns negated.
 /// The longest path a guest may pass, as Linux's `PATH_MAX`.
 pub const PATH_MAX: usize = 4096;
 
+/// Linux `errno` values (`asm-generic/errno-base.h` and `errno.h`), which
+/// a syscall returns negated.
 pub mod errno {
+    pub const EPERM: i64 = 1;
     pub const ENOENT: i64 = 2;
     pub const ESRCH: i64 = 3;
-    pub const EBADF: i64 = 9;
+    pub const EINTR: i64 = 4;
     pub const EIO: i64 = 5;
+    pub const EBADF: i64 = 9;
     pub const EAGAIN: i64 = 11;
     pub const ENOMEM: i64 = 12;
     pub const EACCES: i64 = 13;
     pub const EFAULT: i64 = 14;
+    pub const EBUSY: i64 = 16;
     pub const EEXIST: i64 = 17;
+    pub const EXDEV: i64 = 18;
     pub const ENOTDIR: i64 = 20;
+    pub const EISDIR: i64 = 21;
     pub const EINVAL: i64 = 22;
+    pub const ENFILE: i64 = 23;
     pub const EMFILE: i64 = 24;
     pub const ENOTTY: i64 = 25;
+    pub const ETXTBSY: i64 = 26;
+    pub const EFBIG: i64 = 27;
+    pub const ENOSPC: i64 = 28;
     pub const ESPIPE: i64 = 29;
+    pub const EROFS: i64 = 30;
+    pub const EMLINK: i64 = 31;
+    pub const EPIPE: i64 = 32;
     pub const ERANGE: i64 = 34;
+    pub const ENAMETOOLONG: i64 = 36;
     pub const ENOSYS: i64 = 38;
+    pub const ENOTEMPTY: i64 = 39;
+    pub const ELOOP: i64 = 40;
+    pub const EOVERFLOW: i64 = 75;
     pub const ETIMEDOUT: i64 = 110;
+    pub const EDQUOT: i64 = 122;
 }
 
 /// Linux `open` flags on riscv64 (`asm-generic/fcntl.h`).
@@ -385,15 +403,89 @@ fn copy_from(contents: &[u8], offset: u64, buffer: &mut [u8]) -> usize {
     count
 }
 
-/// A host I/O error as the guest's negated `errno`.
+/// A host I/O error as the guest's negated Linux `errno`.
 pub fn io_errno(error: &io::Error) -> i64 {
-    error.raw_os_error().map_or_else(
+    -error.raw_os_error().map_or_else(
         || match error.kind() {
-            io::ErrorKind::NotFound => -errno::ENOENT,
-            io::ErrorKind::PermissionDenied => -errno::EACCES,
-            io::ErrorKind::AlreadyExists => -errno::EEXIST,
-            _ => -errno::EINVAL,
+            io::ErrorKind::NotFound => errno::ENOENT,
+            io::ErrorKind::PermissionDenied => errno::EACCES,
+            io::ErrorKind::AlreadyExists => errno::EEXIST,
+            _ => errno::EINVAL,
         },
-        |code| -i64::from(code),
+        linux_errno,
     )
+}
+
+/// The Linux number of the host's `errno` `code`. The host numbers its
+/// errors its own way (macOS's `EAGAIN` is 35, Linux's 11), so each is
+/// translated by name; one a file syscall cannot raise reads as `EIO`.
+const fn linux_errno(code: i32) -> i64 {
+    match code {
+        libc::EPERM => errno::EPERM,
+        libc::ENOENT => errno::ENOENT,
+        libc::ESRCH => errno::ESRCH,
+        libc::EINTR => errno::EINTR,
+        libc::EBADF => errno::EBADF,
+        libc::EAGAIN => errno::EAGAIN,
+        libc::ENOMEM => errno::ENOMEM,
+        libc::EACCES => errno::EACCES,
+        libc::EFAULT => errno::EFAULT,
+        libc::EBUSY => errno::EBUSY,
+        libc::EEXIST => errno::EEXIST,
+        libc::EXDEV => errno::EXDEV,
+        libc::ENOTDIR => errno::ENOTDIR,
+        libc::EISDIR => errno::EISDIR,
+        libc::EINVAL => errno::EINVAL,
+        libc::ENFILE => errno::ENFILE,
+        libc::EMFILE => errno::EMFILE,
+        libc::ENOTTY => errno::ENOTTY,
+        libc::ETXTBSY => errno::ETXTBSY,
+        libc::EFBIG => errno::EFBIG,
+        libc::ENOSPC => errno::ENOSPC,
+        libc::ESPIPE => errno::ESPIPE,
+        libc::EROFS => errno::EROFS,
+        libc::EMLINK => errno::EMLINK,
+        libc::EPIPE => errno::EPIPE,
+        libc::ERANGE => errno::ERANGE,
+        libc::ENAMETOOLONG => errno::ENAMETOOLONG,
+        libc::ENOSYS => errno::ENOSYS,
+        libc::ENOTEMPTY => errno::ENOTEMPTY,
+        libc::ELOOP => errno::ELOOP,
+        libc::EOVERFLOW => errno::EOVERFLOW,
+        libc::ETIMEDOUT => errno::ETIMEDOUT,
+        libc::EDQUOT => errno::EDQUOT,
+        _ => errno::EIO,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{errno, io_errno};
+    use std::io;
+
+    fn guest_errno(host_code: i32) -> i64 {
+        io_errno(&io::Error::from_raw_os_error(host_code))
+    }
+
+    #[test]
+    fn host_errors_reach_the_guest_under_their_linux_numbers() {
+        assert_eq!(guest_errno(libc::EAGAIN), -11);
+        assert_eq!(guest_errno(libc::ENAMETOOLONG), -36);
+        assert_eq!(guest_errno(libc::ENOSYS), -38);
+        assert_eq!(guest_errno(libc::ENOTEMPTY), -39);
+        assert_eq!(guest_errno(libc::ELOOP), -40);
+        assert_eq!(guest_errno(libc::ETIMEDOUT), -110);
+        assert_eq!(guest_errno(libc::EDQUOT), -122);
+    }
+
+    #[test]
+    fn a_host_error_no_file_syscall_raises_reads_as_eio() {
+        assert_eq!(guest_errno(libc::EHOSTUNREACH), -errno::EIO);
+    }
+
+    #[test]
+    fn an_error_without_an_os_code_maps_by_kind() {
+        let missing = io::Error::new(io::ErrorKind::NotFound, "gone");
+        assert_eq!(io_errno(&missing), -errno::ENOENT);
+    }
 }
