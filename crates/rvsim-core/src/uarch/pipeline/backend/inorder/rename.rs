@@ -9,7 +9,6 @@ use super::InOrderEngine;
 use super::issue::ProducerTags;
 use crate::common::trace::Hex;
 use crate::exec::compute::vector::mem::is_vec_store;
-use crate::exec::inst::Inst;
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
@@ -63,7 +62,7 @@ impl InOrderEngine {
         debug_assert!(slot_allocated, "the store slot was checked before allocating");
 
         let entry = RenameIssueEntry {
-            inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..decoded.inst },
+            inst: decoded.inst,
             rob_tag,
             trap: decoded.trap,
             predicted_target: decoded.predicted_target,
