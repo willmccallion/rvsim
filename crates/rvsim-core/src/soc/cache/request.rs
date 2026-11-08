@@ -1,6 +1,7 @@
 //! Demand requests: lookup, responses, misses, fills and evictions.
 
 use super::mshr::{FetchOrigin, Mshr, MshrTarget};
+use super::policies::{SetIdx, WayIdx};
 use super::prefetch::Lookup;
 use crate::common::{LineAddr, PAGE_SHIFT, PhysAddr, VirtAddr};
 use crate::config::InclusionPolicy;
@@ -142,8 +143,8 @@ impl Cache {
     fn serve_hit(
         &mut self,
         req: &BlockedRequest,
-        set_index: usize,
-        way: usize,
+        set_index: SetIdx,
+        way: WayIdx,
         is_write: bool,
         ctx: &mut HandleCtx<'_>,
     ) {
@@ -463,14 +464,14 @@ impl Cache {
         if let Some(way) = self.find_way(addr) {
             return Placement::Held(way);
         }
-        if let Some(free) = (0..self.ways).find(|&w| !self.lines[self.slot(set_index, w)].valid()) {
+        if let Some(free) = self.ways().find(|&w| !self.lines[self.slot(set_index, w)].valid()) {
             return Placement::Free(free);
         }
         Placement::Victim(self.policy.get_victim(set_index))
     }
 
     /// The way `placement` names, its victim evicted first.
-    fn place(&mut self, addr: u64, placement: Placement, ctx: &mut HandleCtx<'_>) -> usize {
+    fn place(&mut self, addr: u64, placement: Placement, ctx: &mut HandleCtx<'_>) -> WayIdx {
         match placement {
             Placement::Held(way) | Placement::Free(way) => way,
             Placement::Victim(way) => {
@@ -482,7 +483,7 @@ impl Cache {
 
     /// Whether evicting the line in `way` of `addr`'s set sends it to the
     /// next level, which needs a writeback-buffer slot.
-    fn victim_needs_a_slot(&self, addr: u64, way: usize) -> bool {
+    fn victim_needs_a_slot(&self, addr: u64, way: WayIdx) -> bool {
         let victim = self.lines[self.slot(self.set_index(addr), way)];
         victim.valid() && (victim.dirty() || self.clean_victims_to_downstream)
     }
@@ -593,7 +594,7 @@ impl Cache {
     /// Removes the line in `way` of `set_index`: dirty lines (and clean
     /// ones for an exclusive pair) go to the writeback buffer, and
     /// inclusive upper levels are told to drop their copies.
-    pub(super) fn evict(&mut self, set_index: usize, way: usize, ctx: &mut HandleCtx<'_>) {
+    pub(super) fn evict(&mut self, set_index: SetIdx, way: WayIdx, ctx: &mut HandleCtx<'_>) {
         let index = self.slot(set_index, way);
         let victim = self.lines[index];
         if !victim.valid() {
@@ -624,11 +625,11 @@ impl Cache {
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Placement {
     /// The way already holding the line.
-    Held(usize),
+    Held(WayIdx),
     /// An empty way.
-    Free(usize),
+    Free(WayIdx),
     /// The way of the line evicted to make room.
-    Victim(usize),
+    Victim(WayIdx),
 }
 
 /// The state a fetched line arrives in: modified for a write, otherwise as

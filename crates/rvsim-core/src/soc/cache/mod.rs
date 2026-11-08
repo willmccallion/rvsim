@@ -29,7 +29,7 @@ use std::collections::{BTreeSet, VecDeque};
 pub use self::audit::BookkeepingFault;
 use self::mshr::MshrTable;
 use self::policies::{
-    FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy,
+    FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy, SetIdx, WayIdx,
 };
 use self::stats::CacheStatPaths;
 use self::writeback_buffer::WritebackBuffer;
@@ -442,8 +442,8 @@ impl Cache {
         let mut held = Vec::new();
         for (index, line) in self.lines.iter().enumerate() {
             if line.valid() {
-                let set_index = index / self.ways;
-                held.push((self.line_of(self.reconstruct_addr(set_index, line.tag)), line.state));
+                let addr = self.reconstruct_addr(self.set_of_slot(index), line.tag);
+                held.push((self.line_of(addr), line.state));
             }
         }
         held
@@ -460,7 +460,8 @@ impl Cache {
                 if line.valid()
                     && set[..i].iter().any(|other| other.valid() && other.tag == line.tag)
                 {
-                    duplicates.push(self.line_of(self.reconstruct_addr(set_index, line.tag)));
+                    let addr = self.reconstruct_addr(SetIdx::new(set_index), line.tag);
+                    duplicates.push(self.line_of(addr));
                 }
             }
         }
@@ -471,7 +472,7 @@ impl Cache {
     /// so audit tests can plant a fault.
     #[cfg(test)]
     pub fn plant_line(&mut self, way: usize, addr: u64, state: MesiState) {
-        let index = self.slot(self.set_index(addr), way);
+        let index = self.slot(self.set_index(addr), WayIdx::new(way));
         self.lines[index] = CacheLine {
             tag: self.tag_of(addr),
             state,
@@ -499,26 +500,37 @@ impl Cache {
 
     /// Where way `way` of set `set` sits in `lines`.
     #[inline]
-    const fn slot(&self, set: usize, way: usize) -> usize {
-        set * self.ways + way
+    const fn slot(&self, set: SetIdx, way: WayIdx) -> usize {
+        set.index() * self.ways + way.index()
     }
 
-    const fn set_index(&self, addr: u64) -> usize {
-        ((addr as usize) / self.line_bytes) % self.num_sets
+    /// The set the line at `slot` belongs to.
+    const fn set_of_slot(&self, slot: usize) -> SetIdx {
+        SetIdx::new(slot / self.ways)
+    }
+
+    /// Every way of a set.
+    fn ways(&self) -> impl Iterator<Item = WayIdx> + use<> {
+        (0..self.ways).map(WayIdx::new)
+    }
+
+    const fn set_index(&self, addr: u64) -> SetIdx {
+        SetIdx::new(((addr as usize) / self.line_bytes) % self.num_sets)
     }
 
     const fn tag_of(&self, addr: u64) -> u64 {
         addr / (self.line_bytes * self.num_sets) as u64
     }
 
-    const fn reconstruct_addr(&self, set_index: usize, tag: u64) -> u64 {
-        tag * (self.line_bytes * self.num_sets) as u64 + (set_index * self.line_bytes) as u64
+    const fn reconstruct_addr(&self, set_index: SetIdx, tag: u64) -> u64 {
+        tag * (self.line_bytes * self.num_sets) as u64
+            + (set_index.index() * self.line_bytes) as u64
     }
 
-    fn find_way(&self, addr: u64) -> Option<usize> {
+    fn find_way(&self, addr: u64) -> Option<WayIdx> {
         let set_index = self.set_index(addr);
         let tag = self.tag_of(addr);
-        (0..self.ways).find(|&way| {
+        self.ways().find(|&way| {
             let line = self.lines[self.slot(set_index, way)];
             line.valid() && line.tag == tag
         })

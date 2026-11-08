@@ -17,7 +17,7 @@
 //! - **Best Case:** Similar to LRU for most access patterns
 //! - **Worst Case:** Pathological cases can cause premature eviction of useful lines
 
-use super::ReplacementPolicy;
+use super::{ReplacementPolicy, SetIdx, WayIdx};
 
 /// PLRU Policy state.
 #[derive(Debug)]
@@ -40,7 +40,8 @@ impl ReplacementPolicy for PlruPolicy {
     ///
     /// Sets the bits along the path to the accessed way to point away from it,
     /// protecting it from immediate eviction.
-    fn update(&mut self, set: usize, way: usize) {
+    fn update(&mut self, set: SetIdx, way: WayIdx) {
+        let (set, way) = (set.index(), way.index());
         let mask = 1 << way;
         self.usage[set] |= mask;
 
@@ -53,12 +54,9 @@ impl ReplacementPolicy for PlruPolicy {
     /// Identifies the victim way to evict.
     ///
     /// Traverses the tree bits to find the pseudo-least-recently-used way.
-    fn get_victim(&mut self, set: usize) -> usize {
-        for i in 0..self.ways {
-            if (self.usage[set] >> i) & 1 == 0 {
-                return i;
-            }
-        }
-        0
+    fn get_victim(&mut self, set: SetIdx) -> WayIdx {
+        let set = set.index();
+        let unused = (0..self.ways).find(|&way| (self.usage[set] >> way) & 1 == 0);
+        WayIdx::new(unused.unwrap_or(0))
     }
 }

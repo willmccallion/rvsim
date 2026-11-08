@@ -142,7 +142,7 @@ impl Cache {
                 Self::schedule_flush_step(ctx);
                 return;
             }
-            let addr = self.reconstruct_addr(index / self.ways, line.tag);
+            let addr = self.reconstruct_addr(self.set_of_slot(index), line.tag);
             if line.dirty() {
                 self.write_back(self.line_of(addr), true, WritebackCause::Flushed, ctx);
             }
