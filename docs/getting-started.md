@@ -186,7 +186,7 @@ results = Sweep(
     configs={
         f"L1={s}": Config(
             l1d=Cache(s, ways=8, mshr_count=8),
-            uart_quiet=True,
+            console="Quiet",
         )
         for s in ["8KB", "16KB", "32KB", "64KB"]
     },

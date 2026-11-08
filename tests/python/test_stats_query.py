@@ -15,7 +15,7 @@ FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
 @unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
 class QueryResultIteration(unittest.TestCase):
     def test_iterating_yields_every_path_value_pair(self):
-        sim = Simulator(Config(uart_quiet=True), binary=FIB)
+        sim = Simulator(Config(console="Quiet"), binary=FIB)
         sim.run()
         result = sim.stats.query("**")
 

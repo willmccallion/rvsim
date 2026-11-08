@@ -16,13 +16,13 @@ FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
 @unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
 class CacheAudit(unittest.TestCase):
     def test_it_is_off_unless_switched_on(self):
-        sim = Simulator(Config(uart_quiet=True), binary=FIB)
+        sim = Simulator(Config(console="Quiet"), binary=FIB)
 
         self.assertFalse(sim.audit_caches)
 
     def test_an_audited_run_ends_as_an_unaudited_one(self):
-        plain = Simulator(Config(uart_quiet=True), binary=FIB)
-        audited = Simulator(Config(uart_quiet=True), binary=FIB)
+        plain = Simulator(Config(console="Quiet"), binary=FIB)
+        audited = Simulator(Config(console="Quiet"), binary=FIB)
         audited.audit_caches = True
 
         codes = [sim.run() for sim in (plain, audited)]

@@ -109,7 +109,7 @@ def main():
 
     # Build & Run
     cfg_func = CONFIGS[args.config]
-    config = cfg_func().replace(uart_quiet=True)
+    config = cfg_func().replace(console="Quiet")
     sim = Simulator(config, binary=binary)
     sim.run()
 

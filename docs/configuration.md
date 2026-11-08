@@ -513,9 +513,7 @@ each private cache counts its snoops under
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `trace` | `bool` | `False` | Emit a trace event at every pipeline stage an instruction passes. `RUST_LOG` selects which are printed: `rvsim=trace` for all, or targets such as `rvsim::commit=trace`, `rvsim::mem=trace` and `rvsim::fwd=trace` |
-| `console` | `str` or `None` | `None` | Where the guest's console connects, for the UART, HTIF's console and a user program's stdin, stdout and stderr: `"Stdout"`, `"Stderr"`, `"Quiet"`, or `"Captured"` (kept in memory for `read_console()`, input given with `write_console()`); overrides the two shorthands below |
-| `uart_quiet` | `bool` | `False` | Shorthand for `console="Quiet"` |
-| `uart_to_stderr` | `bool` | `False` | Shorthand for `console="Stderr"` |
+| `console` | `ConsoleMode` or `str` | `"Stdout"` | Where the guest's console connects, for the UART, HTIF's console and a user program's stdin, stdout and stderr: `ConsoleMode.STDOUT`, `STDERR`, `QUIET`, or `CAPTURED` (kept in memory for `read_console()`, input given with `write_console()`), or the same names as strings: `"Stdout"`, `"Stderr"`, `"Quiet"`, `"Captured"` |
 
 ---
 

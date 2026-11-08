@@ -44,7 +44,7 @@ def run_sweep(binary):
                 l1d=Cache(size, ways=4, mshr_count=8),
                 l1i=Cache("32KB", ways=4),
                 l2=Cache("1MB", ways=16, latency=10),
-                uart_quiet=True,
+                console="Quiet",
             )
             configs[label] = cfg
 

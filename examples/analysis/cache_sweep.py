@@ -31,7 +31,7 @@ def main():
     binaries = [f"software/bin/programs/{p}.elf" for p in args.programs]
     configs = {
         size: Config(
-            uart_quiet=True, l1d=Cache(size=size, ways=args.ways, mshr_count=8)
+            console="Quiet", l1d=Cache(size=size, ways=args.ways, mshr_count=8)
         )
         for size in args.sizes
     }

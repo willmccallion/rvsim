@@ -19,6 +19,7 @@ from .branch import (
     _mem_dep_predictor_from,
 )
 from .coherence import Coherence
+from .console import ConsoleMode
 from .memory import (
     Cache,
     LoadPrefetcher,
@@ -146,9 +147,7 @@ class Config:
         device_latency_ns: int = _SYSTEM["device_latency_ns"],
         device_latency_ns_overrides: dict[str, int] | None = None,
         rtc_epoch_seconds: int = _SYSTEM["rtc_epoch_seconds"],
-        uart_to_stderr: bool = False,
-        uart_quiet: bool = False,
-        console: str | None = None,
+        console: ConsoleMode | str = _SYSTEM["console"],
         hart_count: int = _SYSTEM["hart_count"],
         coherence: Coherence | None = None,
     ):
@@ -224,9 +223,7 @@ class Config:
         self.device_latency_ns = device_latency_ns
         self.device_latency_ns_overrides = dict(device_latency_ns_overrides or {})
         self.rtc_epoch_seconds = rtc_epoch_seconds
-        self.uart_to_stderr = uart_to_stderr
-        self.uart_quiet = uart_quiet
-        self.console = console
+        self.console = ConsoleMode(console)
         self.hart_count = hart_count
         self.coherence = (
             copy.deepcopy(coherence) if coherence is not None else Coherence()

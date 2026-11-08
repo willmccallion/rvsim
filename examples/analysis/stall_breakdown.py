@@ -35,7 +35,7 @@ def main():
             for width in args.widths:
                 label = f"{bp_name}/w{width}"
                 print(f"  {program} {label}...", flush=True)
-                config = Config(branch_predictor=bp_cls(), uart_quiet=True, width=width)
+                config = Config(branch_predictor=bp_cls(), console="Quiet", width=width)
                 result = Environment(binary=binary, config=config).run(
                     quiet=True, limit=args.limit
                 )

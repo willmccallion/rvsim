@@ -9,6 +9,7 @@ from ._config import Config, load_config
 from .backend import Backend, Fu
 from .branch import BranchPredictor, MemDepPredictor
 from .coherence import Coherence, HomeAgent, Interconnect
+from .console import ConsoleMode
 from .memory import (
     Cache,
     LoadPrefetcher,
@@ -25,6 +26,7 @@ __all__ = [
     "Cache",
     "Coherence",
     "Config",
+    "ConsoleMode",
     "Fu",
     "HomeAgent",
     "Interconnect",

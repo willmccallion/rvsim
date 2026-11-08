@@ -350,7 +350,7 @@ if [[ -n "$WHEEL" ]]; then
 import rvsim
 from rvsim import Simulator, presets
 assert rvsim.version() == \"$CARGO_VER\", rvsim.version()
-sim = Simulator(presets.basic().replace(uart_quiet=True), binary=\"$ROOT/software/bin/programs/fib.elf\")
+sim = Simulator(presets.basic().replace(console=\"Quiet\"), binary=\"$ROOT/software/bin/programs/fib.elf\")
 assert sim.run(stats_sections=None) == 0
 '"; then
         pass "the wheel installs, reports $CARGO_VER and runs fib.elf"

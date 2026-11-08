@@ -90,7 +90,7 @@ def run_one(args):
     from rvsim.config._config import _config_to_dict
 
     cfg = config_for(label)
-    cfg.uart_quiet = True
+    cfg.console = "Quiet"
     cfg.hart_count = hart_count
     with open(os.path.join(ROOT, elf_path), "rb") as f:
         elf_data = f.read()
