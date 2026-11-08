@@ -10,6 +10,7 @@ use super::{
     MemoryConfig, MemoryControllerKind, PipelineConfig, PrefetcherKind, ReplacementPolicyKind,
     StorePrefetcherConfig, SystemConfig, Timer,
 };
+use crate::common::PhysRange;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::misa::Misa;
 use crate::isa::reg::RegIdx;
@@ -169,11 +170,17 @@ fn check_system(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigErro
 
 /// RAM and every device's register window must not share an address.
 fn check_address_map(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigError> {
-    let ram = super::DeviceRegion { name: "RAM", base: system.ram_base, size: ram_size as u64 };
+    let ram = super::DeviceRegion {
+        name: "RAM",
+        range: PhysRange::new(system.ram_base, ram_size as u64),
+    };
     let regions = system.device_regions();
     let all: Vec<_> = std::iter::once(ram).chain(regions).collect();
     for (index, first) in all.iter().enumerate() {
-        if let Some(second) = all[index + 1..].iter().find(|other| first.overlaps(**other)) {
+        if let Some(second) = all[index + 1..]
+            .iter()
+            .find(|other| first.range.overlaps(other.range.base, other.range.size))
+        {
             return Err(ConfigError::RegionsOverlap { first: first.name, second: second.name });
         }
     }

@@ -22,7 +22,7 @@ fn every_device_sits_at_its_configured_region() {
         .system
         .device_regions()
         .iter()
-        .map(|region| (region.name.to_owned(), region.base, region.size))
+        .map(|region| (region.name.to_owned(), region.range.base, region.range.size))
         .collect();
     built.sort();
     expected.sort();
