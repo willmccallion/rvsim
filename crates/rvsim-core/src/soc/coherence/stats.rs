@@ -1,94 +1,58 @@
 //! Stat paths for the coherence fabric, allocated once when it is built.
 
-use crate::sim::stats::{StatId, StatSource, Stats, Unit};
+use crate::sim::stats::{StatSource, Stats};
 
-/// Counters the home agent writes, under `coherence.ha`.
-#[derive(Clone, Copy, Debug)]
-pub struct HomeStatPaths {
-    /// `ReadShared` requests received.
-    pub read_shared: StatId,
-    /// `ReadUnique` requests received.
-    pub read_unique: StatId,
-    /// `CleanUnique` requests received.
-    pub clean_unique: StatId,
-    /// Writebacks received.
-    pub writebacks: StatId,
-    /// Silent evictions received.
-    pub evicts: StatId,
-    /// Cache-maintenance requests received.
-    pub maintenance: StatId,
-    /// Writebacks from a core a snoop had already taken the line from.
-    pub stale_writebacks: StatId,
-    /// Accesses carried to memory without snooping.
-    pub non_coherent: StatId,
-    /// Snoops sent.
-    pub snoops_sent: StatId,
-    /// Requests answered with another core's modified data.
-    pub c2c_transfers: StatId,
-    /// Lines recalled because the tracking structure ran out of room.
-    pub recalls: StatId,
-    /// Requests that waited for an earlier transaction on their line.
-    pub serialised: StatId,
-    /// Requests that waited for a free transaction entry.
-    pub txn_full_stalls: StatId,
-    /// Request-to-completion latency in cycles (histogram).
-    pub txn_latency: StatId,
-    /// Tracking lookups that found the line.
-    pub filter_hits: StatId,
-    /// Tracking lookups that found nothing.
-    pub filter_misses: StatId,
-}
-
-impl HomeStatPaths {
-    /// Paths under `subject`.
-    #[must_use]
-    pub fn new(subject: &str) -> Self {
-        let path = |tail: &str| StatId::of(&format!("{subject}.{tail}"));
-        Self {
-            read_shared: path("requests.read_shared"),
-            read_unique: path("requests.read_unique"),
-            clean_unique: path("requests.clean_unique"),
-            writebacks: path("requests.writebacks"),
-            evicts: path("requests.evicts"),
-            maintenance: path("requests.maintenance"),
-            stale_writebacks: path("requests.stale_writebacks"),
-            non_coherent: path("requests.non_coherent"),
-            snoops_sent: path("snoops_sent"),
-            c2c_transfers: path("c2c_transfers"),
-            recalls: path("recalls"),
-            serialised: path("serialised"),
-            txn_full_stalls: path("txn_full_stalls"),
-            txn_latency: path("txn_latency"),
-            filter_hits: path("filter.hits"),
-            filter_misses: path("filter.misses"),
-        }
+crate::sim::stats::paths::stat_paths! {
+    /// Counters the home agent writes, under `coherence.ha`.
+    HomeStatPaths {
+        /// `ReadShared` requests received.
+        read_shared: "requests.read_shared" => Events,
+        /// `ReadUnique` requests received.
+        read_unique: "requests.read_unique" => Events,
+        /// `CleanUnique` requests received.
+        clean_unique: "requests.clean_unique" => Events,
+        /// Writebacks received.
+        writebacks: "requests.writebacks" => Events,
+        /// Silent evictions received.
+        evicts: "requests.evicts" => Events,
+        /// Cache-maintenance requests received.
+        maintenance: "requests.maintenance" => Events,
+        /// Writebacks from a core a snoop had already taken the line from.
+        stale_writebacks: "requests.stale_writebacks" => Events,
+        /// Accesses carried to memory without snooping.
+        non_coherent: "requests.non_coherent" => Events,
+        /// Snoops sent.
+        snoops_sent: "snoops_sent" => Events,
+        /// Requests answered with another core's modified data.
+        c2c_transfers: "c2c_transfers" => Events,
+        /// Lines recalled because the tracking structure ran out of room.
+        recalls: "recalls" => Events,
+        /// Requests that waited for an earlier transaction on their line.
+        serialised: "serialised" => Events,
+        /// Requests that waited for a free transaction entry.
+        txn_full_stalls: "txn_full_stalls" => Events,
+        /// Tracking lookups that found the line.
+        filter_hits: "filter.hits" => Events,
+        /// Tracking lookups that found nothing.
+        filter_misses: "filter.misses" => Events,
+    }
+    histograms {
+        /// Request-to-completion latency in cycles (histogram).
+        txn_latency: "txn_latency" => Cycles,
     }
 }
 
-/// Counters an interconnect writes, under `coherence.interconnect`.
-#[derive(Clone, Copy, Debug)]
-pub struct InterconnectStatPaths {
-    /// Messages transferred.
-    pub messages: StatId,
-    /// Bytes transferred.
-    pub bytes: StatId,
-    /// Cycles a message waited for a busy link or port.
-    pub blocked_cycles: StatId,
-    /// Port-class-cycles an output was busy transferring.
-    pub busy_cycles: StatId,
-}
-
-impl InterconnectStatPaths {
-    /// Paths under `subject`.
-    #[must_use]
-    pub fn new(subject: &str) -> Self {
-        let path = |tail: &str| StatId::of(&format!("{subject}.{tail}"));
-        Self {
-            messages: path("messages"),
-            bytes: path("bytes"),
-            blocked_cycles: path("blocked_cycles"),
-            busy_cycles: path("busy_cycles"),
-        }
+crate::sim::stats::paths::stat_paths! {
+    /// Counters an interconnect writes, under `coherence.interconnect`.
+    InterconnectStatPaths {
+        /// Messages transferred.
+        messages: "messages" => Events,
+        /// Bytes transferred.
+        bytes: "bytes" => Events,
+        /// Cycles a message waited for a busy link or port.
+        blocked_cycles: "blocked_cycles" => Cycles,
+        /// Port-class-cycles an output was busy transferring.
+        busy_cycles: "busy_cycles" => Cycles,
     }
 }
 
@@ -106,8 +70,8 @@ impl CoherenceStatPaths {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            home: HomeStatPaths::new("coherence.ha"),
-            interconnect: InterconnectStatPaths::new("coherence.interconnect"),
+            home: HomeStatPaths::under("coherence.ha"),
+            interconnect: InterconnectStatPaths::under("coherence.interconnect"),
         }
     }
 }
@@ -120,27 +84,7 @@ impl Default for CoherenceStatPaths {
 
 impl StatSource for CoherenceStatPaths {
     fn register(&self, s: &mut Stats) {
-        let h = &self.home;
-        s.register(h.read_shared, Unit::Events);
-        s.register(h.read_unique, Unit::Events);
-        s.register(h.clean_unique, Unit::Events);
-        s.register(h.writebacks, Unit::Events);
-        s.register(h.evicts, Unit::Events);
-        s.register(h.maintenance, Unit::Events);
-        s.register(h.stale_writebacks, Unit::Events);
-        s.register(h.non_coherent, Unit::Events);
-        s.register(h.snoops_sent, Unit::Events);
-        s.register(h.c2c_transfers, Unit::Events);
-        s.register(h.recalls, Unit::Events);
-        s.register(h.serialised, Unit::Events);
-        s.register(h.txn_full_stalls, Unit::Events);
-        s.register(h.filter_hits, Unit::Events);
-        s.register(h.filter_misses, Unit::Events);
-        s.register_histogram(h.txn_latency, Unit::Cycles);
-        let i = &self.interconnect;
-        s.register(i.messages, Unit::Events);
-        s.register(i.bytes, Unit::Events);
-        s.register(i.blocked_cycles, Unit::Cycles);
-        s.register(i.busy_cycles, Unit::Cycles);
+        self.home.register_counters(s);
+        self.interconnect.register_counters(s);
     }
 }

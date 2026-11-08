@@ -18,6 +18,9 @@ macro_rules! stat_paths {
         $(#[$meta:meta])* $name:ident {
             $( $(#[$fmeta:meta])* $field:ident: $tail:literal => $unit:ident ),* $(,)?
         }
+        $( histograms {
+            $( $(#[$hmeta:meta])* $hfield:ident: $htail:literal => $hunit:ident ),* $(,)?
+        } )?
         $( derived {
             $( $(#[$dmeta:meta])* $dfield:ident: $dtail:literal ),* $(,)?
         } )?
@@ -26,6 +29,7 @@ macro_rules! stat_paths {
         #[derive(Clone, Copy, Debug)]
         pub struct $name {
             $( $(#[$fmeta])* pub $field: $crate::sim::stats::StatId, )*
+            $( $( $(#[$hmeta])* pub $hfield: $crate::sim::stats::StatId, )* )?
             $( $( $(#[$dmeta])* pub $dfield: $crate::sim::stats::StatId, )* )?
         }
 
@@ -35,13 +39,15 @@ macro_rules! stat_paths {
             pub fn under(subject: &str) -> Self {
                 Self {
                     $( $field: $crate::sim::stats::StatId::of(&format!("{subject}.{}", $tail)), )*
+                    $( $( $hfield: $crate::sim::stats::StatId::of(&format!("{subject}.{}", $htail)), )* )?
                     $( $( $dfield: $crate::sim::stats::StatId::of(&format!("{subject}.{}", $dtail)), )* )?
                 }
             }
 
-            /// Registers every counter in its unit.
+            /// Registers every counter and histogram in its unit.
             pub fn register_counters(&self, stats: &mut $crate::sim::stats::Stats) {
                 $( stats.register(self.$field, $crate::sim::stats::Unit::$unit); )*
+                $( $( stats.register_histogram(self.$hfield, $crate::sim::stats::Unit::$hunit); )* )?
             }
         }
     };

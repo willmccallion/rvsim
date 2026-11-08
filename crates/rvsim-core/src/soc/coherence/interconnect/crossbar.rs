@@ -148,7 +148,7 @@ mod tests {
     use crate::sim::packet::coherence::ReqKind;
 
     fn paths() -> InterconnectStatPaths {
-        InterconnectStatPaths::new("test.xbar")
+        InterconnectStatPaths::under("test.xbar")
     }
 
     fn req(txn: u64, core: u32) -> CoherenceMsg {

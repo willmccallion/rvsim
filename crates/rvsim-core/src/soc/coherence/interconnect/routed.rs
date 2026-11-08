@@ -225,7 +225,7 @@ mod routed_tests {
     fn a_message_pays_hop_latency_per_hop() {
         // 4 cores + home on a 6-stop ring: core 0 at node 0, home at node 4.
         let mut net =
-            RoutedNetwork::new(Ring::new(6), 4, 64, 2, 8, InterconnectStatPaths::new("t"));
+            RoutedNetwork::new(Ring::new(6), 4, 64, 2, 8, InterconnectStatPaths::under("t"));
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         let delivered = deliver_all(&mut net, 0, 40);
         // Two hops backwards (0 -> 5 -> 4), each 2 + 1 cycles.
@@ -236,7 +236,7 @@ mod routed_tests {
     #[test]
     fn a_busy_link_serialises_same_class_messages() {
         let mut net =
-            RoutedNetwork::new(Ring::new(3), 2, 64, 1, 8, InterconnectStatPaths::new("t"));
+            RoutedNetwork::new(Ring::new(3), 2, 64, 1, 8, InterconnectStatPaths::under("t"));
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         let delivered = deliver_all(&mut net, 0, 20);
