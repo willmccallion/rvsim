@@ -12,6 +12,7 @@ use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
+use crate::soc::traits::{RestoreError, parse_state};
 use std::collections::BTreeSet;
 use std::collections::VecDeque;
 
@@ -477,16 +478,12 @@ impl Device for VirtioBlock {
         serde_json::to_value(self.state()).ok()
     }
 
-    fn check_restore(&self, state: &serde_json::Value) -> Result<(), String> {
-        let state = serde_json::from_value::<VirtioBlockState>(state.clone())
-            .map_err(|error| format!("virtio disk state: {error}"))?;
-        self.check_state(&state)
+    fn check_restore(&self, state: &serde_json::Value) -> Result<(), RestoreError> {
+        self.check_state(&parse_state("virtio disk", state)?)
     }
 
-    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
-        let state = serde_json::from_value::<VirtioBlockState>(state.clone())
-            .map_err(|error| format!("virtio disk state: {error}"))?;
-        self.set_state(&state)
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
+        self.set_state(&parse_state("virtio disk", state)?)
     }
 
     fn name(&self) -> &'static str {

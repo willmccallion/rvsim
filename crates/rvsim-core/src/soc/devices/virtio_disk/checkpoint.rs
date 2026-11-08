@@ -3,6 +3,7 @@
 
 use super::VirtioBlock;
 use super::{SECTOR_SIZE, VirtioBlockState, WrittenSector, from_hex, to_hex};
+use crate::soc::traits::RestoreError;
 
 impl VirtioBlock {
     /// The registers a checkpoint carries.
@@ -45,7 +46,7 @@ impl VirtioBlock {
     ///
     /// Fails when the loaded image is not the one the checkpoint was taken
     /// on, or a written sector does not fit it.
-    pub fn set_state(&mut self, state: &VirtioBlockState) -> Result<(), String> {
+    pub fn set_state(&mut self, state: &VirtioBlockState) -> Result<(), RestoreError> {
         self.check_state(state)?;
         for written in &state.written {
             let (start, data) = self.decode_written(written)?;
@@ -77,9 +78,9 @@ impl VirtioBlock {
     /// # Errors
     ///
     /// Describes the mismatch.
-    pub fn check_state(&self, state: &VirtioBlockState) -> Result<(), String> {
+    pub fn check_state(&self, state: &VirtioBlockState) -> Result<(), RestoreError> {
         if state.image_digest != self.image_digest {
-            return Err("the disk image differs from the one the checkpoint was taken on".into());
+            return Err(RestoreError::DiskImageDiffers);
         }
         for written in &state.written {
             let _ = self.decode_written(written)?;
@@ -91,12 +92,12 @@ impl VirtioBlock {
     pub(super) fn decode_written(
         &self,
         written: &WrittenSector,
-    ) -> Result<(usize, Vec<u8>), String> {
-        let data = from_hex(&written.data).ok_or("a written sector is not hex")?;
+    ) -> Result<(usize, Vec<u8>), RestoreError> {
+        let data = from_hex(&written.data).ok_or(RestoreError::WrittenSectorNotHex)?;
         let start = usize::try_from(written.sector * SECTOR_SIZE)
-            .map_err(|_| "a written sector lies past the end of the disk")?;
+            .map_err(|_| RestoreError::WrittenSectorPastDisk)?;
         if data.len() > SECTOR_SIZE as usize || start + data.len() > self.disk_image.len() {
-            return Err("a written sector lies past the end of the disk".into());
+            return Err(RestoreError::WrittenSectorPastDisk);
         }
         Ok((start, data))
     }

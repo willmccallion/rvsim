@@ -17,6 +17,7 @@ use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
+use crate::soc::traits::{RestoreError, parse_state};
 
 /// Offset of the first MSIP register; one 4-byte word per hart.
 const MSIP_BASE: u64 = 0x0000;
@@ -280,9 +281,8 @@ impl Device for Clint {
         serde_json::to_value(self.state()).ok()
     }
 
-    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
-        let state = serde_json::from_value::<ClintState>(state.clone())
-            .map_err(|error| format!("CLINT state: {error}"))?;
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
+        let state: ClintState = parse_state("CLINT", state)?;
         self.set_state(&state);
         Ok(())
     }

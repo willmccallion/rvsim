@@ -13,6 +13,7 @@ use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
 use crate::soc::devices::Device;
 use crate::soc::terminal::SharedTerminal;
+use crate::soc::traits::{RestoreError, parse_state};
 use std::collections::VecDeque;
 
 /// Receiver Buffer Register (Read) / Divisor Latch Low (DLAB=1).
@@ -459,9 +460,8 @@ impl Device for Uart {
         serde_json::to_value(self.state()).ok()
     }
 
-    fn restore(&mut self, state: &serde_json::Value) -> Result<(), String> {
-        let state = serde_json::from_value::<UartState>(state.clone())
-            .map_err(|error| format!("UART state: {error}"))?;
+    fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
+        let state: UartState = parse_state("UART", state)?;
         self.set_state(&state);
         Ok(())
     }
