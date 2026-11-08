@@ -17,6 +17,8 @@
 //!   (the [`MemDepUnit`](super::unit::MemDepUnit) handles wakeup,
 //!   not LFST clearing).
 
+use crate::common::ids::impl_id_from_index;
+use crate::common::usize_of;
 use crate::config::StoreSetConfig;
 use crate::uarch::pipeline::rob::RobTag;
 
@@ -26,15 +28,17 @@ use super::predictor::MemPrediction;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct StoreSetId(pub u16);
 
+impl_id_from_index!(StoreSetId, u16);
+
 /// Index into the SSIT table. Derived from PC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SsitIndex(pub u32);
+pub struct SsitIndex(pub usize);
 
 impl SsitIndex {
     /// Compute the SSIT index for a given PC and table size.
     #[inline]
     pub const fn from_pc(pc: u64, table_size: usize) -> Self {
-        Self(((pc >> 2) as u32) % (table_size as u32))
+        Self(usize_of(pc >> 2) % table_size)
     }
 }
 
@@ -64,8 +68,8 @@ impl StoreSetPredictor {
 
     /// The set a new load/store pair starts, derived from the load's PC as
     /// gem5's `calcSSID` does.
-    const fn new_set_id(&self, load_pc: u64) -> StoreSetId {
-        StoreSetId(((load_pc ^ (load_pc >> 10)) % self.lfst.len() as u64) as u16)
+    fn new_set_id(&self, load_pc: u64) -> StoreSetId {
+        StoreSetId::from_index(usize_of(load_pc ^ (load_pc >> 10)) % self.lfst.len())
     }
 
     /// Hash a PC into an SSIT index.
@@ -82,7 +86,7 @@ impl StoreSetPredictor {
     /// before [`register_store`](Self::register_store) overwrites the LFST entry.
     pub fn predict(&self, pc: u64) -> MemPrediction {
         let idx = self.ssit_index(pc);
-        let Some(set_id) = self.ssit[idx.0 as usize] else {
+        let Some(set_id) = self.ssit[idx.0] else {
             return MemPrediction::NoDep;
         };
         self.lfst[set_id.0 as usize].map_or(MemPrediction::NoDep, MemPrediction::DepOn)
@@ -92,7 +96,7 @@ impl StoreSetPredictor {
     /// so `predict()` sees the previous store, not itself.
     pub fn register_store(&mut self, store_pc: u64, rob_tag: RobTag) {
         let idx = self.ssit_index(store_pc);
-        if let Some(set_id) = self.ssit[idx.0 as usize] {
+        if let Some(set_id) = self.ssit[idx.0] {
             self.lfst[set_id.0 as usize] = Some(rob_tag);
         }
     }
@@ -102,27 +106,27 @@ impl StoreSetPredictor {
         let load_idx = self.ssit_index(load_pc);
         let store_idx = self.ssit_index(store_pc);
 
-        let load_set = self.ssit[load_idx.0 as usize];
-        let store_set = self.ssit[store_idx.0 as usize];
+        let load_set = self.ssit[load_idx.0];
+        let store_set = self.ssit[store_idx.0];
 
         match (load_set, store_set) {
             (None, None) => {
                 let id = self.new_set_id(load_pc);
-                self.ssit[load_idx.0 as usize] = Some(id);
-                self.ssit[store_idx.0 as usize] = Some(id);
+                self.ssit[load_idx.0] = Some(id);
+                self.ssit[store_idx.0] = Some(id);
             }
             (None, Some(sid)) => {
-                self.ssit[load_idx.0 as usize] = Some(sid);
+                self.ssit[load_idx.0] = Some(sid);
             }
             (Some(lid), None) => {
-                self.ssit[store_idx.0 as usize] = Some(lid);
+                self.ssit[store_idx.0] = Some(lid);
             }
             (Some(lid), Some(sid)) => {
                 // The lower-numbered set wins, as in gem5.
                 if sid > lid {
-                    self.ssit[store_idx.0 as usize] = Some(lid);
+                    self.ssit[store_idx.0] = Some(lid);
                 } else {
-                    self.ssit[load_idx.0 as usize] = Some(sid);
+                    self.ssit[load_idx.0] = Some(sid);
                 }
             }
         }
@@ -132,7 +136,7 @@ impl StoreSetPredictor {
     /// Only overwrites if `rob_tag` is newer than the current entry.
     pub fn rebuild_lfst_entry(&mut self, store_pc: u64, rob_tag: RobTag) {
         let idx = self.ssit_index(store_pc);
-        if let Some(set_id) = self.ssit[idx.0 as usize] {
+        if let Some(set_id) = self.ssit[idx.0] {
             let slot = &mut self.lfst[set_id.0 as usize];
             match *slot {
                 None => *slot = Some(rob_tag),
@@ -341,6 +345,16 @@ mod tests {
     }
 
     #[test]
+    fn a_high_pc_indexes_the_ssit_by_its_whole_word_index() {
+        let pc = 0xffff_ffff_8000_0000_u64;
+
+        let index = SsitIndex::from_pc(pc, 1000);
+
+        assert_eq!(index, SsitIndex(usize_of(pc >> 2) % 1000));
+        assert_eq!(index, SsitIndex(992));
+    }
+
+    #[test]
     fn a_new_set_is_numbered_from_the_load_pc() {
         let mut p = test_predictor();
         let load_pc: u64 = 0x1234_5678;
@@ -348,8 +362,8 @@ mod tests {
         p.train(load_pc, 0x2000);
 
         let expected = StoreSetId(((load_pc ^ (load_pc >> 10)) % 16) as u16);
-        assert_eq!(p.ssit[p.ssit_index(load_pc).0 as usize], Some(expected));
-        assert_eq!(p.ssit[p.ssit_index(0x2000).0 as usize], Some(expected));
+        assert_eq!(p.ssit[p.ssit_index(load_pc).0], Some(expected));
+        assert_eq!(p.ssit[p.ssit_index(0x2000).0], Some(expected));
     }
 
     #[test]
@@ -359,14 +373,14 @@ mod tests {
         let (load_b, store_b) = (0x1010, 0x2010);
         p.train(load_a, store_a);
         p.train(load_b, store_b);
-        let set_a = p.ssit[p.ssit_index(load_a).0 as usize].unwrap();
-        let set_b = p.ssit[p.ssit_index(load_b).0 as usize].unwrap();
+        let set_a = p.ssit[p.ssit_index(load_a).0].unwrap();
+        let set_b = p.ssit[p.ssit_index(load_b).0].unwrap();
         assert_ne!(set_a, set_b);
 
         p.train(load_a, store_b);
 
         let lower = set_a.min(set_b);
-        assert_eq!(p.ssit[p.ssit_index(load_a).0 as usize], Some(lower));
-        assert_eq!(p.ssit[p.ssit_index(store_b).0 as usize], Some(lower));
+        assert_eq!(p.ssit[p.ssit_index(load_a).0], Some(lower));
+        assert_eq!(p.ssit[p.ssit_index(store_b).0], Some(lower));
     }
 }

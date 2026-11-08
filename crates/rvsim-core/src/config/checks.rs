@@ -38,8 +38,6 @@ const MAX_PHYSICAL_REGISTERS: usize = 1 << u16::BITS;
 const MAX_CHECKPOINTS: usize = 1 << u8::BITS;
 /// Store sets a 16-bit `StoreSetId` can number.
 const MAX_STORE_SETS: usize = 1 << u16::BITS;
-/// SSIT entries a 32-bit `SsitIndex` can take a PC modulo.
-const MAX_SSIT_ENTRIES: usize = u32::MAX as usize;
 /// Bits of a loop-predictor tag or iteration count, held in 16-bit fields.
 const MAX_LOOP_FIELD_BITS: usize = 16;
 /// Bits of a loop-predictor confidence or age counter, held in 8-bit fields.
@@ -391,7 +389,6 @@ fn check_predictors(pipeline: &PipelineConfig) -> Result<(), ConfigError> {
     at_most("loop_predictor age_bits", loop_predictor.age_bits, MAX_LOOP_COUNTER_BITS)?;
     let store_set = &pipeline.store_set;
     at_least_one("store_set ssit_size", store_set.ssit_size)?;
-    at_most("store_set ssit_size", store_set.ssit_size, MAX_SSIT_ENTRIES)?;
     at_least_one("store_set lfst_size", store_set.lfst_size)?;
     at_most("store_set lfst_size", store_set.lfst_size, MAX_STORE_SETS)
 }
