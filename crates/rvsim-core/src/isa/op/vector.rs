@@ -7,8 +7,6 @@ use super::format::Signedness;
 /// unit it runs on and the commit statistic that counts it follow from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VecOpGroup {
-    /// Not a vector instruction.
-    NotVector,
     /// `vsetvl` and its immediate forms.
     Config,
     /// A load.
@@ -35,567 +33,82 @@ pub enum VecOpGroup {
     Permute,
 }
 
-impl VectorOp {
-    /// The group this operation belongs to.
-    #[must_use]
-    #[allow(clippy::enum_glob_use)]
-    pub const fn group(self) -> VecOpGroup {
-        use VectorOp::*;
-        match self {
-            None => VecOpGroup::NotVector,
-            Vsetvli { .. } | Vsetivli { .. } | Vsetvl => VecOpGroup::Config,
-            VLoadUnit | VLoadFF | VLoadMask | VLoadWholeReg | VLoadStride | VLoadIndexOrd
-            | VLoadIndexUnord => VecOpGroup::Load,
-            VStoreUnit | VStoreMask | VStoreWholeReg | VStoreStride | VStoreIndexOrd
-            | VStoreIndexUnord => VecOpGroup::Store,
-            VAdd | VSub | VRsub | VAnd | VOr | VXor | VSll | VSrl | VSra | VMinU | VMin | VMaxU
-            | VMax | VMerge | VMSeq | VMSne | VMSltu | VMSlt | VMSleu | VMSle | VMSgtu | VMSgt
-            | VAdc | VMadc | VSbc | VMsbc | VWAddU | VWAdd | VWSubU | VWSub | VWAddUW | VWAddW
-            | VWSubUW | VWSubW | VNSrl | VNSra | VNClipU | VNClip | VSAddU | VSAdd | VSSubU
-            | VSSub | VAAddU | VAAdd | VASubU | VASub | VSmul | VSSrl | VSSra | VZextVf2
-            | VZextVf4 | VZextVf8 | VSextVf2 | VSextVf4 | VSextVf8 | VAndN | VBrev | VBrev8
-            | VRev8 | VClz | VCtz | VCpopV | VRol | VRor | VWsll | VRedSum | VRedAnd | VRedOr
-            | VRedXor | VRedMinU | VRedMin | VRedMaxU | VRedMax | VWRedSumU | VWRedSum => {
-                VecOpGroup::IntAlu
-            }
-            VMul | VMulh | VMulhu | VMulhsu | VMacc | VNMSac | VMadd | VNMSub | VWMulU | VWMul
-            | VWMulSU | VWMaccU | VWMacc | VWMaccSU | VWMaccUS | VClMul | VClMulH => {
-                VecOpGroup::IntMul
-            }
-            VDivU | VDiv | VRemU | VRem => VecOpGroup::IntDiv,
-            VAesEm | VAesEf | VAesDm | VAesDf | VAesZ | VAesKf1 | VAesKf2 | VSha2Ms | VSha2Ch
-            | VSha2Cl | VSm3Me | VSm3C | VSm4R | VSm4K | VGhsh | VGmul => VecOpGroup::Crypto,
-            VFAdd | VFSub | VFRSub | VFMin | VFMax | VFSgnj | VFSgnjn | VFSgnjx | VMFEq | VMFNe
-            | VMFLt | VMFLe | VMFGt | VMFGe | VFRsqrt7 | VFRec7 | VFClass | VFCvtXuF | VFCvtXF
-            | VFCvtFXu | VFCvtFX | VFCvtRtzXuF | VFCvtRtzXF | VFWAdd | VFWSub | VFWAddW
-            | VFWSubW | VFWCvtXuF | VFWCvtXF | VFWCvtFXu | VFWCvtFX | VFWCvtFF | VFWCvtRtzXuF
-            | VFWCvtRtzXF | VFNCvtXuF | VFNCvtXF | VFNCvtFXu | VFNCvtFX | VFNCvtFF
-            | VFNCvtRodFF | VFNCvtRtzXuF | VFNCvtRtzXF | VFMerge | VFMvSF | VFMvFS | VFRedOSum
-            | VFRedUSum | VFRedMax | VFRedMin | VFWRedOSum | VFWRedUSum => VecOpGroup::FpAlu,
-            VFMul | VFMacc | VFNMacc | VFMSac | VFNMSac | VFMAdd | VFNMAdd | VFMSub | VFNMSub
-            | VFWMul | VFWMacc | VFWNMacc | VFWMSac | VFWNMSac => VecOpGroup::FpFma,
-            VFDiv | VFRDiv | VFSqrt => VecOpGroup::FpDivSqrt,
-            VFSlide1Up | VFSlide1Down => VecOpGroup::FpSlide,
-            VMAndMM | VMNandMM | VMAndnMM | VMOrMM | VMNorMM | VMOrnMM | VMXorMM | VMXnorMM
-            | VCPopM | VFirstM | VMSbfM | VMSifM | VMSofM | VIotaM | VIdV | VMvXS | VMvSX
-            | VSlideUp(_) | VSlideDown(_) | VSlide1Up | VSlide1Down | VRgather | VRgatherEi16
-            | VCompress | VMv1r | VMv2r | VMv4r | VMv8r => VecOpGroup::Permute,
-        }
-    }
+/// A vector operation, by the unit and group of operations it belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VectorOp {
+    /// `vsetvl` and its immediate forms.
+    Config(VecConfigOp),
+    /// A load.
+    Load(VecLoadOp),
+    /// A store.
+    Store(VecStoreOp),
+    /// The integer ALU.
+    Alu(VecAluOp),
+    /// A floating-point operation.
+    Fp(VecFpOp),
+    /// A reduction.
+    Reduce(ReduceOp),
+    /// A mask operation.
+    Mask(MaskOp),
+    /// A permutation.
+    Permute(PermuteOp),
+    /// A cryptography operation.
+    Crypto(CryptoOp),
 }
 
-/// Vector operation type.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum VectorOp {
-    /// No vector operation.
-    #[default]
-    None,
-
-    /// `vsetvli` — set vl/vtype from rs1 and immediate.
+/// The configuration instructions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VecConfigOp {
+    /// `vsetvli`: the AVL from rs1, the vtype immediate.
     Vsetvli {
         /// The requested `vtype`.
         vtype: u16,
     },
-    /// `vsetivli` — set vl/vtype from uimm and immediate.
+    /// `vsetivli`: both immediate.
     Vsetivli {
         /// The application vector length.
         avl: u8,
         /// The requested `vtype`.
         vtype: u16,
     },
-    /// `vsetvl` — set vl/vtype from rs1 and rs2.
+    /// `vsetvl`: the AVL from rs1, vtype from rs2.
     Vsetvl,
+}
 
-    /// `vadd` — vector add.
-    VAdd,
-    /// `vsub` — vector subtract.
-    VSub,
-    /// `vrsub` — vector reverse subtract (imm/scalar - vs2).
-    VRsub,
-    /// `vand` — vector bitwise AND.
-    VAnd,
-    /// `vor` — vector bitwise OR.
-    VOr,
-    /// `vxor` — vector bitwise XOR.
-    VXor,
-    /// `vsll` — vector shift left logical.
-    VSll,
-    /// `vsrl` — vector shift right logical.
-    VSrl,
-    /// `vsra` — vector shift right arithmetic.
-    VSra,
-    /// `vminu` — vector unsigned minimum.
-    VMinU,
-    /// `vmin` — vector signed minimum.
-    VMin,
-    /// `vmaxu` — vector unsigned maximum.
-    VMaxU,
-    /// `vmax` — vector signed maximum.
-    VMax,
+/// How a vector load addresses its elements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VecLoadOp {
+    /// `vle`: unit stride, and the segment forms.
+    Unit,
+    /// `vleff`: unit stride, trapping only on element 0.
+    FaultOnlyFirst,
+    /// `vlm`: a mask register's bytes.
+    Mask,
+    /// `vl<n>re`: whole registers.
+    WholeRegister,
+    /// `vlse`: strided.
+    Strided,
+    /// `vloxei`: indexed, ordered.
+    IndexedOrdered,
+    /// `vluxei`: indexed, unordered.
+    IndexedUnordered,
+}
 
-    /// `vmerge` / `vmv` — vector merge or move.
-    VMerge,
-
-    /// `vmseq` — set mask if equal.
-    VMSeq,
-    /// `vmsne` — set mask if not equal.
-    VMSne,
-    /// `vmsltu` — set mask if less than unsigned.
-    VMSltu,
-    /// `vmslt` — set mask if less than signed.
-    VMSlt,
-    /// `vmsleu` — set mask if less than or equal unsigned.
-    VMSleu,
-    /// `vmsle` — set mask if less than or equal signed.
-    VMSle,
-    /// `vmsgtu` — set mask if greater than unsigned.
-    VMSgtu,
-    /// `vmsgt` — set mask if greater than signed.
-    VMSgt,
-
-    /// `vadc` — add with carry from v0 mask.
-    VAdc,
-    /// `vmadc` — mask-producing add with carry.
-    VMadc,
-    /// `vsbc` — subtract with borrow from v0 mask.
-    VSbc,
-    /// `vmsbc` — mask-producing subtract with borrow.
-    VMsbc,
-
-    /// `vmul` — multiply low bits.
-    VMul,
-    /// `vmulh` — multiply high bits (signed × signed).
-    VMulh,
-    /// `vmulhu` — multiply high bits (unsigned × unsigned).
-    VMulhu,
-    /// `vmulhsu` — multiply high bits (signed × unsigned).
-    VMulhsu,
-    /// `vmacc` — multiply-accumulate (vd = vs1*vs2 + vd).
-    VMacc,
-    /// `vnmsac` — negated multiply-subtract accumulate (vd = -(vs1*vs2) + vd).
-    VNMSac,
-    /// `vmadd` — multiply-add (vd = vs1*vd + vs2).
-    VMadd,
-    /// `vnmsub` — negated multiply-subtract (vd = -(vs1*vd) + vs2).
-    VNMSub,
-
-    /// `vdivu` — unsigned divide.
-    VDivU,
-    /// `vdiv` — signed divide.
-    VDiv,
-    /// `vremu` — unsigned remainder.
-    VRemU,
-    /// `vrem` — signed remainder.
-    VRem,
-
-    /// `vwaddu` — widening unsigned add (SEW → 2×SEW).
-    VWAddU,
-    /// `vwadd` — widening signed add (SEW → 2×SEW).
-    VWAdd,
-    /// `vwsubu` — widening unsigned subtract (SEW → 2×SEW).
-    VWSubU,
-    /// `vwsub` — widening signed subtract (SEW → 2×SEW).
-    VWSub,
-    /// `vwaddu.w` — widening unsigned add wide (2×SEW op SEW → 2×SEW).
-    VWAddUW,
-    /// `vwadd.w` — widening signed add wide (2×SEW op SEW → 2×SEW).
-    VWAddW,
-    /// `vwsubu.w` — widening unsigned subtract wide (2×SEW op SEW → 2×SEW).
-    VWSubUW,
-    /// `vwsub.w` — widening signed subtract wide (2×SEW op SEW → 2×SEW).
-    VWSubW,
-
-    /// `vwmulu` — widening unsigned multiply.
-    VWMulU,
-    /// `vwmul` — widening signed multiply.
-    VWMul,
-    /// `vwmulsu` — widening signed-unsigned multiply.
-    VWMulSU,
-    /// `vwmaccu` — widening unsigned multiply-accumulate.
-    VWMaccU,
-    /// `vwmacc` — widening signed multiply-accumulate.
-    VWMacc,
-    /// `vwmaccsu` — widening signed-unsigned multiply-accumulate.
-    VWMaccSU,
-    /// `vwmaccus` — widening unsigned-signed multiply-accumulate.
-    VWMaccUS,
-
-    /// `vnsrl` — narrowing shift right logical (2×SEW → SEW).
-    VNSrl,
-    /// `vnsra` — narrowing shift right arithmetic (2×SEW → SEW).
-    VNSra,
-    /// `vnclipu` — narrowing clip unsigned with saturation.
-    VNClipU,
-    /// `vnclip` — narrowing clip signed with saturation.
-    VNClip,
-
-    /// `vsaddu` — saturating unsigned add.
-    VSAddU,
-    /// `vsadd` — saturating signed add.
-    VSAdd,
-    /// `vssubu` — saturating unsigned subtract.
-    VSSubU,
-    /// `vssub` — saturating signed subtract.
-    VSSub,
-
-    /// `vaaddu` — averaging unsigned add.
-    VAAddU,
-    /// `vaadd` — averaging signed add.
-    VAAdd,
-    /// `vasubu` — averaging unsigned subtract.
-    VASubU,
-    /// `vasub` — averaging signed subtract.
-    VASub,
-
-    /// `vsmul` — signed fractional multiply with rounding.
-    VSmul,
-    /// `vssrl` — scaling shift right logical with rounding.
-    VSSrl,
-    /// `vssra` — scaling shift right arithmetic with rounding.
-    VSSra,
-
-    /// `vzext.vf2` — zero-extend SEW/2 to SEW.
-    VZextVf2,
-    /// `vzext.vf4` — zero-extend SEW/4 to SEW.
-    VZextVf4,
-    /// `vzext.vf8` — zero-extend SEW/8 to SEW.
-    VZextVf8,
-    /// `vsext.vf2` — sign-extend SEW/2 to SEW.
-    VSextVf2,
-    /// `vsext.vf4` — sign-extend SEW/4 to SEW.
-    VSextVf4,
-    /// `vsext.vf8` — sign-extend SEW/8 to SEW.
-    VSextVf8,
-
-    /// `vandn` — vector bitwise AND-NOT (vd\[i\] = vs2\[i\] & ~op1\[i\]).
-    VAndN,
-    /// `vbrev.v` — reverse all bits within each element.
-    VBrev,
-    /// `vbrev8.v` — reverse bits within each byte of each element.
-    VBrev8,
-    /// `vrev8.v` — reverse bytes within each element.
-    VRev8,
-    /// `vclz.v` — count leading zeros within each element (at SEW).
-    VClz,
-    /// `vctz.v` — count trailing zeros within each element (at SEW).
-    VCtz,
-    /// `vcpop.v` — per-element population count (Zvbb; distinct from `vcpop.m`).
-    VCpopV,
-    /// `vrol` — vector rotate left (vv/vx).
-    VRol,
-    /// `vror` — vector rotate right (vv/vx/vi with 6-bit imm).
-    VRor,
-    /// `vwsll` — widening shift left logical (vd is 2*SEW).
-    VWsll,
-
-    /// `vclmul` — carry-less multiply low (GF(2) multiply, low half).
-    VClMul,
-    /// `vclmulh` — carry-less multiply high (GF(2) multiply, high half).
-    VClMulH,
-
-    /// `vaesem.vv`/`vaesem.vs` — AES single-round encryption (middle round).
-    VAesEm,
-    /// `vaesef.vv`/`vaesef.vs` — AES single-round encryption (final round).
-    VAesEf,
-    /// `vaesdm.vv`/`vaesdm.vs` — AES single-round decryption (middle round).
-    VAesDm,
-    /// `vaesdf.vv`/`vaesdf.vs` — AES single-round decryption (final round).
-    VAesDf,
-    /// `vaesz.vs` — AES round-zero (XOR with key).
-    VAesZ,
-    /// `vaeskf1.vi` — AES-128 forward key schedule.
-    VAesKf1,
-    /// `vaeskf2.vi` — AES-256 forward key schedule.
-    VAesKf2,
-
-    /// `vsha2ms.vv` — SHA-2 message scheduling.
-    VSha2Ms,
-    /// `vsha2ch.vv` — SHA-2 compression (high half).
-    VSha2Ch,
-    /// `vsha2cl.vv` — SHA-2 compression (low half).
-    VSha2Cl,
-
-    /// `vsm3me.vv` — SM3 message expansion.
-    VSm3Me,
-    /// `vsm3c.vi` — SM3 compression.
-    VSm3C,
-
-    /// `vsm4r.vv`/`vsm4r.vs` — SM4 round.
-    VSm4R,
-    /// `vsm4k.vi` — SM4 key expansion.
-    VSm4K,
-
-    /// `vghsh.vv` — vector GHASH add-multiply.
-    VGhsh,
-    /// `vgmul.vv` — vector GHASH multiply.
-    VGmul,
-
-    /// Unit-stride vector load (`vle8/16/32/64`).
-    VLoadUnit,
-    /// Unit-stride vector store (`vse8/16/32/64`).
-    VStoreUnit,
-    /// Fault-only-first vector load (`vle8ff/16ff/32ff/64ff`).
-    VLoadFF,
-    /// Mask load (`vlm.v`).
-    VLoadMask,
-    /// Mask store (`vsm.v`).
-    VStoreMask,
-    /// Whole-register load (`vl1re8`, `vl2re8`, etc.).
-    VLoadWholeReg,
-    /// Whole-register store (`vs1r`, `vs2r`, etc.).
-    VStoreWholeReg,
-
-    /// Strided vector load (`vlse8/16/32/64`).
-    VLoadStride,
-    /// Strided vector store (`vsse8/16/32/64`).
-    VStoreStride,
-
-    /// Indexed ordered vector load (`vloxei8/16/32/64`).
-    VLoadIndexOrd,
-    /// Indexed ordered vector store (`vsoxei8/16/32/64`).
-    VStoreIndexOrd,
-    /// Indexed unordered vector load (`vluxei8/16/32/64`).
-    VLoadIndexUnord,
-    /// Indexed unordered vector store (`vsuxei8/16/32/64`).
-    VStoreIndexUnord,
-
-    /// `vfadd` — vector FP add.
-    VFAdd,
-    /// `vfsub` — vector FP subtract.
-    VFSub,
-    /// `vfrsub` — vector FP reverse subtract (scalar - vs2).
-    VFRSub,
-    /// `vfmul` — vector FP multiply.
-    VFMul,
-    /// `vfdiv` — vector FP divide.
-    VFDiv,
-    /// `vfrdiv` — vector FP reverse divide (scalar / vs2).
-    VFRDiv,
-
-    /// `vfmin` — vector FP minimum.
-    VFMin,
-    /// `vfmax` — vector FP maximum.
-    VFMax,
-
-    /// `vfsgnj` — vector FP sign injection (copy sign).
-    VFSgnj,
-    /// `vfsgnjn` — vector FP negated sign injection.
-    VFSgnjn,
-    /// `vfsgnjx` — vector FP XOR sign injection.
-    VFSgnjx,
-
-    /// `vmfeq` — set mask if FP equal.
-    VMFEq,
-    /// `vmfne` — set mask if FP not equal.
-    VMFNe,
-    /// `vmflt` — set mask if FP less than.
-    VMFLt,
-    /// `vmfle` — set mask if FP less than or equal.
-    VMFLe,
-    /// `vmfgt` — set mask if FP greater than.
-    VMFGt,
-    /// `vmfge` — set mask if FP greater than or equal.
-    VMFGe,
-
-    /// `vfmacc` — FP multiply-accumulate (vd = vs1*vs2 + vd).
-    VFMacc,
-    /// `vfnmacc` — FP negated multiply-accumulate (vd = -(vs1*vs2) - vd).
-    VFNMacc,
-    /// `vfmsac` — FP multiply-subtract accumulate (vd = vs1*vs2 - vd).
-    VFMSac,
-    /// `vfnmsac` — FP negated multiply-subtract accumulate (vd = -(vs1*vs2) + vd).
-    VFNMSac,
-    /// `vfmadd` — FP multiply-add (vd = vs1*vd + vs2).
-    VFMAdd,
-    /// `vfnmadd` — FP negated multiply-add (vd = -(vs1*vd) - vs2).
-    VFNMAdd,
-    /// `vfmsub` — FP multiply-subtract (vd = vs1*vd - vs2).
-    VFMSub,
-    /// `vfnmsub` — FP negated multiply-subtract (vd = -(vs1*vd) + vs2).
-    VFNMSub,
-
-    /// `vfsqrt` — vector FP square root.
-    VFSqrt,
-    /// `vfrsqrt7` — vector FP reciprocal square root (7-bit accuracy).
-    VFRsqrt7,
-    /// `vfrec7` — vector FP reciprocal (7-bit accuracy).
-    VFRec7,
-    /// `vfclass` — vector FP classify.
-    VFClass,
-
-    /// `vfcvt.xu.f` — convert FP to unsigned integer.
-    VFCvtXuF,
-    /// `vfcvt.x.f` — convert FP to signed integer.
-    VFCvtXF,
-    /// `vfcvt.f.xu` — convert unsigned integer to FP.
-    VFCvtFXu,
-    /// `vfcvt.f.x` — convert signed integer to FP.
-    VFCvtFX,
-    /// `vfcvt.rtz.xu.f` — convert FP to unsigned integer (round toward zero).
-    VFCvtRtzXuF,
-    /// `vfcvt.rtz.x.f` — convert FP to signed integer (round toward zero).
-    VFCvtRtzXF,
-
-    /// `vfwadd` — widening FP add (SEW -> 2*SEW).
-    VFWAdd,
-    /// `vfwsub` — widening FP subtract (SEW -> 2*SEW).
-    VFWSub,
-    /// `vfwmul` — widening FP multiply (SEW -> 2*SEW).
-    VFWMul,
-    /// `vfwadd.w` — widening FP add wide (2*SEW op SEW -> 2*SEW).
-    VFWAddW,
-    /// `vfwsub.w` — widening FP subtract wide (2*SEW op SEW -> 2*SEW).
-    VFWSubW,
-
-    /// `vfwmacc` — widening FP multiply-accumulate.
-    VFWMacc,
-    /// `vfwnmacc` — widening FP negated multiply-accumulate.
-    VFWNMacc,
-    /// `vfwmsac` — widening FP multiply-subtract accumulate.
-    VFWMSac,
-    /// `vfwnmsac` — widening FP negated multiply-subtract accumulate.
-    VFWNMSac,
-
-    /// `vfwcvt.xu.f` — widening convert FP to unsigned integer.
-    VFWCvtXuF,
-    /// `vfwcvt.x.f` — widening convert FP to signed integer.
-    VFWCvtXF,
-    /// `vfwcvt.f.xu` — widening convert unsigned integer to FP.
-    VFWCvtFXu,
-    /// `vfwcvt.f.x` — widening convert signed integer to FP.
-    VFWCvtFX,
-    /// `vfwcvt.f.f` — widening convert FP to wider FP.
-    VFWCvtFF,
-    /// `vfwcvt.rtz.xu.f` — widening convert FP to unsigned integer (round toward zero).
-    VFWCvtRtzXuF,
-    /// `vfwcvt.rtz.x.f` — widening convert FP to signed integer (round toward zero).
-    VFWCvtRtzXF,
-
-    /// `vfncvt.xu.f` — narrowing convert FP to unsigned integer.
-    VFNCvtXuF,
-    /// `vfncvt.x.f` — narrowing convert FP to signed integer.
-    VFNCvtXF,
-    /// `vfncvt.f.xu` — narrowing convert unsigned integer to FP.
-    VFNCvtFXu,
-    /// `vfncvt.f.x` — narrowing convert signed integer to FP.
-    VFNCvtFX,
-    /// `vfncvt.f.f` — narrowing convert FP to narrower FP.
-    VFNCvtFF,
-    /// `vfncvt.rod.f.f` — narrowing convert FP to narrower FP (round-odd).
-    VFNCvtRodFF,
-    /// `vfncvt.rtz.xu.f` — narrowing convert FP to unsigned integer (round toward zero).
-    VFNCvtRtzXuF,
-    /// `vfncvt.rtz.x.f` — narrowing convert FP to signed integer (round toward zero).
-    VFNCvtRtzXF,
-
-    /// `vfmerge` — vector FP merge with mask.
-    VFMerge,
-    /// `vfmv.s.f` — move FP scalar to vector element 0.
-    VFMvSF,
-    /// `vfmv.f.s` — move vector element 0 to FP scalar.
-    VFMvFS,
-
-    /// `vfslide1up` — slide up by one with FP scalar.
-    VFSlide1Up,
-    /// `vfslide1down` — slide down by one with FP scalar.
-    VFSlide1Down,
-
-    /// `vredsum` — reduction sum.
-    VRedSum,
-    /// `vredand` — reduction AND.
-    VRedAnd,
-    /// `vredor` — reduction OR.
-    VRedOr,
-    /// `vredxor` — reduction XOR.
-    VRedXor,
-    /// `vredminu` — reduction unsigned minimum.
-    VRedMinU,
-    /// `vredmin` — reduction signed minimum.
-    VRedMin,
-    /// `vredmaxu` — reduction unsigned maximum.
-    VRedMaxU,
-    /// `vredmax` — reduction signed maximum.
-    VRedMax,
-
-    /// `vwredsumu` — widening unsigned reduction sum.
-    VWRedSumU,
-    /// `vwredsum` — widening signed reduction sum.
-    VWRedSum,
-
-    /// `vfredosum` — FP ordered reduction sum.
-    VFRedOSum,
-    /// `vfredusum` — FP unordered reduction sum.
-    VFRedUSum,
-    /// `vfredmax` — FP reduction maximum.
-    VFRedMax,
-    /// `vfredmin` — FP reduction minimum.
-    VFRedMin,
-
-    /// `vfwredosum` — widening FP ordered reduction sum.
-    VFWRedOSum,
-    /// `vfwredusum` — widening FP unordered reduction sum.
-    VFWRedUSum,
-
-    /// `vmand.mm` — mask AND.
-    VMAndMM,
-    /// `vmnand.mm` — mask NAND.
-    VMNandMM,
-    /// `vmandn.mm` — mask AND-NOT.
-    VMAndnMM,
-    /// `vmor.mm` — mask OR.
-    VMOrMM,
-    /// `vmnor.mm` — mask NOR.
-    VMNorMM,
-    /// `vmorn.mm` — mask OR-NOT.
-    VMOrnMM,
-    /// `vmxor.mm` — mask XOR.
-    VMXorMM,
-    /// `vmxnor.mm` — mask XNOR.
-    VMXnorMM,
-
-    /// `vcpop.m` — count population of mask register.
-    VCPopM,
-    /// `vfirst.m` — find first set bit in mask register.
-    VFirstM,
-
-    /// `vmsbf.m` — set-before-first mask bit.
-    VMSbfM,
-    /// `vmsif.m` — set-including-first mask bit.
-    VMSifM,
-    /// `vmsof.m` — set-only-first mask bit.
-    VMSofM,
-
-    /// `viota.m` — iota (prefix sum of mask bits).
-    VIotaM,
-    /// `vid.v` — vector element index.
-    VIdV,
-
-    /// `vmv.x.s` — move vector element 0 to scalar GPR.
-    VMvXS,
-    /// `vmv.s.x` — move scalar GPR to vector element 0.
-    VMvSX,
-    /// `vslideup` — slide elements up by the offset.
-    VSlideUp(SlideOffset),
-    /// `vslidedown` — slide elements down by the offset.
-    VSlideDown(SlideOffset),
-    /// `vslide1up` — slide up by one with scalar.
-    VSlide1Up,
-    /// `vslide1down` — slide down by one with scalar.
-    VSlide1Down,
-    /// `vrgather` — register gather (permute by index).
-    VRgather,
-    /// `vrgatherei16` — register gather with 16-bit indices.
-    VRgatherEi16,
-    /// `vcompress` — compress active elements.
-    VCompress,
-    /// `vmv1r` — whole-register move (1 register).
-    VMv1r,
-    /// `vmv2r` — whole-register move (2 registers).
-    VMv2r,
-    /// `vmv4r` — whole-register move (4 registers).
-    VMv4r,
-    /// `vmv8r` — whole-register move (8 registers).
-    VMv8r,
+/// How a vector store addresses its elements.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VecStoreOp {
+    /// `vse`: unit stride, and the segment forms.
+    Unit,
+    /// `vsm`: a mask register's bytes.
+    Mask,
+    /// `vs<n>r`: whole registers.
+    WholeRegister,
+    /// `vsse`: strided.
+    Strided,
+    /// `vsoxei`: indexed, ordered.
+    IndexedOrdered,
+    /// `vsuxei`: indexed, unordered.
+    IndexedUnordered,
 }
 
 /// Per-operand vector register group sizes for a given instruction.
@@ -613,12 +126,133 @@ pub struct VecOperandGroups {
     pub vs2: u8,
 }
 
+impl VecOperandGroups {
+    /// No vector register operands.
+    pub const NONE: Self = Self { vd: 0, vs1: 0, vs2: 0 };
+}
+
 impl VectorOp {
+    /// The group this operation belongs to.
+    #[must_use]
+    pub const fn group(self) -> VecOpGroup {
+        match self {
+            Self::Config(_) => VecOpGroup::Config,
+            Self::Load(_) => VecOpGroup::Load,
+            Self::Store(_) => VecOpGroup::Store,
+            Self::Alu(
+                VecAluOp::Int(
+                    IntOp::Add
+                    | IntOp::Sub
+                    | IntOp::Rsub
+                    | IntOp::And
+                    | IntOp::Or
+                    | IntOp::Xor
+                    | IntOp::Sll
+                    | IntOp::Srl
+                    | IntOp::Sra
+                    | IntOp::MinU
+                    | IntOp::Min
+                    | IntOp::MaxU
+                    | IntOp::Max
+                    | IntOp::SAddU
+                    | IntOp::SAdd
+                    | IntOp::SSubU
+                    | IntOp::SSub
+                    | IntOp::AAddU
+                    | IntOp::AAdd
+                    | IntOp::ASubU
+                    | IntOp::ASub
+                    | IntOp::Smul
+                    | IntOp::SSrl
+                    | IntOp::SSra
+                    | IntOp::AndN
+                    | IntOp::Brev
+                    | IntOp::Brev8
+                    | IntOp::Rev8
+                    | IntOp::Clz
+                    | IntOp::Ctz
+                    | IntOp::CpopV
+                    | IntOp::Rol
+                    | IntOp::Ror,
+                )
+                | VecAluOp::Merge
+                | VecAluOp::Compare(_)
+                | VecAluOp::Carry(_)
+                | VecAluOp::Widen(
+                    WidenOp::AddU
+                    | WidenOp::Add
+                    | WidenOp::SubU
+                    | WidenOp::Sub
+                    | WidenOp::AddUW
+                    | WidenOp::AddW
+                    | WidenOp::SubUW
+                    | WidenOp::SubW
+                    | WidenOp::Sll,
+                )
+                | VecAluOp::Narrow(_)
+                | VecAluOp::Extend(_),
+            )
+            | Self::Reduce(ReduceOp::Int(_) | ReduceOp::WidenInt(_)) => VecOpGroup::IntAlu,
+            Self::Alu(
+                VecAluOp::Int(
+                    IntOp::Mul
+                    | IntOp::Mulh
+                    | IntOp::Mulhu
+                    | IntOp::Mulhsu
+                    | IntOp::ClMul
+                    | IntOp::ClMulH,
+                )
+                | VecAluOp::Macc(_)
+                | VecAluOp::Widen(WidenOp::MulU | WidenOp::Mul | WidenOp::MulSU)
+                | VecAluOp::WidenMacc(_),
+            ) => VecOpGroup::IntMul,
+            Self::Alu(VecAluOp::Int(IntOp::DivU | IntOp::Div | IntOp::RemU | IntOp::Rem)) => {
+                VecOpGroup::IntDiv
+            }
+            Self::Crypto(_) => VecOpGroup::Crypto,
+            Self::Fp(
+                VecFpOp::Binary(
+                    FpBinaryOp::Add
+                    | FpBinaryOp::Sub
+                    | FpBinaryOp::RSub
+                    | FpBinaryOp::Min
+                    | FpBinaryOp::Max
+                    | FpBinaryOp::Sgnj
+                    | FpBinaryOp::Sgnjn
+                    | FpBinaryOp::Sgnjx,
+                )
+                | VecFpOp::Compare(_)
+                | VecFpOp::Unary(
+                    FpUnaryOp::Rsqrt7 | FpUnaryOp::Rec7 | FpUnaryOp::Class | FpUnaryOp::Convert(_),
+                )
+                | VecFpOp::Widen(FpWidenOp::Add | FpWidenOp::Sub | FpWidenOp::AddW | FpWidenOp::SubW)
+                | VecFpOp::WidenConvert(_)
+                | VecFpOp::NarrowConvert(_)
+                | VecFpOp::Merge
+                | VecFpOp::MoveFromScalar
+                | VecFpOp::MoveToScalar,
+            )
+            | Self::Reduce(ReduceOp::Fp(_) | ReduceOp::FpWiden(_)) => VecOpGroup::FpAlu,
+            Self::Fp(
+                VecFpOp::Binary(FpBinaryOp::Mul)
+                | VecFpOp::Fma(_, _)
+                | VecFpOp::Widen(FpWidenOp::Mul)
+                | VecFpOp::WidenFma(_),
+            ) => VecOpGroup::FpFma,
+            Self::Fp(
+                VecFpOp::Binary(FpBinaryOp::Div | FpBinaryOp::RDiv)
+                | VecFpOp::Unary(FpUnaryOp::Sqrt),
+            ) => VecOpGroup::FpDivSqrt,
+            Self::Fp(VecFpOp::Slide1Up | VecFpOp::Slide1Down) => VecOpGroup::FpSlide,
+            Self::Mask(_) | Self::Permute(_) => VecOpGroup::Permute,
+        }
+    }
+
     /// `vsetvli`, `vsetivli` or `vsetvl`: writes `vtype` and `vl` instead of
     /// a vector register.
     #[must_use]
     pub const fn is_config(self) -> bool {
-        matches!(self, Self::Vsetvli { .. } | Self::Vsetivli { .. } | Self::Vsetvl)
+        matches!(self, Self::Config(_))
     }
 
     /// True for every vector op `vtype` governs, which therefore traps
@@ -628,16 +262,10 @@ impl VectorOp {
     pub const fn depends_on_vtype(self) -> bool {
         !matches!(
             self,
-            Self::None
-                | Self::Vsetvli { .. }
-                | Self::Vsetivli { .. }
-                | Self::Vsetvl
-                | Self::VLoadWholeReg
-                | Self::VStoreWholeReg
-                | Self::VMv1r
-                | Self::VMv2r
-                | Self::VMv4r
-                | Self::VMv8r
+            Self::Config(_)
+                | Self::Load(VecLoadOp::WholeRegister)
+                | Self::Store(VecStoreOp::WholeRegister)
+                | Self::Permute(PermuteOp::WholeMove(_))
         )
     }
 
@@ -648,14 +276,9 @@ impl VectorOp {
     pub const fn executes_without_body(self) -> bool {
         matches!(
             self,
-            Self::VMvXS
-                | Self::VFMvFS
-                | Self::VCPopM
-                | Self::VFirstM
-                | Self::VMv1r
-                | Self::VMv2r
-                | Self::VMv4r
-                | Self::VMv8r
+            Self::Permute(PermuteOp::MvXS | PermuteOp::WholeMove(_))
+                | Self::Fp(VecFpOp::MoveToScalar)
+                | Self::Mask(MaskOp::CPop | MaskOp::First)
         )
     }
 
@@ -681,7 +304,6 @@ impl VectorOp {
     /// LMUL and M1 — they all share group=1). `lmul_is_fractional` distinguishes
     /// fractional LMUL (Mf8/Mf4/Mf2) from M1: it matters for widening, where
     /// `2*LMUL` for fractional still fits in 1 register but `2*M1 = M2` needs 2.
-    #[allow(clippy::enum_glob_use)]
     pub fn operand_groups(
         self,
         lmul: u8,
@@ -690,8 +312,6 @@ impl VectorOp {
         nf: u8,
         broadcast_vs2: bool,
     ) -> VecOperandGroups {
-        use VectorOp::*;
-
         // Doubled register group for widening / narrowing. For fractional LMUL,
         // `2*LMUL` is still ≤ 1 register (e.g. 2*Mf8 = Mf4), so emul_widened = 1
         // even though `lmul == 1` would otherwise produce 2.
@@ -705,96 +325,172 @@ impl VectorOp {
         let vs2_crypto = if broadcast_vs2 { 1 } else { lmul };
 
         match self {
-            None | Vsetvli { .. } | Vsetivli { .. } | Vsetvl => {
-                VecOperandGroups { vd: 0, vs1: 0, vs2: 0 }
-            }
-
-            VAdd | VSub | VRsub | VAnd | VOr | VXor | VSll | VSrl | VSra | VMinU | VMin | VMaxU
-            | VMax | VMul | VMulh | VMulhu | VMulhsu | VMacc | VNMSac | VMadd | VNMSub | VDivU
-            | VDiv | VRemU | VRem | VSAddU | VSAdd | VSSubU | VSSub | VAAddU | VAAdd | VASubU
-            | VASub | VSmul | VSSrl | VSSra | VMerge | VSlideUp(_) | VSlideDown(_) | VSlide1Up
-            | VSlide1Down | VRgather | VRgatherEi16 | VCompress | VFAdd | VFSub | VFRSub
-            | VFMul | VFDiv | VFRDiv | VFMin | VFMax | VFSgnj | VFSgnjn | VFSgnjx | VFMacc
-            | VFNMacc | VFMSac | VFNMSac | VFMAdd | VFNMAdd | VFMSub | VFNMSub | VFMerge
-            | VFSlide1Up | VFSlide1Down | VAdc | VSbc | VAndN | VRol | VRor | VClMul | VClMulH => {
-                VecOperandGroups { vd: lmul, vs2: lmul, vs1: vs1_base }
-            }
+            Self::Config(_) => VecOperandGroups::NONE,
+            Self::Alu(
+                VecAluOp::Int(
+                    IntOp::Add
+                    | IntOp::Sub
+                    | IntOp::Rsub
+                    | IntOp::And
+                    | IntOp::Or
+                    | IntOp::Xor
+                    | IntOp::Sll
+                    | IntOp::Srl
+                    | IntOp::Sra
+                    | IntOp::MinU
+                    | IntOp::Min
+                    | IntOp::MaxU
+                    | IntOp::Max
+                    | IntOp::Mul
+                    | IntOp::Mulh
+                    | IntOp::Mulhu
+                    | IntOp::Mulhsu
+                    | IntOp::DivU
+                    | IntOp::Div
+                    | IntOp::RemU
+                    | IntOp::Rem
+                    | IntOp::SAddU
+                    | IntOp::SAdd
+                    | IntOp::SSubU
+                    | IntOp::SSub
+                    | IntOp::AAddU
+                    | IntOp::AAdd
+                    | IntOp::ASubU
+                    | IntOp::ASub
+                    | IntOp::Smul
+                    | IntOp::SSrl
+                    | IntOp::SSra
+                    | IntOp::AndN
+                    | IntOp::Rol
+                    | IntOp::Ror
+                    | IntOp::ClMul
+                    | IntOp::ClMulH,
+                )
+                | VecAluOp::Macc(_)
+                | VecAluOp::Merge
+                | VecAluOp::Carry(CarryOp::Adc | CarryOp::Sbc),
+            )
+            | Self::Permute(
+                PermuteOp::SlideUp(_)
+                | PermuteOp::SlideDown(_)
+                | PermuteOp::Slide1Up
+                | PermuteOp::Slide1Down
+                | PermuteOp::Rgather
+                | PermuteOp::RgatherEi16
+                | PermuteOp::Compress,
+            )
+            | Self::Fp(
+                VecFpOp::Binary(_)
+                | VecFpOp::Fma(_, _)
+                | VecFpOp::Merge
+                | VecFpOp::Slide1Up
+                | VecFpOp::Slide1Down,
+            ) => VecOperandGroups { vd: lmul, vs2: lmul, vs1: vs1_base },
 
             // Zvknh / Zvksh vsm3me / Zvkg vghsh: vs1 is a per-group vector input.
-            VSha2Ms | VSha2Ch | VSha2Cl | VSm3Me | VGhsh => {
-                VecOperandGroups { vd: lmul, vs2: lmul, vs1: lmul }
-            }
+            Self::Crypto(
+                CryptoOp::Sha2Ms
+                | CryptoOp::Sha2Ch
+                | CryptoOp::Sha2Cl
+                | CryptoOp::Sm3Me
+                | CryptoOp::Ghsh,
+            ) => VecOperandGroups { vd: lmul, vs2: lmul, vs1: lmul },
 
             // AES/SM4 rounds: vs1 field is a sub-opcode, not a register; .vs broadcasts vs2 EMUL=1.
-            VAesEm | VAesEf | VAesDm | VAesDf | VAesZ | VSm4R => {
-                VecOperandGroups { vd: lmul, vs2: vs2_crypto, vs1: 0 }
-            }
+            Self::Crypto(
+                CryptoOp::AesEm
+                | CryptoOp::AesEf
+                | CryptoOp::AesDm
+                | CryptoOp::AesDf
+                | CryptoOp::AesZ
+                | CryptoOp::Sm4R,
+            ) => VecOperandGroups { vd: lmul, vs2: vs2_crypto, vs1: 0 },
 
             // vs1 field is a sub-opcode/imm here, not a register reference.
-            VAesKf1 | VAesKf2 | VSm4K | VSm3C | VGmul | VFCvtXuF | VFCvtXF | VFCvtFXu | VFCvtFX
-            | VFCvtRtzXuF | VFCvtRtzXF | VFSqrt | VFRsqrt7 | VFRec7 | VFClass | VLoadIndexOrd
-            | VLoadIndexUnord | VStoreIndexOrd | VStoreIndexUnord | VBrev | VBrev8 | VRev8
-            | VClz | VCtz | VCpopV => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
+            Self::Crypto(
+                CryptoOp::AesKf1
+                | CryptoOp::AesKf2
+                | CryptoOp::Sm4K
+                | CryptoOp::Sm3C
+                | CryptoOp::Gmul,
+            )
+            | Self::Fp(VecFpOp::Unary(_))
+            | Self::Load(VecLoadOp::IndexedOrdered | VecLoadOp::IndexedUnordered)
+            | Self::Store(VecStoreOp::IndexedOrdered | VecStoreOp::IndexedUnordered)
+            | Self::Alu(VecAluOp::Int(
+                IntOp::Brev | IntOp::Brev8 | IntOp::Rev8 | IntOp::Clz | IntOp::Ctz | IntOp::CpopV,
+            )) => VecOperandGroups { vd: lmul, vs2: lmul, vs1: 0 },
 
             // RVV 1.0 §14.1: reduction vd/vs1 are single registers; vs2 is the full LMUL group.
-            VRedSum | VRedAnd | VRedOr | VRedXor | VRedMinU | VRedMin | VRedMaxU | VRedMax
-            | VFRedOSum | VFRedUSum | VFRedMax | VFRedMin | VWRedSumU | VWRedSum | VFWRedOSum
-            | VFWRedUSum => VecOperandGroups { vd: 1, vs2: lmul, vs1: 1 },
-
-            VWAddU | VWAdd | VWSubU | VWSub | VWMulU | VWMul | VWMulSU | VWMaccU | VWMacc
-            | VWMaccSU | VWMaccUS | VWsll | VFWAdd | VFWSub | VFWMul | VFWMacc | VFWNMacc
-            | VFWMSac | VFWNMSac => VecOperandGroups { vd: emul_widened, vs2: lmul, vs1: vs1_base },
-
-            VWAddUW | VWAddW | VWSubUW | VWSubW | VFWAddW | VFWSubW => {
+            Self::Reduce(_) => VecOperandGroups { vd: 1, vs2: lmul, vs1: 1 },
+            Self::Alu(
+                VecAluOp::Widen(
+                    WidenOp::AddU
+                    | WidenOp::Add
+                    | WidenOp::SubU
+                    | WidenOp::Sub
+                    | WidenOp::MulU
+                    | WidenOp::Mul
+                    | WidenOp::MulSU
+                    | WidenOp::Sll,
+                )
+                | VecAluOp::WidenMacc(_),
+            )
+            | Self::Fp(
+                VecFpOp::Widen(FpWidenOp::Add | FpWidenOp::Sub | FpWidenOp::Mul)
+                | VecFpOp::WidenFma(_),
+            ) => VecOperandGroups { vd: emul_widened, vs2: lmul, vs1: vs1_base },
+            Self::Alu(VecAluOp::Widen(
+                WidenOp::AddUW | WidenOp::AddW | WidenOp::SubUW | WidenOp::SubW,
+            ))
+            | Self::Fp(VecFpOp::Widen(FpWidenOp::AddW | FpWidenOp::SubW)) => {
                 VecOperandGroups { vd: emul_widened, vs2: emul_widened, vs1: vs1_base }
             }
-
-            VNSrl | VNSra | VNClipU | VNClip => {
+            Self::Alu(VecAluOp::Narrow(_)) => {
                 VecOperandGroups { vd: lmul, vs2: emul_widened, vs1: vs1_base }
             }
 
             // Use 1 as minimum; vs2 EMUL = LMUL/factor may be fractional (<1 register).
-            VZextVf2 | VSextVf2 => VecOperandGroups { vd: lmul, vs2: (lmul / 2).max(1), vs1: 0 },
-            VZextVf4 | VSextVf4 => VecOperandGroups { vd: lmul, vs2: (lmul / 4).max(1), vs1: 0 },
-            VZextVf8 | VSextVf8 => VecOperandGroups { vd: lmul, vs2: (lmul / 8).max(1), vs1: 0 },
-
-            VFWCvtXuF | VFWCvtXF | VFWCvtFXu | VFWCvtFX | VFWCvtFF | VFWCvtRtzXuF | VFWCvtRtzXF => {
+            Self::Alu(VecAluOp::Extend(op)) => {
+                VecOperandGroups { vd: lmul, vs2: (lmul / op.factor.divisor()).max(1), vs1: 0 }
+            }
+            Self::Fp(VecFpOp::WidenConvert(_)) => {
                 VecOperandGroups { vd: emul_widened, vs2: lmul, vs1: 0 }
             }
-
-            VFNCvtXuF | VFNCvtXF | VFNCvtFXu | VFNCvtFX | VFNCvtFF | VFNCvtRodFF | VFNCvtRtzXuF
-            | VFNCvtRtzXF => VecOperandGroups { vd: lmul, vs2: emul_widened, vs1: 0 },
+            Self::Fp(VecFpOp::NarrowConvert(_)) => {
+                VecOperandGroups { vd: lmul, vs2: emul_widened, vs1: 0 }
+            }
 
             // RVV 1.0 §16.1: vmv.x.s / vfmv.f.s read only element 0 of vs2.
-            VMvXS | VFMvFS | VCPopM | VFirstM => VecOperandGroups { vd: 0, vs2: 1, vs1: 0 },
+            Self::Permute(PermuteOp::MvXS)
+            | Self::Fp(VecFpOp::MoveToScalar)
+            | Self::Mask(MaskOp::CPop | MaskOp::First) => {
+                VecOperandGroups { vd: 0, vs2: 1, vs1: 0 }
+            }
 
             // vmv.s.x / vfmv.s.f write only element 0 (§16.1); vlm/vsm: single mask register.
-            VMvSX | VFMvSF | VLoadMask | VStoreMask => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
-
-            VMSeq | VMSne | VMSltu | VMSlt | VMSleu | VMSle | VMSgtu | VMSgt | VMFEq | VMFNe
-            | VMFLt | VMFLe | VMFGt | VMFGe | VMadc | VMsbc => {
-                VecOperandGroups { vd: 1, vs2: lmul, vs1: vs1_base }
-            }
-
-            VMSbfM | VMSofM | VMSifM | VMv1r => VecOperandGroups { vd: 1, vs2: 1, vs1: 0 },
-
-            VIotaM => VecOperandGroups { vd: lmul, vs2: 1, vs1: 0 },
+            Self::Permute(PermuteOp::MvSX)
+            | Self::Fp(VecFpOp::MoveFromScalar)
+            | Self::Load(VecLoadOp::Mask)
+            | Self::Store(VecStoreOp::Mask) => VecOperandGroups { vd: 1, vs2: 0, vs1: 0 },
+            Self::Alu(VecAluOp::Compare(_) | VecAluOp::Carry(CarryOp::Madc | CarryOp::Msbc))
+            | Self::Fp(VecFpOp::Compare(_)) => VecOperandGroups { vd: 1, vs2: lmul, vs1: vs1_base },
+            Self::Mask(MaskOp::Set(_)) => VecOperandGroups { vd: 1, vs2: 1, vs1: 0 },
+            Self::Mask(MaskOp::Iota) => VecOperandGroups { vd: lmul, vs2: 1, vs1: 0 },
 
             // vid.v's vs2 field is part of the opcode (must be zero), not a register.
-            VIdV | VLoadUnit | VLoadFF | VStoreUnit | VLoadStride | VStoreStride => {
+            Self::Mask(MaskOp::Id)
+            | Self::Load(VecLoadOp::Unit | VecLoadOp::FaultOnlyFirst | VecLoadOp::Strided)
+            | Self::Store(VecStoreOp::Unit | VecStoreOp::Strided) => {
                 VecOperandGroups { vd: lmul, vs2: 0, vs1: 0 }
             }
-
-            VMAndMM | VMNandMM | VMAndnMM | VMOrMM | VMNorMM | VMOrnMM | VMXorMM | VMXnorMM => {
-                VecOperandGroups { vd: 1, vs2: 1, vs1: 1 }
+            Self::Mask(MaskOp::Logical(_)) => VecOperandGroups { vd: 1, vs2: 1, vs1: 1 },
+            Self::Permute(PermuteOp::WholeMove(registers)) => {
+                VecOperandGroups { vd: registers.count(), vs2: registers.count(), vs1: 0 }
             }
 
-            VMv2r => VecOperandGroups { vd: 2, vs2: 2, vs1: 0 },
-            VMv4r => VecOperandGroups { vd: 4, vs2: 4, vs1: 0 },
-            VMv8r => VecOperandGroups { vd: 8, vs2: 8, vs1: 0 },
-
             // nf encoding: 0=1reg, 1=2reg, 3=4reg, 7=8reg; group = nf+1.
-            VLoadWholeReg | VStoreWholeReg => {
+            Self::Load(VecLoadOp::WholeRegister) | Self::Store(VecStoreOp::WholeRegister) => {
                 let regs = nf + 1;
                 VecOperandGroups { vd: regs, vs2: 0, vs1: 0 }
             }
@@ -1025,10 +721,59 @@ pub enum NarrowOp {
 /// Integer extension from a fraction of SEW.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExtendOp {
-    /// Sign-extend rather than zero-extend.
-    pub signed: bool,
-    /// The source width is `SEW / factor`: 2, 4 or 8.
-    pub factor: u8,
+    /// Sign- or zero-extension.
+    pub signedness: Signedness,
+    /// The fraction of SEW the source is.
+    pub factor: ExtendFactor,
+}
+
+/// The source width of an extension: SEW divided by 2, 4 or 8.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtendFactor {
+    /// `vf2`.
+    Vf2,
+    /// `vf4`.
+    Vf4,
+    /// `vf8`.
+    Vf8,
+}
+
+impl ExtendFactor {
+    /// What SEW is divided by.
+    #[must_use]
+    pub const fn divisor(self) -> u8 {
+        match self {
+            Self::Vf2 => 2,
+            Self::Vf4 => 4,
+            Self::Vf8 => 8,
+        }
+    }
+}
+
+/// How many registers a whole-register move copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WholeRegisters {
+    /// `vmv1r.v`.
+    One,
+    /// `vmv2r.v`.
+    Two,
+    /// `vmv4r.v`.
+    Four,
+    /// `vmv8r.v`.
+    Eight,
+}
+
+impl WholeRegisters {
+    /// The number of registers.
+    #[must_use]
+    pub const fn count(self) -> u8 {
+        match self {
+            Self::One => 1,
+            Self::Two => 2,
+            Self::Four => 4,
+            Self::Eight => 8,
+        }
+    }
 }
 
 /// What the vector integer ALU computes.
@@ -1324,8 +1069,8 @@ pub enum PermuteOp {
     RgatherEi16,
     /// `vcompress`.
     Compress,
-    /// `vmv<n>r.v`: a whole-register move of `n` registers.
-    WholeMove(u8),
+    /// `vmv<n>r.v`: a whole-register move.
+    WholeMove(WholeRegisters),
 }
 
 /// Vector cryptography operations (Zvkned, Zvknha/b, Zvksed, Zvksh, Zvkg).
@@ -1363,316 +1108,6 @@ pub enum CryptoOp {
     Gmul,
     /// `vghsh`.
     Ghsh,
-}
-
-/// Which unit executes a [`VectorOp`], and what it computes there.
-///
-/// Every op belongs to exactly one class, so an executor that takes a
-/// class's op type cannot be handed an op it does not implement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VecClass {
-    /// Not a vector operation.
-    None,
-    /// `vsetvl`, `vsetvli` or `vsetivli`.
-    Config,
-    /// A vector load.
-    Load,
-    /// A vector store.
-    Store,
-    /// A floating-point operation.
-    Fp(VecFpOp),
-    /// The integer ALU.
-    Alu(VecAluOp),
-    /// A reduction.
-    Reduce(ReduceOp),
-    /// A mask operation.
-    Mask(MaskOp),
-    /// A permutation.
-    Permute(PermuteOp),
-    /// A cryptography operation.
-    Crypto(CryptoOp),
-}
-
-impl VectorOp {
-    /// The class this op executes as.
-    #[must_use]
-    #[allow(clippy::too_many_lines, clippy::enum_glob_use)]
-    pub const fn class(self) -> VecClass {
-        use VectorOp::*;
-        match self {
-            None => VecClass::None,
-            Vsetvli { .. } | Vsetivli { .. } | Vsetvl => VecClass::Config,
-
-            VLoadUnit | VLoadFF | VLoadMask | VLoadWholeReg | VLoadStride | VLoadIndexOrd
-            | VLoadIndexUnord => VecClass::Load,
-            VStoreUnit | VStoreMask | VStoreWholeReg | VStoreStride | VStoreIndexOrd
-            | VStoreIndexUnord => VecClass::Store,
-
-            VFAdd => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Add)),
-            VFSub => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Sub)),
-            VFRSub => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::RSub)),
-            VFMul => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Mul)),
-            VFDiv => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Div)),
-            VFRDiv => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::RDiv)),
-            VFMin => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Min)),
-            VFMax => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Max)),
-            VFSgnj => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Sgnj)),
-            VFSgnjn => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Sgnjn)),
-            VFSgnjx => VecClass::Fp(VecFpOp::Binary(FpBinaryOp::Sgnjx)),
-            VMFEq => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Eq)),
-            VMFNe => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Ne)),
-            VMFLt => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Lt)),
-            VMFLe => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Le)),
-            VMFGt => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Gt)),
-            VMFGe => VecClass::Fp(VecFpOp::Compare(FpCompareOp::Ge)),
-            VFMacc => VecClass::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vd)),
-            VFNMacc => VecClass::Fp(VecFpOp::Fma(FmaSigns::NMacc, FmaAddend::Vd)),
-            VFMSac => VecClass::Fp(VecFpOp::Fma(FmaSigns::MSac, FmaAddend::Vd)),
-            VFNMSac => VecClass::Fp(VecFpOp::Fma(FmaSigns::NMSac, FmaAddend::Vd)),
-            VFMAdd => VecClass::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vs2)),
-            VFNMAdd => VecClass::Fp(VecFpOp::Fma(FmaSigns::NMacc, FmaAddend::Vs2)),
-            VFMSub => VecClass::Fp(VecFpOp::Fma(FmaSigns::MSac, FmaAddend::Vs2)),
-            VFNMSub => VecClass::Fp(VecFpOp::Fma(FmaSigns::NMSac, FmaAddend::Vs2)),
-            VFSqrt => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Sqrt)),
-            VFRsqrt7 => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Rsqrt7)),
-            VFRec7 => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Rec7)),
-            VFClass => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Class)),
-            VFCvtXuF => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::ToInt(
-                Signedness::Unsigned,
-                IntRounding::Dynamic,
-            )))),
-            VFCvtXF => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::ToInt(
-                Signedness::Signed,
-                IntRounding::Dynamic,
-            )))),
-            VFCvtFXu => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::FromInt(
-                Signedness::Unsigned,
-            )))),
-            VFCvtFX => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::FromInt(
-                Signedness::Signed,
-            )))),
-            VFCvtRtzXuF => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::ToInt(
-                Signedness::Unsigned,
-                IntRounding::TowardZero,
-            )))),
-            VFCvtRtzXF => VecClass::Fp(VecFpOp::Unary(FpUnaryOp::Convert(IntConvert::ToInt(
-                Signedness::Signed,
-                IntRounding::TowardZero,
-            )))),
-            VFWAdd => VecClass::Fp(VecFpOp::Widen(FpWidenOp::Add)),
-            VFWSub => VecClass::Fp(VecFpOp::Widen(FpWidenOp::Sub)),
-            VFWMul => VecClass::Fp(VecFpOp::Widen(FpWidenOp::Mul)),
-            VFWAddW => VecClass::Fp(VecFpOp::Widen(FpWidenOp::AddW)),
-            VFWSubW => VecClass::Fp(VecFpOp::Widen(FpWidenOp::SubW)),
-            VFWMacc => VecClass::Fp(VecFpOp::WidenFma(FmaSigns::Macc)),
-            VFWNMacc => VecClass::Fp(VecFpOp::WidenFma(FmaSigns::NMacc)),
-            VFWMSac => VecClass::Fp(VecFpOp::WidenFma(FmaSigns::MSac)),
-            VFWNMSac => VecClass::Fp(VecFpOp::WidenFma(FmaSigns::NMSac)),
-            VFWCvtXuF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
-                IntConvert::ToInt(Signedness::Unsigned, IntRounding::Dynamic),
-            ))),
-            VFWCvtXF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
-                IntConvert::ToInt(Signedness::Signed, IntRounding::Dynamic),
-            ))),
-            VFWCvtFXu => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
-                IntConvert::FromInt(Signedness::Unsigned),
-            ))),
-            VFWCvtFX => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
-                IntConvert::FromInt(Signedness::Signed),
-            ))),
-            VFWCvtFF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Float)),
-            VFWCvtRtzXuF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
-                IntConvert::ToInt(Signedness::Unsigned, IntRounding::TowardZero),
-            ))),
-            VFWCvtRtzXF => VecClass::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(
-                IntConvert::ToInt(Signedness::Signed, IntRounding::TowardZero),
-            ))),
-            VFNCvtXuF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
-                IntConvert::ToInt(Signedness::Unsigned, IntRounding::Dynamic),
-            ))),
-            VFNCvtXF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
-                IntConvert::ToInt(Signedness::Signed, IntRounding::Dynamic),
-            ))),
-            VFNCvtFXu => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
-                IntConvert::FromInt(Signedness::Unsigned),
-            ))),
-            VFNCvtFX => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
-                IntConvert::FromInt(Signedness::Signed),
-            ))),
-            VFNCvtFF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Float)),
-            VFNCvtRodFF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::FloatRoundToOdd)),
-            VFNCvtRtzXuF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
-                IntConvert::ToInt(Signedness::Unsigned, IntRounding::TowardZero),
-            ))),
-            VFNCvtRtzXF => VecClass::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(
-                IntConvert::ToInt(Signedness::Signed, IntRounding::TowardZero),
-            ))),
-            VFMerge => VecClass::Fp(VecFpOp::Merge),
-            VFMvSF => VecClass::Fp(VecFpOp::MoveFromScalar),
-            VFMvFS => VecClass::Fp(VecFpOp::MoveToScalar),
-            VFSlide1Up => VecClass::Fp(VecFpOp::Slide1Up),
-            VFSlide1Down => VecClass::Fp(VecFpOp::Slide1Down),
-
-            VAdd => VecClass::Alu(VecAluOp::Int(IntOp::Add)),
-            VSub => VecClass::Alu(VecAluOp::Int(IntOp::Sub)),
-            VRsub => VecClass::Alu(VecAluOp::Int(IntOp::Rsub)),
-            VAnd => VecClass::Alu(VecAluOp::Int(IntOp::And)),
-            VOr => VecClass::Alu(VecAluOp::Int(IntOp::Or)),
-            VXor => VecClass::Alu(VecAluOp::Int(IntOp::Xor)),
-            VSll => VecClass::Alu(VecAluOp::Int(IntOp::Sll)),
-            VSrl => VecClass::Alu(VecAluOp::Int(IntOp::Srl)),
-            VSra => VecClass::Alu(VecAluOp::Int(IntOp::Sra)),
-            VMinU => VecClass::Alu(VecAluOp::Int(IntOp::MinU)),
-            VMin => VecClass::Alu(VecAluOp::Int(IntOp::Min)),
-            VMaxU => VecClass::Alu(VecAluOp::Int(IntOp::MaxU)),
-            VMax => VecClass::Alu(VecAluOp::Int(IntOp::Max)),
-            VMul => VecClass::Alu(VecAluOp::Int(IntOp::Mul)),
-            VMulh => VecClass::Alu(VecAluOp::Int(IntOp::Mulh)),
-            VMulhu => VecClass::Alu(VecAluOp::Int(IntOp::Mulhu)),
-            VMulhsu => VecClass::Alu(VecAluOp::Int(IntOp::Mulhsu)),
-            VDivU => VecClass::Alu(VecAluOp::Int(IntOp::DivU)),
-            VDiv => VecClass::Alu(VecAluOp::Int(IntOp::Div)),
-            VRemU => VecClass::Alu(VecAluOp::Int(IntOp::RemU)),
-            VRem => VecClass::Alu(VecAluOp::Int(IntOp::Rem)),
-            VSAddU => VecClass::Alu(VecAluOp::Int(IntOp::SAddU)),
-            VSAdd => VecClass::Alu(VecAluOp::Int(IntOp::SAdd)),
-            VSSubU => VecClass::Alu(VecAluOp::Int(IntOp::SSubU)),
-            VSSub => VecClass::Alu(VecAluOp::Int(IntOp::SSub)),
-            VAAddU => VecClass::Alu(VecAluOp::Int(IntOp::AAddU)),
-            VAAdd => VecClass::Alu(VecAluOp::Int(IntOp::AAdd)),
-            VASubU => VecClass::Alu(VecAluOp::Int(IntOp::ASubU)),
-            VASub => VecClass::Alu(VecAluOp::Int(IntOp::ASub)),
-            VSmul => VecClass::Alu(VecAluOp::Int(IntOp::Smul)),
-            VSSrl => VecClass::Alu(VecAluOp::Int(IntOp::SSrl)),
-            VSSra => VecClass::Alu(VecAluOp::Int(IntOp::SSra)),
-            VAndN => VecClass::Alu(VecAluOp::Int(IntOp::AndN)),
-            VBrev => VecClass::Alu(VecAluOp::Int(IntOp::Brev)),
-            VBrev8 => VecClass::Alu(VecAluOp::Int(IntOp::Brev8)),
-            VRev8 => VecClass::Alu(VecAluOp::Int(IntOp::Rev8)),
-            VClz => VecClass::Alu(VecAluOp::Int(IntOp::Clz)),
-            VCtz => VecClass::Alu(VecAluOp::Int(IntOp::Ctz)),
-            VCpopV => VecClass::Alu(VecAluOp::Int(IntOp::CpopV)),
-            VRol => VecClass::Alu(VecAluOp::Int(IntOp::Rol)),
-            VRor => VecClass::Alu(VecAluOp::Int(IntOp::Ror)),
-            VClMul => VecClass::Alu(VecAluOp::Int(IntOp::ClMul)),
-            VClMulH => VecClass::Alu(VecAluOp::Int(IntOp::ClMulH)),
-
-            VMerge => VecClass::Alu(VecAluOp::Merge),
-
-            VMSeq => VecClass::Alu(VecAluOp::Compare(CompareOp::Eq)),
-            VMSne => VecClass::Alu(VecAluOp::Compare(CompareOp::Ne)),
-            VMSltu => VecClass::Alu(VecAluOp::Compare(CompareOp::LtU)),
-            VMSlt => VecClass::Alu(VecAluOp::Compare(CompareOp::Lt)),
-            VMSleu => VecClass::Alu(VecAluOp::Compare(CompareOp::LeU)),
-            VMSle => VecClass::Alu(VecAluOp::Compare(CompareOp::Le)),
-            VMSgtu => VecClass::Alu(VecAluOp::Compare(CompareOp::GtU)),
-            VMSgt => VecClass::Alu(VecAluOp::Compare(CompareOp::Gt)),
-
-            VAdc => VecClass::Alu(VecAluOp::Carry(CarryOp::Adc)),
-            VMadc => VecClass::Alu(VecAluOp::Carry(CarryOp::Madc)),
-            VSbc => VecClass::Alu(VecAluOp::Carry(CarryOp::Sbc)),
-            VMsbc => VecClass::Alu(VecAluOp::Carry(CarryOp::Msbc)),
-
-            VMacc => VecClass::Alu(VecAluOp::Macc(MaccOp::Macc)),
-            VNMSac => VecClass::Alu(VecAluOp::Macc(MaccOp::NMSac)),
-            VMadd => VecClass::Alu(VecAluOp::Macc(MaccOp::Madd)),
-            VNMSub => VecClass::Alu(VecAluOp::Macc(MaccOp::NMSub)),
-
-            VWAddU => VecClass::Alu(VecAluOp::Widen(WidenOp::AddU)),
-            VWAdd => VecClass::Alu(VecAluOp::Widen(WidenOp::Add)),
-            VWSubU => VecClass::Alu(VecAluOp::Widen(WidenOp::SubU)),
-            VWSub => VecClass::Alu(VecAluOp::Widen(WidenOp::Sub)),
-            VWAddUW => VecClass::Alu(VecAluOp::Widen(WidenOp::AddUW)),
-            VWAddW => VecClass::Alu(VecAluOp::Widen(WidenOp::AddW)),
-            VWSubUW => VecClass::Alu(VecAluOp::Widen(WidenOp::SubUW)),
-            VWSubW => VecClass::Alu(VecAluOp::Widen(WidenOp::SubW)),
-            VWMulU => VecClass::Alu(VecAluOp::Widen(WidenOp::MulU)),
-            VWMul => VecClass::Alu(VecAluOp::Widen(WidenOp::Mul)),
-            VWMulSU => VecClass::Alu(VecAluOp::Widen(WidenOp::MulSU)),
-            VWsll => VecClass::Alu(VecAluOp::Widen(WidenOp::Sll)),
-
-            VWMaccU => VecClass::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccU)),
-            VWMacc => VecClass::Alu(VecAluOp::WidenMacc(WidenMaccOp::Macc)),
-            VWMaccSU => VecClass::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccSU)),
-            VWMaccUS => VecClass::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccUS)),
-
-            VNSrl => VecClass::Alu(VecAluOp::Narrow(NarrowOp::Srl)),
-            VNSra => VecClass::Alu(VecAluOp::Narrow(NarrowOp::Sra)),
-            VNClipU => VecClass::Alu(VecAluOp::Narrow(NarrowOp::ClipU)),
-            VNClip => VecClass::Alu(VecAluOp::Narrow(NarrowOp::Clip)),
-
-            VZextVf2 => VecClass::Alu(VecAluOp::Extend(ExtendOp { signed: false, factor: 2 })),
-            VZextVf4 => VecClass::Alu(VecAluOp::Extend(ExtendOp { signed: false, factor: 4 })),
-            VZextVf8 => VecClass::Alu(VecAluOp::Extend(ExtendOp { signed: false, factor: 8 })),
-            VSextVf2 => VecClass::Alu(VecAluOp::Extend(ExtendOp { signed: true, factor: 2 })),
-            VSextVf4 => VecClass::Alu(VecAluOp::Extend(ExtendOp { signed: true, factor: 4 })),
-            VSextVf8 => VecClass::Alu(VecAluOp::Extend(ExtendOp { signed: true, factor: 8 })),
-
-            VRedSum => VecClass::Reduce(ReduceOp::Int(IntReduceOp::Sum)),
-            VRedAnd => VecClass::Reduce(ReduceOp::Int(IntReduceOp::And)),
-            VRedOr => VecClass::Reduce(ReduceOp::Int(IntReduceOp::Or)),
-            VRedXor => VecClass::Reduce(ReduceOp::Int(IntReduceOp::Xor)),
-            VRedMinU => VecClass::Reduce(ReduceOp::Int(IntReduceOp::MinU)),
-            VRedMin => VecClass::Reduce(ReduceOp::Int(IntReduceOp::Min)),
-            VRedMaxU => VecClass::Reduce(ReduceOp::Int(IntReduceOp::MaxU)),
-            VRedMax => VecClass::Reduce(ReduceOp::Int(IntReduceOp::Max)),
-            VWRedSumU => VecClass::Reduce(ReduceOp::WidenInt(WidenIntReduceOp::SumU)),
-            VWRedSum => VecClass::Reduce(ReduceOp::WidenInt(WidenIntReduceOp::Sum)),
-            VFRedOSum => VecClass::Reduce(ReduceOp::Fp(FpReduceOp::OSum)),
-            VFRedUSum => VecClass::Reduce(ReduceOp::Fp(FpReduceOp::USum)),
-            VFRedMax => VecClass::Reduce(ReduceOp::Fp(FpReduceOp::Max)),
-            VFRedMin => VecClass::Reduce(ReduceOp::Fp(FpReduceOp::Min)),
-            VFWRedOSum => VecClass::Reduce(ReduceOp::FpWiden(FpWidenReduceOp::OSum)),
-            VFWRedUSum => VecClass::Reduce(ReduceOp::FpWiden(FpWidenReduceOp::USum)),
-
-            VMAndMM => VecClass::Mask(MaskOp::Logical(MaskLogicalOp::And)),
-            VMNandMM => VecClass::Mask(MaskOp::Logical(MaskLogicalOp::Nand)),
-            VMAndnMM => VecClass::Mask(MaskOp::Logical(MaskLogicalOp::AndNot)),
-            VMOrMM => VecClass::Mask(MaskOp::Logical(MaskLogicalOp::Or)),
-            VMNorMM => VecClass::Mask(MaskOp::Logical(MaskLogicalOp::Nor)),
-            VMOrnMM => VecClass::Mask(MaskOp::Logical(MaskLogicalOp::OrNot)),
-            VMXorMM => VecClass::Mask(MaskOp::Logical(MaskLogicalOp::Xor)),
-            VMXnorMM => VecClass::Mask(MaskOp::Logical(MaskLogicalOp::Xnor)),
-            VCPopM => VecClass::Mask(MaskOp::CPop),
-            VFirstM => VecClass::Mask(MaskOp::First),
-            VMSbfM => VecClass::Mask(MaskOp::Set(MaskSetOp::BeforeFirst)),
-            VMSifM => VecClass::Mask(MaskOp::Set(MaskSetOp::IncludingFirst)),
-            VMSofM => VecClass::Mask(MaskOp::Set(MaskSetOp::OnlyFirst)),
-            VIotaM => VecClass::Mask(MaskOp::Iota),
-            VIdV => VecClass::Mask(MaskOp::Id),
-
-            VMvXS => VecClass::Permute(PermuteOp::MvXS),
-            VMvSX => VecClass::Permute(PermuteOp::MvSX),
-            VSlideUp(offset) => VecClass::Permute(PermuteOp::SlideUp(offset)),
-            VSlideDown(offset) => VecClass::Permute(PermuteOp::SlideDown(offset)),
-            VSlide1Up => VecClass::Permute(PermuteOp::Slide1Up),
-            VSlide1Down => VecClass::Permute(PermuteOp::Slide1Down),
-            VRgather => VecClass::Permute(PermuteOp::Rgather),
-            VRgatherEi16 => VecClass::Permute(PermuteOp::RgatherEi16),
-            VCompress => VecClass::Permute(PermuteOp::Compress),
-            VMv1r => VecClass::Permute(PermuteOp::WholeMove(1)),
-            VMv2r => VecClass::Permute(PermuteOp::WholeMove(2)),
-            VMv4r => VecClass::Permute(PermuteOp::WholeMove(4)),
-            VMv8r => VecClass::Permute(PermuteOp::WholeMove(8)),
-
-            VAesEm => VecClass::Crypto(CryptoOp::AesEm),
-            VAesEf => VecClass::Crypto(CryptoOp::AesEf),
-            VAesDm => VecClass::Crypto(CryptoOp::AesDm),
-            VAesDf => VecClass::Crypto(CryptoOp::AesDf),
-            VAesZ => VecClass::Crypto(CryptoOp::AesZ),
-            VAesKf1 => VecClass::Crypto(CryptoOp::AesKf1),
-            VAesKf2 => VecClass::Crypto(CryptoOp::AesKf2),
-            VSha2Ms => VecClass::Crypto(CryptoOp::Sha2Ms),
-            VSha2Ch => VecClass::Crypto(CryptoOp::Sha2Ch),
-            VSha2Cl => VecClass::Crypto(CryptoOp::Sha2Cl),
-            VSm3Me => VecClass::Crypto(CryptoOp::Sm3Me),
-            VSm3C => VecClass::Crypto(CryptoOp::Sm3C),
-            VSm4R => VecClass::Crypto(CryptoOp::Sm4R),
-            VSm4K => VecClass::Crypto(CryptoOp::Sm4K),
-            VGmul => VecClass::Crypto(CryptoOp::Gmul),
-            VGhsh => VecClass::Crypto(CryptoOp::Ghsh),
-        }
-    }
 }
 
 /// Vector operand source encoding category.

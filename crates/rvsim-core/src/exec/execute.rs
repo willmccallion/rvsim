@@ -9,14 +9,13 @@ use crate::common::VirtAddr;
 use crate::exec::cbo;
 use crate::exec::compute::alu;
 use crate::exec::compute::fpu;
-use crate::exec::compute::vector::fpu::is_vec_fp;
 use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, JumpKind, OpASrc, OpBSrc};
 use crate::exec::state::ArchState;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::fp::{FpFlags, Rounding, RoundingMode};
-use crate::isa::op::{AluOp, CsrOp, OperandFormat, SystemOp, VectorOp};
+use crate::isa::op::{AluOp, CsrOp, OperandFormat, ReduceOp, SystemOp, VectorOp};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::trace_csr;
 
@@ -73,23 +72,14 @@ const fn rounds_by_reserved_frm(hart: &Hart, inst: &Inst) -> bool {
 /// Checked here rather than at decode because `mstatus` writes apply at
 /// commit.
 const fn unit_disabled(hart: &Hart, inst: &Inst) -> bool {
-    let is_vector = !matches!(inst.ctrl.vec_op, VectorOp::None);
+    let is_vector = inst.ctrl.vec_op.is_some();
     let is_fp = inst.ctrl.touches_fp_registers() || is_vector_fp(inst.ctrl.vec_op);
     (is_vector && vs_off(hart)) || (is_fp && fs_off(hart))
 }
 
 /// True for vector instructions that do floating-point arithmetic.
-const fn is_vector_fp(op: VectorOp) -> bool {
-    is_vec_fp(op)
-        || matches!(
-            op,
-            VectorOp::VFRedMax
-                | VectorOp::VFRedMin
-                | VectorOp::VFRedOSum
-                | VectorOp::VFRedUSum
-                | VectorOp::VFWRedOSum
-                | VectorOp::VFWRedUSum
-        )
+const fn is_vector_fp(op: Option<VectorOp>) -> bool {
+    matches!(op, Some(VectorOp::Fp(_) | VectorOp::Reduce(ReduceOp::Fp(_) | ReduceOp::FpWiden(_))))
 }
 
 /// True when `addr` belongs to a unit `mstatus` has switched Off.

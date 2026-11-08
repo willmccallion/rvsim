@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use crate::exec::compute::vector::mem::{ElementAccess, is_vec_store};
 use crate::exec::signals::ControlSignals;
 use crate::isa::fp::FpFlags;
-use crate::isa::op::{MemWidth, VectorOp};
+use crate::isa::op::{MemWidth, VecLoadOp, VecStoreOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Nf, Sew, VectorConfig, Vlen, parse_vtype};
 use crate::uarch::pipeline::latches::{
@@ -122,16 +122,17 @@ pub const fn mem_width_from_eew_bytes(bytes: usize) -> MemWidth {
 /// True for the unit-stride accesses whose elements lie back to back in
 /// memory, which the vector memory datapath moves a window at a time.
 #[must_use]
-pub const fn moves_in_spans(op: VectorOp) -> bool {
+pub const fn moves_in_spans(op: Option<VectorOp>) -> bool {
     matches!(
         op,
-        VectorOp::VLoadUnit
-            | VectorOp::VStoreUnit
-            | VectorOp::VLoadFF
-            | VectorOp::VLoadMask
-            | VectorOp::VStoreMask
-            | VectorOp::VLoadWholeReg
-            | VectorOp::VStoreWholeReg
+        Some(
+            VectorOp::Load(
+                VecLoadOp::Unit
+                    | VecLoadOp::FaultOnlyFirst
+                    | VecLoadOp::Mask
+                    | VecLoadOp::WholeRegister
+            ) | VectorOp::Store(VecStoreOp::Unit | VecStoreOp::Mask | VecStoreOp::WholeRegister)
+        )
     )
 }
 
@@ -146,20 +147,20 @@ pub fn expected_load_micro_ops(
     vlen: Vlen,
     width: usize,
 ) -> usize {
-    if parse_vtype(config.vtype).vill && ctrl.vec_op.depends_on_vtype() {
+    if parse_vtype(config.vtype).vill && ctrl.vec_op.is_some_and(VectorOp::depends_on_vtype) {
         return 1;
     }
     let body = config.vl.saturating_sub(config.vstart) as usize;
     let elements = match ctrl.vec_op {
-        VectorOp::VLoadMask => (config.vl as usize).div_ceil(8),
-        VectorOp::VLoadWholeReg => (ctrl.vec_nf as usize + 1) * vlen.bytes(),
+        Some(VectorOp::Load(VecLoadOp::Mask)) => (config.vl as usize).div_ceil(8),
+        Some(VectorOp::Load(VecLoadOp::WholeRegister)) => (ctrl.vec_nf as usize + 1) * vlen.bytes(),
         _ => body * Nf::from_encoding(ctrl.vec_nf).fields_usize(),
     };
     if !moves_in_spans(ctrl.vec_op) {
         return elements.max(1);
     }
     let element_bytes = match ctrl.vec_op {
-        VectorOp::VLoadUnit | VectorOp::VLoadFF => ctrl.vec_eew.bytes(),
+        Some(VectorOp::Load(VecLoadOp::Unit | VecLoadOp::FaultOnlyFirst)) => ctrl.vec_eew.bytes(),
         _ => 1,
     };
     let windows = (elements * element_bytes).div_ceil(width) + 1;
@@ -384,7 +385,8 @@ pub fn retire_access(
     rob.add_vec_mem_effects(wb.op.rob_tag, &wb.vec_mem_effects);
     let values = element_values(wb, access);
     if let (Some(trap), Some(first)) = (&wb.op.trap, values.first()) {
-        let trims = wb.op.ctrl.vec_op == VectorOp::VLoadFF && first.elem_idx.as_usize() > 0;
+        let trims = wb.op.ctrl.vec_op == Some(VectorOp::Load(VecLoadOp::FaultOnlyFirst))
+            && first.elem_idx.as_usize() > 0;
         if trims {
             if parent.trimmed_at.is_none_or(|at| first.elem_idx < at) {
                 parent.trimmed_at = Some(first.elem_idx);
@@ -561,7 +563,12 @@ mod tests {
     }
 
     fn vector_load(vec_op: VectorOp, vec_eew: Sew, fields: u8) -> ControlSignals {
-        ControlSignals { vec_op, vec_eew, vec_nf: fields - 1, ..ControlSignals::default() }
+        ControlSignals {
+            vec_op: Some(vec_op),
+            vec_eew,
+            vec_nf: fields - 1,
+            ..ControlSignals::default()
+        }
     }
 
     fn config(vtype: u64, vl: u64) -> VectorConfig {
@@ -575,7 +582,7 @@ mod tests {
     #[test]
     fn an_aligned_unit_stride_load_reserves_a_slot_for_every_micro_op_it_plans() {
         for (eew, vtype, max_vl) in [(Sew::E8, E8_M8, 128), (Sew::E64, E64_M8, 16)] {
-            let ctrl = vector_load(VectorOp::VLoadUnit, eew, 1);
+            let ctrl = vector_load(VectorOp::Load(VecLoadOp::Unit), eew, 1);
             let eew_bytes = eew.bytes() as u64;
             for vl in 1..=max_vl {
                 for base in (0x1000..0x1000 + 32).step_by(eew.bytes()) {
@@ -597,7 +604,7 @@ mod tests {
 
     #[test]
     fn a_strided_load_reserves_a_slot_for_each_field_of_each_element() {
-        let ctrl = vector_load(VectorOp::VLoadStride, Sew::E32, 2);
+        let ctrl = vector_load(VectorOp::Load(VecLoadOp::Strided), Sew::E32, 2);
 
         let reserved = expected_load_micro_ops(&ctrl, &config(E8_M8, 5), VLEN, 16);
 
@@ -606,7 +613,7 @@ mod tests {
 
     #[test]
     fn a_load_with_no_body_reserves_one_slot() {
-        let ctrl = vector_load(VectorOp::VLoadIndexUnord, Sew::E8, 1);
+        let ctrl = vector_load(VectorOp::Load(VecLoadOp::IndexedUnordered), Sew::E8, 1);
 
         let reserved = expected_load_micro_ops(&ctrl, &config(E8_M8, 0), VLEN, 16);
 

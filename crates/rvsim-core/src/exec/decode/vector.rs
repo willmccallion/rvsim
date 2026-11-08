@@ -6,7 +6,14 @@ use crate::isa::encoding::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
 };
 use crate::isa::instruction::Decoded;
-use crate::isa::op::{SlideOffset, VecSrcEncoding, VectorOp};
+use crate::isa::op::{
+    CarryOp, CompareOp, CryptoOp, ExtendFactor, ExtendOp, FmaAddend, FmaSigns, FpBinaryOp,
+    FpCompareOp, FpNarrowConvertOp, FpReduceOp, FpUnaryOp, FpWidenConvertOp, FpWidenOp,
+    FpWidenReduceOp, IntConvert, IntOp, IntReduceOp, IntRounding, MaccOp, MaskLogicalOp, MaskOp,
+    MaskSetOp, NarrowOp, PermuteOp, ReduceOp, Signedness, SlideOffset, VecAluOp, VecConfigOp,
+    VecFpOp, VecLoadOp, VecSrcEncoding, VecStoreOp, VectorOp, WholeRegisters, WidenIntReduceOp,
+    WidenMaccOp, WidenOp,
+};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, VRegIdx};
 
@@ -58,18 +65,20 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
 
                 if bit31 == 0 {
                     // vsetvli: zimm[10:0] from bits 30:20
-                    c.vec_op = VectorOp::Vsetvli { vtype: v_enc::zimm_vsetvli(inst) };
+                    c.vec_op = Some(VectorOp::Config(VecConfigOp::Vsetvli {
+                        vtype: v_enc::zimm_vsetvli(inst),
+                    }));
                     c.reg_write = true;
                 } else if bit30 == 1 {
                     // vsetivli: zimm[9:0] from bits 29:20, uimm[4:0] from bits 19:15
-                    c.vec_op = VectorOp::Vsetivli {
+                    c.vec_op = Some(VectorOp::Config(VecConfigOp::Vsetivli {
                         avl: v_enc::uimm_vsetivli(inst),
                         vtype: v_enc::zimm_vsetivli(inst),
-                    };
+                    }));
                     c.reg_write = true;
                 } else {
                     // vsetvl: vtype from rs2
-                    c.vec_op = VectorOp::Vsetvl;
+                    c.vec_op = Some(VectorOp::Config(VecConfigOp::Vsetvl));
                     c.reg_write = true;
                     c.b_src = OpBSrc::Reg2;
                 }
@@ -90,26 +99,21 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                     v_funct3::OPIVV => {
                         c.vec_reg_write = true;
                         c.vec_src_encoding = VecSrcEncoding::VV;
-                        c.vec_op = decode_opivv(f6, inst)?;
+                        c.vec_op = Some(decode_opivv(f6, inst)?);
                     }
                     v_funct3::OPIVX => {
                         c.vec_reg_write = true;
                         c.vec_src_encoding = VecSrcEncoding::VX;
-                        c.vec_op = decode_opivx(f6, inst)?;
+                        c.vec_op = Some(decode_opivx(f6, inst)?);
                     }
                     v_funct3::OPIVI => {
                         c.vec_reg_write = true;
-                        c.vec_op = decode_opivi(f6, inst)?;
-                        c.vec_src_encoding = VecSrcEncoding::VI(vi_immediate(c.vec_op, inst));
+                        let op = decode_opivi(f6, inst)?;
+                        c.vec_op = Some(op);
+                        c.vec_src_encoding = VecSrcEncoding::VI(vi_immediate(op, inst));
                         // Whole-register moves: validate vd+nregs and vs2+nregs <= 32
-                        let nregs: u8 = match c.vec_op {
-                            VectorOp::VMv1r => 1,
-                            VectorOp::VMv2r => 2,
-                            VectorOp::VMv4r => 4,
-                            VectorOp::VMv8r => 8,
-                            _ => 0,
-                        };
-                        if nregs > 0 {
+                        if let VectorOp::Permute(PermuteOp::WholeMove(registers)) = op {
+                            let nregs = registers.count();
                             let vd_raw = v_enc::vd(inst);
                             let vs2_raw = v_enc::vs2(inst);
                             if vd_raw + nregs > 32 || vs2_raw + nregs > 32 {
@@ -120,26 +124,30 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                     v_funct3::OPMVV => {
                         c.vec_src_encoding = VecSrcEncoding::VV;
                         let (op, writes_vec) = decode_opmvv(f6, inst)?;
-                        c.vec_op = op;
+                        c.vec_op = Some(op);
                         c.vec_reg_write = writes_vec;
                         // Some OPMVV ops write scalar rd instead of vec
-                        if matches!(op, VectorOp::VMvXS | VectorOp::VCPopM | VectorOp::VFirstM) {
+                        if matches!(
+                            op,
+                            VectorOp::Permute(PermuteOp::MvXS)
+                                | VectorOp::Mask(MaskOp::CPop | MaskOp::First)
+                        ) {
                             c.reg_write = true;
                         }
                     }
                     v_funct3::OPMVX => {
                         c.vec_src_encoding = VecSrcEncoding::VX;
                         let (op, writes_vec) = decode_opmvx(f6, inst)?;
-                        c.vec_op = op;
+                        c.vec_op = Some(op);
                         c.vec_reg_write = writes_vec;
                     }
                     v_funct3::OPFVV => {
                         c.vec_src_encoding = VecSrcEncoding::VV;
                         let (op, writes_vec) = decode_opfvv(f6, inst)?;
-                        c.vec_op = op;
+                        c.vec_op = Some(op);
                         c.vec_reg_write = writes_vec;
                         // Scalar-to-FP move (vfmv.f.s) writes FP rd, not vec
-                        if matches!(op, VectorOp::VFMvFS) {
+                        if matches!(op, VectorOp::Fp(VecFpOp::MoveToScalar)) {
                             c.fp_reg_write = true;
                         }
                     }
@@ -147,7 +155,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                         c.vec_src_encoding = VecSrcEncoding::VF;
                         c.rs1_fp = true;
                         let (op, writes_vec) = decode_opfvf(f6, inst)?;
-                        c.vec_op = op;
+                        c.vec_op = Some(op);
                         c.vec_reg_write = writes_vec;
                     }
                     _ => {
@@ -172,7 +180,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
             c.vec_reg_write = true;
             // VCRYPTO_VS = .vs form: broadcast vs2[0]; VCRYPTO_VV = .vv form: per-group key.
             c.vec_broadcast_vs2 = f6 == v_f6::VCRYPTO_VS;
-            c.vec_op = decode_opcrypto(f6, inst)?;
+            c.vec_op = Some(decode_opcrypto(f6, inst)?);
         }
         _ => return Err(Trap::IllegalInstruction(inst)),
     }
@@ -189,33 +197,33 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
 const fn decode_opcrypto(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
     let vs1 = v_enc::vs1(inst);
     Ok(match f6 {
-        v_f6::VSM3_ME => VectorOp::VSm3Me,
-        v_f6::VSM4_K => VectorOp::VSm4K,
-        v_f6::VAES_KF1 => VectorOp::VAesKf1,
+        v_f6::VSM3_ME => VectorOp::Crypto(CryptoOp::Sm3Me),
+        v_f6::VSM4_K => VectorOp::Crypto(CryptoOp::Sm4K),
+        v_f6::VAES_KF1 => VectorOp::Crypto(CryptoOp::AesKf1),
         v_f6::VCRYPTO_VV => match vs1 {
-            v_f6::VAES_VS1_DM => VectorOp::VAesDm,
-            v_f6::VAES_VS1_DF => VectorOp::VAesDf,
-            v_f6::VAES_VS1_EM => VectorOp::VAesEm,
-            v_f6::VAES_VS1_EF => VectorOp::VAesEf,
-            v_f6::VSM4_VS1_R => VectorOp::VSm4R,
-            v_f6::VGMUL_VS1 => VectorOp::VGmul,
+            v_f6::VAES_VS1_DM => VectorOp::Crypto(CryptoOp::AesDm),
+            v_f6::VAES_VS1_DF => VectorOp::Crypto(CryptoOp::AesDf),
+            v_f6::VAES_VS1_EM => VectorOp::Crypto(CryptoOp::AesEm),
+            v_f6::VAES_VS1_EF => VectorOp::Crypto(CryptoOp::AesEf),
+            v_f6::VSM4_VS1_R => VectorOp::Crypto(CryptoOp::Sm4R),
+            v_f6::VGMUL_VS1 => VectorOp::Crypto(CryptoOp::Gmul),
             _ => return Err(Trap::IllegalInstruction(inst)),
         },
         v_f6::VCRYPTO_VS => match vs1 {
-            v_f6::VAES_VS1_DM => VectorOp::VAesDm,
-            v_f6::VAES_VS1_DF => VectorOp::VAesDf,
-            v_f6::VAES_VS1_EM => VectorOp::VAesEm,
-            v_f6::VAES_VS1_EF => VectorOp::VAesEf,
-            v_f6::VAES_VS1_Z => VectorOp::VAesZ,
-            v_f6::VSM4_VS1_R => VectorOp::VSm4R,
+            v_f6::VAES_VS1_DM => VectorOp::Crypto(CryptoOp::AesDm),
+            v_f6::VAES_VS1_DF => VectorOp::Crypto(CryptoOp::AesDf),
+            v_f6::VAES_VS1_EM => VectorOp::Crypto(CryptoOp::AesEm),
+            v_f6::VAES_VS1_EF => VectorOp::Crypto(CryptoOp::AesEf),
+            v_f6::VAES_VS1_Z => VectorOp::Crypto(CryptoOp::AesZ),
+            v_f6::VSM4_VS1_R => VectorOp::Crypto(CryptoOp::Sm4R),
             _ => return Err(Trap::IllegalInstruction(inst)),
         },
-        v_f6::VAES_KF2 => VectorOp::VAesKf2,
-        v_f6::VSM3_C => VectorOp::VSm3C,
-        v_f6::VGHSH => VectorOp::VGhsh,
-        v_f6::VSHA2_MS => VectorOp::VSha2Ms,
-        v_f6::VSHA2_CH => VectorOp::VSha2Ch,
-        v_f6::VSHA2_CL => VectorOp::VSha2Cl,
+        v_f6::VAES_KF2 => VectorOp::Crypto(CryptoOp::AesKf2),
+        v_f6::VSM3_C => VectorOp::Crypto(CryptoOp::Sm3C),
+        v_f6::VGHSH => VectorOp::Crypto(CryptoOp::Ghsh),
+        v_f6::VSHA2_MS => VectorOp::Crypto(CryptoOp::Sha2Ms),
+        v_f6::VSHA2_CH => VectorOp::Crypto(CryptoOp::Sha2Ch),
+        v_f6::VSHA2_CL => VectorOp::Crypto(CryptoOp::Sha2Cl),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -223,49 +231,49 @@ const fn decode_opcrypto(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
 /// Decode OPIVV funct3 (integer vector-vector) operations.
 const fn decode_opivv(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
     Ok(match f6 {
-        v_f6::VSUB => VectorOp::VSub,
-        v_f6::VMINU => VectorOp::VMinU,
-        v_f6::VMIN => VectorOp::VMin,
-        v_f6::VMAXU => VectorOp::VMaxU,
-        v_f6::VMAX => VectorOp::VMax,
-        v_f6::VAND => VectorOp::VAnd,
-        v_f6::VOR => VectorOp::VOr,
-        v_f6::VXOR => VectorOp::VXor,
-        v_f6::VADD => VectorOp::VAdd,
-        v_f6::VRGATHER => VectorOp::VRgather,
-        v_f6::VRGATHEREI16 => VectorOp::VRgatherEi16,
-        v_f6::VADC => VectorOp::VAdc,
-        v_f6::VMADC => VectorOp::VMadc,
-        v_f6::VSBC => VectorOp::VSbc,
-        v_f6::VMSBC => VectorOp::VMsbc,
-        v_f6::VMERGE_VMV => VectorOp::VMerge,
-        v_f6::VMSEQ => VectorOp::VMSeq,
-        v_f6::VMSNE => VectorOp::VMSne,
-        v_f6::VMSLTU => VectorOp::VMSltu,
-        v_f6::VMSLT => VectorOp::VMSlt,
-        v_f6::VMSLEU => VectorOp::VMSleu,
-        v_f6::VMSLE => VectorOp::VMSle,
-        v_f6::VSADDU => VectorOp::VSAddU,
-        v_f6::VSADD => VectorOp::VSAdd,
-        v_f6::VSSUBU => VectorOp::VSSubU,
-        v_f6::VSSUB => VectorOp::VSSub,
-        v_f6::VSLL => VectorOp::VSll,
-        v_f6::VSMUL => VectorOp::VSmul,
-        v_f6::VSRL => VectorOp::VSrl,
-        v_f6::VSRA => VectorOp::VSra,
-        v_f6::VSSRL => VectorOp::VSSrl,
-        v_f6::VSSRA => VectorOp::VSSra,
-        v_f6::VNSRL => VectorOp::VNSrl,
-        v_f6::VNSRA => VectorOp::VNSra,
-        v_f6::VNCLIPU => VectorOp::VNClipU,
-        v_f6::VNCLIP => VectorOp::VNClip,
+        v_f6::VSUB => VectorOp::Alu(VecAluOp::Int(IntOp::Sub)),
+        v_f6::VMINU => VectorOp::Alu(VecAluOp::Int(IntOp::MinU)),
+        v_f6::VMIN => VectorOp::Alu(VecAluOp::Int(IntOp::Min)),
+        v_f6::VMAXU => VectorOp::Alu(VecAluOp::Int(IntOp::MaxU)),
+        v_f6::VMAX => VectorOp::Alu(VecAluOp::Int(IntOp::Max)),
+        v_f6::VAND => VectorOp::Alu(VecAluOp::Int(IntOp::And)),
+        v_f6::VOR => VectorOp::Alu(VecAluOp::Int(IntOp::Or)),
+        v_f6::VXOR => VectorOp::Alu(VecAluOp::Int(IntOp::Xor)),
+        v_f6::VADD => VectorOp::Alu(VecAluOp::Int(IntOp::Add)),
+        v_f6::VRGATHER => VectorOp::Permute(PermuteOp::Rgather),
+        v_f6::VRGATHEREI16 => VectorOp::Permute(PermuteOp::RgatherEi16),
+        v_f6::VADC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Adc)),
+        v_f6::VMADC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Madc)),
+        v_f6::VSBC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Sbc)),
+        v_f6::VMSBC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Msbc)),
+        v_f6::VMERGE_VMV => VectorOp::Alu(VecAluOp::Merge),
+        v_f6::VMSEQ => VectorOp::Alu(VecAluOp::Compare(CompareOp::Eq)),
+        v_f6::VMSNE => VectorOp::Alu(VecAluOp::Compare(CompareOp::Ne)),
+        v_f6::VMSLTU => VectorOp::Alu(VecAluOp::Compare(CompareOp::LtU)),
+        v_f6::VMSLT => VectorOp::Alu(VecAluOp::Compare(CompareOp::Lt)),
+        v_f6::VMSLEU => VectorOp::Alu(VecAluOp::Compare(CompareOp::LeU)),
+        v_f6::VMSLE => VectorOp::Alu(VecAluOp::Compare(CompareOp::Le)),
+        v_f6::VSADDU => VectorOp::Alu(VecAluOp::Int(IntOp::SAddU)),
+        v_f6::VSADD => VectorOp::Alu(VecAluOp::Int(IntOp::SAdd)),
+        v_f6::VSSUBU => VectorOp::Alu(VecAluOp::Int(IntOp::SSubU)),
+        v_f6::VSSUB => VectorOp::Alu(VecAluOp::Int(IntOp::SSub)),
+        v_f6::VSLL => VectorOp::Alu(VecAluOp::Int(IntOp::Sll)),
+        v_f6::VSMUL => VectorOp::Alu(VecAluOp::Int(IntOp::Smul)),
+        v_f6::VSRL => VectorOp::Alu(VecAluOp::Int(IntOp::Srl)),
+        v_f6::VSRA => VectorOp::Alu(VecAluOp::Int(IntOp::Sra)),
+        v_f6::VSSRL => VectorOp::Alu(VecAluOp::Int(IntOp::SSrl)),
+        v_f6::VSSRA => VectorOp::Alu(VecAluOp::Int(IntOp::SSra)),
+        v_f6::VNSRL => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Srl)),
+        v_f6::VNSRA => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Sra)),
+        v_f6::VNCLIPU => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::ClipU)),
+        v_f6::VNCLIP => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Clip)),
         // VWREDSUMU/VWREDSUM in OPIVV vs vwaddu/vwadd in OPMVV share funct6.
-        v_f6::VWREDSUMU => VectorOp::VWRedSumU,
-        v_f6::VWREDSUM => VectorOp::VWRedSum,
-        v_f6::VANDN => VectorOp::VAndN,
-        v_f6::VROL => VectorOp::VRol,
-        v_f6::VROR => VectorOp::VRor,
-        v_f6::VWSLL => VectorOp::VWsll,
+        v_f6::VWREDSUMU => VectorOp::Reduce(ReduceOp::WidenInt(WidenIntReduceOp::SumU)),
+        v_f6::VWREDSUM => VectorOp::Reduce(ReduceOp::WidenInt(WidenIntReduceOp::Sum)),
+        v_f6::VANDN => VectorOp::Alu(VecAluOp::Int(IntOp::AndN)),
+        v_f6::VROL => VectorOp::Alu(VecAluOp::Int(IntOp::Rol)),
+        v_f6::VROR => VectorOp::Alu(VecAluOp::Int(IntOp::Ror)),
+        v_f6::VWSLL => VectorOp::Alu(VecAluOp::Widen(WidenOp::Sll)),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -273,50 +281,50 @@ const fn decode_opivv(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
 /// Decode OPIVX funct3 (integer vector-scalar) operations.
 const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
     Ok(match f6 {
-        v_f6::VSUB => VectorOp::VSub,
-        v_f6::VRSUB => VectorOp::VRsub,
-        v_f6::VMINU => VectorOp::VMinU,
-        v_f6::VMIN => VectorOp::VMin,
-        v_f6::VMAXU => VectorOp::VMaxU,
-        v_f6::VMAX => VectorOp::VMax,
-        v_f6::VAND => VectorOp::VAnd,
-        v_f6::VOR => VectorOp::VOr,
-        v_f6::VXOR => VectorOp::VXor,
-        v_f6::VADD => VectorOp::VAdd,
-        v_f6::VRGATHER => VectorOp::VRgather,
-        v_f6::VSLIDEUP => VectorOp::VSlideUp(SlideOffset::Rs1),
-        v_f6::VSLIDEDOWN => VectorOp::VSlideDown(SlideOffset::Rs1),
-        v_f6::VADC => VectorOp::VAdc,
-        v_f6::VMADC => VectorOp::VMadc,
-        v_f6::VSBC => VectorOp::VSbc,
-        v_f6::VMSBC => VectorOp::VMsbc,
-        v_f6::VMERGE_VMV => VectorOp::VMerge,
-        v_f6::VMSEQ => VectorOp::VMSeq,
-        v_f6::VMSNE => VectorOp::VMSne,
-        v_f6::VMSLTU => VectorOp::VMSltu,
-        v_f6::VMSLT => VectorOp::VMSlt,
-        v_f6::VMSLEU => VectorOp::VMSleu,
-        v_f6::VMSLE => VectorOp::VMSle,
-        v_f6::VMSGTU => VectorOp::VMSgtu,
-        v_f6::VMSGT => VectorOp::VMSgt,
-        v_f6::VSADDU => VectorOp::VSAddU,
-        v_f6::VSADD => VectorOp::VSAdd,
-        v_f6::VSSUBU => VectorOp::VSSubU,
-        v_f6::VSSUB => VectorOp::VSSub,
-        v_f6::VSLL => VectorOp::VSll,
-        v_f6::VSMUL => VectorOp::VSmul,
-        v_f6::VSRL => VectorOp::VSrl,
-        v_f6::VSRA => VectorOp::VSra,
-        v_f6::VSSRL => VectorOp::VSSrl,
-        v_f6::VSSRA => VectorOp::VSSra,
-        v_f6::VNSRL => VectorOp::VNSrl,
-        v_f6::VNSRA => VectorOp::VNSra,
-        v_f6::VNCLIPU => VectorOp::VNClipU,
-        v_f6::VNCLIP => VectorOp::VNClip,
-        v_f6::VANDN => VectorOp::VAndN,
-        v_f6::VROL => VectorOp::VRol,
-        v_f6::VROR => VectorOp::VRor,
-        v_f6::VWSLL => VectorOp::VWsll,
+        v_f6::VSUB => VectorOp::Alu(VecAluOp::Int(IntOp::Sub)),
+        v_f6::VRSUB => VectorOp::Alu(VecAluOp::Int(IntOp::Rsub)),
+        v_f6::VMINU => VectorOp::Alu(VecAluOp::Int(IntOp::MinU)),
+        v_f6::VMIN => VectorOp::Alu(VecAluOp::Int(IntOp::Min)),
+        v_f6::VMAXU => VectorOp::Alu(VecAluOp::Int(IntOp::MaxU)),
+        v_f6::VMAX => VectorOp::Alu(VecAluOp::Int(IntOp::Max)),
+        v_f6::VAND => VectorOp::Alu(VecAluOp::Int(IntOp::And)),
+        v_f6::VOR => VectorOp::Alu(VecAluOp::Int(IntOp::Or)),
+        v_f6::VXOR => VectorOp::Alu(VecAluOp::Int(IntOp::Xor)),
+        v_f6::VADD => VectorOp::Alu(VecAluOp::Int(IntOp::Add)),
+        v_f6::VRGATHER => VectorOp::Permute(PermuteOp::Rgather),
+        v_f6::VSLIDEUP => VectorOp::Permute(PermuteOp::SlideUp(SlideOffset::Rs1)),
+        v_f6::VSLIDEDOWN => VectorOp::Permute(PermuteOp::SlideDown(SlideOffset::Rs1)),
+        v_f6::VADC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Adc)),
+        v_f6::VMADC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Madc)),
+        v_f6::VSBC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Sbc)),
+        v_f6::VMSBC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Msbc)),
+        v_f6::VMERGE_VMV => VectorOp::Alu(VecAluOp::Merge),
+        v_f6::VMSEQ => VectorOp::Alu(VecAluOp::Compare(CompareOp::Eq)),
+        v_f6::VMSNE => VectorOp::Alu(VecAluOp::Compare(CompareOp::Ne)),
+        v_f6::VMSLTU => VectorOp::Alu(VecAluOp::Compare(CompareOp::LtU)),
+        v_f6::VMSLT => VectorOp::Alu(VecAluOp::Compare(CompareOp::Lt)),
+        v_f6::VMSLEU => VectorOp::Alu(VecAluOp::Compare(CompareOp::LeU)),
+        v_f6::VMSLE => VectorOp::Alu(VecAluOp::Compare(CompareOp::Le)),
+        v_f6::VMSGTU => VectorOp::Alu(VecAluOp::Compare(CompareOp::GtU)),
+        v_f6::VMSGT => VectorOp::Alu(VecAluOp::Compare(CompareOp::Gt)),
+        v_f6::VSADDU => VectorOp::Alu(VecAluOp::Int(IntOp::SAddU)),
+        v_f6::VSADD => VectorOp::Alu(VecAluOp::Int(IntOp::SAdd)),
+        v_f6::VSSUBU => VectorOp::Alu(VecAluOp::Int(IntOp::SSubU)),
+        v_f6::VSSUB => VectorOp::Alu(VecAluOp::Int(IntOp::SSub)),
+        v_f6::VSLL => VectorOp::Alu(VecAluOp::Int(IntOp::Sll)),
+        v_f6::VSMUL => VectorOp::Alu(VecAluOp::Int(IntOp::Smul)),
+        v_f6::VSRL => VectorOp::Alu(VecAluOp::Int(IntOp::Srl)),
+        v_f6::VSRA => VectorOp::Alu(VecAluOp::Int(IntOp::Sra)),
+        v_f6::VSSRL => VectorOp::Alu(VecAluOp::Int(IntOp::SSrl)),
+        v_f6::VSSRA => VectorOp::Alu(VecAluOp::Int(IntOp::SSra)),
+        v_f6::VNSRL => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Srl)),
+        v_f6::VNSRA => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Sra)),
+        v_f6::VNCLIPU => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::ClipU)),
+        v_f6::VNCLIP => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Clip)),
+        v_f6::VANDN => VectorOp::Alu(VecAluOp::Int(IntOp::AndN)),
+        v_f6::VROL => VectorOp::Alu(VecAluOp::Int(IntOp::Rol)),
+        v_f6::VROR => VectorOp::Alu(VecAluOp::Int(IntOp::Ror)),
+        v_f6::VWSLL => VectorOp::Alu(VecAluOp::Widen(WidenOp::Sll)),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -327,67 +335,66 @@ const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
 /// bit is instruction bit 26, and the rest a sign-extended `simm5`.
 const fn vi_immediate(op: VectorOp, inst: u32) -> i8 {
     match op {
-        VectorOp::VRor => {
+        VectorOp::Alu(VecAluOp::Int(IntOp::Ror)) => {
             ((((inst >> VROR_ZIMM_HIGH_BIT) & 1) << 5) as u64 | v_enc::uimm5(inst)) as i8
         }
-        VectorOp::VSll
-        | VectorOp::VSrl
-        | VectorOp::VSra
-        | VectorOp::VNSrl
-        | VectorOp::VNSra
-        | VectorOp::VNClipU
-        | VectorOp::VNClip
-        | VectorOp::VSSrl
-        | VectorOp::VSSra
-        | VectorOp::VRgather
-        | VectorOp::VWsll => v_enc::uimm5(inst) as i8,
+        VectorOp::Alu(
+            VecAluOp::Int(IntOp::Sll | IntOp::Srl | IntOp::Sra | IntOp::SSrl | IntOp::SSra)
+            | VecAluOp::Narrow(_)
+            | VecAluOp::Widen(WidenOp::Sll),
+        )
+        | VectorOp::Permute(PermuteOp::Rgather) => v_enc::uimm5(inst) as i8,
         _ => v_enc::simm5(inst) as i8,
     }
 }
 
 const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
     Ok(match f6 {
-        v_f6::VRSUB => VectorOp::VRsub,
-        v_f6::VAND => VectorOp::VAnd,
-        v_f6::VOR => VectorOp::VOr,
-        v_f6::VXOR => VectorOp::VXor,
-        v_f6::VADD => VectorOp::VAdd,
-        v_f6::VRGATHER => VectorOp::VRgather,
-        v_f6::VSLIDEUP => VectorOp::VSlideUp(SlideOffset::Imm(v_enc::uimm5(inst) as u8)),
-        v_f6::VSLIDEDOWN => VectorOp::VSlideDown(SlideOffset::Imm(v_enc::uimm5(inst) as u8)),
+        v_f6::VRSUB => VectorOp::Alu(VecAluOp::Int(IntOp::Rsub)),
+        v_f6::VAND => VectorOp::Alu(VecAluOp::Int(IntOp::And)),
+        v_f6::VOR => VectorOp::Alu(VecAluOp::Int(IntOp::Or)),
+        v_f6::VXOR => VectorOp::Alu(VecAluOp::Int(IntOp::Xor)),
+        v_f6::VADD => VectorOp::Alu(VecAluOp::Int(IntOp::Add)),
+        v_f6::VRGATHER => VectorOp::Permute(PermuteOp::Rgather),
+        v_f6::VSLIDEUP => {
+            VectorOp::Permute(PermuteOp::SlideUp(SlideOffset::Imm(v_enc::uimm5(inst) as u8)))
+        }
+        v_f6::VSLIDEDOWN => {
+            VectorOp::Permute(PermuteOp::SlideDown(SlideOffset::Imm(v_enc::uimm5(inst) as u8)))
+        }
         // VSMUL funct6 in OPIVI is whole-register move; simm5 encodes nregs.
         v_f6::VSMUL => {
             let vs1_field = v_enc::vs1(inst);
             match vs1_field {
-                0b00000 => VectorOp::VMv1r,
-                0b00001 => VectorOp::VMv2r,
-                0b00011 => VectorOp::VMv4r,
-                0b00111 => VectorOp::VMv8r,
+                0b00000 => VectorOp::Permute(PermuteOp::WholeMove(WholeRegisters::One)),
+                0b00001 => VectorOp::Permute(PermuteOp::WholeMove(WholeRegisters::Two)),
+                0b00011 => VectorOp::Permute(PermuteOp::WholeMove(WholeRegisters::Four)),
+                0b00111 => VectorOp::Permute(PermuteOp::WholeMove(WholeRegisters::Eight)),
                 _ => return Err(Trap::IllegalInstruction(inst)),
             }
         }
-        v_f6::VADC => VectorOp::VAdc,
-        v_f6::VMADC => VectorOp::VMadc,
-        v_f6::VMERGE_VMV => VectorOp::VMerge,
-        v_f6::VMSEQ => VectorOp::VMSeq,
-        v_f6::VMSNE => VectorOp::VMSne,
-        v_f6::VMSLEU => VectorOp::VMSleu,
-        v_f6::VMSLE => VectorOp::VMSle,
-        v_f6::VMSGTU => VectorOp::VMSgtu,
-        v_f6::VMSGT => VectorOp::VMSgt,
-        v_f6::VSADDU => VectorOp::VSAddU,
-        v_f6::VSADD => VectorOp::VSAdd,
-        v_f6::VSLL => VectorOp::VSll,
-        v_f6::VSRL => VectorOp::VSrl,
-        v_f6::VSRA => VectorOp::VSra,
-        v_f6::VSSRL => VectorOp::VSSrl,
-        v_f6::VSSRA => VectorOp::VSSra,
-        v_f6::VNSRL => VectorOp::VNSrl,
-        v_f6::VNSRA => VectorOp::VNSra,
-        v_f6::VNCLIPU => VectorOp::VNClipU,
-        v_f6::VNCLIP => VectorOp::VNClip,
-        v_f6::VROR | v_f6::VROR_VI_ROTATE_HIGH => VectorOp::VRor,
-        v_f6::VWSLL => VectorOp::VWsll,
+        v_f6::VADC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Adc)),
+        v_f6::VMADC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Madc)),
+        v_f6::VMERGE_VMV => VectorOp::Alu(VecAluOp::Merge),
+        v_f6::VMSEQ => VectorOp::Alu(VecAluOp::Compare(CompareOp::Eq)),
+        v_f6::VMSNE => VectorOp::Alu(VecAluOp::Compare(CompareOp::Ne)),
+        v_f6::VMSLEU => VectorOp::Alu(VecAluOp::Compare(CompareOp::LeU)),
+        v_f6::VMSLE => VectorOp::Alu(VecAluOp::Compare(CompareOp::Le)),
+        v_f6::VMSGTU => VectorOp::Alu(VecAluOp::Compare(CompareOp::GtU)),
+        v_f6::VMSGT => VectorOp::Alu(VecAluOp::Compare(CompareOp::Gt)),
+        v_f6::VSADDU => VectorOp::Alu(VecAluOp::Int(IntOp::SAddU)),
+        v_f6::VSADD => VectorOp::Alu(VecAluOp::Int(IntOp::SAdd)),
+        v_f6::VSLL => VectorOp::Alu(VecAluOp::Int(IntOp::Sll)),
+        v_f6::VSRL => VectorOp::Alu(VecAluOp::Int(IntOp::Srl)),
+        v_f6::VSRA => VectorOp::Alu(VecAluOp::Int(IntOp::Sra)),
+        v_f6::VSSRL => VectorOp::Alu(VecAluOp::Int(IntOp::SSrl)),
+        v_f6::VSSRA => VectorOp::Alu(VecAluOp::Int(IntOp::SSra)),
+        v_f6::VNSRL => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Srl)),
+        v_f6::VNSRA => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Sra)),
+        v_f6::VNCLIPU => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::ClipU)),
+        v_f6::VNCLIP => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Clip)),
+        v_f6::VROR | v_f6::VROR_VI_ROTATE_HIGH => VectorOp::Alu(VecAluOp::Int(IntOp::Ror)),
+        v_f6::VWSLL => VectorOp::Alu(VecAluOp::Widen(WidenOp::Sll)),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -396,96 +403,86 @@ const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
 /// Returns `(VectorOp, writes_vec_reg)`.
 const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
     Ok(match f6 {
-        v_f6::VREDSUM => (VectorOp::VRedSum, true),
-        v_f6::VREDAND => (VectorOp::VRedAnd, true),
-        v_f6::VREDOR => (VectorOp::VRedOr, true),
-        v_f6::VREDXOR => (VectorOp::VRedXor, true),
-        v_f6::VREDMINU => (VectorOp::VRedMinU, true),
-        v_f6::VREDMIN => (VectorOp::VRedMin, true),
-        v_f6::VREDMAXU => (VectorOp::VRedMaxU, true),
-        v_f6::VREDMAX => (VectorOp::VRedMax, true),
-        v_f6::VAADDU => (VectorOp::VAAddU, true),
-        v_f6::VAADD => (VectorOp::VAAdd, true),
-        v_f6::VASUBU => (VectorOp::VASubU, true),
-        v_f6::VASUB => (VectorOp::VASub, true),
+        v_f6::VREDSUM => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Sum)), true),
+        v_f6::VREDAND => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::And)), true),
+        v_f6::VREDOR => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Or)), true),
+        v_f6::VREDXOR => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Xor)), true),
+        v_f6::VREDMINU => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::MinU)), true),
+        v_f6::VREDMIN => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Min)), true),
+        v_f6::VREDMAXU => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::MaxU)), true),
+        v_f6::VREDMAX => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Max)), true),
+        v_f6::VAADDU => (VectorOp::Alu(VecAluOp::Int(IntOp::AAddU)), true),
+        v_f6::VAADD => (VectorOp::Alu(VecAluOp::Int(IntOp::AAdd)), true),
+        v_f6::VASUBU => (VectorOp::Alu(VecAluOp::Int(IntOp::ASubU)), true),
+        v_f6::VASUB => (VectorOp::Alu(VecAluOp::Int(IntOp::ASub)), true),
         v_f6::VWXUNARY0 => {
             let vs1_field = v_enc::vs1(inst);
             match vs1_field {
-                v_f6::VWXUNARY0_VMV_X_S => (VectorOp::VMvXS, false),
-                v_f6::VWXUNARY0_VCPOP_M => (VectorOp::VCPopM, false),
-                v_f6::VWXUNARY0_VFIRST_M => (VectorOp::VFirstM, false),
+                v_f6::VWXUNARY0_VMV_X_S => (VectorOp::Permute(PermuteOp::MvXS), false),
+                v_f6::VWXUNARY0_VCPOP_M => (VectorOp::Mask(MaskOp::CPop), false),
+                v_f6::VWXUNARY0_VFIRST_M => (VectorOp::Mask(MaskOp::First), false),
                 _ => return Err(Trap::IllegalInstruction(inst)),
             }
         }
-        v_f6::VXUNARY0 => {
-            let vs1_field = v_enc::vs1(inst);
-            match vs1_field {
-                v_f6::VXUNARY0_VZEXT_VF8 => (VectorOp::VZextVf8, true),
-                v_f6::VXUNARY0_VSEXT_VF8 => (VectorOp::VSextVf8, true),
-                v_f6::VXUNARY0_VZEXT_VF4 => (VectorOp::VZextVf4, true),
-                v_f6::VXUNARY0_VSEXT_VF4 => (VectorOp::VSextVf4, true),
-                v_f6::VXUNARY0_VZEXT_VF2 => (VectorOp::VZextVf2, true),
-                v_f6::VXUNARY0_VSEXT_VF2 => (VectorOp::VSextVf2, true),
-                v_f6::VXUNARY0_VBREV => (VectorOp::VBrev, true),
-                v_f6::VXUNARY0_VBREV8 => (VectorOp::VBrev8, true),
-                v_f6::VXUNARY0_VREV8 => (VectorOp::VRev8, true),
-                v_f6::VXUNARY0_VCLZ => (VectorOp::VClz, true),
-                v_f6::VXUNARY0_VCTZ => (VectorOp::VCtz, true),
-                v_f6::VXUNARY0_VCPOP => (VectorOp::VCpopV, true),
-                _ => return Err(Trap::IllegalInstruction(inst)),
-            }
-        }
+        v_f6::VXUNARY0 => match decode_vxunary0(inst) {
+            Ok(op) => (VectorOp::Alu(op), true),
+            Err(e) => return Err(e),
+        },
         v_f6::VMUNARY0 => {
             let vs1_field = v_enc::vs1(inst);
             match vs1_field {
-                v_f6::VMUNARY0_VMSBF_M => (VectorOp::VMSbfM, true),
-                v_f6::VMUNARY0_VMSOF_M => (VectorOp::VMSofM, true),
-                v_f6::VMUNARY0_VMSIF_M => (VectorOp::VMSifM, true),
-                v_f6::VMUNARY0_VIOTA_M => (VectorOp::VIotaM, true),
-                v_f6::VMUNARY0_VID_V => (VectorOp::VIdV, true),
+                v_f6::VMUNARY0_VMSBF_M => {
+                    (VectorOp::Mask(MaskOp::Set(MaskSetOp::BeforeFirst)), true)
+                }
+                v_f6::VMUNARY0_VMSOF_M => (VectorOp::Mask(MaskOp::Set(MaskSetOp::OnlyFirst)), true),
+                v_f6::VMUNARY0_VMSIF_M => {
+                    (VectorOp::Mask(MaskOp::Set(MaskSetOp::IncludingFirst)), true)
+                }
+                v_f6::VMUNARY0_VIOTA_M => (VectorOp::Mask(MaskOp::Iota), true),
+                v_f6::VMUNARY0_VID_V => (VectorOp::Mask(MaskOp::Id), true),
                 _ => return Err(Trap::IllegalInstruction(inst)),
             }
         }
         // VMERGE_VMV in OPMVV decodes to vcompress.
-        v_f6::VMERGE_VMV => (VectorOp::VCompress, true),
-        v_f6::VMANDN => (VectorOp::VMAndnMM, true),
-        v_f6::VMAND => (VectorOp::VMAndMM, true),
-        v_f6::VMOR => (VectorOp::VMOrMM, true),
-        v_f6::VMXOR => (VectorOp::VMXorMM, true),
-        v_f6::VMORN => (VectorOp::VMOrnMM, true),
-        v_f6::VMNAND => (VectorOp::VMNandMM, true),
-        v_f6::VMNOR => (VectorOp::VMNorMM, true),
-        v_f6::VMXNOR => (VectorOp::VMXnorMM, true),
-        v_f6::VMUL => (VectorOp::VMul, true),
-        v_f6::VMULH => (VectorOp::VMulh, true),
-        v_f6::VMULHU => (VectorOp::VMulhu, true),
-        v_f6::VMULHSU => (VectorOp::VMulhsu, true),
-        v_f6::VMACC => (VectorOp::VMacc, true),
-        v_f6::VNMSAC => (VectorOp::VNMSac, true),
-        v_f6::VMADD => (VectorOp::VMadd, true),
-        v_f6::VNMSUB => (VectorOp::VNMSub, true),
-        v_f6::VDIVU => (VectorOp::VDivU, true),
-        v_f6::VDIV => (VectorOp::VDiv, true),
-        v_f6::VREMU => (VectorOp::VRemU, true),
-        v_f6::VREM => (VectorOp::VRem, true),
+        v_f6::VMERGE_VMV => (VectorOp::Permute(PermuteOp::Compress), true),
+        v_f6::VMANDN => (VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::AndNot)), true),
+        v_f6::VMAND => (VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::And)), true),
+        v_f6::VMOR => (VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::Or)), true),
+        v_f6::VMXOR => (VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::Xor)), true),
+        v_f6::VMORN => (VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::OrNot)), true),
+        v_f6::VMNAND => (VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::Nand)), true),
+        v_f6::VMNOR => (VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::Nor)), true),
+        v_f6::VMXNOR => (VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::Xnor)), true),
+        v_f6::VMUL => (VectorOp::Alu(VecAluOp::Int(IntOp::Mul)), true),
+        v_f6::VMULH => (VectorOp::Alu(VecAluOp::Int(IntOp::Mulh)), true),
+        v_f6::VMULHU => (VectorOp::Alu(VecAluOp::Int(IntOp::Mulhu)), true),
+        v_f6::VMULHSU => (VectorOp::Alu(VecAluOp::Int(IntOp::Mulhsu)), true),
+        v_f6::VMACC => (VectorOp::Alu(VecAluOp::Macc(MaccOp::Macc)), true),
+        v_f6::VNMSAC => (VectorOp::Alu(VecAluOp::Macc(MaccOp::NMSac)), true),
+        v_f6::VMADD => (VectorOp::Alu(VecAluOp::Macc(MaccOp::Madd)), true),
+        v_f6::VNMSUB => (VectorOp::Alu(VecAluOp::Macc(MaccOp::NMSub)), true),
+        v_f6::VDIVU => (VectorOp::Alu(VecAluOp::Int(IntOp::DivU)), true),
+        v_f6::VDIV => (VectorOp::Alu(VecAluOp::Int(IntOp::Div)), true),
+        v_f6::VREMU => (VectorOp::Alu(VecAluOp::Int(IntOp::RemU)), true),
+        v_f6::VREM => (VectorOp::Alu(VecAluOp::Int(IntOp::Rem)), true),
         // VWREDSUMU/VWREDSUM share funct6 with these but live in OPIVV (decode_opivv).
-        v_f6::VWADDU => (VectorOp::VWAddU, true),
-        v_f6::VWADD => (VectorOp::VWAdd, true),
-        v_f6::VWSUBU => (VectorOp::VWSubU, true),
-        v_f6::VWSUB => (VectorOp::VWSub, true),
-        v_f6::VWADDU_W => (VectorOp::VWAddUW, true),
-        v_f6::VWADD_W => (VectorOp::VWAddW, true),
-        v_f6::VWSUBU_W => (VectorOp::VWSubUW, true),
-        v_f6::VWSUB_W => (VectorOp::VWSubW, true),
-        v_f6::VWMULU => (VectorOp::VWMulU, true),
-        v_f6::VWMULSU => (VectorOp::VWMulSU, true),
-        v_f6::VWMUL => (VectorOp::VWMul, true),
-        v_f6::VWMACCU => (VectorOp::VWMaccU, true),
-        v_f6::VWMACC => (VectorOp::VWMacc, true),
-        v_f6::VWMACCSU => (VectorOp::VWMaccSU, true),
-        v_f6::VWMACCUS => (VectorOp::VWMaccUS, true),
-        v_f6::VCLMUL => (VectorOp::VClMul, true),
-        v_f6::VCLMULH => (VectorOp::VClMulH, true),
+        v_f6::VWADDU => (VectorOp::Alu(VecAluOp::Widen(WidenOp::AddU)), true),
+        v_f6::VWADD => (VectorOp::Alu(VecAluOp::Widen(WidenOp::Add)), true),
+        v_f6::VWSUBU => (VectorOp::Alu(VecAluOp::Widen(WidenOp::SubU)), true),
+        v_f6::VWSUB => (VectorOp::Alu(VecAluOp::Widen(WidenOp::Sub)), true),
+        v_f6::VWADDU_W => (VectorOp::Alu(VecAluOp::Widen(WidenOp::AddUW)), true),
+        v_f6::VWADD_W => (VectorOp::Alu(VecAluOp::Widen(WidenOp::AddW)), true),
+        v_f6::VWSUBU_W => (VectorOp::Alu(VecAluOp::Widen(WidenOp::SubUW)), true),
+        v_f6::VWSUB_W => (VectorOp::Alu(VecAluOp::Widen(WidenOp::SubW)), true),
+        v_f6::VWMULU => (VectorOp::Alu(VecAluOp::Widen(WidenOp::MulU)), true),
+        v_f6::VWMULSU => (VectorOp::Alu(VecAluOp::Widen(WidenOp::MulSU)), true),
+        v_f6::VWMUL => (VectorOp::Alu(VecAluOp::Widen(WidenOp::Mul)), true),
+        v_f6::VWMACCU => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccU)), true),
+        v_f6::VWMACC => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::Macc)), true),
+        v_f6::VWMACCSU => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccSU)), true),
+        v_f6::VWMACCUS => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccUS)), true),
+        v_f6::VCLMUL => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMul)), true),
+        v_f6::VCLMULH => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMulH)), true),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -494,84 +491,121 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
 /// Returns `(VectorOp, writes_vec_reg)`.
 const fn decode_opmvx(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
     Ok(match f6 {
-        v_f6::VRXUNARY0 => (VectorOp::VMvSX, true),
-        v_f6::VSLIDEUP => (VectorOp::VSlide1Up, true),
-        v_f6::VSLIDEDOWN => (VectorOp::VSlide1Down, true),
-        v_f6::VMUL => (VectorOp::VMul, true),
-        v_f6::VMULH => (VectorOp::VMulh, true),
-        v_f6::VMULHU => (VectorOp::VMulhu, true),
-        v_f6::VMULHSU => (VectorOp::VMulhsu, true),
-        v_f6::VMACC => (VectorOp::VMacc, true),
-        v_f6::VNMSAC => (VectorOp::VNMSac, true),
-        v_f6::VMADD => (VectorOp::VMadd, true),
-        v_f6::VNMSUB => (VectorOp::VNMSub, true),
-        v_f6::VDIVU => (VectorOp::VDivU, true),
-        v_f6::VDIV => (VectorOp::VDiv, true),
-        v_f6::VREMU => (VectorOp::VRemU, true),
-        v_f6::VREM => (VectorOp::VRem, true),
-        v_f6::VWADDU => (VectorOp::VWAddU, true),
-        v_f6::VWADD => (VectorOp::VWAdd, true),
-        v_f6::VWSUBU => (VectorOp::VWSubU, true),
-        v_f6::VWSUB => (VectorOp::VWSub, true),
-        v_f6::VWADDU_W => (VectorOp::VWAddUW, true),
-        v_f6::VWADD_W => (VectorOp::VWAddW, true),
-        v_f6::VWSUBU_W => (VectorOp::VWSubUW, true),
-        v_f6::VWSUB_W => (VectorOp::VWSubW, true),
-        v_f6::VWMULU => (VectorOp::VWMulU, true),
-        v_f6::VWMULSU => (VectorOp::VWMulSU, true),
-        v_f6::VWMUL => (VectorOp::VWMul, true),
-        v_f6::VWMACCU => (VectorOp::VWMaccU, true),
-        v_f6::VWMACC => (VectorOp::VWMacc, true),
-        v_f6::VWMACCSU => (VectorOp::VWMaccSU, true),
-        v_f6::VWMACCUS => (VectorOp::VWMaccUS, true),
-        v_f6::VAADDU => (VectorOp::VAAddU, true),
-        v_f6::VAADD => (VectorOp::VAAdd, true),
-        v_f6::VASUBU => (VectorOp::VASubU, true),
-        v_f6::VASUB => (VectorOp::VASub, true),
-        v_f6::VCLMUL => (VectorOp::VClMul, true),
-        v_f6::VCLMULH => (VectorOp::VClMulH, true),
+        v_f6::VRXUNARY0 => (VectorOp::Permute(PermuteOp::MvSX), true),
+        v_f6::VSLIDEUP => (VectorOp::Permute(PermuteOp::Slide1Up), true),
+        v_f6::VSLIDEDOWN => (VectorOp::Permute(PermuteOp::Slide1Down), true),
+        v_f6::VMUL => (VectorOp::Alu(VecAluOp::Int(IntOp::Mul)), true),
+        v_f6::VMULH => (VectorOp::Alu(VecAluOp::Int(IntOp::Mulh)), true),
+        v_f6::VMULHU => (VectorOp::Alu(VecAluOp::Int(IntOp::Mulhu)), true),
+        v_f6::VMULHSU => (VectorOp::Alu(VecAluOp::Int(IntOp::Mulhsu)), true),
+        v_f6::VMACC => (VectorOp::Alu(VecAluOp::Macc(MaccOp::Macc)), true),
+        v_f6::VNMSAC => (VectorOp::Alu(VecAluOp::Macc(MaccOp::NMSac)), true),
+        v_f6::VMADD => (VectorOp::Alu(VecAluOp::Macc(MaccOp::Madd)), true),
+        v_f6::VNMSUB => (VectorOp::Alu(VecAluOp::Macc(MaccOp::NMSub)), true),
+        v_f6::VDIVU => (VectorOp::Alu(VecAluOp::Int(IntOp::DivU)), true),
+        v_f6::VDIV => (VectorOp::Alu(VecAluOp::Int(IntOp::Div)), true),
+        v_f6::VREMU => (VectorOp::Alu(VecAluOp::Int(IntOp::RemU)), true),
+        v_f6::VREM => (VectorOp::Alu(VecAluOp::Int(IntOp::Rem)), true),
+        v_f6::VWADDU => (VectorOp::Alu(VecAluOp::Widen(WidenOp::AddU)), true),
+        v_f6::VWADD => (VectorOp::Alu(VecAluOp::Widen(WidenOp::Add)), true),
+        v_f6::VWSUBU => (VectorOp::Alu(VecAluOp::Widen(WidenOp::SubU)), true),
+        v_f6::VWSUB => (VectorOp::Alu(VecAluOp::Widen(WidenOp::Sub)), true),
+        v_f6::VWADDU_W => (VectorOp::Alu(VecAluOp::Widen(WidenOp::AddUW)), true),
+        v_f6::VWADD_W => (VectorOp::Alu(VecAluOp::Widen(WidenOp::AddW)), true),
+        v_f6::VWSUBU_W => (VectorOp::Alu(VecAluOp::Widen(WidenOp::SubUW)), true),
+        v_f6::VWSUB_W => (VectorOp::Alu(VecAluOp::Widen(WidenOp::SubW)), true),
+        v_f6::VWMULU => (VectorOp::Alu(VecAluOp::Widen(WidenOp::MulU)), true),
+        v_f6::VWMULSU => (VectorOp::Alu(VecAluOp::Widen(WidenOp::MulSU)), true),
+        v_f6::VWMUL => (VectorOp::Alu(VecAluOp::Widen(WidenOp::Mul)), true),
+        v_f6::VWMACCU => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccU)), true),
+        v_f6::VWMACC => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::Macc)), true),
+        v_f6::VWMACCSU => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccSU)), true),
+        v_f6::VWMACCUS => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccUS)), true),
+        v_f6::VAADDU => (VectorOp::Alu(VecAluOp::Int(IntOp::AAddU)), true),
+        v_f6::VAADD => (VectorOp::Alu(VecAluOp::Int(IntOp::AAdd)), true),
+        v_f6::VASUBU => (VectorOp::Alu(VecAluOp::Int(IntOp::ASubU)), true),
+        v_f6::VASUB => (VectorOp::Alu(VecAluOp::Int(IntOp::ASub)), true),
+        v_f6::VCLMUL => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMul)), true),
+        v_f6::VCLMULH => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMulH)), true),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
 
-/// Decode `VFUNARY0` sub-operations (conversion ops) from the vs1 field.
-const fn decode_vfunary0(inst: u32) -> Result<VectorOp, Trap> {
+/// Decode `VXUNARY0`, the Zvbb unary ops and the integer extensions, from
+/// the vs1 field.
+const fn decode_vxunary0(inst: u32) -> Result<VecAluOp, Trap> {
     let vs1_field = v_enc::vs1(inst);
     Ok(match vs1_field {
-        0b00000 => VectorOp::VFCvtXuF,
-        0b00001 => VectorOp::VFCvtXF,
-        0b00010 => VectorOp::VFCvtFXu,
-        0b00011 => VectorOp::VFCvtFX,
-        0b00110 => VectorOp::VFCvtRtzXuF,
-        0b00111 => VectorOp::VFCvtRtzXF,
-        0b01000 => VectorOp::VFWCvtXuF,
-        0b01001 => VectorOp::VFWCvtXF,
-        0b01010 => VectorOp::VFWCvtFXu,
-        0b01011 => VectorOp::VFWCvtFX,
-        0b01100 => VectorOp::VFWCvtFF,
-        0b01110 => VectorOp::VFWCvtRtzXuF,
-        0b01111 => VectorOp::VFWCvtRtzXF,
-        0b10000 => VectorOp::VFNCvtXuF,
-        0b10001 => VectorOp::VFNCvtXF,
-        0b10010 => VectorOp::VFNCvtFXu,
-        0b10011 => VectorOp::VFNCvtFX,
-        0b10100 => VectorOp::VFNCvtFF,
-        0b10101 => VectorOp::VFNCvtRodFF,
-        0b10110 => VectorOp::VFNCvtRtzXuF,
-        0b10111 => VectorOp::VFNCvtRtzXF,
+        v_f6::VXUNARY0_VBREV => VecAluOp::Int(IntOp::Brev),
+        v_f6::VXUNARY0_VBREV8 => VecAluOp::Int(IntOp::Brev8),
+        v_f6::VXUNARY0_VREV8 => VecAluOp::Int(IntOp::Rev8),
+        v_f6::VXUNARY0_VCLZ => VecAluOp::Int(IntOp::Clz),
+        v_f6::VXUNARY0_VCTZ => VecAluOp::Int(IntOp::Ctz),
+        v_f6::VXUNARY0_VCPOP => VecAluOp::Int(IntOp::CpopV),
+        _ => match extension(vs1_field) {
+            Some(op) => VecAluOp::Extend(op),
+            None => return Err(Trap::IllegalInstruction(inst)),
+        },
+    })
+}
+
+/// The integer extension a `VXUNARY0` vs1 field selects, if any.
+const fn extension(vs1_field: u8) -> Option<ExtendOp> {
+    use ExtendFactor::{Vf2, Vf4, Vf8};
+    use Signedness::{Signed, Unsigned};
+    let (signedness, factor) = match vs1_field {
+        v_f6::VXUNARY0_VZEXT_VF8 => (Unsigned, Vf8),
+        v_f6::VXUNARY0_VSEXT_VF8 => (Signed, Vf8),
+        v_f6::VXUNARY0_VZEXT_VF4 => (Unsigned, Vf4),
+        v_f6::VXUNARY0_VSEXT_VF4 => (Signed, Vf4),
+        v_f6::VXUNARY0_VZEXT_VF2 => (Unsigned, Vf2),
+        v_f6::VXUNARY0_VSEXT_VF2 => (Signed, Vf2),
+        _ => return None,
+    };
+    Some(ExtendOp { signedness, factor })
+}
+
+/// Decode `VFUNARY0` sub-operations (conversion ops) from the vs1 field.
+const fn decode_vfunary0(inst: u32) -> Result<VecFpOp, Trap> {
+    use IntConvert::{FromInt, ToInt};
+    use IntRounding::{Dynamic, TowardZero};
+    use Signedness::{Signed, Unsigned};
+    let vs1_field = v_enc::vs1(inst);
+    Ok(match vs1_field {
+        0b00000 => VecFpOp::Unary(FpUnaryOp::Convert(ToInt(Unsigned, Dynamic))),
+        0b00001 => VecFpOp::Unary(FpUnaryOp::Convert(ToInt(Signed, Dynamic))),
+        0b00010 => VecFpOp::Unary(FpUnaryOp::Convert(FromInt(Unsigned))),
+        0b00011 => VecFpOp::Unary(FpUnaryOp::Convert(FromInt(Signed))),
+        0b00110 => VecFpOp::Unary(FpUnaryOp::Convert(ToInt(Unsigned, TowardZero))),
+        0b00111 => VecFpOp::Unary(FpUnaryOp::Convert(ToInt(Signed, TowardZero))),
+        0b01000 => VecFpOp::WidenConvert(FpWidenConvertOp::Int(ToInt(Unsigned, Dynamic))),
+        0b01001 => VecFpOp::WidenConvert(FpWidenConvertOp::Int(ToInt(Signed, Dynamic))),
+        0b01010 => VecFpOp::WidenConvert(FpWidenConvertOp::Int(FromInt(Unsigned))),
+        0b01011 => VecFpOp::WidenConvert(FpWidenConvertOp::Int(FromInt(Signed))),
+        0b01100 => VecFpOp::WidenConvert(FpWidenConvertOp::Float),
+        0b01110 => VecFpOp::WidenConvert(FpWidenConvertOp::Int(ToInt(Unsigned, TowardZero))),
+        0b01111 => VecFpOp::WidenConvert(FpWidenConvertOp::Int(ToInt(Signed, TowardZero))),
+        0b10000 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(ToInt(Unsigned, Dynamic))),
+        0b10001 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(ToInt(Signed, Dynamic))),
+        0b10010 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(FromInt(Unsigned))),
+        0b10011 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(FromInt(Signed))),
+        0b10100 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Float),
+        0b10101 => VecFpOp::NarrowConvert(FpNarrowConvertOp::FloatRoundToOdd),
+        0b10110 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(ToInt(Unsigned, TowardZero))),
+        0b10111 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(ToInt(Signed, TowardZero))),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
 
 /// Decode `VFUNARY1` sub-operations (`vfsqrt`, `vfrsqrt7`, `vfrec7`, `vfclass`)
 /// from the vs1 field.
-const fn decode_vfunary1(inst: u32) -> Result<VectorOp, Trap> {
+const fn decode_vfunary1(inst: u32) -> Result<FpUnaryOp, Trap> {
     let vs1_field = v_enc::vs1(inst);
     Ok(match vs1_field {
-        0b00000 => VectorOp::VFSqrt,
-        0b00100 => VectorOp::VFRsqrt7,
-        0b00101 => VectorOp::VFRec7,
-        0b10000 => VectorOp::VFClass,
+        0b00000 => FpUnaryOp::Sqrt,
+        0b00100 => FpUnaryOp::Rsqrt7,
+        0b00101 => FpUnaryOp::Rec7,
+        0b10000 => FpUnaryOp::Class,
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -580,57 +614,57 @@ const fn decode_vfunary1(inst: u32) -> Result<VectorOp, Trap> {
 /// Returns `(VectorOp, writes_vec_reg)`.
 const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
     Ok(match f6 {
-        v_f6::VFADD => (VectorOp::VFAdd, true),
-        v_f6::VFSUB => (VectorOp::VFSub, true),
-        v_f6::VFMIN => (VectorOp::VFMin, true),
-        v_f6::VFMAX => (VectorOp::VFMax, true),
-        v_f6::VFSGNJ => (VectorOp::VFSgnj, true),
-        v_f6::VFSGNJN => (VectorOp::VFSgnjn, true),
-        v_f6::VFSGNJX => (VectorOp::VFSgnjx, true),
-        v_f6::VMFEQ => (VectorOp::VMFEq, true),
-        v_f6::VMFLE => (VectorOp::VMFLe, true),
-        v_f6::VMFLT => (VectorOp::VMFLt, true),
-        v_f6::VMFNE => (VectorOp::VMFNe, true),
-        v_f6::VFDIV => (VectorOp::VFDiv, true),
-        v_f6::VFMUL => (VectorOp::VFMul, true),
-        v_f6::VFMACC => (VectorOp::VFMacc, true),
-        v_f6::VFNMACC => (VectorOp::VFNMacc, true),
-        v_f6::VFMSAC => (VectorOp::VFMSac, true),
-        v_f6::VFNMSAC => (VectorOp::VFNMSac, true),
-        v_f6::VFMADD => (VectorOp::VFMAdd, true),
-        v_f6::VFNMADD => (VectorOp::VFNMAdd, true),
-        v_f6::VFMSUB => (VectorOp::VFMSub, true),
-        v_f6::VFNMSUB => (VectorOp::VFNMSub, true),
-        v_f6::VFWADD => (VectorOp::VFWAdd, true),
-        v_f6::VFWSUB => (VectorOp::VFWSub, true),
-        v_f6::VFWADD_W => (VectorOp::VFWAddW, true),
-        v_f6::VFWSUB_W => (VectorOp::VFWSubW, true),
-        v_f6::VFWMUL => (VectorOp::VFWMul, true),
-        v_f6::VFWMACC => (VectorOp::VFWMacc, true),
-        v_f6::VFWNMACC => (VectorOp::VFWNMacc, true),
-        v_f6::VFWMSAC => (VectorOp::VFWMSac, true),
-        v_f6::VFWNMSAC => (VectorOp::VFWNMSac, true),
+        v_f6::VFADD => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Add)), true),
+        v_f6::VFSUB => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sub)), true),
+        v_f6::VFMIN => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Min)), true),
+        v_f6::VFMAX => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Max)), true),
+        v_f6::VFSGNJ => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sgnj)), true),
+        v_f6::VFSGNJN => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sgnjn)), true),
+        v_f6::VFSGNJX => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sgnjx)), true),
+        v_f6::VMFEQ => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Eq)), true),
+        v_f6::VMFLE => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Le)), true),
+        v_f6::VMFLT => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Lt)), true),
+        v_f6::VMFNE => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Ne)), true),
+        v_f6::VFDIV => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Div)), true),
+        v_f6::VFMUL => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Mul)), true),
+        v_f6::VFMACC => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vd)), true),
+        v_f6::VFNMACC => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::NMacc, FmaAddend::Vd)), true),
+        v_f6::VFMSAC => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::MSac, FmaAddend::Vd)), true),
+        v_f6::VFNMSAC => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::NMSac, FmaAddend::Vd)), true),
+        v_f6::VFMADD => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vs2)), true),
+        v_f6::VFNMADD => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::NMacc, FmaAddend::Vs2)), true),
+        v_f6::VFMSUB => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::MSac, FmaAddend::Vs2)), true),
+        v_f6::VFNMSUB => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::NMSac, FmaAddend::Vs2)), true),
+        v_f6::VFWADD => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::Add)), true),
+        v_f6::VFWSUB => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::Sub)), true),
+        v_f6::VFWADD_W => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::AddW)), true),
+        v_f6::VFWSUB_W => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::SubW)), true),
+        v_f6::VFWMUL => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::Mul)), true),
+        v_f6::VFWMACC => (VectorOp::Fp(VecFpOp::WidenFma(FmaSigns::Macc)), true),
+        v_f6::VFWNMACC => (VectorOp::Fp(VecFpOp::WidenFma(FmaSigns::NMacc)), true),
+        v_f6::VFWMSAC => (VectorOp::Fp(VecFpOp::WidenFma(FmaSigns::MSac)), true),
+        v_f6::VFWNMSAC => (VectorOp::Fp(VecFpOp::WidenFma(FmaSigns::NMSac)), true),
         v_f6::VWFUNARY0 => {
             let vs1_field = v_enc::vs1(inst);
             match vs1_field {
-                v_f6::VWFUNARY0_VFMV_F_S => (VectorOp::VFMvFS, false),
+                v_f6::VWFUNARY0_VFMV_F_S => (VectorOp::Fp(VecFpOp::MoveToScalar), false),
                 _ => return Err(Trap::IllegalInstruction(inst)),
             }
         }
         v_f6::VFUNARY0 => match decode_vfunary0(inst) {
-            Ok(op) => (op, true),
+            Ok(op) => (VectorOp::Fp(op), true),
             Err(e) => return Err(e),
         },
         v_f6::VFUNARY1 => match decode_vfunary1(inst) {
-            Ok(op) => (op, true),
+            Ok(op) => (VectorOp::Fp(VecFpOp::Unary(op)), true),
             Err(e) => return Err(e),
         },
-        v_f6::VFREDUSUM => (VectorOp::VFRedUSum, true),
-        v_f6::VFREDOSUM => (VectorOp::VFRedOSum, true),
-        v_f6::VFREDMIN => (VectorOp::VFRedMin, true),
-        v_f6::VFREDMAX => (VectorOp::VFRedMax, true),
-        v_f6::VFWREDUSUM => (VectorOp::VFWRedUSum, true),
-        v_f6::VFWREDOSUM => (VectorOp::VFWRedOSum, true),
+        v_f6::VFREDUSUM => (VectorOp::Reduce(ReduceOp::Fp(FpReduceOp::USum)), true),
+        v_f6::VFREDOSUM => (VectorOp::Reduce(ReduceOp::Fp(FpReduceOp::OSum)), true),
+        v_f6::VFREDMIN => (VectorOp::Reduce(ReduceOp::Fp(FpReduceOp::Min)), true),
+        v_f6::VFREDMAX => (VectorOp::Reduce(ReduceOp::Fp(FpReduceOp::Max)), true),
+        v_f6::VFWREDUSUM => (VectorOp::Reduce(ReduceOp::FpWiden(FpWidenReduceOp::USum)), true),
+        v_f6::VFWREDOSUM => (VectorOp::Reduce(ReduceOp::FpWiden(FpWidenReduceOp::OSum)), true),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -639,51 +673,51 @@ const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
 /// Returns `(VectorOp, writes_vec_reg)`.
 const fn decode_opfvf(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
     Ok(match f6 {
-        v_f6::VFADD => (VectorOp::VFAdd, true),
-        v_f6::VFSUB => (VectorOp::VFSub, true),
-        v_f6::VFRSUB => (VectorOp::VFRSub, true),
-        v_f6::VFMIN => (VectorOp::VFMin, true),
-        v_f6::VFMAX => (VectorOp::VFMax, true),
-        v_f6::VFSGNJ => (VectorOp::VFSgnj, true),
-        v_f6::VFSGNJN => (VectorOp::VFSgnjn, true),
-        v_f6::VFSGNJX => (VectorOp::VFSgnjx, true),
-        v_f6::VMFEQ => (VectorOp::VMFEq, true),
-        v_f6::VMFLE => (VectorOp::VMFLe, true),
-        v_f6::VMFLT => (VectorOp::VMFLt, true),
-        v_f6::VMFNE => (VectorOp::VMFNe, true),
-        v_f6::VMFGT => (VectorOp::VMFGt, true),
-        v_f6::VMFGE => (VectorOp::VMFGe, true),
-        v_f6::VFDIV => (VectorOp::VFDiv, true),
-        v_f6::VFRDIV => (VectorOp::VFRDiv, true),
-        v_f6::VFMUL => (VectorOp::VFMul, true),
-        v_f6::VFMACC => (VectorOp::VFMacc, true),
-        v_f6::VFNMACC => (VectorOp::VFNMacc, true),
-        v_f6::VFMSAC => (VectorOp::VFMSac, true),
-        v_f6::VFNMSAC => (VectorOp::VFNMSac, true),
-        v_f6::VFMADD => (VectorOp::VFMAdd, true),
-        v_f6::VFNMADD => (VectorOp::VFNMAdd, true),
-        v_f6::VFMSUB => (VectorOp::VFMSub, true),
-        v_f6::VFNMSUB => (VectorOp::VFNMSub, true),
-        v_f6::VFWADD => (VectorOp::VFWAdd, true),
-        v_f6::VFWSUB => (VectorOp::VFWSub, true),
-        v_f6::VFWADD_W => (VectorOp::VFWAddW, true),
-        v_f6::VFWSUB_W => (VectorOp::VFWSubW, true),
-        v_f6::VFWMUL => (VectorOp::VFWMul, true),
-        v_f6::VFWMACC => (VectorOp::VFWMacc, true),
-        v_f6::VFWNMACC => (VectorOp::VFWNMacc, true),
-        v_f6::VFWMSAC => (VectorOp::VFWMSac, true),
-        v_f6::VFWNMSAC => (VectorOp::VFWNMSac, true),
-        v_f6::VFSLIDE1UP => (VectorOp::VFSlide1Up, true),
-        v_f6::VFSLIDE1DOWN => (VectorOp::VFSlide1Down, true),
+        v_f6::VFADD => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Add)), true),
+        v_f6::VFSUB => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sub)), true),
+        v_f6::VFRSUB => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::RSub)), true),
+        v_f6::VFMIN => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Min)), true),
+        v_f6::VFMAX => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Max)), true),
+        v_f6::VFSGNJ => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sgnj)), true),
+        v_f6::VFSGNJN => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sgnjn)), true),
+        v_f6::VFSGNJX => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sgnjx)), true),
+        v_f6::VMFEQ => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Eq)), true),
+        v_f6::VMFLE => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Le)), true),
+        v_f6::VMFLT => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Lt)), true),
+        v_f6::VMFNE => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Ne)), true),
+        v_f6::VMFGT => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Gt)), true),
+        v_f6::VMFGE => (VectorOp::Fp(VecFpOp::Compare(FpCompareOp::Ge)), true),
+        v_f6::VFDIV => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Div)), true),
+        v_f6::VFRDIV => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::RDiv)), true),
+        v_f6::VFMUL => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Mul)), true),
+        v_f6::VFMACC => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vd)), true),
+        v_f6::VFNMACC => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::NMacc, FmaAddend::Vd)), true),
+        v_f6::VFMSAC => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::MSac, FmaAddend::Vd)), true),
+        v_f6::VFNMSAC => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::NMSac, FmaAddend::Vd)), true),
+        v_f6::VFMADD => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vs2)), true),
+        v_f6::VFNMADD => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::NMacc, FmaAddend::Vs2)), true),
+        v_f6::VFMSUB => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::MSac, FmaAddend::Vs2)), true),
+        v_f6::VFNMSUB => (VectorOp::Fp(VecFpOp::Fma(FmaSigns::NMSac, FmaAddend::Vs2)), true),
+        v_f6::VFWADD => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::Add)), true),
+        v_f6::VFWSUB => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::Sub)), true),
+        v_f6::VFWADD_W => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::AddW)), true),
+        v_f6::VFWSUB_W => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::SubW)), true),
+        v_f6::VFWMUL => (VectorOp::Fp(VecFpOp::Widen(FpWidenOp::Mul)), true),
+        v_f6::VFWMACC => (VectorOp::Fp(VecFpOp::WidenFma(FmaSigns::Macc)), true),
+        v_f6::VFWNMACC => (VectorOp::Fp(VecFpOp::WidenFma(FmaSigns::NMacc)), true),
+        v_f6::VFWMSAC => (VectorOp::Fp(VecFpOp::WidenFma(FmaSigns::MSac)), true),
+        v_f6::VFWNMSAC => (VectorOp::Fp(VecFpOp::WidenFma(FmaSigns::NMSac)), true),
+        v_f6::VFSLIDE1UP => (VectorOp::Fp(VecFpOp::Slide1Up), true),
+        v_f6::VFSLIDE1DOWN => (VectorOp::Fp(VecFpOp::Slide1Down), true),
         v_f6::VRFUNARY0 => {
             let vs2_field = v_enc::vs2(inst);
             match vs2_field {
-                v_f6::VRFUNARY0_VFMV_S_F => (VectorOp::VFMvSF, true),
+                v_f6::VRFUNARY0_VFMV_S_F => (VectorOp::Fp(VecFpOp::MoveFromScalar), true),
                 _ => return Err(Trap::IllegalInstruction(inst)),
             }
         }
         // VMERGE_VMV: vm=0 vfmerge.vfm, vm=1 vfmv.v.f.
-        v_f6::VMERGE_VMV => (VectorOp::VFMerge, true),
+        v_f6::VMERGE_VMV => (VectorOp::Fp(VecFpOp::Merge), true),
         _ => return Err(Trap::IllegalInstruction(inst)),
     })
 }
@@ -732,22 +766,22 @@ pub(super) const fn decode_vec_load(
     match mop {
         MOP_UNIT => {
             let lumop = v_enc::lumop(inst);
-            c.vec_op = match lumop {
-                LUMOP_UNIT => VectorOp::VLoadUnit,
-                LUMOP_WHOLE_REG => VectorOp::VLoadWholeReg,
-                LUMOP_MASK => VectorOp::VLoadMask,
-                LUMOP_FAULT_FIRST => VectorOp::VLoadFF,
+            c.vec_op = Some(match lumop {
+                LUMOP_UNIT => VectorOp::Load(VecLoadOp::Unit),
+                LUMOP_WHOLE_REG => VectorOp::Load(VecLoadOp::WholeRegister),
+                LUMOP_MASK => VectorOp::Load(VecLoadOp::Mask),
+                LUMOP_FAULT_FIRST => VectorOp::Load(VecLoadOp::FaultOnlyFirst),
                 _ => return Err(Trap::IllegalInstruction(inst)),
-            };
+            });
         }
         MOP_INDEXED_UNORD => {
-            c.vec_op = VectorOp::VLoadIndexUnord;
+            c.vec_op = Some(VectorOp::Load(VecLoadOp::IndexedUnordered));
         }
         MOP_STRIDED => {
-            c.vec_op = VectorOp::VLoadStride;
+            c.vec_op = Some(VectorOp::Load(VecLoadOp::Strided));
         }
         MOP_INDEXED_ORD => {
-            c.vec_op = VectorOp::VLoadIndexOrd;
+            c.vec_op = Some(VectorOp::Load(VecLoadOp::IndexedOrdered));
         }
         _ => return Err(Trap::IllegalInstruction(inst)),
     }
@@ -789,24 +823,128 @@ pub(super) const fn decode_vec_store(
     match mop {
         MOP_UNIT => {
             let sumop = v_enc::sumop(inst);
-            c.vec_op = match sumop {
-                SUMOP_UNIT => VectorOp::VStoreUnit,
-                SUMOP_WHOLE_REG => VectorOp::VStoreWholeReg,
-                SUMOP_MASK => VectorOp::VStoreMask,
+            c.vec_op = Some(match sumop {
+                SUMOP_UNIT => VectorOp::Store(VecStoreOp::Unit),
+                SUMOP_WHOLE_REG => VectorOp::Store(VecStoreOp::WholeRegister),
+                SUMOP_MASK => VectorOp::Store(VecStoreOp::Mask),
                 _ => return Err(Trap::IllegalInstruction(inst)),
-            };
+            });
         }
         MOP_INDEXED_UNORD => {
-            c.vec_op = VectorOp::VStoreIndexUnord;
+            c.vec_op = Some(VectorOp::Store(VecStoreOp::IndexedUnordered));
         }
         MOP_STRIDED => {
-            c.vec_op = VectorOp::VStoreStride;
+            c.vec_op = Some(VectorOp::Store(VecStoreOp::Strided));
         }
         MOP_INDEXED_ORD => {
-            c.vec_op = VectorOp::VStoreIndexOrd;
+            c.vec_op = Some(VectorOp::Store(VecStoreOp::IndexedOrdered));
         }
         _ => return Err(Trap::IllegalInstruction(inst)),
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::common::VirtAddr;
+    use crate::exec::decode::decode_inst;
+    use crate::isa::encoding::rvv::{funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes};
+    use crate::isa::op::{
+        ExtendFactor, ExtendOp, FpNarrowConvertOp, FpUnaryOp, FpWidenConvertOp, IntConvert, IntOp,
+        IntRounding, Signedness, VecAluOp, VecFpOp, VectorOp,
+    };
+
+    /// The op the unmasked unary instruction with `funct6`, `funct3` and
+    /// vs1 field `selector` decodes to, or `None` if it is illegal. Its
+    /// registers are aligned for any group size LMUL=1 widens to.
+    fn decode_unary(funct6: u32, funct3: u32, selector: u32) -> Option<VectorOp> {
+        let (vs2, vd) = (8, 16);
+        let inst = funct6 << 26
+            | 1 << 25
+            | vs2 << 20
+            | selector << 15
+            | funct3 << 12
+            | vd << 7
+            | v_opcodes::OP_V;
+        let decoded = decode_inst(inst, VirtAddr::new(0), 0);
+        if decoded.trap.is_some() {
+            return None;
+        }
+        decoded.ctrl.vec_op
+    }
+
+    /// Asserts that every vs1 field of the unary group decodes as `listed`
+    /// says, and that the fields it leaves out are illegal.
+    fn assert_unary_group(funct6: u32, funct3: u32, listed: &[(u32, VectorOp)]) {
+        for selector in 0..32 {
+            let expected = listed.iter().find(|(s, _)| *s == selector).map(|&(_, op)| op);
+            assert_eq!(decode_unary(funct6, funct3, selector), expected, "vs1 = {selector:#07b}");
+        }
+    }
+
+    #[test]
+    fn vfunary0_decodes_each_conversion_its_vs1_field_selects() {
+        use IntRounding::{Dynamic, TowardZero};
+        use Signedness::{Signed, Unsigned};
+        let single = |convert| VectorOp::Fp(VecFpOp::Unary(FpUnaryOp::Convert(convert)));
+        let widen = |convert| VectorOp::Fp(VecFpOp::WidenConvert(convert));
+        let narrow = |convert| VectorOp::Fp(VecFpOp::NarrowConvert(convert));
+        let to_int = IntConvert::ToInt;
+        let from_int = IntConvert::FromInt;
+        assert_unary_group(
+            v_f6::VFUNARY0,
+            v_funct3::OPFVV,
+            &[
+                (0b00000, single(to_int(Unsigned, Dynamic))),
+                (0b00001, single(to_int(Signed, Dynamic))),
+                (0b00010, single(from_int(Unsigned))),
+                (0b00011, single(from_int(Signed))),
+                (0b00110, single(to_int(Unsigned, TowardZero))),
+                (0b00111, single(to_int(Signed, TowardZero))),
+                (0b01000, widen(FpWidenConvertOp::Int(to_int(Unsigned, Dynamic)))),
+                (0b01001, widen(FpWidenConvertOp::Int(to_int(Signed, Dynamic)))),
+                (0b01010, widen(FpWidenConvertOp::Int(from_int(Unsigned)))),
+                (0b01011, widen(FpWidenConvertOp::Int(from_int(Signed)))),
+                (0b01100, widen(FpWidenConvertOp::Float)),
+                (0b01110, widen(FpWidenConvertOp::Int(to_int(Unsigned, TowardZero)))),
+                (0b01111, widen(FpWidenConvertOp::Int(to_int(Signed, TowardZero)))),
+                (0b10000, narrow(FpNarrowConvertOp::Int(to_int(Unsigned, Dynamic)))),
+                (0b10001, narrow(FpNarrowConvertOp::Int(to_int(Signed, Dynamic)))),
+                (0b10010, narrow(FpNarrowConvertOp::Int(from_int(Unsigned)))),
+                (0b10011, narrow(FpNarrowConvertOp::Int(from_int(Signed)))),
+                (0b10100, narrow(FpNarrowConvertOp::Float)),
+                (0b10101, narrow(FpNarrowConvertOp::FloatRoundToOdd)),
+                (0b10110, narrow(FpNarrowConvertOp::Int(to_int(Unsigned, TowardZero)))),
+                (0b10111, narrow(FpNarrowConvertOp::Int(to_int(Signed, TowardZero)))),
+            ],
+        );
+    }
+
+    #[test]
+    fn vxunary0_decodes_each_extension_and_bit_op_its_vs1_field_selects() {
+        use ExtendFactor::{Vf2, Vf4, Vf8};
+        use Signedness::{Signed, Unsigned};
+        let extend =
+            |signedness, factor| VectorOp::Alu(VecAluOp::Extend(ExtendOp { signedness, factor }));
+        let int = |op| VectorOp::Alu(VecAluOp::Int(op));
+        assert_unary_group(
+            v_f6::VXUNARY0,
+            v_funct3::OPMVV,
+            &[
+                (0b00010, extend(Unsigned, Vf8)),
+                (0b00011, extend(Signed, Vf8)),
+                (0b00100, extend(Unsigned, Vf4)),
+                (0b00101, extend(Signed, Vf4)),
+                (0b00110, extend(Unsigned, Vf2)),
+                (0b00111, extend(Signed, Vf2)),
+                (0b01000, int(IntOp::Brev8)),
+                (0b01001, int(IntOp::Rev8)),
+                (0b01010, int(IntOp::Brev)),
+                (0b01100, int(IntOp::Clz)),
+                (0b01101, int(IntOp::Ctz)),
+                (0b01110, int(IntOp::CpopV)),
+            ],
+        );
+    }
 }

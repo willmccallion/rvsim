@@ -8,7 +8,7 @@ use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, mask_active, read_op1,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
-use crate::isa::op::{ExtendOp, IntOp, MaccOp};
+use crate::isa::op::{ExtendOp, IntOp, MaccOp, Signedness};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vxrm};
 
 /// Compute the fixed-point rounding increment for averaging / scaling ops.
@@ -385,7 +385,8 @@ pub(super) fn exec_extension(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
-    let (factor, is_signed) = (usize::from(op.factor), op.signed);
+    let (factor, is_signed) =
+        (usize::from(op.factor.divisor()), op.signedness == Signedness::Signed);
 
     let Some(src_sew) = frac_sew(ctx.sew, factor) else {
         return VecExecResult {

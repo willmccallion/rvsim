@@ -7,8 +7,8 @@ use crate::isa::fp::FpFormat;
 use crate::isa::instruction::InstructionBits;
 use crate::isa::misa::MisaLetter;
 use crate::isa::op::{
-    AluOp, BitOp, ClmulOp, CryptoOp, FpOp, IntAluOp, IntOp, PackOp, SystemOp, VecAluOp, VecClass,
-    VectorOp,
+    AluOp, BitOp, ClmulOp, CryptoOp, FpOp, IntAluOp, IntOp, PackOp, SystemOp, VecAluOp, VectorOp,
+    WidenOp,
 };
 
 /// What the instruction decoded to `ctrl` from `inst` needs the hart to
@@ -16,8 +16,8 @@ use crate::isa::op::{
 /// always implemented, so they need nothing.
 #[must_use]
 pub fn requirement(ctrl: &ControlSignals, inst: u32) -> Requirement {
-    if ctrl.vec_op != VectorOp::None {
-        return vector_requirement(ctrl.vec_op);
+    if let Some(op) = ctrl.vec_op {
+        return vector_requirement(op);
     }
     if ctrl.atomic_op.is_some() {
         return Requirement::Letter(MisaLetter::A);
@@ -86,11 +86,8 @@ fn fp_requirement(ctrl: &ControlSignals) -> Requirement {
 /// bit-manipulation extensions by instruction, V for the rest.
 fn vector_requirement(op: VectorOp) -> Requirement {
     use Extension::{Zvbb, Zvbc, Zvkb, Zvkg, Zvkned, Zvknha, Zvknhb, Zvksed, Zvksh};
-    if op == VectorOp::VWsll {
-        return Requirement::any_of(&[Zvbb]);
-    }
-    let extensions: &[Extension] = match op.class() {
-        VecClass::Crypto(crypto) => match crypto {
+    let extensions: &[Extension] = match op {
+        VectorOp::Crypto(crypto) => match crypto {
             CryptoOp::AesEm
             | CryptoOp::AesEf
             | CryptoOp::AesDm
@@ -103,7 +100,8 @@ fn vector_requirement(op: VectorOp) -> Requirement {
             CryptoOp::Sm4R | CryptoOp::Sm4K => &[Zvksed],
             CryptoOp::Ghsh | CryptoOp::Gmul => &[Zvkg],
         },
-        VecClass::Alu(VecAluOp::Int(int)) => match int {
+        VectorOp::Alu(VecAluOp::Widen(WidenOp::Sll)) => &[Zvbb],
+        VectorOp::Alu(VecAluOp::Int(int)) => match int {
             IntOp::AndN | IntOp::Brev8 | IntOp::Rev8 | IntOp::Rol | IntOp::Ror => &[Zvbb, Zvkb],
             IntOp::Brev | IntOp::Clz | IntOp::Ctz | IntOp::CpopV => &[Zvbb],
             IntOp::ClMul | IntOp::ClMulH => &[Zvbc],

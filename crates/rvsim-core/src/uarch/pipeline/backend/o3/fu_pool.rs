@@ -8,7 +8,9 @@
 
 use crate::config::FuConfig;
 use crate::exec::signals::{ControlFlow, ControlSignals};
-use crate::isa::op::{AluOpGroup, VecOpGroup, VectorOp};
+use crate::isa::op::{
+    AluOpGroup, FpReduceOp, FpWidenReduceOp, PermuteOp, ReduceOp, VecOpGroup, VectorOp,
+};
 use crate::uarch::pipeline::rob::RobTag;
 
 /// Identifies which type of functional unit an instruction uses.
@@ -72,8 +74,8 @@ impl FuType {
 
     /// Classify an instruction's FU type from its control signals.
     pub fn classify(ctrl: &ControlSignals) -> Self {
-        if ctrl.vec_op != VectorOp::None {
-            return Self::classify_vec(ctrl.vec_op);
+        if let Some(op) = ctrl.vec_op {
+            return Self::classify_vec(op);
         }
 
         if ctrl.mem_read || ctrl.mem_write || ctrl.atomic_op.is_some() {
@@ -98,10 +100,7 @@ impl FuType {
     const fn classify_vec(op: VectorOp) -> Self {
         match op.group() {
             VecOpGroup::Load | VecOpGroup::Store => Self::VecMem,
-            VecOpGroup::NotVector
-            | VecOpGroup::Config
-            | VecOpGroup::IntAlu
-            | VecOpGroup::Crypto => Self::VecIntAlu,
+            VecOpGroup::Config | VecOpGroup::IntAlu | VecOpGroup::Crypto => Self::VecIntAlu,
             VecOpGroup::IntMul => Self::VecIntMul,
             VecOpGroup::IntDiv => Self::VecIntDiv,
             VecOpGroup::FpAlu => Self::VecFpAlu,
@@ -333,30 +332,35 @@ impl FuPool {
         vl: usize,
         lanes: usize,
     ) -> u64 {
-        use crate::exec::compute::vector::reduction;
         use crate::isa::op::VecSrcEncoding;
         use crate::uarch::vector::lane_model;
 
         let startup = self.startup_latency(fu_type);
         let pipelined = self.is_pipelined(fu_type);
-        let vec_op = ctrl.vec_op;
-        if reduction::is_reduction(vec_op) {
+        if let Some(VectorOp::Reduce(op)) = ctrl.vec_op {
             // Ordered FP reductions are sequential; others use the tree model.
-            let is_ordered = matches!(vec_op, VectorOp::VFRedOSum | VectorOp::VFWRedOSum);
+            let is_ordered = matches!(
+                op,
+                ReduceOp::Fp(FpReduceOp::OSum) | ReduceOp::FpWiden(FpWidenReduceOp::OSum)
+            );
             return lane_model::compute_reduction_latency(vl, lanes, startup, is_ordered);
         }
         if fu_type != FuType::VecPermute {
             return lane_model::compute_vec_latency(vl, lanes, startup, pipelined);
         }
         let groups = vl.div_ceil(lanes) as u64;
-        let latency = match vec_op {
-            VectorOp::VRgather | VectorOp::VRgatherEi16
+        let latency = match ctrl.vec_op {
+            Some(VectorOp::Permute(PermuteOp::Rgather | PermuteOp::RgatherEi16))
                 if ctrl.vec_src_encoding == VecSrcEncoding::VV =>
             {
                 startup + groups.saturating_mul(2).saturating_sub(1)
             }
-            VectorOp::VRgather | VectorOp::VRgatherEi16 => startup + groups.saturating_sub(1),
-            VectorOp::VCompress => startup + groups.saturating_mul(2).saturating_sub(1),
+            Some(VectorOp::Permute(PermuteOp::Rgather | PermuteOp::RgatherEi16)) => {
+                startup + groups.saturating_sub(1)
+            }
+            Some(VectorOp::Permute(PermuteOp::Compress)) => {
+                startup + groups.saturating_mul(2).saturating_sub(1)
+            }
             _ => lane_model::compute_vec_latency(vl, lanes, startup, pipelined),
         };
         latency.max(1)
@@ -375,8 +379,10 @@ impl FuPool {
 mod tests {
     use super::*;
     use crate::exec::signals::BranchCond;
-    use crate::isa::op::AluOp;
-    use crate::isa::op::{ArithOp, DivOp, FmaSigns, FpOp, IntAluOp};
+    use crate::isa::op::{
+        AluOp, ArithOp, DivOp, FmaAddend, FmaSigns, FpBinaryOp, FpOp, IntAluOp, IntOp, IntReduceOp,
+        MaskLogicalOp, MaskOp, VecAluOp, VecFpOp, VecLoadOp,
+    };
 
     fn default_pool() -> FuPool {
         FuPool::new(&FuConfig::default())
@@ -455,50 +461,69 @@ mod tests {
 
     #[test]
     fn test_classify_vec_int_alu() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VAdd, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Alu(VecAluOp::Int(IntOp::Add))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecIntAlu);
     }
 
     #[test]
     fn test_classify_vec_int_mul() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VMul, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Alu(VecAluOp::Int(IntOp::Mul))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecIntMul);
     }
 
     #[test]
     fn test_classify_vec_int_div() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VDiv, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Alu(VecAluOp::Int(IntOp::Div))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecIntDiv);
     }
 
     #[test]
     fn test_classify_vec_fp_alu() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VFAdd, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Add))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecFpAlu);
     }
 
     #[test]
     fn test_classify_vec_fp_fma() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VFMacc, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vd))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecFpFma);
     }
 
     #[test]
     fn test_classify_vec_fp_div_sqrt() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VFDiv, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Div))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecFpDivSqrt);
     }
 
     #[test]
     fn test_classify_vec_mem() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VLoadUnit, ..Default::default() };
+        let ctrl =
+            ControlSignals { vec_op: Some(VectorOp::Load(VecLoadOp::Unit)), ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::VecMem);
     }
 
     #[test]
     fn test_classify_vec_permute() {
         let ctrl = ControlSignals {
-            vec_op: VectorOp::VSlideUp(crate::isa::op::SlideOffset::Rs1),
+            vec_op: Some(VectorOp::Permute(PermuteOp::SlideUp(crate::isa::op::SlideOffset::Rs1))),
             ..Default::default()
         };
         assert_eq!(FuType::classify(&ctrl), FuType::VecPermute);
@@ -533,16 +558,25 @@ mod tests {
 
     #[test]
     fn test_classify_vec_reduction() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VRedSum, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Sum))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecIntAlu);
 
-        let ctrl = ControlSignals { vec_op: VectorOp::VFRedUSum, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Reduce(ReduceOp::Fp(FpReduceOp::USum))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecFpAlu);
     }
 
     #[test]
     fn test_classify_vec_mask() {
-        let ctrl = ControlSignals { vec_op: VectorOp::VMAndMM, ..Default::default() };
+        let ctrl = ControlSignals {
+            vec_op: Some(VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::And))),
+            ..Default::default()
+        };
         assert_eq!(FuType::classify(&ctrl), FuType::VecPermute);
     }
 }

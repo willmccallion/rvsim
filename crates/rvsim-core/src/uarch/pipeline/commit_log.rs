@@ -29,7 +29,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::exec::compute::amo::atomic_alu;
 use crate::exec::compute::vector::agnostic::AgnosticFills;
 use crate::isa::csr::{self, CsrAddr};
-use crate::isa::op::{AtomicOp, MemWidth, VectorOp};
+use crate::isa::op::{AtomicOp, MemWidth};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvv::{ElemIdx, VRegIdx};
@@ -295,7 +295,7 @@ impl Retired {
             mem: entry.mem_effect.or(store),
             vector_writes: vector_register_writes(entry, vpr),
             vector_memory: vector_element_accesses(entry),
-            vector: entry.ctrl.vec_op != VectorOp::None,
+            vector: entry.ctrl.vec_op.is_some(),
         }
     }
 

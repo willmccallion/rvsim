@@ -124,7 +124,7 @@ pub fn decode_stage(
         if has_trap || redirect.is_some() {
             break;
         }
-        if ctrl.vec_op.is_config() {
+        if ctrl.is_vector_config() {
             ended_at_vsetvl = true;
             break;
         }

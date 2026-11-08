@@ -11,7 +11,6 @@ use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::shadow::ShadowVpr;
 use crate::exec::execute::{evaluate, illegal_in_current_state, operands};
 use crate::isa::extension::Extension;
-use crate::isa::op::VectorOp;
 use crate::isa::privileged::Trap;
 use crate::soc::uncore::commit_log_open;
 use crate::trace_execute;
@@ -95,7 +94,7 @@ fn execute_one(
         return executed;
     }
 
-    if issued.inst.ctrl.vec_op.is_config() {
+    if issued.inst.ctrl.is_vector_config() {
         let vl = set_vector_config(state, issued, issued.inst.rv1, issued.inst.rv2, rob);
         rob.complete(issued.rob_tag, vl);
         return (ExMem1Entry::from_issue(issued, vl, 0), None);
@@ -103,7 +102,7 @@ fn execute_one(
 
     // A vector op's registers are read at issue, so what follows one is
     // refetched. Its result is ready when its unit finishes, like any other.
-    if issued.inst.ctrl.vec_op != VectorOp::None {
+    if issued.inst.ctrl.vec_op.is_some() {
         return match execute_vector(state, issued, rob) {
             Ok(scalar) => (ExMem1Entry::from_issue(issued, scalar, 0), Some(refetch_after(issued))),
             Err(trap) => faulted(state, issued, trap),

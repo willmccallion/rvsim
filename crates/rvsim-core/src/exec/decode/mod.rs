@@ -6,13 +6,11 @@ mod scalar;
 mod vector;
 
 use crate::common::VirtAddr;
-use crate::exec::compute::vector::mem::{
-    is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
-};
+use crate::exec::compute::vector::mem::{vec_mem_dst_count, vec_mem_emul_regs};
 use crate::exec::signals::{ControlSignals, OpASrc, OpBSrc};
 use crate::isa::encoding::rvv::opcodes as v_opcodes;
 use crate::isa::instruction::{Decoded, decode as instruction_decode};
-use crate::isa::op::{AluOp, ArithOp, IntAluOp, SystemOp, VectorOp};
+use crate::isa::op::{AluOp, ArithOp, IntAluOp, SystemOp, VecLoadOp, VecStoreOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::reg;
 use crate::isa::rvv::{VtypeFields, parse_vtype};
@@ -77,14 +75,16 @@ pub fn decode_inst(inst: u32, pc: VirtAddr, vtype_bits: u64) -> DecodedInst {
         ctrl.reg_write = true;
     }
     let vtype = parse_vtype(vtype_bits);
-    if trap.is_none() && vtype.vill && ctrl.vec_op.depends_on_vtype() {
+    if trap.is_none() && vtype.vill && ctrl.vec_op.is_some_and(VectorOp::depends_on_vtype) {
         ctrl = ControlSignals::default();
         trap = Some(Trap::IllegalInstruction(inst));
     }
-    if ctrl.vec_op != VectorOp::None && !ctrl.vec_op.is_config() {
+    if let Some(op) = ctrl.vec_op
+        && !op.is_config()
+    {
         ctrl.vec_lmul_regs = vtype.vlmul.group_regs().regs();
         ctrl.vec_lmul_is_fractional = vtype.vlmul.is_fractional();
-        if trap.is_none() && vector_groups_misaligned(&ctrl, vtype) {
+        if trap.is_none() && vector_groups_misaligned(op, &ctrl, vtype) {
             ctrl = ControlSignals::default();
             trap = Some(Trap::IllegalInstruction(inst));
         }
@@ -93,31 +93,32 @@ pub fn decode_inst(inst: u32, pc: VirtAddr, vtype_bits: u64) -> DecodedInst {
 }
 
 const fn is_whole_register_access(op: VectorOp) -> bool {
-    matches!(op, VectorOp::VLoadWholeReg | VectorOp::VStoreWholeReg)
+    matches!(
+        op,
+        VectorOp::Load(VecLoadOp::WholeRegister) | VectorOp::Store(VecStoreOp::WholeRegister)
+    )
 }
 
-/// Whether a vector instruction's register groups break RVV 1.0 §3.4.2
+/// Whether vector instruction `op`'s register groups break RVV 1.0 §3.4.2
 /// under `vtype`: each group must start at a multiple of its size and fit
 /// within v0..v31. Memory operations align each field's group and must fit
 /// all `nf` fields.
-fn vector_groups_misaligned(ctrl: &ControlSignals, vtype: VtypeFields) -> bool {
+fn vector_groups_misaligned(op: VectorOp, ctrl: &ControlSignals, vtype: VtypeFields) -> bool {
     let misaligned = |reg: u8, group: u8| {
         group > 1 && (!reg.is_multiple_of(group) || reg.saturating_add(group) > 32)
     };
     let vd = ctrl.vd.as_u8();
     let vs2 = ctrl.vs2.as_u8();
-    if is_vec_load(ctrl.vec_op) || is_vec_store(ctrl.vec_op) {
-        let total =
-            vec_mem_dst_count(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
-        let (data_emul, index_emul) =
-            vec_mem_emul_regs(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul);
+    if matches!(op, VectorOp::Load(_) | VectorOp::Store(_)) {
+        let total = vec_mem_dst_count(op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
+        let (data_emul, index_emul) = vec_mem_emul_regs(op, ctrl.vec_eew, vtype.vsew, vtype.vlmul);
         // A whole-register access's registers must start at a multiple of
         // their count (RVV 1.0 §7.9).
-        let alignment = if is_whole_register_access(ctrl.vec_op) { total } else { data_emul };
+        let alignment = if is_whole_register_access(op) { total } else { data_emul };
         let vd_misaligned = alignment > 1 && !vd.is_multiple_of(alignment);
         return vd_misaligned || vd.saturating_add(total) > 32 || misaligned(vs2, index_emul);
     }
-    let groups = ctrl.vec_op.operand_groups(
+    let groups = op.operand_groups(
         ctrl.vec_lmul_regs,
         ctrl.vec_lmul_is_fractional,
         ctrl.vec_src_encoding,

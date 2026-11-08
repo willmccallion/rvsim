@@ -5,7 +5,7 @@ use crate::common::VirtAddr;
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
-use crate::isa::op::{AmoOp, DivOp, IntAluOp};
+use crate::isa::op::{AmoOp, DivOp, IntAluOp, VecLoadOp};
 use crate::isa::reg::RegIdx;
 use crate::uarch::pipeline::backend::o3::RenamedRegisters;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
@@ -342,8 +342,10 @@ fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
         mem_write: true,
         ..Default::default()
     };
-    let vector_load =
-        ControlSignals { vec_op: crate::isa::op::VectorOp::VLoadUnit, ..Default::default() };
+    let vector_load = ControlSignals {
+        vec_op: Some(crate::isa::op::VectorOp::Load(VecLoadOp::Unit)),
+        ..Default::default()
+    };
     let alloc = |rob: &mut Rob, ctrl| {
         rob.allocate(
             &crate::exec::inst::Inst {

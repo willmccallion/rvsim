@@ -12,7 +12,7 @@ use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
-use crate::isa::op::{PermuteOp, SlideOffset};
+use crate::isa::op::{PermuteOp, SlideOffset, WholeRegisters};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 
 /// The sources a permutation may draw on: `operand1` as the instruction
@@ -54,7 +54,7 @@ pub fn vec_permute_execute(
         PermuteOp::Rgather => exec_rgather(vpr, vd, vs2, &sources.operand1, ctx),
         PermuteOp::RgatherEi16 => exec_rgather_ei16(vpr, vd, vs2, sources.vs1, ctx),
         PermuteOp::Compress => exec_compress(vpr, vd, vs2, sources.vs1, ctx),
-        PermuteOp::WholeMove(nregs) => exec_whole_reg_move(vpr, vd, vs2, nregs),
+        PermuteOp::WholeMove(registers) => exec_whole_reg_move(vpr, vd, vs2, registers),
     }
 }
 
@@ -343,9 +343,9 @@ fn exec_whole_reg_move(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    nregs: u8,
+    registers: WholeRegisters,
 ) -> VecExecResult {
-    for offset in 0..nregs {
+    for offset in 0..registers.count() {
         let src = VRegIdx::new(vs2.as_u8() + offset);
         let dst = VRegIdx::new(vd.as_u8() + offset);
         vpr.copy_reg(dst, src);

@@ -7,7 +7,7 @@
 use crate::common::VirtAddr;
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::signals::ControlSignals;
-use crate::isa::op::VectorOp;
+use crate::isa::op::{VecLoadOp, VecStoreOp, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, Emul, Nf, Sew, VRegIdx, VectorConfig, VtypeFields, parse_vtype};
 
@@ -28,21 +28,16 @@ pub fn vec_mem_emul_regs(
     let (lnum, lden) = lmul.as_fraction();
     let lmul_regs = if lnum >= lden { (lnum / lden) as u8 } else { 1 };
     match op {
-        VectorOp::VLoadIndexOrd
-        | VectorOp::VLoadIndexUnord
-        | VectorOp::VStoreIndexOrd
-        | VectorOp::VStoreIndexUnord => {
+        VectorOp::Load(VecLoadOp::IndexedOrdered | VecLoadOp::IndexedUnordered)
+        | VectorOp::Store(VecStoreOp::IndexedOrdered | VecStoreOp::IndexedUnordered) => {
             // Indexed: data EMUL = LMUL, index EMUL = (idx_EEW × LMUL) / SEW.
             let idx_num = eew.bits() * lnum;
             let idx_den = sew.bits() * lden;
             let idx = if idx_num >= idx_den { ((idx_num / idx_den) as u8).max(1) } else { 1 };
             (lmul_regs, idx)
         }
-        VectorOp::VLoadUnit
-        | VectorOp::VLoadFF
-        | VectorOp::VStoreUnit
-        | VectorOp::VLoadStride
-        | VectorOp::VStoreStride => {
+        VectorOp::Load(VecLoadOp::Unit | VecLoadOp::FaultOnlyFirst | VecLoadOp::Strided)
+        | VectorOp::Store(VecStoreOp::Unit | VecStoreOp::Strided) => {
             // Unit/strided: data EMUL = (EEW × LMUL) / SEW.
             let num = eew.bits() * lnum;
             let den = sew.bits() * lden;
@@ -51,10 +46,8 @@ pub fn vec_mem_emul_regs(
         }
         // Neither depends on LMUL: a mask is one register, and a
         // whole-register access moves its NFIELDS registers one by one.
-        VectorOp::VLoadMask
-        | VectorOp::VStoreMask
-        | VectorOp::VLoadWholeReg
-        | VectorOp::VStoreWholeReg => (1, 0),
+        VectorOp::Load(VecLoadOp::Mask | VecLoadOp::WholeRegister)
+        | VectorOp::Store(VecStoreOp::Mask | VecStoreOp::WholeRegister) => (1, 0),
         _ => (lmul_regs, 0),
     }
 }
@@ -72,8 +65,10 @@ pub fn vec_mem_dst_count(
     let (data_emul, _) = vec_mem_emul_regs(op, eew, sew, lmul);
     let nf = (nf_field as u16 + 1).min(8) as u8;
     match op {
-        VectorOp::VLoadMask | VectorOp::VStoreMask => 1,
-        VectorOp::VLoadWholeReg | VectorOp::VStoreWholeReg => (nf_field + 1).min(8),
+        VectorOp::Load(VecLoadOp::Mask) | VectorOp::Store(VecStoreOp::Mask) => 1,
+        VectorOp::Load(VecLoadOp::WholeRegister) | VectorOp::Store(VecStoreOp::WholeRegister) => {
+            (nf_field + 1).min(8)
+        }
         _ => data_emul.saturating_mul(nf).min(8),
     }
 }
@@ -100,12 +95,12 @@ pub fn check_vec_mem_emul(
     let sew = vtype.vsew;
     let lmul = vtype.vlmul;
     let vd = ctrl.vd.as_u8() as usize;
-    let illegal = match ctrl.vec_op {
-        VectorOp::VLoadUnit
-        | VectorOp::VStoreUnit
-        | VectorOp::VLoadFF
-        | VectorOp::VLoadStride
-        | VectorOp::VStoreStride => {
+    let Some(op) = ctrl.vec_op else {
+        return Ok(());
+    };
+    let illegal = match op {
+        VectorOp::Load(VecLoadOp::Unit | VecLoadOp::FaultOnlyFirst | VecLoadOp::Strided)
+        | VectorOp::Store(VecStoreOp::Unit | VecStoreOp::Strided) => {
             let nf = (ctrl.vec_nf as usize).saturating_add(1);
             let (lnum, lden) = lmul.as_fraction();
             let emul_num = eew.bits() * lnum;
@@ -114,10 +109,8 @@ pub fn check_vec_mem_emul(
             let total = emul.saturating_mul(nf);
             emul > 8 || total > 8 || vd + total > 32 || (emul > 0 && !vd.is_multiple_of(emul))
         }
-        VectorOp::VLoadIndexOrd
-        | VectorOp::VLoadIndexUnord
-        | VectorOp::VStoreIndexOrd
-        | VectorOp::VStoreIndexUnord => {
+        VectorOp::Load(VecLoadOp::IndexedOrdered | VecLoadOp::IndexedUnordered)
+        | VectorOp::Store(VecStoreOp::IndexedOrdered | VecStoreOp::IndexedUnordered) => {
             // Index EMUL = (idx_EEW * LMUL) / SEW; data EMUL = LMUL.
             let nf = (ctrl.vec_nf as usize).saturating_add(1);
             let (lnum, lden) = lmul.as_fraction();
@@ -157,31 +150,14 @@ pub struct ElementAccess {
     pub dest_slot: usize,
 }
 
-/// Returns true if the given `VectorOp` is a vector load.
-pub const fn is_vec_load(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VLoadUnit
-            | VectorOp::VLoadFF
-            | VectorOp::VLoadStride
-            | VectorOp::VLoadIndexOrd
-            | VectorOp::VLoadIndexUnord
-            | VectorOp::VLoadMask
-            | VectorOp::VLoadWholeReg
-    )
+/// Whether `op` is a vector load.
+pub const fn is_vec_load(op: Option<VectorOp>) -> bool {
+    matches!(op, Some(VectorOp::Load(_)))
 }
 
-/// Returns true if the given `VectorOp` is a vector store.
-pub const fn is_vec_store(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VStoreUnit
-            | VectorOp::VStoreStride
-            | VectorOp::VStoreIndexOrd
-            | VectorOp::VStoreIndexUnord
-            | VectorOp::VStoreMask
-            | VectorOp::VStoreWholeReg
-    )
+/// Whether `op` is a vector store.
+pub const fn is_vec_store(op: Option<VectorOp>) -> bool {
+    matches!(op, Some(VectorOp::Store(_)))
 }
 
 /// The register of the destination group element `elem` of field `seg`
@@ -204,14 +180,16 @@ pub fn element_accesses<V: VectorRegFile>(
     ctrl: &ControlSignals,
     config: VectorConfig,
 ) -> Vec<ElementAccess> {
-    let vec_op = ctrl.vec_op;
+    let Some(vec_op) = ctrl.vec_op else {
+        return Vec::new();
+    };
     let vtype = parse_vtype(config.vtype);
     let (vl, vstart) = (config.vl as usize, config.vstart as usize);
     if vtype.vill && vec_op.depends_on_vtype() {
         return Vec::new();
     }
 
-    let is_store = is_vec_store(vec_op);
+    let is_store = matches!(vec_op, VectorOp::Store(_));
     let eew = ctrl.vec_eew;
     let vm = ctrl.vm;
     let vd = ctrl.vd;
@@ -219,7 +197,8 @@ pub fn element_accesses<V: VectorRegFile>(
     let vlen = vrf.vlen();
 
     match vec_op {
-        VectorOp::VLoadUnit | VectorOp::VStoreUnit | VectorOp::VLoadFF => {
+        VectorOp::Load(VecLoadOp::Unit | VecLoadOp::FaultOnlyFirst)
+        | VectorOp::Store(VecStoreOp::Unit) => {
             let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
             let eew_bytes = eew.bytes() as u64;
             let elements_per_reg = vlen.bits() / (eew.bytes() * 8);
@@ -248,7 +227,7 @@ pub fn element_accesses<V: VectorRegFile>(
             }
             ops
         }
-        VectorOp::VLoadStride | VectorOp::VStoreStride => {
+        VectorOp::Load(VecLoadOp::Strided) | VectorOp::Store(VecStoreOp::Strided) => {
             let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
             let eew_bytes = eew.bytes() as u64;
             let elements_per_reg = vlen.bits() / (eew.bytes() * 8);
@@ -276,10 +255,8 @@ pub fn element_accesses<V: VectorRegFile>(
             }
             ops
         }
-        VectorOp::VLoadIndexOrd
-        | VectorOp::VLoadIndexUnord
-        | VectorOp::VStoreIndexOrd
-        | VectorOp::VStoreIndexUnord => {
+        VectorOp::Load(VecLoadOp::IndexedOrdered | VecLoadOp::IndexedUnordered)
+        | VectorOp::Store(VecStoreOp::IndexedOrdered | VecStoreOp::IndexedUnordered) => {
             let vs2 = ctrl.vs2;
             let data_sew = vtype.vsew;
             let idx_eew = eew;
@@ -314,7 +291,7 @@ pub fn element_accesses<V: VectorRegFile>(
             }
             ops
         }
-        VectorOp::VLoadMask | VectorOp::VStoreMask => {
+        VectorOp::Load(VecLoadOp::Mask) | VectorOp::Store(VecStoreOp::Mask) => {
             let num_bytes = vl.div_ceil(8);
             let elements_per_reg = vlen.bits() / 8; // E8
             let mut ops = Vec::with_capacity(num_bytes);
@@ -333,7 +310,7 @@ pub fn element_accesses<V: VectorRegFile>(
             }
             ops
         }
-        VectorOp::VLoadWholeReg | VectorOp::VStoreWholeReg => {
+        VectorOp::Load(VecLoadOp::WholeRegister) | VectorOp::Store(VecStoreOp::WholeRegister) => {
             let nreg = (ctrl.vec_nf as usize) + 1;
             let vlen_bytes = vlen.bytes();
             let total_bytes = nreg * vlen_bytes;
@@ -374,30 +351,31 @@ fn is_element_active_vrf<V: VectorRegFile>(vrf: &V, i: usize, vm: bool) -> bool 
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::isa::op::{IntOp, VecAluOp};
 
     #[test]
     fn test_is_vec_load() {
-        assert!(is_vec_load(VectorOp::VLoadUnit));
-        assert!(is_vec_load(VectorOp::VLoadFF));
-        assert!(is_vec_load(VectorOp::VLoadStride));
-        assert!(is_vec_load(VectorOp::VLoadIndexOrd));
-        assert!(is_vec_load(VectorOp::VLoadIndexUnord));
-        assert!(is_vec_load(VectorOp::VLoadMask));
-        assert!(is_vec_load(VectorOp::VLoadWholeReg));
-        assert!(!is_vec_load(VectorOp::VStoreUnit));
-        assert!(!is_vec_load(VectorOp::VAdd));
-        assert!(!is_vec_load(VectorOp::None));
+        assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::Unit))));
+        assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::FaultOnlyFirst))));
+        assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::Strided))));
+        assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::IndexedOrdered))));
+        assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::IndexedUnordered))));
+        assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::Mask))));
+        assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::WholeRegister))));
+        assert!(!is_vec_load(Some(VectorOp::Store(VecStoreOp::Unit))));
+        assert!(!is_vec_load(Some(VectorOp::Alu(VecAluOp::Int(IntOp::Add)))));
+        assert!(!is_vec_load(None));
     }
 
     #[test]
     fn test_is_vec_store() {
-        assert!(is_vec_store(VectorOp::VStoreUnit));
-        assert!(is_vec_store(VectorOp::VStoreStride));
-        assert!(is_vec_store(VectorOp::VStoreIndexOrd));
-        assert!(is_vec_store(VectorOp::VStoreIndexUnord));
-        assert!(is_vec_store(VectorOp::VStoreMask));
-        assert!(is_vec_store(VectorOp::VStoreWholeReg));
-        assert!(!is_vec_store(VectorOp::VLoadUnit));
-        assert!(!is_vec_store(VectorOp::VAdd));
+        assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::Unit))));
+        assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::Strided))));
+        assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::IndexedOrdered))));
+        assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::IndexedUnordered))));
+        assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::Mask))));
+        assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::WholeRegister))));
+        assert!(!is_vec_store(Some(VectorOp::Load(VecLoadOp::Unit))));
+        assert!(!is_vec_store(Some(VectorOp::Alu(VecAluOp::Int(IntOp::Add)))));
     }
 }

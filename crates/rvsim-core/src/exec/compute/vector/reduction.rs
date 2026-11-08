@@ -23,33 +23,8 @@ use crate::exec::compute::vector::context::{
 use crate::exec::compute::vector::fpu::VecFloat;
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
-use crate::isa::op::{
-    FpReduceOp, FpWidenReduceOp, IntReduceOp, ReduceOp, VectorOp, WidenIntReduceOp,
-};
+use crate::isa::op::{FpReduceOp, FpWidenReduceOp, IntReduceOp, ReduceOp, WidenIntReduceOp};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax, Vlmul};
-
-/// Returns `true` if `op` is a reduction handled by this module.
-pub const fn is_reduction(op: VectorOp) -> bool {
-    matches!(
-        op,
-        VectorOp::VRedSum
-            | VectorOp::VRedAnd
-            | VectorOp::VRedOr
-            | VectorOp::VRedXor
-            | VectorOp::VRedMinU
-            | VectorOp::VRedMin
-            | VectorOp::VRedMaxU
-            | VectorOp::VRedMax
-            | VectorOp::VWRedSumU
-            | VectorOp::VWRedSum
-            | VectorOp::VFRedOSum
-            | VectorOp::VFRedUSum
-            | VectorOp::VFRedMax
-            | VectorOp::VFRedMin
-            | VectorOp::VFWRedOSum
-            | VectorOp::VFWRedUSum
-    )
-}
 
 /// Execute a reduction of `vs2` seeded from `vs1[0]`.
 ///
@@ -219,11 +194,11 @@ fn exec_widen_int_reduction(
 
 /// Execute a floating-point reduction at SEW width (32 or 64).
 ///
-/// For ordered sums (`VFRedOSum`) elements are processed sequentially from
-/// element 0 to `vl-1`. Unordered sums (`VFRedUSum`) use the same sequential
+/// For ordered sums (`vfredosum`) elements are processed sequentially from
+/// element 0 to `vl-1`. Unordered sums (`vfredusum`) use the same sequential
 /// ordering for deterministic results.
 ///
-/// FP min/max reductions (`VFRedMin`, `VFRedMax`) use IEEE 754-2008 minNum/maxNum
+/// FP min/max reductions (`vfredmin`, `vfredmax`) use IEEE 754-2008 minNum/maxNum
 /// semantics, matching the scalar `fmin`/`fmax` helpers.
 fn exec_fp_reduction(
     op: FpReduceOp,
@@ -361,15 +336,7 @@ fn fp_widen_reduce<N: VecFloat, W: VecFloat>(
 #[allow(clippy::unwrap_used, clippy::float_cmp)]
 mod tests {
     use super::*;
-    use crate::isa::op::VecClass;
 
-    /// The reduction `op` decodes to.
-    fn reduce_op(op: VectorOp) -> ReduceOp {
-        match op.class() {
-            VecClass::Reduce(reduce) => reduce,
-            other => panic!("{op:?} is not a reduction: {other:?}"),
-        }
-    }
     use crate::arch::regs::vpr::Vpr;
     use crate::isa::fp::RoundingMode;
     use crate::isa::rvv::{MaskPolicy, TailPolicy, Vlen, Vlmul, Vxrm};
@@ -409,7 +376,7 @@ mod tests {
         }
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 100);
 
-        let _result = vec_reduce(reduce_op(VectorOp::VRedSum), &mut vpr, vd, vs2, vs1, &ctx);
+        let _result = vec_reduce(ReduceOp::Int(IntReduceOp::Sum), &mut vpr, vd, vs2, vs1, &ctx);
         // 100 + 10 + 20 + 30 + 40 = 200
         assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 200);
     }
@@ -427,7 +394,7 @@ mod tests {
         }
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 0xFFFF_FFFF);
 
-        let _result = vec_reduce(reduce_op(VectorOp::VRedAnd), &mut vpr, vd, vs2, vs1, &ctx);
+        let _result = vec_reduce(ReduceOp::Int(IntReduceOp::And), &mut vpr, vd, vs2, vs1, &ctx);
         assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 0xFF);
     }
 
@@ -447,7 +414,7 @@ mod tests {
         // accumulator = 100
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 100);
 
-        let _result = vec_reduce(reduce_op(VectorOp::VRedMin), &mut vpr, vd, vs2, vs1, &ctx);
+        let _result = vec_reduce(ReduceOp::Int(IntReduceOp::Min), &mut vpr, vd, vs2, vs1, &ctx);
         // min(100, 5, -3, 10, 1) = -3
         let val = vpr.read_element(vd, ElemIdx::new(0), Sew::E32);
         assert_eq!(val as u32, (-3i32) as u32);
@@ -467,7 +434,7 @@ mod tests {
         }
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 10.0f32.to_bits() as u64);
 
-        let _result = vec_reduce(reduce_op(VectorOp::VFRedOSum), &mut vpr, vd, vs2, vs1, &ctx);
+        let _result = vec_reduce(ReduceOp::Fp(FpReduceOp::OSum), &mut vpr, vd, vs2, vs1, &ctx);
         let val = f32::from_bits(vpr.read_element(vd, ElemIdx::new(0), Sew::E32) as u32);
         assert_eq!(val, 20.0); // 10 + 1 + 2 + 3 + 4
     }
@@ -480,7 +447,8 @@ mod tests {
         vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 0x7fa0_0000);
         vpr.write_element(vs1, ElemIdx::new(0), Sew::E64, 1f64.to_bits());
 
-        let result = vec_reduce(reduce_op(VectorOp::VFWRedUSum), &mut vpr, vd, vs2, vs1, &ctx);
+        let result =
+            vec_reduce(ReduceOp::FpWiden(FpWidenReduceOp::USum), &mut vpr, vd, vs2, vs1, &ctx);
 
         assert!(result.fp_flags.contains(FpFlags::NV));
     }
