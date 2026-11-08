@@ -67,9 +67,11 @@ impl CoreCtx<'_> {
         }
 
         #[cfg(feature = "commit-log")]
-        if let Some(log) = self.uncore.host.commit_log.as_mut() {
-            let _ =
-                write_trap(log, cause.mcause_code(), epc, cause.tval(), self.uncore.kernel.cycle);
+        {
+            let cycle = self.uncore.kernel.cycle;
+            if let Some(log) = self.uncore.commit_log() {
+                let _ = write_trap(log, cause.mcause_code(), epc, cause.tval(), cycle);
+            }
         }
 
         let hart_paths = self.hart_paths();

@@ -79,7 +79,7 @@ pub(super) fn retire_entry(
 fn log_retired(state: &mut CoreCtx<'_>, retired: &Retired) {
     let csr_value = retired.csr().map(|addr| state.csr_read(addr));
     let fflags = retired.raised_fp_flags().then(|| state.csr_read(csr::FFLAGS));
-    if let Some(log) = state.uncore.host.commit_log.as_mut() {
+    if let Some(log) = state.uncore.commit_log() {
         let _ = retired.write(log, csr_value, fflags);
     }
 }

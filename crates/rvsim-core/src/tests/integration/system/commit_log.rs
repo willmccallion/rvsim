@@ -5,8 +5,9 @@
 use crate::tests::support::regs::{T0, T1, X0, X7, X8, X9, X10, X11, X12, X13, X14};
 use std::collections::HashMap;
 
-use crate::common::VirtAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{BackendKind, Config};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::uarch::pipeline::commit_log::RESET_CSRS;
@@ -295,4 +296,31 @@ fn a_vector_write_logs_the_register_and_the_bits_it_filled_agnostically() {
             "{backend:?}"
         );
     }
+}
+
+#[test]
+fn memory_the_host_writes_is_logged_before_the_load_that_reads_it() {
+    const HOST_VALUE: u64 = 0x0123_4567_89ab_cdef;
+    let i = InstructionBuilder::new;
+    let program = [i().auipc(T0, 1).build(), i().ld(X7, T0, 0).build(), i().jal(X0, 0).build()];
+    let log = tempfile::NamedTempFile::new().expect("temp file");
+    let path = log.path().to_str().expect("utf-8 path").to_owned();
+    let mut ctx =
+        TestContext::with_fast_memory(&Config::minimal()).load_program(PROGRAM_BASE, &program);
+    ctx.sim.open_commit_log(&path).expect("open commit log");
+
+    ctx.sim.probe_mem_store(PhysAddr::new(DATA + 4), HOST_VALUE, ProbeWidth::B8);
+    ctx.run(200);
+    drop(ctx);
+
+    let lines: Vec<String> = std::fs::read_to_string(&path)
+        .expect("read commit log")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let host_write = format!("core   0: host write 0x{:016x} 0xefcdab8967452301", DATA + 4);
+    let written =
+        lines.iter().position(|line| *line == host_write).expect("the host write is logged");
+    let load = lines.iter().position(|line| line.contains(" load ")).expect("the load is logged");
+    assert!(written < load, "{lines:#?}");
 }
