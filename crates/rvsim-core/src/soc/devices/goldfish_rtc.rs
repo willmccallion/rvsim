@@ -28,6 +28,9 @@ pub struct GoldfishRtc {
 }
 
 impl GoldfishRtc {
+    /// The PLIC source the RTC raises.
+    pub const IRQ: IrqId = IrqId::new(11);
+
     /// Creates a new Goldfish RTC device reading `epoch_ns` at cycle zero.
     pub const fn new(base_addr: u64, epoch_ns: u64, cpu_clock_mhz: u64) -> Self {
         Self {
@@ -84,6 +87,6 @@ impl Device for GoldfishRtc {
     }
 
     fn get_irq_id(&self) -> Option<IrqId> {
-        Some(IrqId::new(11))
+        Some(Self::IRQ)
     }
 }

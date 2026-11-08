@@ -29,6 +29,13 @@ pub struct SysCon {
 }
 
 impl SysCon {
+    /// The command that powers the machine off.
+    pub const POWER_OFF: u32 = 0x5555;
+    /// The command that resets the machine, which ends the run.
+    pub const RESET: u32 = 0x7777;
+    /// The command that reports a failure.
+    pub const FAIL: u32 = 0x3333;
+
     /// Creates a new `SysCon` device.
     pub const fn new(base_addr: u64, exit_signal: ExitSignal) -> Self {
         Self { base_addr, exit_signal }
@@ -36,15 +43,15 @@ impl SysCon {
 
     fn act_on_command(&self, val: u32) {
         match val {
-            0x5555 => {
+            Self::POWER_OFF => {
                 tracing::info!(target: "rvsim::syscon", "poweroff");
                 self.exit_signal.signal(0);
             }
-            0x7777 => {
+            Self::RESET => {
                 tracing::info!(target: "rvsim::syscon", "reset, taken as exit");
                 self.exit_signal.signal(0);
             }
-            0x3333 => {
+            Self::FAIL => {
                 tracing::info!(target: "rvsim::syscon", "failure");
                 self.exit_signal.signal(1);
             }

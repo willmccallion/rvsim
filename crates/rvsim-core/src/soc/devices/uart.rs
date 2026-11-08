@@ -147,6 +147,9 @@ pub struct UartState {
 }
 
 impl Uart {
+    /// The PLIC source the UART raises.
+    pub const IRQ: IrqId = IrqId::new(10);
+
     /// The registers, interrupt timing and received data a checkpoint carries.
     #[must_use]
     pub fn state(&self) -> UartState {
@@ -451,7 +454,7 @@ impl Device for Uart {
     }
 
     fn get_irq_id(&self) -> Option<IrqId> {
-        Some(IrqId::new(10))
+        Some(Self::IRQ)
     }
 
     fn checkpoint(&self) -> Option<serde_json::Value> {

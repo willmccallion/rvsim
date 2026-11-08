@@ -303,6 +303,8 @@ fn line_chunks(addr: u64, len: u64, write: bool) -> Vec<DmaAccess> {
 }
 
 impl VirtioBlock {
+    /// The PLIC source the disk raises.
+    pub const IRQ: IrqId = IrqId::new(1);
     /// A device with no disk image, mapped at `base_addr`.
     pub const fn new(base_addr: u64) -> Self {
         Self {
@@ -494,6 +496,6 @@ impl Device for VirtioBlock {
     }
 
     fn get_irq_id(&self) -> Option<IrqId> {
-        Some(IrqId::new(1))
+        Some(Self::IRQ)
     }
 }
