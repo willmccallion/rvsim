@@ -24,7 +24,8 @@ impl QueryResult {
     /// Sum of all matched values. Returns 0.0 for an empty result.
     #[must_use]
     pub fn sum(&self) -> f64 {
-        self.matches.iter().map(|(_, v)| *v).sum()
+        // `Sum for f64` starts from -0.0, which an empty result would print.
+        self.matches.iter().fold(0.0, |total, (_, value)| total + value)
     }
 
     /// Number of matched paths.
@@ -120,6 +121,13 @@ fn glob_match(pat: &[u8], seg: &[u8]) -> bool {
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_result_sums_to_positive_zero() {
+        let empty = QueryResult { matches: Vec::new() };
+
+        assert!(empty.sum().is_sign_positive());
+    }
 
     #[test]
     fn literal_matches() {
