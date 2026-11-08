@@ -1,6 +1,7 @@
 //! General simulator settings: tracing, console, clock.
 
 use super::defaults;
+use crate::common::VirtAddr;
 use serde::{Deserialize, Serialize};
 
 /// General simulation settings and options.
@@ -15,7 +16,7 @@ pub struct GeneralConfig {
     pub trace_instructions: bool,
 
     /// Initial PC value (defaults to RAM base)
-    pub start_pc: u64,
+    pub start_pc: VirtAddr,
 
     /// The paging mode a user program runs under in SE mode.
     pub page_mode: SePagingMode,
@@ -50,7 +51,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             trace_instructions: false,
-            start_pc: defaults::RAM_BASE,
+            start_pc: VirtAddr::new(defaults::RAM_BASE),
             page_mode: SePagingMode::default(),
         }
     }

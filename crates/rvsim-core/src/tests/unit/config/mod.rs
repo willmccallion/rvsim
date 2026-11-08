@@ -6,7 +6,7 @@
 pub mod serde_defaults;
 pub mod validation;
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Console;
 use crate::config::Timer;
 use crate::config::*;
@@ -39,14 +39,14 @@ fn merge(json: &mut Value, overrides: Value) {
 fn the_minimal_config_starts_untraced_at_0x8000_0000() {
     let config = Config::minimal();
     assert!(!config.general.trace_instructions);
-    assert_eq!(config.general.start_pc, 0x8000_0000);
+    assert_eq!(config.general.start_pc, VirtAddr::new(0x8000_0000));
 }
 
 #[test]
 fn the_general_defaults_start_untraced_at_0x8000_0000() {
     let general = GeneralConfig::default();
     assert!(!general.trace_instructions);
-    assert_eq!(general.start_pc, 0x8000_0000);
+    assert_eq!(general.start_pc, VirtAddr::new(0x8000_0000));
 }
 
 #[test]
