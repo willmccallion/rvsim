@@ -157,11 +157,7 @@ pub(super) fn exec_widening(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(wsew) = widen_sew(ctx.sew) else {
-        return VecExecResult {
-            vxsat: false,
-            scalar_result: None,
-            fp_flags: crate::isa::fp::FpFlags::NONE,
-        };
+        return VecExecResult::default();
     };
     // Destination VLMAX is computed at the wider SEW with doubled LMUL.
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
@@ -191,11 +187,7 @@ pub(super) fn exec_widening_macc(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(wsew) = widen_sew(ctx.sew) else {
-        return VecExecResult {
-            vxsat: false,
-            scalar_result: None,
-            fp_flags: crate::isa::fp::FpFlags::NONE,
-        };
+        return VecExecResult::default();
     };
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
 
@@ -224,11 +216,7 @@ pub(super) fn exec_narrowing(
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     let Some(wsew) = widen_sew(ctx.sew) else {
-        return VecExecResult {
-            vxsat: false,
-            scalar_result: None,
-            fp_flags: crate::isa::fp::FpFlags::NONE,
-        };
+        return VecExecResult::default();
     };
     // sew is the destination width; wsew = 2*sew is the source width.
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
@@ -247,5 +235,5 @@ pub(super) fn exec_narrowing(
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 
-    VecExecResult { vxsat, scalar_result: None, fp_flags: crate::isa::fp::FpFlags::NONE }
+    VecExecResult { vxsat, ..VecExecResult::default() }
 }
