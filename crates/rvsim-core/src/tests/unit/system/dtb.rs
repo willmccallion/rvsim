@@ -1,6 +1,8 @@
 //! The generated device tree enumerates every hart.
 
-use crate::config::Config;
+use crate::common::PhysRange;
+use crate::config::{Config, DeviceKind};
+use crate::system::SystemState;
 use crate::system::dtb::generate_dtb;
 use std::collections::BTreeMap;
 
@@ -255,4 +257,43 @@ fn the_mmu_type_is_the_strongest_paging_mode() {
     );
 
     assert_eq!((default_mmu.as_str(), sv39.as_str()), ("riscv,sv57", "riscv,sv39"));
+}
+
+/// The node name the device tree gives a device of `kind`, before its `@`.
+fn node_prefix(kind: DeviceKind) -> &'static str {
+    match kind {
+        DeviceKind::Uart => "uart",
+        DeviceKind::VirtioBlk => "virtio_mmio",
+        DeviceKind::Clint => "clint",
+        DeviceKind::Plic => "interrupt-controller",
+        DeviceKind::SysCon => "syscon",
+        DeviceKind::GoldfishRtc => "rtc",
+        DeviceKind::Htif | DeviceKind::Mock => unreachable!("not in the device tree"),
+    }
+}
+
+/// The device tree describes the bus as built: each device's node has its
+/// register window and, for a device that raises one, its PLIC source.
+#[test]
+fn every_device_node_matches_the_device_on_the_bus() {
+    let config = Config::minimal();
+    let soc = parse(&generate_dtb(&config));
+    let soc = soc.child("soc");
+    let state = SystemState::build(&config);
+
+    for device in state.uncore.bus.devices() {
+        let PhysRange { base, size } = device.region();
+        let node = soc.child(&format!("{}@{:x}", node_prefix(device.kind()), base.val()));
+        let cells = |value: u64| [(value >> 32) as u32, value as u32];
+
+        assert_eq!(
+            node.u32_cells("reg"),
+            [cells(base.val()), cells(size)].concat(),
+            "{}",
+            device.name()
+        );
+        if let Some(irq) = device.get_irq_id() {
+            assert_eq!(node.u32_prop("interrupts"), irq.val(), "{}", device.name());
+        }
+    }
 }
