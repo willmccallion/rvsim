@@ -7,5 +7,6 @@ pub mod exec;
 pub mod isa;
 pub mod sim;
 pub mod soc;
+pub mod support;
 pub mod system;
 pub mod uarch;

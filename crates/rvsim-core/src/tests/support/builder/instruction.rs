@@ -68,11 +68,6 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn funct3(mut self, funct3: u32) -> Self {
-        self.funct3 = funct3;
-        self
-    }
-
     pub fn funct7(mut self, funct7: u32) -> Self {
         self.funct7 = funct7;
         self

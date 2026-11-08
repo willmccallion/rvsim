@@ -4,7 +4,6 @@
 
 pub mod builder;
 pub mod harness;
-pub mod infrastructure_tests;
 pub mod mocks;
 pub mod multihart;
 pub mod probe;
