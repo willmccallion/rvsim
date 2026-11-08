@@ -571,6 +571,28 @@ fn uart_scratch_pattern() {
     );
 }
 
+/// Seeing the panic message is the simulator's business; the guest's
+/// console still prints every byte of it.
+#[test]
+fn a_kernel_panic_message_is_printed_whole_and_noticed() {
+    let terminal: SharedTerminal = Terminal::shared(Console::Captured);
+    let mut uart = Uart::new(0, terminal.clone(), 2400);
+    for &byte in b"Kernel panic - not syncing" {
+        crate::tests::support::probe::write(
+            &mut uart,
+            crate::common::PhysAddr::new(0),
+            u64::from(byte),
+            1,
+        );
+    }
+
+    let output = terminal.lock().expect("the terminal is free").take_output();
+    assert_eq!(
+        (output.as_slice(), uart.check_kernel_panic()),
+        (&b"Kernel panic - not syncing"[..], true)
+    );
+}
+
 #[test]
 fn a_captured_console_keeps_output_for_the_host() {
     let terminal: SharedTerminal = Terminal::shared(Console::Captured);

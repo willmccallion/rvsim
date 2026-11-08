@@ -76,10 +76,43 @@ const INTERRUPT_DELAY_NS: u64 = 225;
 /// Interrupt Enable Register: Transmitter Holding Register Empty interrupt enable.
 const IER_THRE: u8 = 0x02;
 
-/// UART device structure.
-///
-/// Simulates a 16550 UART. It spawns a background thread to capture `stdin`
-/// for input and writes output directly to `stdout`.
+/// Watches the console's output for Linux's "Kernel panic" message, which
+/// the uncore ends a run on once the rest of the message has had time to
+/// print.
+#[derive(Clone, Copy, Debug)]
+struct PanicWatch {
+    /// How much of the message the latest bytes match.
+    matched: usize,
+    /// Whether the whole message has gone out.
+    seen: bool,
+}
+
+impl PanicWatch {
+    /// The message, matched without regard to case.
+    const MESSAGE: &[u8] = b"kernel panic";
+
+    /// A watch that has seen nothing.
+    const fn new() -> Self {
+        Self { matched: 0, seen: false }
+    }
+
+    /// Takes the next byte of output.
+    const fn observe(&mut self, byte: u8) {
+        let byte = byte.to_ascii_lowercase();
+        if byte == Self::MESSAGE[self.matched] {
+            self.matched += 1;
+            if self.matched == Self::MESSAGE.len() {
+                self.seen = true;
+                self.matched = 0;
+            }
+        } else {
+            self.matched = if byte == Self::MESSAGE[0] { 1 } else { 0 };
+        }
+    }
+}
+
+/// A 16550 UART on the guest's console: it transmits to and receives from
+/// the shared [`Terminal`](crate::soc::terminal::Terminal).
 #[derive(Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Uart {
@@ -113,10 +146,8 @@ pub struct Uart {
     thre_ip: bool,
     /// Received data has been announced by the receive interrupt.
     rx_ready: bool,
-    /// State machine index for panic detection.
-    panic_match_state: usize,
-    /// Flag indicating if a kernel panic string was detected.
-    panic_detected: bool,
+    /// Watches what it transmits for a kernel panic.
+    panic_watch: PanicWatch,
 }
 
 /// The UART's registers, interrupt timing and received data, as a
@@ -204,8 +235,7 @@ impl Uart {
             rx_interrupt_at: None,
             thre_ip: true,
             rx_ready: false,
-            panic_match_state: 0,
-            panic_detected: false,
+            panic_watch: PanicWatch::new(),
         }
     }
 
@@ -262,32 +292,9 @@ impl Uart {
         IIR_NO_INTERRUPT
     }
 
-    /// Scans output characters for the "kernel panic" string.
-    ///
-    /// Used to detect fatal errors in the guest OS and terminate simulation.
-    const fn check_char_for_panic(&mut self, ch: u8) -> bool {
-        /// Pattern to detect kernel panic messages in UART output.
-        const PATTERN: &[u8] = b"kernel panic";
-        let ch_lower = if ch.is_ascii_uppercase() { ch + 32 } else { ch };
-
-        if ch_lower == PATTERN[self.panic_match_state] {
-            self.panic_match_state += 1;
-            if self.panic_match_state == PATTERN.len() {
-                self.panic_detected = true;
-                self.panic_match_state = 0;
-                return true;
-            }
-        } else if ch_lower == b'k' {
-            self.panic_match_state = 1;
-        } else {
-            self.panic_match_state = 0;
-        }
-        false
-    }
-
-    /// Returns true if a kernel panic has been detected in the output stream.
-    pub const fn check_kernel_panic(&mut self) -> bool {
-        self.panic_detected
+    /// Whether the kernel's panic message has gone out on the console.
+    pub const fn check_kernel_panic(&self) -> bool {
+        self.panic_watch.seen
     }
 
     /// Checks if Divisor Latch Access Bit (DLAB) is set in LCR.
@@ -335,10 +342,7 @@ impl Uart {
         if self.dlab_set() {
             self.div = (self.div & 0xFF00) | (val as u16);
         } else {
-            if self.check_char_for_panic(val) {
-                return;
-            }
-
+            self.panic_watch.observe(val);
             if let Ok(mut terminal) = self.terminal.lock() {
                 let _ = terminal.write(&[val]);
             }
