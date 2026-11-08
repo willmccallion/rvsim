@@ -108,10 +108,11 @@ else
 	$(MAKE) -C software linux
 endif
 
-# The venv with the development tools; remade when their pins change.
+# The venv with the development tools and the docs build; remade when
+# their pins change.
 VENV_STAMP := $(VENV)/.requirements-dev
 
-$(VENV_STAMP): requirements-dev.txt
+$(VENV_STAMP): requirements-dev.txt docs/requirements.txt
 	@printf "$(GREEN)Installing the development tools into $(VENV)…$(RESET)\n"
 	@[ -x $(VENV)/bin/python ] || python3 -m venv $(VENV)
 	$(VENV)/bin/pip install --quiet -r requirements-dev.txt
