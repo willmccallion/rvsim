@@ -6,7 +6,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::harness::{PROGRAM_BASE, build_simulator};
+use crate::tests::support::harness::{PROGRAM_BASE, build_simulator, store_words};
 
 /// Scratch data area the programs use, 1 KiB above the code.
 pub const DATA_BASE: u64 = PROGRAM_BASE + 0x400;
@@ -23,16 +23,7 @@ impl MultiHart {
         config.system.hart_count = std::num::NonZero::new(hart_count).unwrap();
         config.system.console = crate::config::Console::Quiet;
         config.pipeline.backend = backend;
-        let mut sim = build_simulator(&config);
-        for (index, word) in program.iter().enumerate() {
-            let addr = PROGRAM_BASE + (index as u64) * 4;
-            sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), ProbeWidth::B4);
-        }
-        for hart in &mut sim.state.harts {
-            hart.pc = VirtAddr::new(PROGRAM_BASE);
-        }
-        sim.sync_arch_regs();
-        Self { sim }
+        Self::with_config(&config, program)
     }
 
     /// Ticks until a hart exits or `max_cycles` elapse; returns the exit code.
@@ -56,10 +47,7 @@ impl MultiHart {
     /// count included).
     pub fn with_config(config: &Config, program: &[u32]) -> Self {
         let mut sim = build_simulator(config);
-        for (index, word) in program.iter().enumerate() {
-            let addr = PROGRAM_BASE + (index as u64) * 4;
-            sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), ProbeWidth::B4);
-        }
+        store_words(&mut sim, PROGRAM_BASE, program);
         for hart in &mut sim.state.harts {
             hart.pc = VirtAddr::new(PROGRAM_BASE);
         }
