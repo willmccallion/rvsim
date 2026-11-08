@@ -59,8 +59,9 @@ All notable changes to this project are documented here. The format is based on 
   check off), with an error naming the hart and its PC, instead of running
   a stuck pipeline to the cycle limit.
 - Rust API: program counters are `VirtAddr` rather than `u64`: `Hart::pc`,
-  `Simulator::set_pc`, `StopAt::pcs`, `Simulator::pc_trace`, `SimError::Stalled` and the
-  pipeline snapshot. Python still takes and returns plain integers.
+  `Simulator::set_pc`, `StopAt::pcs`, `Simulator::pc_trace`, `SimError::Stalled`, the
+  pipeline snapshot and trace, and the branch and store-set predictors. Python
+  still takes and returns plain integers.
 - One clock: `cpu_clock_mhz` now also sets SE mode's time and `m5_rpns`,
   and `clock_hz` is gone. `clint_divider` is replaced by `timer`
   (`"RealTime"`, the default, ticks `mtime` at `timebase_hz`, which the

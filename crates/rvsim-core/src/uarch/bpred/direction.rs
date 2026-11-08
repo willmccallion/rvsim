@@ -6,6 +6,8 @@
 //! predictor trains on it, or is squashed, when the predictor undoes its
 //! speculative history update with it.
 
+use crate::common::VirtAddr;
+
 /// Whether a control instruction's direction is predicted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BranchClass {
@@ -32,7 +34,7 @@ pub struct Retired {
     /// Its real direction.
     pub taken: bool,
     /// Its real target, for an indirect jump that is not a return.
-    pub indirect_target: Option<u64>,
+    pub indirect_target: Option<VirtAddr>,
 }
 
 /// A predictor of branch direction with speculatively updated histories.
@@ -43,13 +45,13 @@ pub trait DirectionPredictor {
 
     /// Predicts the direction of the conditional branch at `pc` that goes
     /// to `target` when taken (gem5's `lookup`).
-    fn lookup(&self, pc: u64, target: u64) -> (bool, Self::History);
+    fn lookup(&self, pc: VirtAddr, target: VirtAddr) -> (bool, Self::History);
 
     /// The record for the jump at `pc`, whose direction is not predicted.
-    fn unconditional(&self, pc: u64, jump: Jump) -> Self::History;
+    fn unconditional(&self, pc: VirtAddr, jump: Jump) -> Self::History;
 
     /// Shifts the speculative histories by the predicted direction.
-    fn update_histories(&mut self, pc: u64, taken: bool, history: &Self::History);
+    fn update_histories(&mut self, pc: VirtAddr, taken: bool, history: &Self::History);
 
     /// Undoes a squashed prediction's history update. Squashed predictions
     /// are undone youngest first.
@@ -61,14 +63,14 @@ pub trait DirectionPredictor {
     /// Rewrites a mispredicted instruction's history update with its real
     /// direction, once everything younger has been squashed. No
     /// [`Self::squash_done`] follows, so this restores all derived state.
-    fn correct(&mut self, pc: u64, taken: bool, history: &Self::History);
+    fn correct(&mut self, pc: VirtAddr, taken: bool, history: &Self::History);
 
     /// Trains on a committed control instruction.
-    fn commit(&mut self, pc: u64, retired: Retired, history: &Self::History);
+    fn commit(&mut self, pc: VirtAddr, retired: Retired, history: &Self::History);
 
     /// The predicted target of an indirect jump, when this predictor has
     /// its own indirect target predictor.
-    fn indirect_target(&self, _pc: u64) -> Option<u64> {
+    fn indirect_target(&self, _pc: VirtAddr) -> Option<VirtAddr> {
         None
     }
 }

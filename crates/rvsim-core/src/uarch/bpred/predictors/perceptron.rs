@@ -4,6 +4,7 @@
 //! Instead of saturating counters, it uses a table of weight vectors. The
 //! prediction is the dot product of the weights and the history vector.
 
+use crate::common::VirtAddr;
 use crate::config::PerceptronConfig;
 use crate::uarch::bpred::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 
@@ -97,16 +98,16 @@ impl DirectionPredictor for PerceptronPredictor {
     type History = PerceptronHistory;
 
     /// Predicts taken when the perceptron output (dot product) is non-negative.
-    fn lookup(&self, pc: u64, _target: u64) -> (bool, PerceptronHistory) {
-        let output = self.output(self.index(pc, self.ghr), self.ghr);
+    fn lookup(&self, pc: VirtAddr, _target: VirtAddr) -> (bool, PerceptronHistory) {
+        let output = self.output(self.index(pc.val(), self.ghr), self.ghr);
         (output >= 0, PerceptronHistory { ghr: self.ghr, output })
     }
 
-    fn unconditional(&self, _pc: u64, _jump: Jump) -> PerceptronHistory {
+    fn unconditional(&self, _pc: VirtAddr, _jump: Jump) -> PerceptronHistory {
         PerceptronHistory { ghr: self.ghr, output: 0 }
     }
 
-    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &PerceptronHistory) {
+    fn update_histories(&mut self, _pc: VirtAddr, taken: bool, _history: &PerceptronHistory) {
         self.ghr = self.shifted(self.ghr, taken);
     }
 
@@ -114,18 +115,18 @@ impl DirectionPredictor for PerceptronPredictor {
         self.ghr = history.ghr;
     }
 
-    fn correct(&mut self, _pc: u64, taken: bool, history: &PerceptronHistory) {
+    fn correct(&mut self, _pc: VirtAddr, taken: bool, history: &PerceptronHistory) {
         self.ghr = self.shifted(history.ghr, taken);
     }
 
     /// Trains the weights when the prediction was wrong or its confidence
     /// (the output's magnitude) was below the training threshold.
-    fn commit(&mut self, pc: u64, retired: Retired, history: &PerceptronHistory) {
+    fn commit(&mut self, pc: VirtAddr, retired: Retired, history: &PerceptronHistory) {
         if retired.class != BranchClass::Conditional {
             return;
         }
         let ghr = history.ghr;
-        let idx = self.index(pc, ghr);
+        let idx = self.index(pc.val(), ghr);
         let y = history.output;
         let t = if retired.taken { 1 } else { -1 };
 
@@ -154,9 +155,9 @@ mod tests {
     fn training_uses_the_output_the_prediction_read() {
         let mut bp =
             PerceptronPredictor::new(&PerceptronConfig { history_length: 8, table_bits: 6 });
-        let pc = 0x1000;
-        let (_, history) = bp.lookup(pc, 0);
-        let base = bp.index(pc, 0) * bp.row_size;
+        let pc = VirtAddr::new(0x1000);
+        let (_, history) = bp.lookup(pc, VirtAddr::new(0));
+        let base = bp.index(pc.val(), 0) * bp.row_size;
         bp.table[base] = 50;
         for weight in &mut bp.table[base + 1..base + bp.row_size] {
             *weight = -10;

@@ -8,6 +8,7 @@
 //! prediction's record; the counters train at commit on what the
 //! prediction read.
 
+use crate::common::VirtAddr;
 use crate::config::TournamentConfig;
 use crate::uarch::bpred::direction::{DirectionPredictor, Jump, Retired};
 
@@ -105,8 +106,8 @@ const fn train(counter: &mut u8, taken: bool) {
 impl DirectionPredictor for TournamentPredictor {
     type History = TournamentHistory;
 
-    fn lookup(&self, pc: u64, _target: u64) -> (bool, TournamentHistory) {
-        let table_index = self.local_history_index(pc);
+    fn lookup(&self, pc: VirtAddr, _target: VirtAddr) -> (bool, TournamentHistory) {
+        let table_index = self.local_history_index(pc.val());
         let history = self.local_counter_index(self.local_history_table[table_index]);
         let local_taken = predicts_taken(self.local_counters[history]);
         let global_index = self.global_index(self.global_history);
@@ -121,7 +122,7 @@ impl DirectionPredictor for TournamentPredictor {
         (if use_global { global_taken } else { local_taken }, record)
     }
 
-    fn unconditional(&self, _pc: u64, _jump: Jump) -> TournamentHistory {
+    fn unconditional(&self, _pc: VirtAddr, _jump: Jump) -> TournamentHistory {
         TournamentHistory {
             global_history: self.global_history,
             local_taken: true,
@@ -130,7 +131,7 @@ impl DirectionPredictor for TournamentPredictor {
         }
     }
 
-    fn update_histories(&mut self, _pc: u64, taken: bool, history: &TournamentHistory) {
+    fn update_histories(&mut self, _pc: VirtAddr, taken: bool, history: &TournamentHistory) {
         self.global_history = self.shifted(self.global_history, taken);
         if let Some(local) = history.local {
             let entry = &mut self.local_history_table[local.table_index];
@@ -145,7 +146,7 @@ impl DirectionPredictor for TournamentPredictor {
         }
     }
 
-    fn correct(&mut self, _pc: u64, taken: bool, history: &TournamentHistory) {
+    fn correct(&mut self, _pc: VirtAddr, taken: bool, history: &TournamentHistory) {
         self.global_history = self.shifted(history.global_history, taken);
         if let Some(local) = history.local {
             self.local_history_table[local.table_index] =
@@ -156,7 +157,7 @@ impl DirectionPredictor for TournamentPredictor {
     /// Trains the choice counter toward whichever component was right when
     /// they disagreed, then the global and local counters the prediction
     /// read. A jump trains only its global counter.
-    fn commit(&mut self, _pc: u64, retired: Retired, history: &TournamentHistory) {
+    fn commit(&mut self, _pc: VirtAddr, retired: Retired, history: &TournamentHistory) {
         let global_index = self.global_index(history.global_history);
         let Some(local) = history.local else {
             train(&mut self.global_counters[global_index], retired.taken);
@@ -190,40 +191,43 @@ mod tests {
     #[test]
     fn squashing_a_branch_restores_its_local_history() {
         let mut bp = predictor();
-        let pc = 0x8000_0010;
-        let (_, older) = bp.lookup(pc, 0);
+        let pc = VirtAddr::new(0x8000_0010);
+        let (_, older) = bp.lookup(pc, VirtAddr::new(0));
         bp.update_histories(pc, true, &older);
-        let before = bp.local_history_table[bp.local_history_index(pc)];
+        let before = bp.local_history_table[bp.local_history_index(pc.val())];
 
-        let (_, younger) = bp.lookup(pc, 0);
+        let (_, younger) = bp.lookup(pc, VirtAddr::new(0));
         bp.update_histories(pc, true, &younger);
         bp.squash(&younger);
 
-        assert_eq!(bp.local_history_table[bp.local_history_index(pc)], before);
+        assert_eq!(bp.local_history_table[bp.local_history_index(pc.val())], before);
     }
 
     #[test]
     fn correcting_a_branch_shifts_its_real_outcome_into_both_histories() {
         let mut bp = predictor();
-        let pc = 0x8000_0010;
-        let (predicted, history) = bp.lookup(pc, 0);
+        let pc = VirtAddr::new(0x8000_0010);
+        let (predicted, history) = bp.lookup(pc, VirtAddr::new(0));
         bp.update_histories(pc, predicted, &history);
 
         bp.correct(pc, !predicted, &history);
 
         assert_eq!(bp.global_history & 1, u64::from(!predicted));
-        assert_eq!(bp.local_history_table[bp.local_history_index(pc)] & 1, u64::from(!predicted));
+        assert_eq!(
+            bp.local_history_table[bp.local_history_index(pc.val())] & 1,
+            u64::from(!predicted)
+        );
     }
 
     #[test]
     fn the_choice_counter_moves_toward_the_component_that_was_right() {
         let mut bp = predictor();
-        let pc = 0x8000_0010;
+        let pc = VirtAddr::new(0x8000_0010);
         let record = TournamentHistory {
             global_history: 0,
             local_taken: false,
             global_taken: true,
-            local: Some(LocalHistory { table_index: bp.local_history_index(pc), history: 0 }),
+            local: Some(LocalHistory { table_index: bp.local_history_index(pc.val()), history: 0 }),
         };
 
         bp.commit(pc, conditional(true), &record);
@@ -234,10 +238,10 @@ mod tests {
     #[test]
     fn a_jump_trains_the_global_counter_for_its_history_as_taken() {
         let mut bp = predictor();
-        let record = bp.unconditional(0x8000_0010, Jump::Direct);
+        let record = bp.unconditional(VirtAddr::new(0x8000_0010), Jump::Direct);
 
         bp.commit(
-            0x8000_0010,
+            VirtAddr::new(0x8000_0010),
             Retired { class: BranchClass::Unconditional, taken: true, indirect_target: None },
             &record,
         );

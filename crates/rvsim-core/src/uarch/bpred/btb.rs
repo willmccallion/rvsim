@@ -4,6 +4,8 @@
 //! flow instructions. It allows the fetch stage to predict the target of a
 //! branch or jump before the instruction is decoded.
 
+use crate::common::VirtAddr;
+
 /// The kind of control instruction a BTB entry records: what fetch learns
 /// about the instruction at a PC before it has been decoded.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -29,7 +31,7 @@ pub enum BranchKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BtbHit {
     /// The last target the instruction went to.
-    pub target: u64,
+    pub target: VirtAddr,
     /// The kind of control instruction.
     pub kind: BranchKind,
 }
@@ -38,9 +40,9 @@ pub struct BtbHit {
 #[derive(Clone, Copy, Debug, Default)]
 struct BtbEntry {
     /// The tag used to verify if this entry corresponds to the requested PC.
-    tag: u64,
+    tag: VirtAddr,
     /// The predicted target address.
-    target: u64,
+    target: VirtAddr,
     /// The kind of control instruction at the tagged PC.
     kind: BranchKind,
     /// Indicates if this entry contains valid data.
@@ -81,12 +83,12 @@ impl Btb {
 
     /// Calculates the set index for a given program counter.
     #[inline]
-    const fn set_index(&self, pc: u64) -> usize {
-        ((pc >> 2) as usize) & (self.num_sets - 1)
+    const fn set_index(&self, pc: VirtAddr) -> usize {
+        ((pc.val() >> 2) as usize) & (self.num_sets - 1)
     }
 
     /// The entry for the control instruction at `pc`, if the BTB holds one.
-    pub fn lookup(&self, pc: u64) -> Option<BtbHit> {
+    pub fn lookup(&self, pc: VirtAddr) -> Option<BtbHit> {
         let set = self.set_index(pc);
         let base = set * self.ways;
         self.table[base..base + self.ways]
@@ -97,7 +99,7 @@ impl Btb {
 
     /// Drops the entry for `pc`: the instruction there is not the control
     /// instruction the BTB recorded.
-    pub fn invalidate(&mut self, pc: u64) {
+    pub fn invalidate(&mut self, pc: VirtAddr) {
         let set = self.set_index(pc);
         let base = set * self.ways;
         for e in &mut self.table[base..base + self.ways] {
@@ -111,7 +113,7 @@ impl Btb {
     ///
     /// If the tag already exists in the set, updates it in place. Otherwise,
     /// replaces the first invalid entry or uses round-robin replacement.
-    pub fn update(&mut self, pc: u64, target: u64, kind: BranchKind) {
+    pub fn update(&mut self, pc: VirtAddr, target: VirtAddr, kind: BranchKind) {
         let set = self.set_index(pc);
         let base = set * self.ways;
         let entry = BtbEntry { tag: pc, target, kind, valid: true };

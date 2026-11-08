@@ -9,6 +9,7 @@
 //! Instructions are numbered in the order they are fetched; a hart is a
 //! thread.
 
+use crate::common::VirtAddr;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
@@ -94,7 +95,13 @@ impl<W: Write> KanataWriter<W> {
         Ok(())
     }
 
-    fn fetched_at(&mut self, cycle: u64, hart: HartId, seq: InstSeq, pc: u64) -> io::Result<()> {
+    fn fetched_at(
+        &mut self,
+        cycle: u64,
+        hart: HartId,
+        seq: InstSeq,
+        pc: VirtAddr,
+    ) -> io::Result<()> {
         self.at(cycle)?;
         let id = self.next_id;
         self.next_id += 1;
@@ -181,7 +188,7 @@ fn file_error(path: &str, source: io::Error) -> SimError {
 }
 
 impl<W: Write + Send + Sync> PipelineTrace for KanataWriter<W> {
-    fn fetched(&mut self, cycle: u64, hart: HartId, seq: InstSeq, pc: u64) {
+    fn fetched(&mut self, cycle: u64, hart: HartId, seq: InstSeq, pc: VirtAddr) {
         let result = self.fetched_at(cycle, hart, seq, pc);
         self.report(result);
     }

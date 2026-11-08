@@ -7,6 +7,7 @@
 use super::sc_types::{TageConfLevel, TageScMeta};
 use super::tage_history::{HistoryBranch, HistoryCheckpoint, TageHistories};
 use super::tagged_bank::MAX_BANKS;
+use crate::common::VirtAddr;
 use crate::config::{TageAllocation, TageBanking, TageConfig, TageHashing, TageUpdate};
 use crate::uarch::bpred::components::xorshift64;
 
@@ -272,9 +273,9 @@ impl TageCore {
 
     /// Predicts the branch at `pc` from the speculative history, recording
     /// the entries it read. `O(num_banks)`.
-    pub fn predict(&self, pc: u64) -> TagePrediction {
-        let (indices, tags) = self.indices_and_tags(pc);
-        let base_index = self.bimodal_index(pc);
+    pub fn predict(&self, pc: VirtAddr) -> TagePrediction {
+        let (indices, tags) = self.indices_and_tags(pc.val());
+        let base_index = self.bimodal_index(pc.val());
 
         let mut matching = (0..self.num_banks).rev().filter(|&b| {
             self.enabled(b) && self.storage[self.bank_storage[b]][indices[b]].tag == tags[b]
@@ -643,7 +644,7 @@ impl TageCore {
 
     /// Shifts the control instruction at `pc` going `taken` into the
     /// speculative histories.
-    pub fn speculate(&mut self, pc: u64, taken: bool, branch: HistoryBranch) {
+    pub fn speculate(&mut self, pc: VirtAddr, taken: bool, branch: HistoryBranch) {
         self.histories.speculate(pc, taken, branch);
     }
 

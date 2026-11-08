@@ -8,6 +8,7 @@
 
 pub mod kanata;
 
+use crate::common::VirtAddr;
 use crate::common::{HartId, InstSeq, SimError};
 
 /// A stage an instruction occupies, as a viewer shows it.
@@ -48,7 +49,7 @@ pub enum PipelineTraceFormat {
 /// in; an instruction is `seq` on `hart` from fetch to retirement.
 pub trait PipelineTrace: Send + Sync {
     /// `seq` entered the pipeline, fetching `pc`.
-    fn fetched(&mut self, cycle: u64, hart: HartId, seq: InstSeq, pc: u64);
+    fn fetched(&mut self, cycle: u64, hart: HartId, seq: InstSeq, pc: VirtAddr);
 
     /// `seq`'s encoding is known.
     fn decoded(&mut self, cycle: u64, hart: HartId, seq: InstSeq, inst: u32);

@@ -11,6 +11,7 @@
 //! index the same counters when it trains.
 
 use super::sc_types::{TageConfLevel, TageScMeta};
+use crate::common::VirtAddr;
 use crate::config::{GehlConfig, LocalGehlConfig, MAX_LOCAL_HISTORIES, ScConfig};
 
 /// `ctr` one step toward `up`, saturating as a signed `bits`-wide counter.
@@ -142,7 +143,7 @@ impl Gehl {
     /// `StatisticalCorrector::gUpdate`: trains the counters and moves the
     /// weight when this component's vote decided the total's sign.
     fn train(&mut self, prediction: &ScPrediction, taken: bool, weight: usize, bits: &Widths) {
-        let pc = self.hashed_pc(prediction.pc, prediction.before_sc);
+        let pc = self.hashed_pc(prediction.pc.val(), prediction.before_sc);
         let history = prediction.histories.of(self.source);
         let mut sum = 0;
         for table in 0..self.tables.len() {
@@ -224,7 +225,7 @@ struct Keys {
 /// What a corrector prediction read and decided, carried to commit.
 #[derive(Clone, Copy, Debug)]
 pub struct ScPrediction {
-    pc: u64,
+    pc: VirtAddr,
     /// The branch goes backward when taken.
     backward: bool,
     histories: ScHistories,
@@ -344,20 +345,20 @@ impl StatCorrector {
     /// `path` is TAGE's path history.
     pub fn predict(
         &self,
-        pc: u64,
-        target: u64,
+        pc: VirtAddr,
+        target: VirtAddr,
         path: u64,
         tage: TageScMeta,
         before_sc: bool,
     ) -> ScPrediction {
-        let histories = self.histories(pc, path);
-        let keys = self.keys(pc, &tage, before_sc);
+        let histories = self.histories(pc.val(), path);
+        let keys = self.keys(pc.val(), &tage, before_sc);
         let bias_sum = centred(self.bias[keys.bias])
             + centred(self.bias_sk[keys.bias_sk])
             + centred(self.bias_bank[keys.bias_bank]);
         let mut sum = (1 + i32::from(self.bias_weights[keys.weight] >= 0)) * bias_sum;
         for gehl in &self.gehls {
-            sum += gehl.vote(pc, before_sc, &histories, keys.weight);
+            sum += gehl.vote(pc.val(), before_sc, &histories, keys.weight);
         }
         let threshold = self.threshold(&keys);
         ScPrediction {
@@ -449,7 +450,7 @@ impl StatCorrector {
         self.imli_histories[count] = (self.imli_histories[count] << 1) | u64::from(taken);
         self.global = (self.global << 1) | u64::from(taken);
         for local in &mut self.locals {
-            local.push(prediction.pc, taken);
+            local.push(prediction.pc.val(), taken);
         }
         if prediction.backward {
             self.imli_count = if taken { (self.imli_count + 1).min(self.imli_max) } else { 0 };
@@ -466,13 +467,13 @@ impl StatCorrector {
         self.imli_count = read.imli_count;
         self.imli_histories[read.imli_count as usize] = read.imli_history;
         for (local, &history) in self.locals.iter_mut().zip(&read.local) {
-            local.restore(prediction.pc, history);
+            local.restore(prediction.pc.val(), history);
         }
     }
 
     /// Trains on a committed branch: `StatisticalCorrector::condBranchUpdate`.
     pub fn update(&mut self, prediction: &ScPrediction, taken: bool) {
-        let keys = self.keys(prediction.pc, &prediction.tage, prediction.before_sc);
+        let keys = self.keys(prediction.pc.val(), &prediction.tage, prediction.before_sc);
         let sc_taken = prediction.sum >= 0;
         if sc_taken != prediction.before_sc {
             self.train_choosers(prediction, taken);
@@ -528,9 +529,9 @@ impl StatCorrector {
 mod tests {
     use super::*;
 
-    const PC: u64 = 0x8000_1004;
-    const FORWARD: u64 = PC + 0x40;
-    const BACKWARD: u64 = PC - 0x40;
+    const PC: VirtAddr = VirtAddr::new(0x8000_1004);
+    const FORWARD: VirtAddr = VirtAddr::new(PC.val() + 0x40);
+    const BACKWARD: VirtAddr = VirtAddr::new(PC.val() - 0x40);
 
     fn tage(conf: TageConfLevel, pred_taken: bool) -> TageScMeta {
         TageScMeta {
@@ -542,7 +543,7 @@ mod tests {
         }
     }
 
-    fn predict(sc: &StatCorrector, target: u64, tage: TageScMeta) -> ScPrediction {
+    fn predict(sc: &StatCorrector, target: VirtAddr, tage: TageScMeta) -> ScPrediction {
         sc.predict(PC, target, 0, tage, tage.pred_taken)
     }
 
@@ -590,7 +591,7 @@ mod tests {
             let prediction = predict(&sc, BACKWARD, meta);
             sc.speculate(&prediction, i % 3 != 0);
         }
-        let before = sc.histories(PC, 0);
+        let before = sc.histories(PC.val(), 0);
 
         let mut squashed = Vec::new();
         for i in 0..10 {
@@ -603,7 +604,7 @@ mod tests {
             sc.squash(prediction);
         }
 
-        assert_eq!(sc.histories(PC, 0), before);
+        assert_eq!(sc.histories(PC.val(), 0), before);
     }
 
     #[test]

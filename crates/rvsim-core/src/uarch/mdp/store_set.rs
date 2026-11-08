@@ -17,6 +17,7 @@
 //!   (the [`MemDepUnit`](super::unit::MemDepUnit) handles wakeup,
 //!   not LFST clearing).
 
+use crate::common::VirtAddr;
 use crate::common::ids::impl_id_from_index;
 use crate::common::usize_of;
 use crate::config::StoreSetConfig;
@@ -37,8 +38,8 @@ pub struct SsitIndex(pub usize);
 impl SsitIndex {
     /// Compute the SSIT index for a given PC and table size.
     #[inline]
-    pub const fn from_pc(pc: u64, table_size: usize) -> Self {
-        Self(usize_of(pc >> 2) % table_size)
+    pub const fn from_pc(pc: VirtAddr, table_size: usize) -> Self {
+        Self(usize_of(pc.val() >> 2) % table_size)
     }
 }
 
@@ -68,13 +69,13 @@ impl StoreSetPredictor {
 
     /// The set a new load/store pair starts, derived from the load's PC as
     /// gem5's `calcSSID` does.
-    fn new_set_id(&self, load_pc: u64) -> StoreSetId {
-        StoreSetId::from_index(usize_of(load_pc ^ (load_pc >> 10)) % self.lfst.len())
+    fn new_set_id(&self, load_pc: VirtAddr) -> StoreSetId {
+        StoreSetId::from_index(usize_of(load_pc.val() ^ (load_pc.val() >> 10)) % self.lfst.len())
     }
 
     /// Hash a PC into an SSIT index.
     #[inline]
-    const fn ssit_index(&self, pc: u64) -> SsitIndex {
+    const fn ssit_index(&self, pc: VirtAddr) -> SsitIndex {
         SsitIndex::from_pc(pc, self.ssit.len())
     }
 }
@@ -84,7 +85,7 @@ impl StoreSetPredictor {
     ///
     /// For stores, returns the previous store in the same set (chain predecessor)
     /// before [`register_store`](Self::register_store) overwrites the LFST entry.
-    pub fn predict(&self, pc: u64) -> MemPrediction {
+    pub fn predict(&self, pc: VirtAddr) -> MemPrediction {
         let idx = self.ssit_index(pc);
         let Some(set_id) = self.ssit[idx.0] else {
             return MemPrediction::NoDep;
@@ -94,7 +95,7 @@ impl StoreSetPredictor {
 
     /// Register a store in the LFST. Called AFTER `predict()` for the same store,
     /// so `predict()` sees the previous store, not itself.
-    pub fn register_store(&mut self, store_pc: u64, rob_tag: RobTag) {
+    pub fn register_store(&mut self, store_pc: VirtAddr, rob_tag: RobTag) {
         let idx = self.ssit_index(store_pc);
         if let Some(set_id) = self.ssit[idx.0] {
             self.lfst[set_id.0 as usize] = Some(rob_tag);
@@ -102,7 +103,7 @@ impl StoreSetPredictor {
     }
 
     /// Train: a load at `load_pc` violated against store at `store_pc`.
-    pub fn train(&mut self, load_pc: u64, store_pc: u64) {
+    pub fn train(&mut self, load_pc: VirtAddr, store_pc: VirtAddr) {
         let load_idx = self.ssit_index(load_pc);
         let store_idx = self.ssit_index(store_pc);
 
@@ -134,7 +135,7 @@ impl StoreSetPredictor {
 
     /// Rebuild a single LFST entry from a surviving store after partial flush.
     /// Only overwrites if `rob_tag` is newer than the current entry.
-    pub fn rebuild_lfst_entry(&mut self, store_pc: u64, rob_tag: RobTag) {
+    pub fn rebuild_lfst_entry(&mut self, store_pc: VirtAddr, rob_tag: RobTag) {
         let idx = self.ssit_index(store_pc);
         if let Some(set_id) = self.ssit[idx.0] {
             let slot = &mut self.lfst[set_id.0 as usize];
@@ -188,15 +189,15 @@ mod tests {
     #[test]
     fn an_untrained_pc_predicts_no_dependence() {
         let p = test_predictor();
-        assert_eq!(p.predict(0x1000), MemPrediction::NoDep);
-        assert_eq!(p.predict(0x2000), MemPrediction::NoDep);
+        assert_eq!(p.predict(VirtAddr::new(0x1000)), MemPrediction::NoDep);
+        assert_eq!(p.predict(VirtAddr::new(0x2000)), MemPrediction::NoDep);
     }
 
     #[test]
     fn a_trained_load_depends_on_its_sets_store_once_registered() {
         let mut p = test_predictor();
-        let load_pc = 0x1000;
-        let store_pc = 0x2000;
+        let load_pc = VirtAddr::new(0x1000);
+        let store_pc = VirtAddr::new(0x2000);
 
         // Train a violation — creates SSIT entries for both.
         p.train(load_pc, store_pc);
@@ -213,8 +214,8 @@ mod tests {
     #[test]
     fn a_store_depends_on_the_previous_store_in_its_set() {
         let mut p = test_predictor();
-        let store_pc = 0x2000;
-        let load_pc = 0x1000;
+        let store_pc = VirtAddr::new(0x2000);
+        let load_pc = VirtAddr::new(0x1000);
 
         // Train: load violated against store.
         p.train(load_pc, store_pc);
@@ -238,8 +239,8 @@ mod tests {
     #[test]
     fn a_full_flush_clears_the_lfst_but_keeps_the_ssit() {
         let mut p = test_predictor();
-        let load_pc = 0x1000;
-        let store_pc = 0x2000;
+        let load_pc = VirtAddr::new(0x1000);
+        let store_pc = VirtAddr::new(0x2000);
         let store_tag = RobTag::new(5);
 
         p.train(load_pc, store_pc);
@@ -260,10 +261,10 @@ mod tests {
     fn flush_after_clears_only_lfst_entries_newer_than_the_tag() {
         let mut p = test_predictor();
         // PCs chosen to produce distinct SSIT indices: (pc >> 2) % 64.
-        let store_pc_a = 0x1004; // index 1
-        let store_pc_b = 0x1008; // index 2
-        let load_pc_a = 0x100C; // index 3
-        let load_pc_b = 0x1010; // index 4
+        let store_pc_a = VirtAddr::new(0x1004); // index 1
+        let store_pc_b = VirtAddr::new(0x1008); // index 2
+        let load_pc_a = VirtAddr::new(0x100C); // index 3
+        let load_pc_b = VirtAddr::new(0x1010); // index 4
 
         p.train(load_pc_a, store_pc_a);
         p.train(load_pc_b, store_pc_b);
@@ -283,13 +284,13 @@ mod tests {
     #[test]
     fn a_load_trained_against_a_second_store_depends_on_it() {
         let mut p = test_predictor();
-        let load_pc = 0x1000;
-        let store_a = 0x2000;
-        let store_b = 0x3000;
+        let load_pc = VirtAddr::new(0x1000);
+        let store_a = VirtAddr::new(0x2000);
+        let store_b = VirtAddr::new(0x3000);
 
         // Create two separate store sets.
         p.train(load_pc, store_a);
-        p.train(0x4000, store_b);
+        p.train(VirtAddr::new(0x4000), store_b);
 
         // Now violate: load_pc conflicts with store_b too.
         // This should merge load_pc into store_b's set.
@@ -303,8 +304,8 @@ mod tests {
     #[test]
     fn rebuilding_an_lfst_entry_keeps_the_newest_store() {
         let mut p = test_predictor();
-        let store_pc = 0x2000;
-        let load_pc = 0x1000;
+        let store_pc = VirtAddr::new(0x2000);
+        let load_pc = VirtAddr::new(0x1000);
 
         p.train(load_pc, store_pc);
 
@@ -328,8 +329,8 @@ mod tests {
             lfst_size: 16,
             clear_period: 100,
         });
-        let load_pc = 0x1000;
-        let store_pc = 0x2000;
+        let load_pc = VirtAddr::new(0x1000);
+        let store_pc = VirtAddr::new(0x2000);
         p.train(load_pc, store_pc);
         p.register_store(store_pc, RobTag::new(5));
 
@@ -346,31 +347,31 @@ mod tests {
 
     #[test]
     fn a_high_pc_indexes_the_ssit_by_its_whole_word_index() {
-        let pc = 0xffff_ffff_8000_0000_u64;
+        let pc = VirtAddr::new(0xffff_ffff_8000_0000);
 
         let index = SsitIndex::from_pc(pc, 1000);
 
-        assert_eq!(index, SsitIndex(usize_of(pc >> 2) % 1000));
+        assert_eq!(index, SsitIndex(usize_of(pc.val() >> 2) % 1000));
         assert_eq!(index, SsitIndex(992));
     }
 
     #[test]
     fn a_new_set_is_numbered_from_the_load_pc() {
         let mut p = test_predictor();
-        let load_pc: u64 = 0x1234_5678;
+        let load_pc = VirtAddr::new(0x1234_5678);
 
-        p.train(load_pc, 0x2000);
+        p.train(load_pc, VirtAddr::new(0x2000));
 
-        let expected = StoreSetId(((load_pc ^ (load_pc >> 10)) % 16) as u16);
+        let expected = StoreSetId(((load_pc.val() ^ (load_pc.val() >> 10)) % 16) as u16);
         assert_eq!(p.ssit[p.ssit_index(load_pc).0], Some(expected));
-        assert_eq!(p.ssit[p.ssit_index(0x2000).0], Some(expected));
+        assert_eq!(p.ssit[p.ssit_index(VirtAddr::new(0x2000)).0], Some(expected));
     }
 
     #[test]
     fn merging_two_sets_keeps_the_lower_id() {
         let mut p = test_predictor();
-        let (load_a, store_a) = (0x1004, 0x2004);
-        let (load_b, store_b) = (0x1010, 0x2010);
+        let (load_a, store_a) = (VirtAddr::new(0x1004), VirtAddr::new(0x2004));
+        let (load_b, store_b) = (VirtAddr::new(0x1010), VirtAddr::new(0x2010));
         p.train(load_a, store_a);
         p.train(load_b, store_b);
         let set_a = p.ssit[p.ssit_index(load_a).0].unwrap();
