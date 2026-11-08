@@ -9,7 +9,7 @@
 #   3. Changelog: Unreleased is empty and this version has its own page
 #   4. Version is strictly ahead of PyPI and crates.io
 #   5. Rebuild: the extension (reporting this version) and guest programs
-#   6. Lint (fmt + clippy)
+#   6. Lint (make lint: rustfmt, clippy, rustdoc, ruff, mypy)
 #   7. Rust and Python tests, the stub check and a strict docs build
 #   8. Packaging: wheel and sdist build, the wheel installs and runs in a
 #      fresh venv, `cargo publish --dry-run`
@@ -31,7 +31,6 @@ for arg in "$@"; do
     esac
 done
 
-# ── Colours ────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 
 pass()    { printf "  ${GREEN}PASS${RESET}  %s\n" "$1"; }
@@ -64,7 +63,6 @@ extract_toml_version() {
 CARGO_VER=$(extract_toml_version "$ROOT/Cargo.toml")
 TAG="v$CARGO_VER"
 
-# ── 1. Git ─────────────────────────────────────────────────────────────────
 section "Git"
 
 info "checking for uncommitted changes"
@@ -97,7 +95,6 @@ else
     pass "$TAG is free"
 fi
 
-# ── 2. Version alignment ───────────────────────────────────────────────────
 section "Version alignment"
 
 printf "    %-30s %s\n" "Cargo.toml (workspace)" "$CARGO_VER"
@@ -147,7 +144,6 @@ else
     fail "bug report placeholder in .github/ISSUE_TEMPLATE/bug_report.yml is not $CARGO_VER"
 fi
 
-# ── 3. Changelog ───────────────────────────────────────────────────────────
 section "Changelog"
 
 CHANGELOG_PROBLEMS="$(python3 - "$CARGO_VER" <<'EOF'
@@ -186,7 +182,6 @@ else
     while IFS= read -r problem; do fail "$problem"; done <<< "$CHANGELOG_PROBLEMS"
 fi
 
-# ── 4. Registry checks ─────────────────────────────────────────────────────
 section "Registry checks"
 
 version_gt() {
@@ -227,7 +222,6 @@ check_crate() {
 
 check_crate "rvsim-core" "$CARGO_VER"
 
-# ── 5. Rebuild ─────────────────────────────────────────────────────────────
 section "Rebuild"
 
 info "make python (the extension, release build)"
@@ -252,29 +246,19 @@ else
     fail "make software"
 fi
 
-# ── 6. Lint ────────────────────────────────────────────────────────────────
 section "Lint"
 
-info "cargo fmt --check"
-if cargo fmt --all -- --check 2>&1; then
-    pass "fmt"
+info "make lint"
+if logged lint make lint; then
+    pass "formatting, clippy, rustdoc, ruff and mypy"
 else
-    fail "fmt (run 'make fmt' to fix)"
+    fail "make lint (make fmt fixes formatting)"
 fi
 
-info "cargo clippy"
-if cargo clippy --workspace --all-targets -- -D warnings 2>&1 \
-   && cargo clippy --workspace --all-targets --features rvsim-core/commit-log -- -D warnings 2>&1; then
-    pass "clippy"
-else
-    fail "clippy"
-fi
-
-# ── 7. Tests ───────────────────────────────────────────────────────────────
 section "Tests"
 
-info "cargo test"
-if logged cargo-test cargo test --workspace --features rvsim-core/commit-log; then
+info "make test"
+if logged cargo-test make test; then
     pass "Rust tests"
 else
     fail "Rust tests"
@@ -294,7 +278,6 @@ else
     fail "docs build (mkdocs --strict)"
 fi
 
-# ── 8. Packaging ───────────────────────────────────────────────────────────
 section "Packaging"
 
 MATURIN="$([ -f "$ROOT/.venv/bin/maturin" ] && echo "$ROOT/.venv/bin/maturin" || command -v maturin 2>/dev/null || echo "")"
@@ -355,7 +338,6 @@ else
     fail "cargo publish --dry-run"
 fi
 
-# ── 9. Conformance ─────────────────────────────────────────────────────────
 section "Conformance"
 
 info "make test-all (every suite on every pipeline config; about 40 minutes)"
@@ -366,7 +348,6 @@ else
     fail "make test-all"
 fi
 
-# ── 10. Linux ──────────────────────────────────────────────────────────────
 section "Linux"
 
 if [[ $SKIP_LINUX -eq 1 ]]; then
@@ -380,7 +361,6 @@ else
     fi
 fi
 
-# ── Summary ────────────────────────────────────────────────────────────────
 printf "\n  logs: %s\n\n" "$LOG_DIR"
 if [[ ${#FAILED[@]} -eq 0 ]]; then
     printf "${GREEN}${BOLD}All checks passed.${RESET} Ready to tag %s\n\n" "$TAG"
