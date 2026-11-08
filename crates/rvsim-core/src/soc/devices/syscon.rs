@@ -11,7 +11,7 @@
 //!   * `0x7777`: Reset
 //!   * `0x3333`: Failure/Panic
 
-use crate::common::PhysRange;
+use crate::common::{PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -25,7 +25,7 @@ use crate::soc::traits::{MmioRegisters, serve_mmio};
 #[derive(Debug)]
 pub struct SysCon {
     /// Base physical address of the device.
-    base_addr: u64,
+    base_addr: PhysAddr,
     /// Shared atomic flag to signal the simulation loop to exit.
     exit_signal: ExitSignal,
 }
@@ -39,7 +39,7 @@ impl SysCon {
     pub const FAIL: u32 = 0x3333;
 
     /// Creates a new `SysCon` device.
-    pub const fn new(base_addr: u64, exit_signal: ExitSignal) -> Self {
+    pub const fn new(base_addr: PhysAddr, exit_signal: ExitSignal) -> Self {
         Self { base_addr, exit_signal }
     }
 

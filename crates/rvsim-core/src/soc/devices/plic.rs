@@ -15,7 +15,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{HartId, PhysRange};
+use crate::common::{HartId, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -63,7 +63,7 @@ pub struct ExternalIrqs {
 #[derive(Debug)]
 pub struct Plic {
     /// Base physical address of the device.
-    base_addr: u64,
+    base_addr: PhysAddr,
     /// Interrupt source priorities (1-1023).
     priorities: Vec<u32>,
     /// Pending interrupt bits (bitmap).
@@ -137,7 +137,7 @@ impl Plic {
     }
 
     /// Creates a PLIC with two contexts for each of `hart_count` harts.
-    pub fn new(base_addr: u64, hart_count: usize) -> Self {
+    pub fn new(base_addr: PhysAddr, hart_count: usize) -> Self {
         let contexts = hart_count * CONTEXTS_PER_HART;
         Self {
             base_addr,

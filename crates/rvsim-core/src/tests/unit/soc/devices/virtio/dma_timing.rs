@@ -75,7 +75,7 @@ pub(super) fn disk_image() -> Vec<u8> {
 /// memory returned with it.
 pub(super) fn device_with_a_queued(request: Request) -> (VirtioBlock, GlobalMemory) {
     let mut memory = memory();
-    let mut device = VirtioBlock::new(MMIO);
+    let mut device = VirtioBlock::new(PhysAddr::new(MMIO));
     device.load(disk_image());
 
     let (request_type, data_flags) = match request {

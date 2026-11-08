@@ -137,7 +137,7 @@ const LINE_BYTES: u64 = 64;
 #[derive(Debug)]
 pub struct VirtioBlock {
     /// Base physical address of the device MMIO region.
-    base_addr: u64,
+    base_addr: PhysAddr,
     /// Disk image data.
     disk_image: Vec<u8>,
     /// Digest of the image as loaded.
@@ -307,7 +307,7 @@ impl VirtioBlock {
     /// The PLIC source the disk raises.
     pub const IRQ: IrqId = IrqId::new(1);
     /// A device with no disk image, mapped at `base_addr`.
-    pub const fn new(base_addr: u64) -> Self {
+    pub const fn new(base_addr: PhysAddr) -> Self {
         Self {
             base_addr,
             disk_image: Vec::new(),
@@ -402,7 +402,7 @@ impl Handle for VirtioBlock {
         let notified = matches!(
             packet,
             Packet::MemReq { paddr, op: MemOp::Write { .. }, .. }
-                if (paddr.val().saturating_sub(self.base_addr) & !3) == REG_QUEUE_NOTIFY
+                if (paddr.val().saturating_sub(self.base_addr.val()) & !3) == REG_QUEUE_NOTIFY
         );
         serve_mmio(self, packet, source, ctx);
         if notified {

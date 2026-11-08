@@ -362,9 +362,9 @@ fn add_soc(fdt: &mut FdtBuilder, config: &Config, phandles: &Phandles) {
         });
         add_plic(fdt, phandles);
         add_syscon(fdt, system.syscon_base.val(), phandles);
-        fdt.node(&format!("rtc@{RTC_BASE:x}"), |fdt| {
+        fdt.node(&format!("rtc@{:x}", RTC_BASE.val()), |fdt| {
             fdt.prop_string("compatible", "google,goldfish-rtc");
-            fdt.prop_reg_2_2(RTC_BASE, RTC_REGION_BYTES);
+            fdt.prop_reg_2_2(RTC_BASE.val(), RTC_REGION_BYTES);
             fdt.prop_u32("interrupt-parent", phandles.plic());
             fdt.prop_bytes("interrupts", &GoldfishRtc::IRQ.val().to_be_bytes());
         });
@@ -373,9 +373,9 @@ fn add_soc(fdt: &mut FdtBuilder, config: &Config, phandles: &Phandles) {
 
 /// The PLIC, with machine and supervisor external interrupts per hart.
 fn add_plic(fdt: &mut FdtBuilder, phandles: &Phandles) {
-    fdt.node(&format!("interrupt-controller@{PLIC_BASE:x}"), |fdt| {
+    fdt.node(&format!("interrupt-controller@{:x}", PLIC_BASE.val()), |fdt| {
         fdt.prop_string("compatible", "riscv,plic0");
-        fdt.prop_reg_2_2(PLIC_BASE, PLIC_REGION_BYTES);
+        fdt.prop_reg_2_2(PLIC_BASE.val(), PLIC_REGION_BYTES);
         fdt.prop_u32("#interrupt-cells", 1);
         fdt.prop_empty("interrupt-controller");
         let causes = [interrupt::MACHINE_EXTERNAL, interrupt::SUPERVISOR_EXTERNAL];

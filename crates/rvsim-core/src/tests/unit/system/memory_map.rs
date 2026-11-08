@@ -16,7 +16,7 @@ fn every_device_sits_at_its_configured_region() {
         .uncore
         .bus
         .devices()
-        .map(|device| (device.name().to_owned(), device.region().base.val(), device.region().size))
+        .map(|device| (device.name().to_owned(), device.region().base, device.region().size))
         .collect();
     let mut expected: Vec<_> = config
         .system

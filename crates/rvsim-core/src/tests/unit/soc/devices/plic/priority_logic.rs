@@ -3,7 +3,7 @@
 //! Verifies priority-based interrupt arbitration, enable/pending logic,
 //! threshold filtering, and claim/complete protocol.
 
-use crate::common::HartId;
+use crate::common::{HartId, PhysAddr};
 use crate::soc::devices::Device;
 use crate::soc::devices::plic::Plic;
 
@@ -17,13 +17,13 @@ fn settle(plic: &mut Plic) {
 
 #[test]
 fn plic_name() {
-    let plic = Plic::new(0xC00_0000, 1);
+    let plic = Plic::new(PhysAddr::new(0xC00_0000), 1);
     assert_eq!(plic.name(), "PLIC");
 }
 
 #[test]
 fn plic_address_range() {
-    let plic = Plic::new(0xC00_0000, 1);
+    let plic = Plic::new(PhysAddr::new(0xC00_0000), 1);
     let region = plic.region();
     let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, 0xC00_0000);
@@ -32,7 +32,7 @@ fn plic_address_range() {
 
 #[test]
 fn plic_set_and_read_priority() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     // Priority for source 1 is at offset 4
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 7_u64, 4);
     assert_eq!(
@@ -43,7 +43,7 @@ fn plic_set_and_read_priority() {
 
 #[test]
 fn plic_priority_source_zero_reserved() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     // Source 0 priority at offset 0 — exists but is reserved (no interrupt 0)
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(0), 5_u64, 4);
     assert_eq!(
@@ -54,7 +54,7 @@ fn plic_priority_source_zero_reserved() {
 
 #[test]
 fn plic_enable_and_check_interrupt() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     // Set priority for source 1
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
     // Enable source 1 for ctx 0 (enable register at 0x2000).
@@ -82,7 +82,7 @@ fn plic_enable_and_check_interrupt() {
 
 #[test]
 fn plic_threshold_filters_low_priority() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 2_u64, 4); // Source 1 priority = 2
     crate::tests::support::probe::write(
         &mut plic,
@@ -105,7 +105,7 @@ fn plic_threshold_filters_low_priority() {
 
 #[test]
 fn plic_threshold_zero_allows_all() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 1_u64, 4); // Source 1 priority = 1
     crate::tests::support::probe::write(
         &mut plic,
@@ -128,7 +128,7 @@ fn plic_threshold_zero_allows_all() {
 
 #[test]
 fn plic_claim_returns_highest_priority_id() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     // Source 1: priority 3, Source 2: priority 5
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4); // source 1
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(8), 5_u64, 4); // source 2
@@ -157,7 +157,7 @@ fn plic_claim_returns_highest_priority_id() {
 
 #[test]
 fn plic_claim_clears_pending() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
     crate::tests::support::probe::write(
         &mut plic,
@@ -189,7 +189,7 @@ fn plic_claim_clears_pending() {
 
 #[test]
 fn plic_complete_clears_claim() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
     crate::tests::support::probe::write(
         &mut plic,
@@ -226,7 +226,7 @@ fn plic_complete_clears_claim() {
 
 #[test]
 fn plic_no_pending_no_interrupt() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
     crate::tests::support::probe::write(
         &mut plic,
@@ -251,7 +251,7 @@ fn plic_no_pending_no_interrupt() {
 
 #[test]
 fn plic_disabled_source_no_interrupt() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
     // Don't enable source 1
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(0x2000), 0_u64, 4);

@@ -174,7 +174,12 @@ impl Uncore {
     /// is cloned into the device so HTIF tohost writes propagate up to the
     /// harness.
     pub fn add_htif(&mut self, tohost_addr: u64, exit_signal: &ExitSignal, args: Vec<String>) {
-        let htif = Htif::new(tohost_addr, exit_signal.clone(), args, self.host.terminal.clone());
+        let htif = Htif::new(
+            PhysAddr::new(tohost_addr),
+            exit_signal.clone(),
+            args,
+            self.host.terminal.clone(),
+        );
         self.bus.add_device(Box::new(htif));
         self.read_console_through(InputReader::Proxy);
     }

@@ -8,7 +8,7 @@ use crate::sim::memory::{GlobalMemory, Ram};
 use crate::soc::devices::virtio_disk::VirtioBlock;
 
 fn make_virtio() -> VirtioBlock {
-    VirtioBlock::new(0x1000_1000)
+    VirtioBlock::new(PhysAddr::new(0x1000_1000))
 }
 
 /// A device and a system memory of 64 KiB at `RAM_BASE`.

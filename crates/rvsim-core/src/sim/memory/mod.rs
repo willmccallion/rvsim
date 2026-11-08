@@ -90,7 +90,7 @@ impl GlobalMemory {
             return;
         };
         slice.copy_from_slice(bytes);
-        self.note_write(writer, PhysRange::new(paddr.val(), bytes.len() as u64));
+        self.note_write(writer, PhysRange::new(paddr, bytes.len() as u64));
     }
 
     /// Writes `bytes` at `paddr` as `writer`, noting the write on every
@@ -100,7 +100,7 @@ impl GlobalMemory {
             return;
         };
         slice.copy_from_slice(bytes);
-        self.note_write(writer, PhysRange::new(paddr.val(), bytes.len() as u64));
+        self.note_write(writer, PhysRange::new(paddr, bytes.len() as u64));
     }
 
     /// Places `image` at `paddr` before the system runs: no reservation
@@ -123,7 +123,7 @@ impl GlobalMemory {
                 *dst = *src;
             }
         }
-        self.note_write(writer, PhysRange::new(line.val(), bytes.len() as u64));
+        self.note_write(writer, PhysRange::new(line, bytes.len() as u64));
     }
 
     /// Makes a hart's access take effect on the `size` bytes at `paddr`

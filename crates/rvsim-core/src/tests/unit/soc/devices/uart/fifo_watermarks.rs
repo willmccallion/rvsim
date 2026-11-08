@@ -4,13 +4,13 @@
 //! and IER configuration. Note: we can't easily test stdin integration
 //! in unit tests, so we focus on register-level behaviour.
 
-use crate::common::IrqId;
+use crate::common::{IrqId, PhysAddr};
 use crate::soc::devices::Device;
 use crate::soc::devices::uart::Uart;
 use crate::soc::terminal::Terminal;
 
 fn uart(base_addr: u64, console: crate::config::Console, cpu_clock_mhz: u64) -> Uart {
-    Uart::new(base_addr, Terminal::shared(console), cpu_clock_mhz)
+    Uart::new(PhysAddr::new(base_addr), Terminal::shared(console), cpu_clock_mhz)
 }
 
 #[test]

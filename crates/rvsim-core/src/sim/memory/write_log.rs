@@ -177,7 +177,7 @@ mod tests {
     fn a_write_after_the_stamp_by_another_hart_is_seen() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysRange::new(0x8000_0008, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0008), 8), Writer::Hart(H1));
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp));
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_003F), H0, stamp), "same line");
         assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0040), H0, stamp), "next line");
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn a_write_before_the_stamp_is_not_seen() {
         let mut log = log();
-        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0000), 8), Writer::Hart(H1));
         let stamp = log.now();
         assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp));
     }
@@ -195,7 +195,7 @@ mod tests {
     fn the_readers_own_writes_do_not_count() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H0));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0000), 8), Writer::Hart(H0));
         assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp));
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp));
     }
@@ -204,7 +204,7 @@ mod tests {
     fn external_writes_count_for_every_hart() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysRange::new(0x8000_0000, 8), Writer::External);
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0000), 8), Writer::External);
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp));
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp));
     }
@@ -213,8 +213,8 @@ mod tests {
     fn the_readers_own_later_write_does_not_hide_anothers() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H1));
-        log.record(PhysRange::new(0x8000_0008, 8), Writer::Hart(H0));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0000), 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0008), 8), Writer::Hart(H0));
         assert!(
             log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp),
             "hart 1 wrote after the stamp"
@@ -228,10 +228,10 @@ mod tests {
     #[test]
     fn only_writes_after_the_stamp_count_whoever_wrote_last() {
         let mut log = log();
-        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0000), 8), Writer::Hart(H1));
         let stamp = log.now();
-        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H0));
-        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H0));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0000), 8), Writer::Hart(H0));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0000), 8), Writer::Hart(H0));
         assert!(
             !log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp),
             "hart 1's write predates the stamp"
@@ -243,7 +243,7 @@ mod tests {
     fn addresses_outside_ram_are_ignored() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysRange::new(0x1000_0000, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x1000_0000), 8), Writer::Hart(H1));
         assert_eq!(log.now(), stamp);
         assert!(!log.written_by_other_since(PhysAddr::new(0x1000_0000), H0, stamp));
     }

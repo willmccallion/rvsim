@@ -77,9 +77,9 @@ mod tests {
         set.set(h0, PhysAddr::new(0x1008));
         assert!(set.check(h0, PhysAddr::new(0x1000)));
         assert!(!set.check(h0, PhysAddr::new(0x1040)));
-        set.break_on_write(Writer::Hart(h0), PhysRange::new(0x1010, 8));
+        set.break_on_write(Writer::Hart(h0), PhysRange::new(PhysAddr::new(0x1010), 8));
         assert!(set.check(h0, PhysAddr::new(0x1000)), "the writer keeps its own reservation");
-        set.break_on_write(Writer::Hart(h1), PhysRange::new(0x1010, 8));
+        set.break_on_write(Writer::Hart(h1), PhysRange::new(PhysAddr::new(0x1010), 8));
         assert!(!set.check(h0, PhysAddr::new(0x1000)));
         set.set(h1, PhysAddr::new(0x2000));
         set.clear(h1);

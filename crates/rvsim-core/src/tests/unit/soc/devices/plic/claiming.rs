@@ -14,7 +14,7 @@ fn settle(plic: &mut Plic) {
 
 #[test]
 fn plic_claim_with_no_pending_returns_zero() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(
         &mut plic,
         crate::common::PhysAddr::new(0x200000),
@@ -32,7 +32,7 @@ fn plic_claim_with_no_pending_returns_zero() {
 
 #[test]
 fn plic_supervisor_context() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     // Source 3, priority 4
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(12), 4_u64, 4);
     // Enable source 3 for context 1 (supervisor)
@@ -60,7 +60,7 @@ fn plic_supervisor_context() {
 
 #[test]
 fn plic_lines_follow_check_interrupts() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
     crate::tests::support::probe::write(
         &mut plic,
@@ -85,7 +85,7 @@ fn plic_lines_follow_check_interrupts() {
 
 #[test]
 fn plic_contexts_of_second_hart_are_independent() {
-    let mut plic = Plic::new(0, 2);
+    let mut plic = Plic::new(PhysAddr::new(0), 2);
     // Source 5, priority 2.
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(5 * 4), 2, 4);
     // Enable source 5 for hart 1's M-mode context (context 2) only.
@@ -130,7 +130,7 @@ fn plic_contexts_of_second_hart_are_independent() {
 
 #[test]
 fn plic_lines_of_absent_hart_are_clear() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     plic.update_irqs(1 << 1);
     settle(&mut plic);
     assert_eq!(plic.hart_lines(HartId::new(3)), crate::soc::devices::plic::ExternalIrqs::default());
@@ -138,7 +138,7 @@ fn plic_lines_of_absent_hart_are_clear() {
 
 #[test]
 fn plic_lines_change_three_cycles_after_the_source() {
-    let mut plic = Plic::new(0, 1);
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
     crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(0x2000), 1 << 1, 4);
     plic.update_irqs(1 << 1);
@@ -171,7 +171,7 @@ const HART1_M_CLAIM: u64 = 0x20_2004;
 
 /// Two harts' M contexts with `SOURCE` enabled at priority 1, its line high.
 fn two_harts_sharing_a_raised_source() -> Plic {
-    let mut plic = Plic::new(0, 2);
+    let mut plic = Plic::new(PhysAddr::new(0), 2);
     write(&mut plic, PhysAddr::new(4 * u64::from(SOURCE)), 1, 4);
     write(&mut plic, PhysAddr::new(0x2000), 1 << SOURCE, 4);
     write(&mut plic, PhysAddr::new(0x2000 + 2 * 0x80), 1 << SOURCE, 4);

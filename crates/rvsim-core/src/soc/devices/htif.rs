@@ -57,7 +57,7 @@ const SYS_GETMAINVARS: u64 = 2011;
 /// HTIF device: serves `tohost` and `fromhost`.
 #[derive(Debug)]
 pub struct Htif {
-    base_addr: u64,
+    base_addr: PhysAddr,
     exit_signal: ExitSignal,
     /// What the target reads at `fromhost` until it clears it.
     fromhost: u64,
@@ -72,7 +72,7 @@ impl Htif {
     /// with the run and answering `getmainvars` with `args`.
     #[must_use]
     pub fn new(
-        base_addr: u64,
+        base_addr: PhysAddr,
         exit_signal: ExitSignal,
         args: Vec<String>,
         terminal: SharedTerminal,

@@ -35,14 +35,14 @@ fn restored<D: Device>(device: &D, mut blank: D) -> D {
 
 #[test]
 fn a_clint_keeps_its_clock_timers_and_software_interrupts() {
-    let mut clint = Clint::new(CLINT_BASE, 1, 2);
+    let mut clint = Clint::new(PhysAddr::new(CLINT_BASE), 1, 2);
     write(&mut clint, CLINT_BASE + 0x4008, 40, 8);
     write(&mut clint, CLINT_BASE, 1, 4);
     for _ in 0..50 {
         let _ = clint.tick();
     }
 
-    let clint = restored(&clint, Clint::new(CLINT_BASE, 1, 2));
+    let clint = restored(&clint, Clint::new(PhysAddr::new(CLINT_BASE), 1, 2));
 
     assert_eq!(clint.mtime(), 50);
     assert!(clint.timer_pending(HartId::new(1)));
@@ -52,7 +52,7 @@ fn a_clint_keeps_its_clock_timers_and_software_interrupts() {
 
 #[test]
 fn a_plic_keeps_its_priorities_enables_thresholds_and_claims() {
-    let mut plic = Plic::new(PLIC_BASE, 1);
+    let mut plic = Plic::new(PhysAddr::new(PLIC_BASE), 1);
     write(&mut plic, PLIC_BASE + 4 * 10, 5, 4);
     write(&mut plic, PLIC_BASE + 0x2000, 1 << 10, 4);
     write(&mut plic, PLIC_BASE + 0x20_0000, 2, 4);
@@ -62,7 +62,7 @@ fn a_plic_keeps_its_priorities_enables_thresholds_and_claims() {
     }
     assert!(plic.hart_lines(HartId::new(0)).meip);
 
-    let mut plic = restored(&plic, Plic::new(PLIC_BASE, 1));
+    let mut plic = restored(&plic, Plic::new(PhysAddr::new(PLIC_BASE), 1));
 
     assert!(plic.hart_lines(HartId::new(0)).meip, "the claim is visible at once");
     assert_eq!(read(&mut plic, PLIC_BASE + 4 * 10, 4), 5);
@@ -71,12 +71,15 @@ fn a_plic_keeps_its_priorities_enables_thresholds_and_claims() {
 
 #[test]
 fn a_uart_keeps_its_registers() {
-    let mut uart = Uart::new(UART_BASE, Terminal::shared(Console::Quiet), 2400);
+    let mut uart = Uart::new(PhysAddr::new(UART_BASE), Terminal::shared(Console::Quiet), 2400);
     write(&mut uart, UART_BASE + 1, 0x01, 1);
     write(&mut uart, UART_BASE + 3, 0x03, 1);
     write(&mut uart, UART_BASE + 7, 0x5a, 1);
 
-    let mut uart = restored(&uart, Uart::new(UART_BASE, Terminal::shared(Console::Quiet), 2400));
+    let mut uart = restored(
+        &uart,
+        Uart::new(PhysAddr::new(UART_BASE), Terminal::shared(Console::Quiet), 2400),
+    );
 
     assert_eq!(read(&mut uart, UART_BASE + 1, 1), 0x01);
     assert_eq!(read(&mut uart, UART_BASE + 3, 1), 0x03);
@@ -85,12 +88,12 @@ fn a_uart_keeps_its_registers() {
 
 #[test]
 fn a_virtio_disk_keeps_its_queue_configuration() {
-    let mut disk = VirtioBlock::new(VIRTIO_BASE);
+    let mut disk = VirtioBlock::new(PhysAddr::new(VIRTIO_BASE));
     write(&mut disk, VIRTIO_BASE + 0x38, 8, 4);
     write(&mut disk, VIRTIO_BASE + 0x80, 0x8000_1000, 4);
     write(&mut disk, VIRTIO_BASE + 0x70, 0x0f, 4);
 
-    let mut disk = restored(&disk, VirtioBlock::new(VIRTIO_BASE));
+    let mut disk = restored(&disk, VirtioBlock::new(PhysAddr::new(VIRTIO_BASE)));
 
     assert_eq!(disk.state().queue_num, 8);
     assert_eq!(disk.state().queue_desc_low, 0x8000_1000);

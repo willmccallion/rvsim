@@ -421,7 +421,7 @@ mod coherence_tests {
         let mut lq = LoadQueue::new(4);
         let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
         executed_load(&mut lq, RobTag::new(2), 0x8000_0100, log.now());
-        log.record(PhysRange::new(0x8000_0108, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0108), 8), Writer::Hart(H1));
 
         let violator =
             lq.check_coherence_violation(RobTag::new(1), PhysAddr::new(0x8000_0120), &log, H0);
@@ -435,7 +435,7 @@ mod coherence_tests {
         let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
         executed_load(&mut lq, RobTag::new(3), 0x8000_0100, log.now());
         executed_load(&mut lq, RobTag::new(2), 0x8000_0110, log.now());
-        log.record(PhysRange::new(0x8000_0100, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0100), 8), Writer::Hart(H1));
 
         assert_eq!(
             lq.check_coherence_violation(RobTag::new(1), PhysAddr::new(0x8000_0100), &log, H0),
@@ -449,8 +449,8 @@ mod coherence_tests {
         let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
         executed_load(&mut lq, RobTag::new(2), 0x8000_0100, log.now());
         executed_load(&mut lq, RobTag::new(0), 0x8000_0140, log.now());
-        log.record(PhysRange::new(0x8000_0100, 8), Writer::Hart(H1));
-        log.record(PhysRange::new(0x8000_0140, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0100), 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0140), 8), Writer::Hart(H1));
 
         assert_eq!(
             lq.check_coherence_violation(RobTag::new(1), PhysAddr::new(0x8000_0200), &log, H0),
@@ -468,7 +468,7 @@ mod coherence_tests {
     fn a_younger_load_stamped_after_the_write_is_consistent() {
         let mut lq = LoadQueue::new(4);
         let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
-        log.record(PhysRange::new(0x8000_0100, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0100), 8), Writer::Hart(H1));
         executed_load(&mut lq, RobTag::new(2), 0x8000_0100, log.now());
 
         assert_eq!(
@@ -482,7 +482,7 @@ mod coherence_tests {
         let mut lq = LoadQueue::new(4);
         let mut log = WriteLog::new(0x8000_0000, 0x1000, 64, 2);
         executed_load(&mut lq, RobTag::new(2), 0x8000_0100, log.now());
-        log.record(PhysRange::new(0x8000_0100, 8), Writer::Hart(H0));
+        log.record(PhysRange::new(PhysAddr::new(0x8000_0100), 8), Writer::Hart(H0));
 
         assert_eq!(
             lq.check_coherence_violation(RobTag::new(1), PhysAddr::new(0x8000_0100), &log, H0),
