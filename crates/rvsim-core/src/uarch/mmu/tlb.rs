@@ -290,12 +290,6 @@ impl Tlb {
         }
     }
 
-    /// Drops the entries covering base page `vpn` in any address space
-    /// (used for the dirty-bit re-walk).
-    pub fn invalidate(&mut self, vpn: Vpn) {
-        self.remove_if(|m| m.covers(vpn));
-    }
-
     /// Flushes every entry (SFENCE.VMA with rs1=x0, rs2=x0).
     pub fn flush(&mut self) {
         self.remove_if(|_| true);

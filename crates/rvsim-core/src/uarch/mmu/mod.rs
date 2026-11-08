@@ -81,6 +81,30 @@ pub struct Mmu {
     pub paging_mode_max: PagingMode,
 }
 
+/// An access looking up its page in a TLB.
+struct HitLookup {
+    vaddr: VirtAddr,
+    access: AccessType,
+    privilege: PrivilegeMode,
+    mstatus: u64,
+}
+
+impl HitLookup {
+    /// What `hit` gives the access: its address, or the page fault its
+    /// permissions raise; `None` for a write to a clean page, which walks
+    /// so the walker sets D. The walk's fill replaces the entry for that
+    /// page, so the clean one is left in place until then.
+    fn outcome(&self, hit: &TlbHit) -> Option<Result<PhysAddr, Trap>> {
+        if self.access == AccessType::Write && !hit.d {
+            return None;
+        }
+        if !hit.perms().permits(self.access, self.privilege, self.mstatus) {
+            return Some(Err(Trap::page_fault(self.access, self.vaddr.val())));
+        }
+        Some(Ok(PhysAddr::new(hit.ppn.to_addr() | self.vaddr.page_offset())))
+    }
+}
+
 impl Mmu {
     /// Retires an SFENCE.VMA: flushes the translations it names from every
     /// TLB. The caller also clears the hart's reservation.
@@ -157,56 +181,35 @@ impl Mmu {
         let vpn = vaddr.page_number();
         let asid = satp.asid();
 
-        let tlb_entry = if access == AccessType::Fetch {
+        let l1_hit = if access == AccessType::Fetch {
             self.itlb.lookup(vpn, asid)
         } else {
             self.dtlb.lookup(vpn, asid)
         };
-
-        if let Some(hit) = tlb_entry {
-            if access == AccessType::Write && !hit.d {
-                self.dtlb.invalidate(vpn);
-            } else {
-                if !hit.perms().permits(access, privilege, csrs.mstatus) {
-                    return TranslateOutcome::Ready(TranslationResult::fault(
-                        Trap::page_fault(access, vaddr.val()),
-                        0,
-                    ));
-                }
-                let paddr = hit.ppn.to_addr() | vaddr.page_offset();
-                return TranslateOutcome::Ready(TranslationResult::success(
-                    PhysAddr::new(paddr),
-                    0,
-                ));
+        let lookup = HitLookup { vaddr, access, privilege, mstatus: csrs.mstatus };
+        match l1_hit.and_then(|hit| lookup.outcome(&hit)) {
+            Some(Ok(paddr)) => {
+                return TranslateOutcome::Ready(TranslationResult::success(paddr, 0));
             }
+            Some(Err(trap)) => return TranslateOutcome::Ready(TranslationResult::fault(trap, 0)),
+            None => {}
         }
 
         let l2_latency = self.l2_tlb_latency;
         if let Some(hit) = self.l2_tlb.lookup(vpn, asid) {
-            let perms = hit.perms();
-            let TlbHit { ppn, d, mapping, .. } = hit;
-
-            if access == AccessType::Write && !d {
-                // fall through to PTW so it sets the dirty bit
-            } else {
-                if !perms.permits(access, privilege, csrs.mstatus) {
-                    return TranslateOutcome::Ready(TranslationResult::fault(
-                        Trap::page_fault(access, vaddr.val()),
-                        l2_latency,
-                    ));
+            match lookup.outcome(&hit) {
+                Some(Ok(paddr)) => {
+                    if access == AccessType::Fetch {
+                        self.itlb.insert_mapping(hit.mapping);
+                    } else {
+                        self.dtlb.insert_mapping(hit.mapping);
+                    }
+                    return TranslateOutcome::Ready(TranslationResult::success(paddr, l2_latency));
                 }
-
-                if access == AccessType::Fetch {
-                    self.itlb.insert_mapping(mapping);
-                } else {
-                    self.dtlb.insert_mapping(mapping);
+                Some(Err(trap)) => {
+                    return TranslateOutcome::Ready(TranslationResult::fault(trap, l2_latency));
                 }
-
-                let paddr = ppn.to_addr() | vaddr.page_offset();
-                return TranslateOutcome::Ready(TranslationResult::success(
-                    PhysAddr::new(paddr),
-                    l2_latency,
-                ));
+                None => {}
             }
         }
 

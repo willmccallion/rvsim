@@ -10,7 +10,7 @@
 
 use crate::arch::csr::Csrs;
 use crate::arch::translation::TranslationResult;
-use crate::common::{AccessType, PhysAddr, VirtAddr};
+use crate::common::{AccessType, Asid, PhysAddr, VirtAddr};
 use crate::isa::csr;
 use crate::isa::privileged::{PagingMode, PrivilegeMode, Trap};
 use crate::sim::memory::GlobalMemory;
@@ -878,4 +878,34 @@ fn with_adue_clear_a_write_to_a_clean_page_raises_a_page_fault() {
     );
 
     assert!(matches!(res.trap, Some(Trap::StorePageFault(_))), "Trap: {:?}", res.trap);
+}
+
+#[test]
+fn a_write_that_faults_on_a_clean_page_leaves_its_tlb_entry_in_place() {
+    let (mut mmu, mut csrs, mut tc) = setup_mmu();
+    csrs.write(csr::MENVCFG, 0);
+    let uncore = &mut tc.cpu_mut().uncore;
+    let target_ppn = ROOT_PPN + 0x40000;
+    write_pte(
+        &mut uncore.kernel.memory,
+        ROOT_PPN,
+        (0x8000_0000 >> 30) & 0x1FF,
+        make_pte(target_ppn, R | W | X | A),
+    );
+    let vaddr = VirtAddr::new(0x8000_0000);
+    let read =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
+    assert!(read.trap.is_none(), "Trap: {:?}", read.trap);
+
+    let write = translate_sync(
+        &mut mmu,
+        vaddr,
+        AccessType::Write,
+        PrivilegeMode::Supervisor,
+        &csrs,
+        uncore,
+    );
+
+    assert!(matches!(write.trap, Some(Trap::StorePageFault(_))), "Trap: {:?}", write.trap);
+    assert!(mmu.dtlb.peek(vaddr.page_number(), Asid::new(0)).is_some());
 }
