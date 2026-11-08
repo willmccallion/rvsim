@@ -74,7 +74,7 @@ fn each_scalar_unit_counts_its_busy_cycles(rec: &mut Recorder) {
         let context = format!("{backend:?}");
         let (program, end) = scalar_classes();
         let mut ctx = system(backend, &program, &[]);
-        let units = ctx.sim.state.config.pipeline.fu_config.clone();
+        let units = ctx.sim.state.uncore.config.pipeline.fu_config.clone();
 
         run_to_pc(&mut ctx, end, &context);
 
@@ -117,7 +117,7 @@ fn each_vector_unit_counts_its_busy_cycles(rec: &mut Recorder) {
         let context = format!("{backend:?}");
         let (program, end) = vector_classes();
         let mut ctx = system(backend, &program, &[]);
-        let units = ctx.sim.state.config.pipeline.fu_config.clone();
+        let units = ctx.sim.state.uncore.config.pipeline.fu_config.clone();
 
         run_to_pc(&mut ctx, end, &context);
 
@@ -161,7 +161,7 @@ fn a_squashed_op_still_counts_the_cycles_its_unit_was_busy(rec: &mut Recorder) {
     ]);
     let context = "OutOfOrder";
     let mut ctx = system(BackendKind::OutOfOrder, &program, &[]);
-    let latency = ctx.sim.state.config.pipeline.fu_config.int_div_latency;
+    let latency = ctx.sim.state.uncore.config.pipeline.fu_config.int_div_latency;
 
     run_to_pc(&mut ctx, end, context);
 

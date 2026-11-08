@@ -172,7 +172,7 @@ fn squash_recovery(squash_width: usize) -> (f64, f64, u64) {
         .run_until(5_000, |tc| tc.get_reg(TARGET_REG) == TARGET_VALUE)
         .expect("branch target never reached");
     let paths = &tc.sim.state.cores[0].units.stat_paths.pipeline;
-    let stats = &tc.sim.state.stats;
+    let stats = &tc.sim.state.uncore.stats;
     assert_eq!(stats.get(paths.flushes_total), Some(1.0), "one squash");
     let squashed = stats.get(paths.flushes_squashed_insns).unwrap_or(0.0);
     (squashed, stats.get(paths.stalls_squash).unwrap_or(0.0), cycles)
@@ -423,7 +423,7 @@ fn control_stalls(config: &Config, program: &[u32], done: impl Fn(&TestContext) 
         .load_program(BASE_ADDR, program);
     tc.run_until(5_000, done).expect("program never finished");
     let paths = &tc.sim.state.cores[0].units.stat_paths.pipeline;
-    tc.sim.state.stats.get(paths.stalls_control).unwrap_or(0.0)
+    tc.sim.state.uncore.stats.get(paths.stalls_control).unwrap_or(0.0)
 }
 
 fn mispredict_control_stalls(config: &Config) -> f64 {

@@ -103,8 +103,8 @@ fn run(skip_idle_cores: bool) -> (StopReason, u64, Vec<u64>, String) {
         .expect("the run ticks");
     let mcycle = system.sim.state.harts.iter().map(|hart| hart.csrs.mcycle).collect();
     let mut stats = Vec::new();
-    system.sim.state.stats.dump(StatFormat::Text, &mut stats).expect("dump");
-    (reason, system.sim.state.cycle, mcycle, String::from_utf8(stats).expect("utf-8"))
+    system.sim.state.uncore.stats.dump(StatFormat::Text, &mut stats).expect("dump");
+    (reason, system.sim.state.uncore.cycle, mcycle, String::from_utf8(stats).expect("utf-8"))
 }
 
 fn stat(stats: &str, path: &str) -> u64 {

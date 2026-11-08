@@ -62,7 +62,7 @@ fn run(program: &[u32]) -> TestContext {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     ctx.run(20_000);
-    assert_eq!(ctx.sim.state.peek_exit(), Some(5), "the guest ended the run with its code");
+    assert_eq!(ctx.sim.state.uncore.peek_exit(), Some(5), "the guest ended the run with its code");
     ctx
 }
 
@@ -76,7 +76,7 @@ fn is_the_loop(instructions: u64) -> bool {
 fn two_dumps_subtract_to_the_region_between_them_and_keep_the_whole_run() {
     let ctx = run(&marked_program(Before::Dump { label: 1 }));
 
-    let dumps = &ctx.sim.state.stats_dumps;
+    let dumps = &ctx.sim.state.uncore.stats_dumps;
     assert_eq!(dumps.iter().map(|d| d.label).collect::<Vec<_>>(), vec![1, 42]);
     let region = dumps[1].instructions_retired - dumps[0].instructions_retired;
     assert!(is_the_loop(region), "the region holds the loop: {region}");
@@ -91,11 +91,11 @@ fn two_dumps_subtract_to_the_region_between_them_and_keep_the_whole_run() {
 fn a_guest_reset_starts_the_dumped_window_at_the_region() {
     let ctx = run(&marked_program(Before::Reset));
 
-    let dumps = &ctx.sim.state.stats_dumps;
+    let dumps = &ctx.sim.state.uncore.stats_dumps;
     assert_eq!(dumps.len(), 1);
     assert_eq!(dumps[0].label, 42);
     assert!(is_the_loop(dumps[0].instructions_retired), "{}", dumps[0].instructions_retired);
-    assert!(dumps[0].cycles < ctx.sim.state.cycle, "the window starts after the run did");
+    assert!(dumps[0].cycles < ctx.sim.state.uncore.cycle, "the window starts after the run did");
 }
 
 /// Runs `program` on `backend` until it exits and returns the exit code.
@@ -105,7 +105,7 @@ fn exit_code_on(backend: crate::config::BackendKind, program: &[u32]) -> Option<
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     ctx.run(20_000);
-    ctx.sim.state.peek_exit()
+    ctx.sim.state.uncore.peek_exit()
 }
 
 /// `m5_sum` adds its six arguments into `a0`, and a value-returning

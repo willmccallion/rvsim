@@ -44,7 +44,7 @@ fn mispredicts_running(backend: BackendKind, program: &[u16], retired: u64) -> f
 
     assert!(ctx.sim.state.harts[0].instructions_retired >= retired, "{backend:?}: the program ran");
     let path = ctx.sim.state.cores[0].units.stat_paths.bp.spec_mispredicts;
-    ctx.sim.state.stats.get(path).unwrap_or(0.0)
+    ctx.sim.state.uncore.stats.get(path).unwrap_or(0.0)
 }
 
 #[test]

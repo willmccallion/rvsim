@@ -38,7 +38,6 @@ use crate::system::process::Processes;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::{Core, CoreUnits};
-use std::ops::{Deref, DerefMut};
 
 /// The whole system: harts, cores, and the uncore.
 #[derive(Debug)]
@@ -49,20 +48,6 @@ pub struct SystemState {
     pub cores: Vec<Core>,
     /// The uncore.
     pub uncore: Uncore,
-}
-
-impl Deref for SystemState {
-    type Target = Uncore;
-
-    fn deref(&self) -> &Uncore {
-        &self.uncore
-    }
-}
-
-impl DerefMut for SystemState {
-    fn deref_mut(&mut self) -> &mut Uncore {
-        &mut self.uncore
-    }
 }
 
 impl SystemState {
@@ -102,8 +87,8 @@ impl SystemState {
     /// Cycles and instructions retired since the stats were last reset.
     #[must_use]
     pub fn stats_window(&self) -> (u64, u64) {
-        let epoch = self.stats_epoch;
-        let cycles = self.reported_cycle() - epoch.cycle;
+        let epoch = self.uncore.stats_epoch;
+        let cycles = self.uncore.reported_cycle() - epoch.cycle;
         (cycles, self.instructions_retired() - epoch.instructions_retired)
     }
 
@@ -111,7 +96,7 @@ impl SystemState {
     pub fn reset_stats(&mut self) {
         self.uncore.stats.reset();
         self.uncore.stats_epoch = StatsEpoch {
-            cycle: self.reported_cycle(),
+            cycle: self.uncore.reported_cycle(),
             instructions_retired: self.instructions_retired(),
         };
     }
@@ -433,10 +418,10 @@ mod tests {
         let config = Config::minimal();
         let state = SystemState::build(&config);
 
-        assert_eq!(state.take_exit(), None);
-        state.signal_exit(42);
-        assert_eq!(state.take_exit(), Some(42));
-        assert_eq!(state.take_exit(), None);
+        assert_eq!(state.uncore.take_exit(), None);
+        state.uncore.signal_exit(42);
+        assert_eq!(state.uncore.take_exit(), Some(42));
+        assert_eq!(state.uncore.take_exit(), None);
     }
 
     #[test]
@@ -449,6 +434,6 @@ mod tests {
         assert_eq!(sys.harts[1].hart_id, HartId::new(1));
         assert_eq!(sys.cores[1].units.core_id, crate::common::CoreId::new(1));
         assert_ne!(sys.cores[0].units.l2_cache.id, sys.cores[1].units.l2_cache.id);
-        assert_eq!(sys.l3_cache.id, sys.topology.llc);
+        assert_eq!(sys.uncore.l3_cache.id, sys.uncore.topology.llc);
     }
 }

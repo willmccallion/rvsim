@@ -55,8 +55,8 @@ fn run(backend: BackendKind, skip_idle_cores: bool) -> (Option<u64>, u64, String
     system.sim.set_skip_idle_cores(skip_idle_cores);
     let exit = system.run_until_exit(200_000);
     let mut stats = Vec::new();
-    system.sim.state.stats.dump(StatFormat::Text, &mut stats).expect("dump");
-    (exit, system.sim.state.cycle, String::from_utf8(stats).expect("utf-8"))
+    system.sim.state.uncore.stats.dump(StatFormat::Text, &mut stats).expect("dump");
+    (exit, system.sim.state.uncore.cycle, String::from_utf8(stats).expect("utf-8"))
 }
 
 fn skipping_is_invisible(backend: BackendKind) {

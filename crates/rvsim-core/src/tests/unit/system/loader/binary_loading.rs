@@ -115,7 +115,7 @@ fn test_setup_kernel_load_with_dtb_file() {
 
     // Verify DTB was loaded into memory at expected address
     let dtb_addr = config.system.ram_base + 0x2200000;
-    assert_eq!(state.memory.read(PhysAddr::new(dtb_addr), 1), Some(0xd0));
+    assert_eq!(state.uncore.memory.read(PhysAddr::new(dtb_addr), 1), Some(0xd0));
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn an_explicit_firmware_is_loaded_at_ram_base_and_entered_in_machine_mode() {
     loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
 
     let ram_base = config.system.ram_base;
-    assert_eq!(state.memory.read(PhysAddr::new(ram_base), 1), Some(0x73));
+    assert_eq!(state.uncore.memory.read(PhysAddr::new(ram_base), 1), Some(0x73));
     assert_eq!(state.harts[0].pc, VirtAddr::new(ram_base));
     assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
     assert_eq!(state.harts[0].regs.read(reg::REG_A2), 0, "fw_jump takes no info struct");
@@ -203,7 +203,7 @@ fn test_setup_kernel_load_mret_instruction_at_ram_base() {
 
     // MRET instruction (0x30200073) should be loaded at RAM base
     let ram_base = config.system.ram_base;
-    assert_eq!(state.memory.read(PhysAddr::new(ram_base), 4), Some(0x3020_0073));
+    assert_eq!(state.uncore.memory.read(PhysAddr::new(ram_base), 4), Some(0x3020_0073));
 }
 
 #[test]
@@ -276,5 +276,5 @@ fn a_kernel_booted_by_firmware_is_loaded_at_the_configured_offset() {
     loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
 
     let kernel_addr = PhysAddr::new(config.system.ram_base + KERNEL_OFFSET);
-    assert_eq!(state.memory.read(kernel_addr, 1), Some(u64::from(KERNEL_FIRST_BYTE)));
+    assert_eq!(state.uncore.memory.read(kernel_addr, 1), Some(u64::from(KERNEL_FIRST_BYTE)));
 }

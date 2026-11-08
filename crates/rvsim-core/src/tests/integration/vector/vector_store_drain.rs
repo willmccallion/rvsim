@@ -65,7 +65,7 @@ fn l1d_accesses(backend: BackendKind, with_store: bool) -> (u64, TestContext) {
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     // The committed store drains after the marker retires.
     ctx.run(200);
-    let stats = &ctx.sim.state.stats;
+    let stats = &ctx.sim.state.uncore.stats;
     let accesses = ["core0.cache.l1d.hits", "core0.cache.l1d.misses"]
         .iter()
         .map(|path| stats.get(path).unwrap_or(0.0))

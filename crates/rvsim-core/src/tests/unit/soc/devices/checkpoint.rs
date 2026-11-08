@@ -108,12 +108,17 @@ fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
     for _ in 0..8 {
         sim.tick().unwrap();
     }
-    let before = sim.state.bus.checkpoint_devices();
+    let before = sim.state.uncore.bus.checkpoint_devices();
 
     let mut fresh = build_simulator(&config);
-    fresh.state.bus.restore_devices(&before).expect("a fresh system takes every device's state");
+    fresh
+        .state
+        .uncore
+        .bus
+        .restore_devices(&before)
+        .expect("a fresh system takes every device's state");
 
-    assert_eq!(fresh.state.bus.checkpoint_devices(), before);
+    assert_eq!(fresh.state.uncore.bus.checkpoint_devices(), before);
     assert_eq!(fresh.probe_mem_load(PhysAddr::new(CLINT_BASE + 0x4008), 8), 1234);
     assert_eq!(fresh.probe_mem_load(PhysAddr::new(PLIC_BASE + 4 * 10), 4), 3);
 }

@@ -179,7 +179,7 @@ fn run_bare(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext,
     let mut ctx = TestContext::new_with_config(&config(backend)).load_program(BARE_BASE, program);
     host.attach(&mut ctx.sim);
     ctx.run(20_000);
-    let exit = ctx.sim.state.peek_exit();
+    let exit = ctx.sim.state.uncore.peek_exit();
     (ctx, exit)
 }
 
@@ -227,7 +227,7 @@ fn run_paged(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext
     ctx.sim.sync_arch_regs();
     host.attach(&mut ctx.sim);
     ctx.run(20_000);
-    let exit = ctx.sim.state.peek_exit();
+    let exit = ctx.sim.state.uncore.peek_exit();
     (ctx, exit)
 }
 
@@ -326,7 +326,7 @@ fn without_a_script_readfile_reads_nothing() {
         ctx.run(20_000);
 
         assert_eq!(
-            ctx.sim.state.peek_exit(),
+            ctx.sim.state.uncore.peek_exit(),
             Some(0),
             "{backend:?}: nothing read, nothing written"
         );
