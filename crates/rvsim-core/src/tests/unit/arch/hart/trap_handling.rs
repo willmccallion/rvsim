@@ -234,30 +234,6 @@ fn test_trap_supervisor_external_interrupt() {
 }
 
 #[test]
-fn test_trap_user_software_interrupt() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-    state.hart.privilege = PrivilegeMode::User;
-    state.hart.csrs.stvec = 0x8000_0000;
-
-    state.trap(&Trap::UserSoftwareInterrupt, state.hart.pc);
-
-    // User mode traps typically get handled at higher privilege
-}
-
-#[test]
-fn test_trap_user_external_interrupt() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-    state.hart.privilege = PrivilegeMode::User;
-    state.hart.csrs.stvec = 0x8000_0000;
-
-    state.trap(&Trap::UserExternalInterrupt, state.hart.pc);
-
-    // User mode external interrupt handling
-}
-
-#[test]
 fn test_trap_delegation_to_supervisor_with_medeleg() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
@@ -549,19 +525,6 @@ fn test_trap_requested_trap_custom_code() {
 }
 
 #[test]
-fn test_trap_double_fault_trap_variant() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-    state.hart.privilege = PrivilegeMode::Machine;
-    state.hart.csrs.mtvec = 0x8000_0000;
-    state.hart.pc = VirtAddr::new(0x8000_1000); // Different from trap handler
-
-    state.trap(&Trap::DoubleFault(0x1234), state.hart.pc);
-
-    // DoubleFault should map to hardware error exception
-}
-
-#[test]
 fn test_trap_breakpoint() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
@@ -664,3 +627,21 @@ fn test_trap_updates_sepc_on_delegation() {
 }
 
 use crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT;
+
+#[test]
+fn an_undelegated_user_interrupt_or_hardware_fault_traps_to_machine_mode() {
+    for trap in
+        [Trap::UserSoftwareInterrupt, Trap::UserExternalInterrupt, Trap::DoubleFault(0x1234)]
+    {
+        let mut sys = minimal_system();
+        let mut state = sys.core_ctx(0);
+        state.hart.privilege = PrivilegeMode::User;
+        state.hart.csrs.mtvec = 0x8000_0400;
+
+        state.trap(&trap, state.hart.pc);
+
+        assert_eq!(state.hart.privilege, PrivilegeMode::Machine, "{trap}");
+        assert_eq!(state.hart.csrs.mcause, trap.mcause_code(), "{trap}");
+        assert_eq!(state.hart.pc, VirtAddr::new(0x8000_0400), "{trap}");
+    }
+}

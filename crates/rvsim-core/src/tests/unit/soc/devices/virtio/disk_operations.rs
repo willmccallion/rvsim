@@ -27,164 +27,6 @@ fn make_virtio_with_ram() -> (VirtioBlock, GlobalMemory) {
 }
 
 #[test]
-fn virtio_queue_desc_low_write_and_read() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x80),
-        0x1234_5678_u64,
-        ProbeWidth::B4,
-    );
-    // Verify it was written (read back might not be supported in all impls)
-}
-
-#[test]
-fn virtio_queue_desc_high_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x84),
-        0x0000_0001_u64,
-        ProbeWidth::B4,
-    );
-    // High address for descriptor table
-}
-
-#[test]
-fn virtio_queue_avail_low_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x90),
-        0x8000_1000_u64,
-        ProbeWidth::B4,
-    );
-}
-
-#[test]
-fn virtio_queue_avail_high_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x94),
-        0_u64,
-        ProbeWidth::B4,
-    );
-}
-
-#[test]
-fn virtio_queue_used_low_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0xa0),
-        0x8000_2000_u64,
-        ProbeWidth::B4,
-    );
-}
-
-#[test]
-fn virtio_queue_used_high_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0xa4),
-        0_u64,
-        ProbeWidth::B4,
-    );
-}
-
-#[test]
-fn virtio_queue_sel_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x30),
-        0_u64,
-        ProbeWidth::B4,
-    ); // Select queue 0
-}
-
-#[test]
-fn virtio_queue_sel_read_after_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x30),
-        0_u64,
-        ProbeWidth::B4,
-    );
-    // Queue sel is typically write-only, but test the behavior
-}
-
-#[test]
-fn virtio_queue_notify_triggers_processing() {
-    let (mut vio, _memory) = make_virtio_with_ram();
-
-    // Set up a basic queue configuration first
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x70),
-        0x0F_u64,
-        ProbeWidth::B4,
-    ); // Set status to DRIVER_OK
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x38),
-        8_u64,
-        ProbeWidth::B4,
-    ); // Queue size
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x44),
-        1_u64,
-        ProbeWidth::B4,
-    ); // Queue ready
-
-    // Write queue notify
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x50),
-        0_u64,
-        ProbeWidth::B4,
-    );
-}
-
-#[test]
-fn virtio_driver_features_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x24),
-        0_u64,
-        ProbeWidth::B4,
-    ); // Driver features sel = 0
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x20),
-        0x1_u64,
-        ProbeWidth::B4,
-    ); // Set feature bit 0
-}
-
-#[test]
-fn virtio_driver_features_sel_write() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x24),
-        1_u64,
-        ProbeWidth::B4,
-    ); // Select upper 32 bits
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x20),
-        0_u64,
-        ProbeWidth::B4,
-    ); // Clear upper features
-}
-
-#[test]
 fn virtio_load_small_disk() {
     let mut vio = make_virtio();
     let disk_data = vec![0x42; 512]; // 1 sector
@@ -520,40 +362,6 @@ fn virtio_write_u16_status() {
 }
 
 #[test]
-fn virtio_write_u64_queue_desc() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x80),
-        0x8000_1000,
-        ProbeWidth::B8,
-    );
-    // Writes both low and high parts
-}
-
-#[test]
-fn virtio_interrupt_ack_specific_bit() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x64),
-        0x1_u64,
-        ProbeWidth::B4,
-    ); // Ack bit 0
-}
-
-#[test]
-fn virtio_interrupt_ack_multiple_bits() {
-    let mut vio = make_virtio();
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x64),
-        0x3_u64,
-        ProbeWidth::B4,
-    ); // Ack bits 0 and 1
-}
-
-#[test]
 fn virtio_read_invalid_offset_returns_zero() {
     let mut vio = make_virtio();
     // Read from an undefined offset
@@ -589,42 +397,6 @@ fn virtio_write_to_read_only_register_ignored() {
 }
 
 #[test]
-fn virtio_queue_num_larger_than_max() {
-    let mut vio = make_virtio();
-    // Try to set queue size larger than max
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x38),
-        32_u64,
-        ProbeWidth::B4,
-    ); // Max is 16
-    // Device should handle this gracefully
-}
-
-#[test]
-fn virtio_unaligned_read() {
-    let mut vio = make_virtio();
-    // Read from unaligned address
-    let _ = crate::tests::support::probe::read(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x01),
-        ProbeWidth::B4,
-    ) as u32;
-}
-
-#[test]
-fn virtio_unaligned_write() {
-    let mut vio = make_virtio();
-    // Write to unaligned address
-    crate::tests::support::probe::write(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x71),
-        0x01_u64,
-        ProbeWidth::B4,
-    );
-}
-
-#[test]
 fn virtio_config_space_capacity_fields() {
     let mut vio = make_virtio();
     let disk_data = vec![0xAB; 512 * 256]; // 256 sectors
@@ -649,22 +421,6 @@ fn virtio_config_space_capacity_fields() {
         ) as u32),
         0
     );
-}
-
-#[test]
-fn virtio_config_space_read_beyond_capacity() {
-    let mut vio = make_virtio();
-    // Read other config space fields (if they exist)
-    let _ = crate::tests::support::probe::read(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x108),
-        ProbeWidth::B4,
-    ) as u32;
-    let _ = crate::tests::support::probe::read(
-        &mut vio,
-        crate::common::PhysAddr::new(0x1000_1000 + 0x10C),
-        ProbeWidth::B4,
-    ) as u32;
 }
 
 #[test]
@@ -909,4 +665,19 @@ fn every_dma_write_of_a_request_is_logged_for_the_harts() {
     assert!(written(USED_RING + 2), "used index");
     assert!(written(USED_RING + 4), "used element");
     assert!(!written(DATA_BUFFER + 0x800), "a line the request never touched");
+}
+
+#[test]
+fn config_space_past_the_capacity_reads_zero() {
+    let mut vio = make_virtio();
+
+    let reads = [0x108, 0x10C].map(|offset| {
+        crate::tests::support::probe::read(
+            &mut vio,
+            PhysAddr::new(0x1000_1000 + offset),
+            ProbeWidth::B4,
+        )
+    });
+
+    assert_eq!(reads, [0, 0]);
 }
