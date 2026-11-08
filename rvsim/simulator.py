@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 __all__ = [
     "DebugEnd",
@@ -24,18 +24,15 @@ __all__ = [
     "StopReason",
 ]
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, Self
 
 from ._core import Instruction, PipelineSnapshot
 from ._core import Simulator as _CoreSimulator
 from .config import Config
 from .config._config import _config_to_dict
 
-if TYPE_CHECKING:
-    from typing_extensions import Self
 
-
-class StopReason(str, Enum):
+class StopReason(StrEnum):
     """Why ``Simulator.run_to`` stopped; equal to its value as a string.
     The value ``run_to`` pairs with it is the exit code for ``EXIT``, the
     hart for ``PC``, the address for ``WATCH`` and the label for ``BREAK``,
@@ -53,7 +50,7 @@ class StopReason(str, Enum):
         return self.value
 
 
-class DebugEnd(str, Enum):
+class DebugEnd(StrEnum):
     """How a ``Simulator.gdb`` session ended; equal to its value as a
     string. ``gdb`` pairs ``EXIT`` with the exit code, else ``None``."""
 

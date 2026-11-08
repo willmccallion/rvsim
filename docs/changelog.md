@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- rvsim needs Python 3.11 or newer, and its wheels are built for 3.11's
+  stable ABI.
 - Errors have classes: `rvsim.SimulationError`, a `RuntimeError`, is the
   base of `LoadError` (a program that cannot be read or loaded),
   `CheckpointError`, `KernelPanic` and `Stalled`, and an invalid config
@@ -12,8 +14,9 @@ All notable changes to this project are documented here. The format is based on 
   `run_until()` with no condition raises `TypeError`.
 - `run_to()` returns a `rvsim.StopReason` and `gdb()` a `rvsim.DebugEnd`
   in place of a string, and `privilege` is a `rvsim.Privilege`. Each is a
-  `str` enum equal to the string it replaces, so comparisons such as
-  `reason == "exit"` and `privilege == "U"` still hold.
+  `StrEnum` equal to the string it replaces, so comparisons such as
+  `reason == "exit"` and `privilege == "U"` still hold and `str()` gives
+  the string.
 - The native stats class is `rvsim._core.StatsTree`, so `rvsim.Stats`, the
   dict `Stats.from_core` builds, is the package's only `Stats`.
 - `Stats.query()` takes a regex and raises `re.error` for an invalid one,

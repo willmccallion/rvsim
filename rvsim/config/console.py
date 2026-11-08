@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 __all__ = ["ConsoleMode"]
 
 
-class ConsoleMode(str, Enum):
+class ConsoleMode(StrEnum):
     """Where the guest's console connects: the UART, HTIF's console and a
     user program's stdin, stdout and stderr. Equal to its value as a
     string, so ``Config(console="Quiet")`` names the same mode."""

@@ -182,7 +182,7 @@ def _write_json(
     path: str, args: argparse.Namespace, regions: dict[str, Region]
 ) -> None:
     record: dict[str, Any] = {
-        "created": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "created": datetime.datetime.now(datetime.UTC).isoformat(),
         "core": args.config or args.preset,
         "harts": args.harts,
         "memory": args.memory,

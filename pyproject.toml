@@ -8,7 +8,7 @@ name = "rvsim"
 dynamic = ["version"]
 description = "Cycle-level RISC-V system simulator"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = ["rich>=13"]
 license = { text = "MIT OR Apache-2.0" }
 license-files = ["LICENSE-APACHE", "LICENSE-MIT"]
@@ -54,5 +54,5 @@ allowed-confusables = ["›", "×"]
 
 [tool.mypy]
 files = ["rvsim"]
-python_version = "3.10"
+python_version = "3.11"
 strict = true

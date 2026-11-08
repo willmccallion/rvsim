@@ -1,9 +1,9 @@
 """Type stubs for the compiled extension module ``rvsim._core``."""
 
 from collections.abc import Callable, Iterator
-from typing import Any, final
+from typing import Any, Self, final
 
-from typing_extensions import Self, disjoint_base
+from typing_extensions import disjoint_base
 
 from .isa import Privilege
 from .simulator import DebugEnd, StopReason

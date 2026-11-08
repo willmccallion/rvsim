@@ -8,7 +8,7 @@
 pip install rvsim
 ```
 
-Requires Python 3.10 or later. Pre-built wheels are available for Linux
+Requires Python 3.11 or later. Pre-built wheels are available for Linux
 x86-64 and run on any x86-64 CPU. The package includes the compiled Rust
 simulator core, so no Rust toolchain is needed.
 
