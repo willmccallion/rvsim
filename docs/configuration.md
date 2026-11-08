@@ -6,8 +6,8 @@ controllers and the coherence fabric are small builder classes passed to
 them. The Rust core checks each `Config` as a whole as it is constructed:
 a value it cannot read, or a combination no machine can have (for example
 a BTB whose set count is not a power of two, or an exclusive L1/L2 with
-more than one core), raises `ValueError` naming the field before anything
-runs.
+more than one core), raises `rvsim.ConfigError`, a `ValueError`, naming
+the field before anything runs.
 
 ## Basic Usage
 
@@ -524,8 +524,9 @@ each private cache counts its snoops under
 The core checks the whole configuration when a `Config` is constructed,
 and again when a simulator is built from a `Config` or a config dict;
 `rvsim._core.check_config(config.to_dict())` runs the same checks on their
-own. A configuration that breaks a rule raises `ValueError` naming the
-field, rather than hanging, crashing or quietly building another machine:
+own. A configuration that breaks a rule raises `rvsim.ConfigError` (a
+`ValueError`) naming the field, rather than hanging, crashing or quietly
+building another machine:
 
 - **Room to work.** Every width, the ROB, the issue queue, the load queue,
   the store buffer, the load and store ports, `squash_width`, the vector

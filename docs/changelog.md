@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Errors have classes: `rvsim.SimulationError`, a `RuntimeError`, is the
+  base of `LoadError` (a program that cannot be read or loaded),
+  `CheckpointError`, `KernelPanic` and `Stalled`, and an invalid config
+  raises `ConfigError`, a `ValueError`. A checkpoint file that cannot be
+  opened raises the matching `OSError`, such as `FileNotFoundError`, and
+  `run_until()` with no condition raises `TypeError`.
 - A run fails when a hart outside WFI retires no instruction for
   `Simulator.stall_limit` cycles (1,000,000 by default; `None` turns the
   check off), with an error naming the hart and its PC, instead of running

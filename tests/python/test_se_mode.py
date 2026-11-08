@@ -9,7 +9,7 @@ import struct
 import tempfile
 import unittest
 
-from rvsim import Config, Environment, Program, Simulator
+from rvsim import Config, Environment, LoadError, Program, Simulator
 
 LOAD_ADDRESS = 0x1_0000
 CODE_OFFSET = 0x80
@@ -350,7 +350,7 @@ class SeveralPrograms(unittest.TestCase):
             path = os.path.join(tmp, "prog.elf")
             with open(path, "wb") as f:
                 f.write(user_elf(EXIT_WITH_ARGC))
-            with self.assertRaisesRegex(RuntimeError, "hart_count"):
+            with self.assertRaisesRegex(LoadError, "hart_count"):
                 Simulator(Config(), programs=[Program(path), Program(path)])
 
 
@@ -409,7 +409,7 @@ class HostFiles(unittest.TestCase):
         self.assertEqual(written, b"")
 
     def test_a_missing_script_file_is_an_error(self):
-        with self.assertRaisesRegex(RuntimeError, "could not read file"):
+        with self.assertRaisesRegex(LoadError, "could not read file"):
             Simulator(Config(), elf_data=user_elf(file_exchange()), script="/no/such")
 
 

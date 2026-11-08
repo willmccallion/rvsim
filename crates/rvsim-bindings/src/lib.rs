@@ -11,6 +11,8 @@ use pyo3::prelude::*;
 mod config;
 /// Conversion between Python config dicts and the core's `Config`.
 mod conversion;
+/// The exceptions the simulator raises.
+mod errors;
 /// Instruction binding (`PyInstruction` exposed as `Instruction`).
 mod instruction;
 /// Simulator binding (`PySimulator` exposed as `Simulator`).
@@ -38,6 +40,7 @@ pub fn version() -> String {
 ///
 /// Returns the error Python raised while adding a class or function.
 fn register_emulator_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    errors::register(m)?;
     m.add_class::<simulator::PySimulator>()?;
 
     m.add_class::<instruction::PyInstruction>()?;
