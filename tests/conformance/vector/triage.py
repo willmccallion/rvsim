@@ -22,28 +22,10 @@ sys.path.insert(0, REPO_ROOT)
 
 from rvsim._core import Simulator
 from rvsim.config._config import _config_to_dict
+from tests.conformance.common import SPIKE, signature_range
 from tests.conformance.configs.pipelines import PIPELINES
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BUILDS = os.path.join(REPO_ROOT, "tests", "builds")
-SPIKE = os.path.join(BUILDS, "spike-install", "bin", "spike")
-READELF = "riscv64-elf-readelf"
-
-
-def get_signature_range(elf_path):
-    out = subprocess.run(
-        [READELF, "-s", elf_path], capture_output=True, text=True, check=True
-    ).stdout
-    begin = end = None
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) >= 8:
-            sym = parts[-1]
-            if sym == "begin_signature":
-                begin = int(parts[1], 16)
-            elif sym == "end_signature":
-                end = int(parts[1], 16)
-    return begin, end
 
 
 def hex_window(b, offset, before=16, after=32):
@@ -114,7 +96,7 @@ def main():
     if not os.path.isfile(args.elf):
         sys.exit(f"no such ELF: {args.elf}")
 
-    begin, end = get_signature_range(args.elf)
+    begin, end = signature_range(args.elf)
     if begin is None:
         sys.exit("ELF has no begin_signature/end_signature symbols")
     print(f"signature region: {begin:#x}..{end:#x}  ({end - begin} bytes)")

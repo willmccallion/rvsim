@@ -21,49 +21,21 @@ import contextlib
 import glob
 import json
 import os
-import struct
 import subprocess
 import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CONFORMANCE = os.path.dirname(HERE)
-REPO_ROOT = os.path.dirname(os.path.dirname(CONFORMANCE))
-BUILDS = os.path.join(REPO_ROOT, "tests", "builds")
-SPIKE = os.path.join(BUILDS, "spike-install", "bin", "spike")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+sys.path.insert(0, REPO_ROOT)
+
+from tests.conformance.common import BUILDS, SPIKE, read_signature
+
 RVSIM_WORKER = os.path.join(HERE, "rvsim_run.py")
 PYTHON = os.path.join(REPO_ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
-READELF = "riscv64-elf-readelf"
 TIMEOUT_SEC = 120
-
-
-def get_signature_range(elf_path):
-    out = subprocess.run(
-        [READELF, "-s", elf_path], capture_output=True, text=True, check=True
-    ).stdout
-    begin = end = None
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) >= 8:
-            sym = parts[-1]
-            if sym == "begin_signature":
-                begin = int(parts[1], 16)
-            elif sym == "end_signature":
-                end = int(parts[1], 16)
-    return begin, end
-
-
-def read_sig_file(path):
-    """Read a +signature-style hex-words-per-line file → bytes."""
-    out = bytearray()
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                out.extend(struct.pack("<I", int(line, 16)))
-    return bytes(out)
 
 
 def run_spike(elf_path, vlen, march, sig_path):
@@ -83,7 +55,7 @@ def run_spike(elf_path, vlen, march, sig_path):
     )
     if not os.path.isfile(sig_path):
         return None, f"spike no sig (rc={res.returncode}): {res.stderr.strip()[:160]}"
-    return read_sig_file(sig_path), None
+    return read_signature(sig_path), None
 
 
 def run_rvsim(elf_path, sig_path):
@@ -105,7 +77,7 @@ def run_rvsim(elf_path, sig_path):
         return None, f"rvsim rc={res.returncode}: {tail}"
     if not os.path.isfile(sig_path):
         return None, "rvsim no sig"
-    return read_sig_file(sig_path), None
+    return read_signature(sig_path), None
 
 
 def run_one(args):

@@ -20,13 +20,16 @@ Usage (from repo root, must have built with `maturin develop --release --feature
 
 import argparse
 import os
-import re
 import subprocess
 import sys
 import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, ROOT)
+
+from tests.conformance.common import compare_traces, parse_log
+
 LINUX_DIR = os.path.join(ROOT, "software", "linux")
 OUTPUT_DIR = os.path.join(LINUX_DIR, "output")
 SPIKE_LOG = os.path.join(LINUX_DIR, ".spike-linux-trace.log")
@@ -35,59 +38,6 @@ FW_JUMP_ELF = os.path.join(
     LINUX_DIR, "buildroot-2024.08", "output", "images", "fw_jump.elf"
 )
 KERNEL_IMAGE = os.path.join(OUTPUT_DIR, "Image")
-
-# ── Log parsing ─────────────────────────────────────────────────────────────
-LINE_RE = re.compile(r"core\s+\d+:\s+0x([0-9a-f]+)\s+\(0x([0-9a-f]+)\)")
-NOP_ENCODINGS = {0x00000013, 0x00000001}
-
-# Spike reset vector range (bootrom at 0x1000-0x1fff).
-SPIKE_RESET_START = 0x1000
-SPIKE_RESET_END = 0x2000
-
-
-def parse_log(path, skip_nops=True, skip_reset=False, max_entries=0):
-    """Parse a commit log into a list of (pc, inst) tuples."""
-    entries = []
-    with open(path) as f:
-        for line in f:
-            m = LINE_RE.search(line)
-            if m is None:
-                continue
-            pc = int(m.group(1), 16)
-            inst = int(m.group(2), 16)
-            if skip_reset and SPIKE_RESET_START <= pc < SPIKE_RESET_END:
-                continue
-            if skip_nops and inst in NOP_ENCODINGS:
-                continue
-            entries.append((pc, inst))
-            if max_entries and len(entries) >= max_entries:
-                break
-    return entries
-
-
-def compare_traces(spike_trace, rvsim_trace):
-    """Compare two traces by PC. Returns (match_count, divergence_info | None)."""
-    for i, (s, r) in enumerate(zip(spike_trace, rvsim_trace, strict=False)):
-        if s[0] != r[0]:
-            return i, {
-                "inst_num": i + 1,
-                "spike_pc": s[0],
-                "spike_inst": s[1],
-                "rvsim_pc": r[0],
-                "rvsim_inst": r[1],
-            }
-    min_len = min(len(spike_trace), len(rvsim_trace))
-    if len(rvsim_trace) > len(spike_trace):
-        return min_len, {
-            "inst_num": min_len + 1,
-            "length_mismatch": True,
-            "spike_len": len(spike_trace),
-            "rvsim_len": len(rvsim_trace),
-        }
-    return min_len, None
-
-
-# ── Spike oracle ────────────────────────────────────────────────────────────
 
 
 def generate_spike_trace(spike_limit):
@@ -161,9 +111,6 @@ def generate_spike_trace(spike_limit):
     return True
 
 
-# ── rvsim run ───────────────────────────────────────────────────────────────
-
-
 def run_rvsim_trace(cycle_limit):
     """Boot Linux in rvsim with commit logging, return parsed trace."""
     # Import here so the script can show --help without building
@@ -202,9 +149,6 @@ def run_rvsim_trace(cycle_limit):
     return trace
 
 
-# ── Disassembly helper ──────────────────────────────────────────────────────
-
-
 def try_disasm(inst):
     """Try to disassemble a single instruction using objdump."""
     # 32-bit instruction
@@ -238,9 +182,6 @@ def try_disasm(inst):
         return ""
     except (OSError, subprocess.TimeoutExpired):
         return ""
-
-
-# ── Main ────────────────────────────────────────────────────────────────────
 
 
 def main():

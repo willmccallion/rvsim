@@ -24,7 +24,6 @@ import glob
 import hashlib
 import json
 import os
-import struct
 import subprocess
 import sys
 import time
@@ -32,26 +31,15 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
+from tests.conformance.common import BUILDS, SPIKE
 from tests.conformance.configs.pipelines import PIPELINES, VECTOR_SMOKE_PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
-BUILDS = os.path.join(ROOT, "tests", "builds")
-SPIKE = os.path.join(BUILDS, "spike-install", "bin", "spike")
 RESULTS_DIR = os.path.join(BUILDS, "results")
 TIMEOUT_SEC = 180
-
-
-def read_sig_file(path):
-    out = bytearray()
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                out.extend(struct.pack("<I", int(line, 16)))
-    return bytes(out)
 
 
 def compute_spike_sig(elf_path, vlen, march, sig_path):
