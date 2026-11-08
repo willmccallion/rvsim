@@ -9,11 +9,13 @@ use crate::config::{
 };
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_FLUSH_IMM};
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::integration::stats_accounting::program::{
-    A1, BACKENDS, T0, T1, T2, config, ending_in_spin, system_with_configured_latency,
+    BACKENDS, config, ending_in_spin, system_with_configured_latency,
 };
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
+use crate::tests::support::regs::{A1, T0, T1, T2, X0};
 
 const POLICIES: [InclusionPolicy; 3] =
     [InclusionPolicy::Nine, InclusionPolicy::Inclusive, InclusionPolicy::Exclusive];
@@ -58,8 +60,8 @@ fn hierarchy(backend: BackendKind, policy: InclusionPolicy, prefetching: bool) -
     config
 }
 
-fn cbo(imm: i64, base: u32) -> u32 {
-    ((imm as u32 & 0xFFF) << 20) | (base << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM
+fn cbo(imm: i64, base: RegIdx) -> u32 {
+    ((imm as u32 & 0xFFF) << 20) | (base.field() << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM
 }
 
 /// Reads and writes 256 lines, cleans one and flushes another, then
@@ -67,24 +69,24 @@ fn cbo(imm: i64, base: u32) -> u32 {
 fn workout() -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
     ending_in_spin(vec![
-        i().addi(T1, 0, 256).build(),
+        i().addi(T1, X0, 256).build(),
         i().addi(T0, A1, 0).build(),
         i().ld(T2, T0, 0).build(),
         i().addi(T2, T2, 1).build(),
         i().sd(T0, T2, 0).build(),
         i().addi(T0, T0, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -20).build(),
+        i().bne(T1, X0, -20).build(),
         cbo(CBO_CLEAN_IMM, A1),
         i().addi(T0, A1, 64).build(),
         cbo(CBO_FLUSH_IMM, T0),
         FENCE_IORW,
-        i().addi(T1, 0, 64).build(),
+        i().addi(T1, X0, 64).build(),
         i().addi(T0, A1, 0).build(),
         i().ld(T2, T0, 0).build(),
         i().addi(T0, T0, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -12).build(),
+        i().bne(T1, X0, -12).build(),
     ])
 }
 

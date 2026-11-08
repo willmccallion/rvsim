@@ -9,13 +9,7 @@ use crate::config::{BackendKind, Config};
 use crate::tests::support::builder::instruction::{FENCE_I, FENCE_IORW, InstructionBuilder};
 use crate::tests::support::count;
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const A1: u32 = 11;
-const S2: u32 = 18;
-const S3: u32 = 19;
-const S4: u32 = 20;
+use crate::tests::support::regs::{A1, S2, S3, S4, T0, T1, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const MCYCLE: u32 = 0xB00;
 /// Lines in the 1 KiB direct-mapped L1D.
@@ -36,7 +30,7 @@ enum L1d {
 /// with `mcycle` into `s3 - s2`.
 fn program(l1d: L1d) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let mut program = vec![i().auipc(A1, 2).build(), i().addi(T0, 0, 1).build()];
+    let mut program = vec![i().auipc(A1, 2).build(), i().addi(T0, X0, 1).build()];
     match l1d {
         L1d::Untouched => {}
         L1d::OneCleanLine => program.push(i().ld(T1, A1, 0).build()),
@@ -48,11 +42,11 @@ fn program(l1d: L1d) -> Vec<u32> {
     }
     program.extend([
         FENCE_IORW,
-        i().csrrs(S2, MCYCLE, 0).build(),
+        i().csrrs(S2, MCYCLE, X0).build(),
         FENCE_I,
-        i().csrrs(S3, MCYCLE, 0).build(),
-        i().addi(S4, 0, 1).build(),
-        i().jal(0, 0).build(),
+        i().csrrs(S3, MCYCLE, X0).build(),
+        i().addi(S4, X0, 1).build(),
+        i().jal(X0, 0).build(),
     ]);
     program
 }
@@ -76,10 +70,10 @@ fn fence_i_cycles(backend: BackendKind, with_l2: bool, l1d: L1d) -> u64 {
     let config = config(backend, with_l2);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program(l1d));
 
-    let finished = ctx.run_until(20_000, |ctx| ctx.get_reg(S4 as usize) == 1);
+    let finished = ctx.run_until(20_000, |ctx| ctx.get_reg(S4) == 1);
 
     assert!(finished.is_some(), "{backend:?}, L2 {with_l2}, {l1d:?}: did not finish");
-    ctx.get_reg(S3 as usize) - ctx.get_reg(S2 as usize)
+    ctx.get_reg(S3) - ctx.get_reg(S2)
 }
 
 /// The timed window includes refetching the instruction after the FENCE.I

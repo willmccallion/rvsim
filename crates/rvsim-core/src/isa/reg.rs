@@ -90,6 +90,12 @@ impl From<RegIdx> for u8 {
 }
 
 impl RegIdx {
+    /// The value an instruction's 5-bit register field holds for it.
+    #[must_use]
+    pub const fn field(self) -> u32 {
+        self.0 as u32
+    }
+
     /// The ABI name of integer register `x{self}`, like `"a0"`.
     #[must_use]
     pub const fn int_abi_name(self) -> &'static str {

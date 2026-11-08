@@ -9,16 +9,11 @@ use crate::system::simulator::ProbeWidth;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, M5_FAIL, MRET};
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, T0, T1, X0};
 
 pub const PROGRAM_BASE: u64 = 0x8000_0000;
 pub const HANDLER: u64 = PROGRAM_BASE + 0x400;
 pub const DATA: u64 = PROGRAM_BASE + 0x1000;
-pub const T0: u32 = 5;
-pub const T1: u32 = 6;
-pub const T2: u32 = 7;
-pub const A0: u32 = 10;
-pub const A1: u32 = 11;
-pub const A2: u32 = 12;
 pub const MEPC: u32 = 0x341;
 pub const MTVEC: u32 = 0x305;
 pub const MHARTID: u32 = 0xF14;
@@ -69,8 +64,8 @@ fn prepare(ctx: TestContext, program: &[u32], handler: &[u32]) -> TestContext {
     if !handler.is_empty() {
         csrs.mtvec = HANDLER;
     }
-    ctx.set_reg(A1 as usize, DATA);
-    ctx.set_reg(A2 as usize, DATA + 0x100);
+    ctx.set_reg(A1, DATA);
+    ctx.set_reg(A2, DATA + 0x100);
     ctx.sim.sync_arch_regs();
     ctx
 }
@@ -78,7 +73,7 @@ fn prepare(ctx: TestContext, program: &[u32], handler: &[u32]) -> TestContext {
 /// `program` followed by a jump to itself, and the jump's address.
 pub fn ending_in_spin(mut program: Vec<u32>) -> (Vec<u32>, u64) {
     let end = PROGRAM_BASE + 4 * program.len() as u64;
-    program.push(InstructionBuilder::new().jal(0, 0).build());
+    program.push(InstructionBuilder::new().jal(X0, 0).build());
     (program, end)
 }
 
@@ -100,24 +95,24 @@ pub fn run_to_exit(ctx: &mut TestContext, context: &str) {
 /// `exit(0)`. The ecall traps, so it does not retire.
 pub fn exit_sequence() -> [u32; 3] {
     let i = InstructionBuilder::new;
-    [i().addi(A0, 0, 0).build(), i().addi(A1, 0, 0).build(), M5_FAIL]
+    [i().addi(A0, X0, 0).build(), i().addi(A1, X0, 0).build(), M5_FAIL]
 }
 
 /// Takes three ecalls into a handler that steps over each, then exits.
 pub fn three_handled_ecalls() -> (Vec<u32>, Vec<u32>) {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T1, 0, 3).build(),
+        i().addi(T1, X0, 3).build(),
         ECALL,
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -8).build(),
-        i().csrrw(0, MTVEC, 0).build(),
+        i().bne(T1, X0, -8).build(),
+        i().csrrw(X0, MTVEC, X0).build(),
     ];
     program.extend(exit_sequence());
     let handler = vec![
-        i().csrrs(T0, MEPC, 0).build(),
+        i().csrrs(T0, MEPC, X0).build(),
         i().addi(T0, T0, 4).build(),
-        i().csrrw(0, MEPC, T0).build(),
+        i().csrrw(X0, MEPC, T0).build(),
         MRET,
     ];
     (program, handler)

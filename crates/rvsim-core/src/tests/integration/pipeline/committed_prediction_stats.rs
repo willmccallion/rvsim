@@ -3,12 +3,14 @@
 
 use crate::config::BackendKind;
 use crate::config::{BranchPredictorKind, Config};
+use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X5, X6, X7};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ITERATIONS: i32 = 20;
-const DONE_REG: usize = 31;
+const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 
 /// A loop whose `jalr` alternates between two targets, so a BTB that
@@ -17,22 +19,22 @@ fn alternating_indirect_jump() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let nop = i().nop().build();
     vec![
-        i().addi(5, 0, ITERATIONS).build(), // 0x00
-        i().auipc(6, 0).build(),            // 0x04
-        i().addi(6, 6, 0x1c).build(),       // 0x08: x6 = 0x20
-        i().addi(7, 0, 8).build(),          // 0x0c
-        i().jalr(0, 6, 0).build(),          // 0x10: to 0x20 or 0x28
-        nop,                                // 0x14
-        nop,                                // 0x18
-        nop,                                // 0x1c
-        nop,                                // 0x20
-        i().jal(0, 8).build(),              // 0x24: to 0x2c
-        nop,                                // 0x28
-        i().xor(6, 6, 7).build(),           // 0x2c: swap targets
-        i().addi(5, 5, -1).build(),         // 0x30
-        i().bne(5, 0, -0x24).build(),       // 0x34: to 0x10
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().addi(X5, X0, ITERATIONS).build(), // 0x00
+        i().auipc(X6, 0).build(),             // 0x04
+        i().addi(X6, X6, 0x1c).build(),       // 0x08: x6 = 0x20
+        i().addi(X7, X0, 8).build(),          // 0x0c
+        i().jalr(X0, X6, 0).build(),          // 0x10: to 0x20 or 0x28
+        nop,                                  // 0x14
+        nop,                                  // 0x18
+        nop,                                  // 0x1c
+        nop,                                  // 0x20
+        i().jal(X0, 8).build(),               // 0x24: to 0x2c
+        nop,                                  // 0x28
+        i().xor(X6, X6, X7).build(),          // 0x2c: swap targets
+        i().addi(X5, X5, -1).build(),         // 0x30
+        i().bne(X5, X0, -0x24).build(),       // 0x34: to 0x10
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 

@@ -9,6 +9,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{X0, X10, X11};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x10_000;
@@ -23,7 +24,7 @@ fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     let i = InstructionBuilder::new;
-    let program = [i().lui(10, (UNMAPPED >> 12) as i32).build(), access, JAL_SELF];
+    let program = [i().lui(X10, (UNMAPPED >> 12) as i32).build(), access, JAL_SELF];
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(
@@ -50,7 +51,7 @@ fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64
 #[test]
 fn a_machine_mode_load_from_an_unmapped_address_faults() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let load = InstructionBuilder::new().ld(11, 10, 0).build();
+        let load = InstructionBuilder::new().ld(X11, X10, 0).build();
         assert_eq!(
             run(backend, PrivilegeMode::Machine, load),
             (LOAD_ACCESS_FAULT, UNMAPPED),
@@ -62,7 +63,7 @@ fn a_machine_mode_load_from_an_unmapped_address_faults() {
 #[test]
 fn a_machine_mode_store_to_an_unmapped_address_faults() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let store = InstructionBuilder::new().sd(10, 0, 0).build();
+        let store = InstructionBuilder::new().sd(X10, X0, 0).build();
         assert_eq!(
             run(backend, PrivilegeMode::Machine, store),
             (STORE_ACCESS_FAULT, UNMAPPED),
@@ -74,7 +75,7 @@ fn a_machine_mode_store_to_an_unmapped_address_faults() {
 #[test]
 fn a_supervisor_mode_load_from_an_unmapped_address_faults() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let load = InstructionBuilder::new().ld(11, 10, 0).build();
+        let load = InstructionBuilder::new().ld(X11, X10, 0).build();
         assert_eq!(
             run(backend, PrivilegeMode::Supervisor, load),
             (LOAD_ACCESS_FAULT, UNMAPPED),

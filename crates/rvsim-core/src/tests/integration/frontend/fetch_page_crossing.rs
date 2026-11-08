@@ -11,6 +11,7 @@ use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::A1;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -20,7 +21,6 @@ const CODE_L0_PPN: u64 = 0x8_0102;
 const CODE_VA: u64 = 0x4002_0000;
 const FIRST_PA: u64 = 0x8036_0000;
 const SECOND_PA: u64 = 0x8038_0000;
-const A1: usize = 11;
 const PTE_V: u64 = 1;
 const PTE_LEAF_RWX_AD: u64 = 0b1100_1111;
 /// `addi a1, zero, 42` split across the page boundary, then a jump to self.

@@ -8,12 +8,10 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A2, A3, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
-const A0: u32 = 10;
-const A2: u32 = 12;
-const A3: u32 = 13;
 const VL: u32 = 0xC20;
 const VTYPE: u32 = 0xC21;
 /// `vtype` for e32, m1, tu, mu.
@@ -35,17 +33,17 @@ fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
         vsetivli(0, 3, E32_M1),
-        i().addi(A0, 0, 1).build(),
+        i().addi(A0, X0, 1).build(),
         LR_D_T0_A0,
         vsetivli(0, 2, E64_M1),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
 /// Records `vl` and `vtype`, then spins.
 fn handler() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().csrrs(A2, VL, 0).build(), i().csrrs(A3, VTYPE, 0).build(), i().jal(0, 0).build()]
+    vec![i().csrrs(A2, VL, X0).build(), i().csrrs(A3, VTYPE, X0).build(), i().jal(X0, 0).build()]
 }
 
 fn run(backend: BackendKind) -> (u64, u64) {
@@ -66,7 +64,7 @@ fn run(backend: BackendKind) -> (u64, u64) {
 
     ctx.run(500);
     assert_eq!(ctx.sim.state.harts[0].csrs.mcause, 4, "{backend:?}: the misaligned lr.d trapped");
-    (ctx.get_reg(A2 as usize), ctx.get_reg(A3 as usize))
+    (ctx.get_reg(A2), ctx.get_reg(A3))
 }
 
 #[test]
@@ -87,7 +85,7 @@ fn vsetivli_sequence() -> Vec<u32> {
         program.push(vsetivli(0, 1 + (n % 4), E32_M1));
         program.push(i().addi(A0, A0, 1).build());
     }
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 
@@ -104,7 +102,7 @@ fn cycles_to_retire(backend: BackendKind, program: &[u32]) -> u64 {
         cycles += 1;
         assert!(cycles < 2000, "{backend:?}: the sequence did not retire");
     }
-    assert_eq!(ctx.get_reg(A0 as usize), 8);
+    assert_eq!(ctx.get_reg(A0), 8);
     cycles
 }
 

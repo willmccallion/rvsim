@@ -3,9 +3,7 @@
 //! Coherence traffic, which needs several cores, is checked with the rest
 //! of the coherence stats.
 
-use super::program::{
-    A1, BACKENDS, PROGRAM_BASE, T0, T1, T2, config, ending_in_spin, run_to_pc, system_with,
-};
+use super::program::{BACKENDS, PROGRAM_BASE, config, ending_in_spin, run_to_pc, system_with};
 use super::{Recorder, accounting_checks};
 use crate::config::{
     BackendKind, CacheConfig, Config, InclusionPolicy, PrefetcherKind, StorePrefetcherConfig,
@@ -15,6 +13,7 @@ use crate::isa::encoding::zicboz::CBO_CLEAN_IMM;
 use crate::tests::support::builder::instruction::{FENCE_I, FENCE_IORW, InstructionBuilder};
 use crate::tests::support::count;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A1, T0, T1, T2, X0, after};
 
 const CACHES: [&str; 4] = ["core0.cache.l1i", "core0.cache.l1d", "core0.cache.l2", "llc"];
 /// Cycles run after a program's end for every fetch it started to fill.
@@ -56,14 +55,14 @@ fn prefetching_hierarchy(backend: BackendKind) -> Config {
 fn read_modify_write_lines(lines: i32) -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
     ending_in_spin(vec![
-        i().addi(T1, 0, lines).build(),
+        i().addi(T1, X0, lines).build(),
         i().ld(T2, A1, 0).build(),
         i().add(A1, A1, T2).build(),
         i().addi(T2, T2, 1).build(),
         i().sd(A1, T2, 0).build(),
         i().addi(A1, A1, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -24).build(),
+        i().bne(T1, X0, -24).build(),
     ])
 }
 
@@ -169,7 +168,7 @@ fn a_cold_line_misses_once_and_then_hits(rec: &mut Recorder) {
 fn dirty_conflict() -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
     ending_in_spin(vec![
-        i().addi(T0, 0, 5).build(),
+        i().addi(T0, X0, 5).build(),
         i().sd(A1, T0, 0).build(),
         i().lui(T1, 0).build(),
         i().addi(T1, T1, 1024).build(),
@@ -269,10 +268,12 @@ fn a_back_invalidation_for_a_line_already_gone_drops_nothing(rec: &mut Recorder)
 
 fn a_cbo_passes_through_and_counts_at_every_level(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
-    let cbo_clean =
-        ((CBO_CLEAN_IMM as u32 & 0xFFF) << 20) | (A1 << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM;
+    let cbo_clean = ((CBO_CLEAN_IMM as u32 & 0xFFF) << 20)
+        | (A1.field() << 15)
+        | (i_f3::CBO << 12)
+        | i_op::OP_MISC_MEM;
     let program = ending_in_spin(vec![
-        i().addi(T0, 0, 5).build(),
+        i().addi(T0, X0, 5).build(),
         i().sd(A1, T0, 0).build(),
         cbo_clean,
         FENCE_IORW,
@@ -292,7 +293,11 @@ fn a_cbo_passes_through_and_counts_at_every_level(rec: &mut Recorder) {
 /// Four loads from four lines, none depending on another.
 fn independent_misses() -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
-    ending_in_spin((0..4).map(|n| i().ld(T0 + n % 3, A1, 64 * n.cast_signed()).build()).collect())
+    ending_in_spin(
+        (0..4_u32)
+            .map(|n| i().ld(after(T0, (n % 3) as usize), A1, 64 * n.cast_signed()).build())
+            .collect(),
+    )
 }
 
 fn misses_beyond_the_mshrs_wait_as_blocked_requests(rec: &mut Recorder) {
@@ -434,7 +439,9 @@ fn every_level_writes_back_and_drops_what_an_inclusive_level_below_evicts(rec: &
 fn misses_beyond_each_levels_mshrs_wait_there(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
     let program = ending_in_spin(
-        (0..8).map(|n| i().ld(T0 + n % 3, A1, 64 * n.cast_signed()).build()).collect(),
+        (0..8_u32)
+            .map(|n| i().ld(after(T0, (n % 3) as usize), A1, 64 * n.cast_signed()).build())
+            .collect(),
     );
     let context = "OutOfOrder width 4";
     let mut config = hierarchy(BackendKind::OutOfOrder);
@@ -464,7 +471,7 @@ fn next_line_candidates_past_the_page_are_dropped_at_every_level(rec: &mut Recor
         i().lui(T0, 1).build(),
         i().auipc(T1, 0).build(),
         i().add(T1, T1, T0).build(),
-        i().jalr(0, T1, -4 - 20).build(),
+        i().jalr(X0, T1, -4 - 20).build(),
     ];
     for backend in BACKENDS {
         let context = format!("{backend:?}");
@@ -473,7 +480,7 @@ fn next_line_candidates_past_the_page_are_dropped_at_every_level(rec: &mut Recor
             cache.prefetcher = PrefetcherKind::NextLine;
         }
         let mut ctx = system_with(&config, &program, &[]);
-        super::program::store_words(&mut ctx, page_end, &[i().jal(0, 0).build()]);
+        super::program::store_words(&mut ctx, page_end, &[i().jal(X0, 0).build()]);
 
         run_to_pc(&mut ctx, page_end, &context);
         ctx.run(SETTLE);
@@ -515,12 +522,12 @@ fn rewrite_code_then_run_it() -> (Vec<u32>, u64) {
         i().lw(T1, T0, CODE_OFFSET).build(),
         i().sw(T0, T1, CODE_OFFSET).build(),
         FENCE_I,
-        i().jalr(0, T0, CODE_OFFSET).build(),
+        i().jalr(X0, T0, CODE_OFFSET).build(),
     ];
     let spin = 4 * program.len() as i32;
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program.resize(CODE_OFFSET as usize / 4, i().nop().build());
-    program.push(i().jal(0, spin - CODE_OFFSET).build());
+    program.push(i().jal(X0, spin - CODE_OFFSET).build());
     (program, PROGRAM_BASE + spin as u64)
 }
 
@@ -551,7 +558,7 @@ fn an_instruction_fetch_probes_the_l1d_through_the_l2(rec: &mut Recorder) {
 fn three_dirty_lines_then_two_fence_is() -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
     ending_in_spin(vec![
-        i().addi(T0, 0, 1).build(),
+        i().addi(T0, X0, 1).build(),
         i().sd(A1, T0, 0).build(),
         i().sd(A1, T0, 64).build(),
         i().sd(A1, T0, 128).build(),

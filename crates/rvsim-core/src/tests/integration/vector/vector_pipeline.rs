@@ -11,8 +11,10 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::isa::privileged::cause::exception;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, T0, T1, X0, X5, X6};
 
 /// `jal x0, 0`: holds the program at its end instead of running into zeros.
 const SPIN: u32 = 0x0000_006f;
@@ -34,14 +36,14 @@ fn wide_inorder_config() -> Config {
 }
 
 /// Encode `addi rd, rs1, imm` (12-bit signed immediate).
-fn addi(rd: u32, rs1: u32, imm: i32) -> u32 {
+fn addi(rd: RegIdx, rs1: RegIdx, imm: i32) -> u32 {
     let imm = imm.cast_unsigned() & 0xFFF;
-    (imm << 20) | (rs1 << 15) | (rd << 7) | 0x13
+    (imm << 20) | (rs1.field() << 15) | (rd.field() << 7) | 0x13
 }
 
 /// Encode `vsetvli rd, rs1, vtype` where `zimm` packs SEW/LMUL/TA/MA.
-fn vsetvli(rd: u32, rs1: u32, zimm: u32) -> u32 {
-    ((zimm & 0x7FF) << 20) | (rs1 << 15) | (0b111 << 12) | (rd << 7) | 0x57
+fn vsetvli(rd: RegIdx, rs1: RegIdx, zimm: u32) -> u32 {
+    ((zimm & 0x7FF) << 20) | (rs1.field() << 15) | (0b111 << 12) | (rd.field() << 7) | 0x57
 }
 
 // vtype encoding helpers — match `zimm_vsetvli` decoding in `isa::rvv::encoding`.
@@ -80,8 +82,8 @@ fn load_program(config: &Config, program: &[u32]) -> TestContext {
 fn vsetvli_consumes_immediately_preceding_li() {
     let program: Vec<u32> = std::iter::empty()
         .chain([
-            addi(5, 0, 4),                                // li t0, 4
-            vsetvli(6, 5, vtype(SEW_E32, LMUL_M1, 0, 0)), // vsetvli t1, t0, e32,m1,tu,mu
+            addi(T0, X0, 4),                                // li t0, 4
+            vsetvli(T1, T0, vtype(SEW_E32, LMUL_M1, 0, 0)), // vsetvli t1, t0, e32,m1,tu,mu
         ])
         .chain(std::iter::repeat_n(NOP, 32))
         .chain([SPIN])
@@ -89,14 +91,14 @@ fn vsetvli_consumes_immediately_preceding_li() {
 
     let ctx = run_program(&wide_inorder_config(), &program, 500);
 
-    assert_eq!(ctx.get_reg(5), 4, "t0 should hold 4 after li");
+    assert_eq!(ctx.get_reg(X5), 4, "t0 should hold 4 after li");
     assert_eq!(
         ctx.state().harts[0].csrs.vl,
         4,
         "vsetvli e32/m1 with AVL=4 should yield vl=4 (got {})",
         ctx.state().harts[0].csrs.vl
     );
-    assert_eq!(ctx.get_reg(6), 4, "t1 (vsetvli rd) should equal new vl");
+    assert_eq!(ctx.get_reg(X6), 4, "t1 (vsetvli rd) should equal new vl");
 }
 
 /// Same as above but at the default single-issue width (1). Establishes a
@@ -105,14 +107,14 @@ fn vsetvli_consumes_immediately_preceding_li() {
 #[test]
 fn vsetvli_consumes_immediately_preceding_li_width1() {
     let program: Vec<u32> = std::iter::empty()
-        .chain([addi(5, 0, 4), vsetvli(6, 5, vtype(SEW_E32, LMUL_M1, 0, 0))])
+        .chain([addi(T0, X0, 4), vsetvli(T1, T0, vtype(SEW_E32, LMUL_M1, 0, 0))])
         .chain(std::iter::repeat_n(NOP, 32))
         .chain([SPIN])
         .collect();
 
     let ctx = run_program(&Config::minimal(), &program, 500);
 
-    assert_eq!(ctx.get_reg(5), 4);
+    assert_eq!(ctx.get_reg(X5), 4);
     assert_eq!(ctx.state().harts[0].csrs.vl, 4, "got vl={}", ctx.state().harts[0].csrs.vl);
 }
 
@@ -128,11 +130,11 @@ fn vsetvli_after_flushing_vsetvli_then_li() {
     let program: Vec<u32> = std::iter::empty()
         .chain([
             // Initial config (this also flushes the pipeline).
-            vsetvli(6, 0, vtype(SEW_E32, LMUL_M8, 0, 0)),
+            vsetvli(T1, X0, vtype(SEW_E32, LMUL_M8, 0, 0)),
             // Set up new AVL.
-            addi(5, 0, 12),
+            addi(T0, X0, 12),
             // Reconfigure with new AVL — this must see t0 = 12.
-            vsetvli(6, 5, vtype(SEW_E8, LMUL_MF8, 0, 0)),
+            vsetvli(T1, T0, vtype(SEW_E8, LMUL_MF8, 0, 0)),
         ])
         .chain(std::iter::repeat_n(NOP, 32))
         .chain([SPIN])
@@ -140,14 +142,14 @@ fn vsetvli_after_flushing_vsetvli_then_li() {
 
     let ctx = run_program(&wide_inorder_config(), &program, 500);
 
-    assert_eq!(ctx.get_reg(5), 12, "t0 should hold 12");
+    assert_eq!(ctx.get_reg(X5), 12, "t0 should hold 12");
     assert_eq!(
         ctx.state().harts[0].csrs.vl,
         2,
         "vsetvli e8/mf8 with AVL=12 (VLEN=128) saturates to vl=2 (got {})",
         ctx.state().harts[0].csrs.vl
     );
-    assert_eq!(ctx.get_reg(6), 2, "t1 (vsetvli rd) should equal new vl=2");
+    assert_eq!(ctx.get_reg(X6), 2, "t1 (vsetvli rd) should equal new vl=2");
 }
 
 /// Run the same widening-config sequence at default width=1 as a baseline.
@@ -155,9 +157,9 @@ fn vsetvli_after_flushing_vsetvli_then_li() {
 fn vsetvli_after_flushing_vsetvli_then_li_width1() {
     let program: Vec<u32> = std::iter::empty()
         .chain([
-            vsetvli(6, 0, vtype(SEW_E32, LMUL_M8, 0, 0)),
-            addi(5, 0, 12),
-            vsetvli(6, 5, vtype(SEW_E8, LMUL_MF8, 0, 0)),
+            vsetvli(T1, X0, vtype(SEW_E32, LMUL_M8, 0, 0)),
+            addi(T0, X0, 12),
+            vsetvli(T1, T0, vtype(SEW_E8, LMUL_MF8, 0, 0)),
         ])
         .chain(std::iter::repeat_n(NOP, 32))
         .chain([SPIN])
@@ -165,7 +167,7 @@ fn vsetvli_after_flushing_vsetvli_then_li_width1() {
 
     let ctx = run_program(&Config::minimal(), &program, 500);
 
-    assert_eq!(ctx.get_reg(5), 12);
+    assert_eq!(ctx.get_reg(X5), 12);
     assert_eq!(
         ctx.state().harts[0].csrs.vl,
         2,
@@ -205,9 +207,9 @@ fn vid_v(vd: u32, vs2_field: u32) -> u32 {
 fn vwaddu_vv_at_mf8_does_not_trap_for_odd_vd() {
     let program: Vec<u32> = std::iter::empty()
         .chain([
-            addi(5, 0, 2),                                // li t0, 2
-            vsetvli(6, 5, vtype(SEW_E8, LMUL_MF8, 0, 0)), // vl=2 at e8/mf8
-            vwaddu_vv(27, 26, 1),                         // odd vd=v27, legal at mf8
+            addi(T0, X0, 2),                                // li t0, 2
+            vsetvli(T1, T0, vtype(SEW_E8, LMUL_MF8, 0, 0)), // vl=2 at e8/mf8
+            vwaddu_vv(27, 26, 1),                           // odd vd=v27, legal at mf8
         ])
         .chain(std::iter::repeat_n(NOP, 32))
         .chain([SPIN])
@@ -227,8 +229,8 @@ fn vwaddu_vv_at_mf8_does_not_trap_for_odd_vd() {
 fn vid_v_with_its_vs2_field_set_is_illegal() {
     let program: Vec<u32> = std::iter::empty()
         .chain([
-            addi(5, 0, 4),                                      // li t0, 4
-            vsetvli(6, 5, vtype(SEW_E8, 0b001 /* m2 */, 0, 0)), // vl=4 at e8/m2
+            addi(T0, X0, 4),                                      // li t0, 4
+            vsetvli(T1, T0, vtype(SEW_E8, 0b001 /* m2 */, 0, 0)), // vl=4 at e8/m2
             vid_v(12, 1),
             SPIN,
         ])
@@ -252,15 +254,14 @@ const OPIVV: u32 = 0b000;
 const OPMVV: u32 = 0b010;
 const VADD: u32 = 0b00_0000;
 const VDIV: u32 = 0b10_0001;
-const A0: u32 = 10;
 
 /// Cycles until `a0` is set after four dependent `op`s on v1 at e32, m1,
 /// vl = 4, on the in-order backend.
 fn cycles_through_four(funct6: u32, funct3: u32) -> u64 {
     let program: Vec<u32> = std::iter::empty()
-        .chain([addi(5, 0, 4), vsetvli(6, 5, vtype(SEW_E32, LMUL_M1, 0, 0))])
+        .chain([addi(T0, X0, 4), vsetvli(T1, T0, vtype(SEW_E32, LMUL_M1, 0, 0))])
         .chain(std::iter::repeat_n(vv(funct6, funct3, 1, 1, 2), 4))
-        .chain([addi(A0, 0, 1), 0x0000_006F])
+        .chain([addi(A0, X0, 1), 0x0000_006F])
         .collect();
     let mut ctx =
         TestContext::with_fast_memory(&wide_inorder_config()).with_memory(RAM_SIZE, RAM_BASE);
@@ -274,7 +275,7 @@ fn cycles_through_four(funct6: u32, funct3: u32) -> u64 {
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     for cycle in 1..=2_000 {
         ctx.run(1);
-        if ctx.get_reg(A0 as usize) == 1 {
+        if ctx.get_reg(A0) == 1 {
             return cycle;
         }
     }

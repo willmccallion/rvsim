@@ -5,12 +5,14 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X5};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ITERATIONS: i32 = 20;
-const DONE_REG: usize = 31;
+const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 
 /// A loop whose body jumps twice before its backward branch.
@@ -18,15 +20,15 @@ fn looping_jumps() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let nop = i().nop().build();
     vec![
-        i().addi(5, 0, ITERATIONS).build(),
-        i().jal(0, 8).build(),
+        i().addi(X5, X0, ITERATIONS).build(),
+        i().jal(X0, 8).build(),
         nop,
-        i().jal(0, 8).build(),
+        i().jal(X0, 8).build(),
         nop,
-        i().addi(5, 5, -1).build(),
-        i().bne(5, 0, -20).build(),
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().addi(X5, X5, -1).build(),
+        i().bne(X5, X0, -20).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 

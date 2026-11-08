@@ -2,6 +2,7 @@
 //! sets a breakpoint, runs to it, reads and writes memory and registers,
 //! steps one instruction, and runs the guest to its exit.
 
+use crate::tests::support::regs::{A1, T0, T2, X0, X6, X28};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -13,9 +14,6 @@ use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::harness::TestContext;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
-const T0: u32 = 5;
-const T2: u32 = 7;
-const A1: u32 = 11;
 const JAL_SELF: u32 = 0x0000_006f;
 /// Where the program stores `t0`: `auipc t2` at `PROGRAM_BASE + 4` plus `0x100`.
 const STORED_AT: u64 = PROGRAM_BASE + 4 + 0x100;
@@ -26,10 +24,10 @@ const BREAK_AT: u64 = PROGRAM_BASE + 12;
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, 7).build(),
+        i().addi(T0, X0, 7).build(),
         i().auipc(T2, 0).build(),
         i().sd(T2, T0, 0x100).build(),
-        i().addi(A1, 0, 3).build(),
+        i().addi(A1, X0, 3).build(),
         M5_FAIL,
         JAL_SELF,
     ]
@@ -188,11 +186,11 @@ fn a_register_written_while_stopped_is_what_the_program_computes_with() {
 fn independent_adds() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, 1).build(),
-        i().addi(6, 0, 2).build(),
-        i().addi(T2, 0, 3).build(),
-        i().addi(28, 0, 4).build(),
-        i().addi(A1, 0, 3).build(),
+        i().addi(T0, X0, 1).build(),
+        i().addi(X6, X0, 2).build(),
+        i().addi(T2, X0, 3).build(),
+        i().addi(X28, X0, 4).build(),
+        i().addi(A1, X0, 3).build(),
         M5_FAIL,
         JAL_SELF,
     ]
@@ -238,11 +236,11 @@ const LD_T3_T2_0X100: u32 = 0x1003_BE03;
 fn store_then_load() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, 7).build(),
+        i().addi(T0, X0, 7).build(),
         i().auipc(T2, 0).build(),
         i().sd(T2, T0, 0x100).build(),
         LD_T3_T2_0X100,
-        i().addi(A1, 0, 3).build(),
+        i().addi(A1, X0, 3).build(),
         M5_FAIL,
         JAL_SELF,
     ]

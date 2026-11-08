@@ -5,14 +5,16 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X5, X10, X11, X12};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
-const SC_RESULT: usize = 7;
-const DONE_REG: usize = 31;
+const SC_RESULT: RegIdx = RegIdx::new(7);
+const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 const PLAIN_STORE_VALUE: u64 = 0x11;
 const SC_VALUE: u64 = 0x22;
@@ -22,15 +24,15 @@ const SC_VALUE: u64 = 0x22;
 fn program(load: u32, between: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, 0x400).build(),
-        i().addi(11, 0, PLAIN_STORE_VALUE as i32).build(),
-        i().addi(12, 0, SC_VALUE as i32).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, 0x400).build(),
+        i().addi(X11, X0, PLAIN_STORE_VALUE as i32).build(),
+        i().addi(X12, X0, SC_VALUE as i32).build(),
         load,
         between,
-        i().sc_d(SC_RESULT as u32, 10, 12).build(),
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().sc_d(SC_RESULT, X10, X12).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -55,7 +57,7 @@ fn run(backend: BackendKind, load: u32, between: u32) -> Outcome {
 }
 
 fn lr() -> u32 {
-    InstructionBuilder::new().lr_d(5, 10).build()
+    InstructionBuilder::new().lr_d(X5, X10).build()
 }
 
 fn nop() -> u32 {
@@ -74,7 +76,7 @@ fn a_store_conditional_with_its_reservation_writes_and_returns_zero() {
 #[test]
 fn a_store_conditional_after_a_store_to_its_reservation_fails() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let outcome = run(backend, lr(), InstructionBuilder::new().sd(10, 11, 0).build());
+        let outcome = run(backend, lr(), InstructionBuilder::new().sd(X10, X11, 0).build());
 
         assert_eq!((outcome.sc_result, outcome.memory), (1, PLAIN_STORE_VALUE), "{backend:?}");
     }
@@ -84,7 +86,7 @@ fn a_store_conditional_after_a_store_to_its_reservation_fails() {
 fn a_failing_store_conditional_costs_no_more_than_a_succeeding_one() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let succeeding = run(backend, lr(), nop());
-        let failing = run(backend, InstructionBuilder::new().ld(5, 10, 0).build(), nop());
+        let failing = run(backend, InstructionBuilder::new().ld(X5, X10, 0).build(), nop());
 
         assert_eq!(failing.sc_result, 1, "{backend:?}: no reservation, so it fails");
         assert!(

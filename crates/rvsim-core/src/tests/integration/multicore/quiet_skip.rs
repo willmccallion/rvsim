@@ -9,16 +9,7 @@ use crate::sim::stats::StatFormat;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::multihart::MultiHart;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const T3: u32 = 28;
-const T5: u32 = 30;
-const T6: u32 = 31;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
+use crate::tests::support::regs::{A0, A1, A2, T0, T1, T2, T3, T5, T6, X0, X10, X11};
 const MHARTID: u32 = 0xF14;
 const MIE: u32 = 0x304;
 const MTIE: i32 = 0x80;
@@ -47,31 +38,31 @@ fn program() -> Vec<u32> {
         ]
     };
     let mut words = vec![
-        i().csrrs(T5, MHARTID, 0).build(),
-        i().bne(T5, 0, 104).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
+        i().bne(T5, X0, 104).build(),
         i().lui(T0, 0x200C).build(),
         i().lui(T1, 0x2004).build(),
-        i().addi(T3, 0, MTIE).build(),
-        i().csrrs(0, MIE, T3).build(),
+        i().addi(T3, X0, MTIE).build(),
+        i().csrrs(X0, MIE, T3).build(),
     ];
     words.extend(set_timer(InstructionBuilder::new));
     words.extend([
         i().auipc(T2, 0x10).build(),
-        i().addi(A1, 0, 64).build(),
+        i().addi(A1, X0, 64).build(),
         i().sd(T2, T3, 0).build(),
         i().addi(T2, T2, 64).build(),
         i().addi(A1, A1, -1).build(),
-        i().bne(A1, 0, -12).build(),
+        i().bne(A1, X0, -12).build(),
     ]);
     words.extend(set_timer(InstructionBuilder::new));
     words.extend([
-        i().addi(A0, 0, EXIT_CODE).build(),
-        i().addi(11, 10, 0).build(),
+        i().addi(A0, X0, EXIT_CODE).build(),
+        i().addi(X11, X10, 0).build(),
         M5_FAIL,
-        i().addi(T3, 0, MSIE).build(),
-        i().csrrs(0, MIE, T3).build(),
+        i().addi(T3, X0, MSIE).build(),
+        i().csrrs(X0, MIE, T3).build(),
         WFI,
-        i().jal(0, -4).build(),
+        i().jal(X0, -4).build(),
     ]);
     assert_eq!(words.len(), 31, "the park loop sits where hart 1 branches to");
     words

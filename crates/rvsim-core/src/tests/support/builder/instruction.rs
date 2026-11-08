@@ -1,7 +1,10 @@
+use crate::isa::encode::{BType, IType, JType, RType, SType, UType};
 use crate::isa::encoding::privileged::{CSRRC, CSRRS, CSRRW, OP_SYSTEM};
 use crate::isa::encoding::rv64a::funct5::{AMOADD, LR, SC};
 use crate::isa::encoding::rv64a::opcodes::OP_AMO;
 use crate::isa::encoding::rv64i::opcodes::*;
+use crate::isa::reg::RegIdx;
+use crate::tests::support::regs::{A0, A1, ZERO};
 
 /// `fence iorw, iorw`.
 pub const FENCE_IORW: u32 = 0x0ff0_000f;
@@ -15,7 +18,7 @@ pub const M5_FAIL: u32 = crate::isa::op::pseudo::PseudoOp::encode(0x22);
 /// Ends the run with `a0` as the exit code, as a program's exit does.
 #[must_use]
 pub fn exit_with_a0() -> [u32; 2] {
-    [InstructionBuilder::new().addi(11, 10, 0).build(), M5_FAIL]
+    [InstructionBuilder::new().addi(A1, A0, 0).build(), M5_FAIL]
 }
 /// `mret`.
 pub const MRET: u32 = 0x3020_0073;
@@ -24,10 +27,10 @@ const FUNCT3_DOUBLE: u32 = 0b011;
 
 pub struct InstructionBuilder {
     opcode: u32,
-    rd: u32,
+    rd: RegIdx,
     funct3: u32,
-    rs1: u32,
-    rs2: u32,
+    rs1: RegIdx,
+    rs2: RegIdx,
     funct7: u32,
     imm: i32,
 }
@@ -40,7 +43,7 @@ impl Default for InstructionBuilder {
 
 impl InstructionBuilder {
     pub fn new() -> Self {
-        Self { opcode: 0, rd: 0, funct3: 0, rs1: 0, rs2: 0, funct7: 0, imm: 0 }
+        Self { opcode: 0, rd: ZERO, funct3: 0, rs1: ZERO, rs2: ZERO, funct7: 0, imm: 0 }
     }
 
     pub fn opcode(mut self, op: u32) -> Self {
@@ -48,17 +51,17 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn rd(mut self, rd: u32) -> Self {
+    pub fn rd(mut self, rd: RegIdx) -> Self {
         self.rd = rd;
         self
     }
 
-    pub fn rs1(mut self, rs1: u32) -> Self {
+    pub fn rs1(mut self, rs1: RegIdx) -> Self {
         self.rs1 = rs1;
         self
     }
 
-    pub fn rs2(mut self, rs2: u32) -> Self {
+    pub fn rs2(mut self, rs2: RegIdx) -> Self {
         self.rs2 = rs2;
         self
     }
@@ -73,7 +76,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn add(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn add(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -83,7 +86,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn mul(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn mul(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -93,7 +96,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn div(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn div(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -103,7 +106,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn sub(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn sub(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -113,7 +116,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn addi(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn addi(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_IMM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -122,7 +125,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn lbu(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn lbu(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_LOAD;
         self.rd = rd;
         self.rs1 = rs1;
@@ -131,7 +134,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn lw(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn lw(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_LOAD;
         self.rd = rd;
         self.rs1 = rs1;
@@ -140,7 +143,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn sb(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn sb(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_STORE;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -149,7 +152,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn sw(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn sw(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_STORE;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -158,7 +161,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn beq(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn beq(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_BRANCH;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -167,14 +170,14 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn jal(mut self, rd: u32, imm: i32) -> Self {
+    pub fn jal(mut self, rd: RegIdx, imm: i32) -> Self {
         self.opcode = OP_JAL;
         self.rd = rd;
         self.imm = imm;
         self
     }
 
-    pub fn jalr(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn jalr(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_JALR;
         self.rd = rd;
         self.rs1 = rs1;
@@ -183,14 +186,14 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn lui(mut self, rd: u32, imm: i32) -> Self {
+    pub fn lui(mut self, rd: RegIdx, imm: i32) -> Self {
         self.opcode = OP_LUI;
         self.rd = rd;
         self.imm = imm;
         self
     }
 
-    pub fn auipc(mut self, rd: u32, imm: i32) -> Self {
+    pub fn auipc(mut self, rd: RegIdx, imm: i32) -> Self {
         self.opcode = OP_AUIPC;
         self.rd = rd;
         self.imm = imm;
@@ -199,7 +202,7 @@ impl InstructionBuilder {
 
     // R-type: AND, OR, XOR, SLL, SRL, SRA
 
-    pub fn and(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn and(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -209,7 +212,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn or(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn or(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -219,7 +222,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn xor(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn xor(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -229,7 +232,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn sll(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn sll(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -239,7 +242,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn srl(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn srl(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -249,7 +252,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn sra(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn sra(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -259,7 +262,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn slt(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn slt(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -269,7 +272,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn sltu(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn sltu(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG;
         self.rd = rd;
         self.rs1 = rs1;
@@ -281,7 +284,7 @@ impl InstructionBuilder {
 
     // I-type: ANDI, ORI, XORI, SLTI, SLTIU
 
-    pub fn andi(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn andi(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_IMM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -290,7 +293,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn ori(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn ori(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_IMM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -299,7 +302,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn xori(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn xori(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_IMM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -308,7 +311,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn slti(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn slti(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_IMM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -317,7 +320,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn sltiu(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn sltiu(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_IMM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -328,7 +331,7 @@ impl InstructionBuilder {
 
     // RV64I: LD, SD, ADDIW, ADDW, SUBW
 
-    pub fn ld(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn ld(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_LOAD;
         self.rd = rd;
         self.rs1 = rs1;
@@ -337,7 +340,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn sd(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn sd(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_STORE;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -346,7 +349,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn addiw(mut self, rd: u32, rs1: u32, imm: i32) -> Self {
+    pub fn addiw(mut self, rd: RegIdx, rs1: RegIdx, imm: i32) -> Self {
         self.opcode = OP_IMM_32;
         self.rd = rd;
         self.rs1 = rs1;
@@ -355,7 +358,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn addw(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn addw(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG_32;
         self.rd = rd;
         self.rs1 = rs1;
@@ -365,7 +368,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn subw(mut self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn subw(mut self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_REG_32;
         self.rd = rd;
         self.rs1 = rs1;
@@ -377,7 +380,7 @@ impl InstructionBuilder {
 
     // Branch variants: BNE, BLT, BGE, BLTU, BGEU
 
-    pub fn bne(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn bne(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_BRANCH;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -386,7 +389,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn blt(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn blt(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_BRANCH;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -395,7 +398,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn bge(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn bge(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_BRANCH;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -404,7 +407,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn bltu(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn bltu(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_BRANCH;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -413,7 +416,7 @@ impl InstructionBuilder {
         self
     }
 
-    pub fn bgeu(mut self, rs1: u32, rs2: u32, imm: i32) -> Self {
+    pub fn bgeu(mut self, rs1: RegIdx, rs2: RegIdx, imm: i32) -> Self {
         self.opcode = OP_BRANCH;
         self.rs1 = rs1;
         self.rs2 = rs2;
@@ -424,11 +427,11 @@ impl InstructionBuilder {
 
     /// NOP is ADDI x0, x0, 0
     pub fn nop(self) -> Self {
-        self.addi(0, 0, 0)
+        self.addi(ZERO, ZERO, 0)
     }
 
     /// `csrrw rd, csr, rs1` (`csrw csr, rs1` when `rd` is x0).
-    pub fn csrrw(mut self, rd: u32, csr: u32, rs1: u32) -> Self {
+    pub fn csrrw(mut self, rd: RegIdx, csr: u32, rs1: RegIdx) -> Self {
         self.opcode = OP_SYSTEM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -438,7 +441,7 @@ impl InstructionBuilder {
     }
 
     /// `csrrc rd, csr, rs1`.
-    pub fn csrrc(mut self, rd: u32, csr: u32, rs1: u32) -> Self {
+    pub fn csrrc(mut self, rd: RegIdx, csr: u32, rs1: RegIdx) -> Self {
         self.opcode = OP_SYSTEM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -448,7 +451,7 @@ impl InstructionBuilder {
     }
 
     /// `csrrs rd, csr, rs1` (`csrr rd, csr` when `rs1` is x0).
-    pub fn csrrs(mut self, rd: u32, csr: u32, rs1: u32) -> Self {
+    pub fn csrrs(mut self, rd: RegIdx, csr: u32, rs1: RegIdx) -> Self {
         self.opcode = OP_SYSTEM;
         self.rd = rd;
         self.rs1 = rs1;
@@ -457,7 +460,7 @@ impl InstructionBuilder {
         self
     }
 
-    fn amo(mut self, funct5: u32, funct3: u32, rd: u32, rs1: u32, rs2: u32) -> Self {
+    fn amo(mut self, funct5: u32, funct3: u32, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.opcode = OP_AMO;
         self.rd = rd;
         self.rs1 = rs1;
@@ -468,69 +471,33 @@ impl InstructionBuilder {
     }
 
     /// `amoadd.d rd, rs2, (rs1)`.
-    pub fn amoadd_d(self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn amoadd_d(self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.amo(AMOADD, FUNCT3_DOUBLE, rd, rs1, rs2)
     }
 
     /// `lr.d rd, (rs1)`.
-    pub fn lr_d(self, rd: u32, rs1: u32) -> Self {
-        self.amo(LR, FUNCT3_DOUBLE, rd, rs1, 0)
+    pub fn lr_d(self, rd: RegIdx, rs1: RegIdx) -> Self {
+        self.amo(LR, FUNCT3_DOUBLE, rd, rs1, ZERO)
     }
 
     /// `sc.d rd, rs2, (rs1)`.
-    pub fn sc_d(self, rd: u32, rs1: u32, rs2: u32) -> Self {
+    pub fn sc_d(self, rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> Self {
         self.amo(SC, FUNCT3_DOUBLE, rd, rs1, rs2)
     }
 
     pub fn build(self) -> u32 {
-        let opcode = self.opcode & 0x7F;
-        let rd = (self.rd & 0x1F) << 7;
-        let funct3 = (self.funct3 & 0x7) << 12;
-        let rs1 = (self.rs1 & 0x1F) << 15;
-        let rs2 = (self.rs2 & 0x1F) << 20;
-        let funct7 = (self.funct7 & 0x7F) << 25;
-
-        match opcode {
-            OP_REG | OP_REG_32 | OP_AMO => {
-                // R-type: funct7 | rs2 | rs1 | funct3 | rd | opcode
-                funct7 | rs2 | rs1 | funct3 | rd | opcode
-            }
+        let Self { opcode, rd, funct3, rs1, rs2, funct7, imm } = self;
+        match opcode & 0x7F {
+            OP_REG | OP_REG_32 | OP_AMO => RType { opcode, funct3, funct7, rd, rs1, rs2 }.encode(),
             OP_IMM | OP_IMM_32 | OP_LOAD | OP_JALR | OP_SYSTEM => {
-                // I-type: imm[11:0] | rs1 | funct3 | rd | opcode
-                let imm_val = self.imm.cast_unsigned() & 0xFFF;
-                (imm_val << 20) | rs1 | funct3 | rd | opcode
+                IType { opcode, funct3, rd, rs1, imm }.encode()
             }
-            OP_STORE => {
-                // S-type: imm[11:5] | rs2 | rs1 | funct3 | imm[4:0] | opcode
-                let imm_val = self.imm.cast_unsigned();
-                let imm_11_5 = ((imm_val >> 5) & 0x7F) << 25;
-                let imm_4_0 = (imm_val & 0x1F) << 7;
-                imm_11_5 | rs2 | rs1 | funct3 | imm_4_0 | opcode
-            }
-            OP_BRANCH => {
-                // B-type: imm[12|10:5] | rs2 | rs1 | funct3 | imm[4:1|11] | opcode
-                let imm_val = self.imm.cast_unsigned();
-                let bit_12 = ((imm_val >> 12) & 0x1) << 31;
-                let bits_10_5 = ((imm_val >> 5) & 0x3F) << 25;
-                let bits_4_1 = ((imm_val >> 1) & 0xF) << 8;
-                let bit_11 = ((imm_val >> 11) & 0x1) << 7;
-                bit_12 | bits_10_5 | rs2 | rs1 | funct3 | bits_4_1 | bit_11 | opcode
-            }
-            OP_LUI | OP_AUIPC => {
-                // U-type: imm is the raw 20-bit immediate (not pre-shifted).
-                let imm_val = self.imm.cast_unsigned() & 0xFFFFF;
-                (imm_val << 12) | rd | opcode
-            }
-            OP_JAL => {
-                // J-type: imm[20|10:1|11|19:12] | rd | opcode
-                let imm_val = self.imm.cast_unsigned();
-                let bit_20 = ((imm_val >> 20) & 0x1) << 31;
-                let bits_10_1 = ((imm_val >> 1) & 0x3FF) << 21;
-                let bit_11 = ((imm_val >> 11) & 0x1) << 20;
-                let bits_19_12 = ((imm_val >> 12) & 0xFF) << 12;
-                bit_20 | bits_10_1 | bit_11 | bits_19_12 | rd | opcode
-            }
-            _ => panic!("Unsupported opcode: {:#x}", opcode),
+            OP_STORE => SType { opcode, funct3, rs1, rs2, imm }.encode(),
+            OP_BRANCH => BType { opcode, funct3, rs1, rs2, offset: imm }.encode(),
+            // The builder takes a U-type's raw 20-bit immediate, not shifted.
+            OP_LUI | OP_AUIPC => UType { opcode, rd, imm20: imm.cast_unsigned() }.encode(),
+            OP_JAL => JType { opcode, rd, offset: imm }.encode(),
+            other => panic!("Unsupported opcode: {other:#x}"),
         }
     }
 }

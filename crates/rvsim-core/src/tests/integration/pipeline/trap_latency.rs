@@ -7,15 +7,10 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{T0, T1, T2, T3, T4, T6, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const T3: u32 = 28;
-const T4: u32 = 29;
-const T6: u32 = 31;
 const MSTATUS: u32 = 0x300;
 const MIE: u32 = 0x304;
 const TIME: u32 = 0xC01;
@@ -27,7 +22,7 @@ const ECALL: u32 = 0x0000_0073;
 
 /// Spins.
 fn handler() -> Vec<u32> {
-    vec![InstructionBuilder::new().jal(0, 0).build()]
+    vec![InstructionBuilder::new().jal(X0, 0).build()]
 }
 
 /// Arms the machine timer far enough ahead that the refetch after the
@@ -37,18 +32,18 @@ fn timer_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
         i().lui(T0, 0x02004).build(),
-        i().csrrs(T1, TIME, 0).build(),
+        i().csrrs(T1, TIME, X0).build(),
         i().addi(T1, T1, 16).build(),
         i().sd(T0, T1, 0).build(),
-        i().addi(T2, 0, MIE_MTIE).build(),
-        i().csrrs(0, MIE, T2).build(),
-        i().addi(T2, 0, MSTATUS_MIE).build(),
-        i().csrrs(0, MSTATUS, T2).build(),
-        i().addi(T4, 0, 1).build(),
+        i().addi(T2, X0, MIE_MTIE).build(),
+        i().csrrs(X0, MIE, T2).build(),
+        i().addi(T2, X0, MSTATUS_MIE).build(),
+        i().csrrs(X0, MSTATUS, T2).build(),
+        i().addi(T4, X0, 1).build(),
     ];
     program.extend((0..DIVS).map(|_| i().div(T3, T3, T4).build()));
-    program.push(i().addi(T6, 0, 1).build());
-    program.push(i().jal(0, 0).build());
+    program.push(i().addi(T6, X0, 1).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 
@@ -87,11 +82,11 @@ fn run_until_trap(backend: BackendKind, trap_latency: u64, program: &[u32]) -> T
         assert!(cycle < 5000, "{backend:?}: no trap was taken");
     }
     let csrs = &ctx.sim.state.harts[0].csrs;
-    TrapTaken { cycle, mepc: csrs.mepc, mcause: csrs.mcause, marker: ctx.get_reg(T6 as usize) }
+    TrapTaken { cycle, mepc: csrs.mepc, mcause: csrs.mcause, marker: ctx.get_reg(T6) }
 }
 
 fn check_exception_latency(backend: BackendKind) {
-    let program = [ECALL, InstructionBuilder::new().jal(0, 0).build()];
+    let program = [ECALL, InstructionBuilder::new().jal(X0, 0).build()];
 
     let at_once = run_until_trap(backend, 0, &program);
     let delayed = run_until_trap(backend, 13, &program);

@@ -7,10 +7,10 @@ use crate::config::{BackendKind, Config, Console};
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A1, X0, X1, X2};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = 0x8000_0100;
-const A1: u32 = 11;
 const MCAUSE: u32 = 0x342;
 const ILLEGAL_INSTRUCTION: u64 = 2;
 const RAN: i32 = 99;
@@ -27,8 +27,8 @@ const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrde
 /// returns the exit code: `RAN` when it executed, `mcause` when it trapped.
 fn exit_code_of(backend: BackendKind, isa: Option<&str>, instruction: u32) -> Option<u64> {
     let i = InstructionBuilder::new;
-    let program = [instruction, i().addi(A1, 0, RAN).build(), M5_FAIL, JAL_SELF];
-    let handler = [i().csrrs(A1, MCAUSE, 0).build(), M5_FAIL, JAL_SELF];
+    let program = [instruction, i().addi(A1, X0, RAN).build(), M5_FAIL, JAL_SELF];
+    let handler = [i().csrrs(A1, MCAUSE, X0).build(), M5_FAIL, JAL_SELF];
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
@@ -48,7 +48,7 @@ fn exit_code_of(backend: BackendKind, isa: Option<&str>, instruction: u32) -> Op
 
 #[test]
 fn a_multiply_is_illegal_without_m() {
-    let mul = InstructionBuilder::new().mul(0, 1, 2).build();
+    let mul = InstructionBuilder::new().mul(X0, X1, X2).build();
     for backend in BACKENDS {
         assert_eq!(
             exit_code_of(backend, Some("RV64IAC"), mul),

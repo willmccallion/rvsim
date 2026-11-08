@@ -5,13 +5,15 @@
 
 use crate::config::BackendKind;
 use crate::config::{BranchPredictorKind, Config, CsrSquash, MemDepPredictorKind};
+use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X1, X2, X3, X4, X5, X6, X7, X10, X11, X12, X13, after};
 
 const BASE_ADDR: u64 = 0x8000_0000;
 const MEM_SIZE: usize = 0x1000;
 const CHAIN_LEN: u32 = 20;
-const DONE_REG: usize = 2;
+const DONE_REG: RegIdx = RegIdx::new(2);
 const DONE_VALUE: u64 = 7;
 
 /// A single-issue core whose writeback ports never hold a result back, so
@@ -34,24 +36,26 @@ fn cycles_to_finish(config: &Config, program: &[u32]) -> u64 {
 
 fn done_marker() -> Vec<u32> {
     let nop = InstructionBuilder::new().nop().build();
-    let mut tail =
-        vec![InstructionBuilder::new().addi(DONE_REG as u32, 0, DONE_VALUE as i32).build()];
+    let mut tail = vec![InstructionBuilder::new().addi(DONE_REG, X0, DONE_VALUE as i32).build()];
     tail.extend(std::iter::repeat_n(nop, 4));
     tail
 }
 
 /// `x1 = 1`, then `CHAIN_LEN` multiplies each reading the previous result.
 fn dependent_multiply_chain() -> Vec<u32> {
-    let mut program = vec![InstructionBuilder::new().addi(1, 0, 1).build()];
-    program.extend((0..CHAIN_LEN).map(|_| InstructionBuilder::new().mul(1, 1, 1).build()));
+    let mut program = vec![InstructionBuilder::new().addi(X1, X0, 1).build()];
+    program.extend((0..CHAIN_LEN).map(|_| InstructionBuilder::new().mul(X1, X1, X1).build()));
     program.extend(done_marker());
     program
 }
 
 /// `x1 = 1`, then `CHAIN_LEN` multiplies that only read `x1`.
 fn independent_multiplies() -> Vec<u32> {
-    let mut program = vec![InstructionBuilder::new().addi(1, 0, 1).build()];
-    program.extend((0..CHAIN_LEN).map(|i| InstructionBuilder::new().mul(3 + i, 1, 1).build()));
+    let mut program = vec![InstructionBuilder::new().addi(X1, X0, 1).build()];
+    program.extend(
+        (0..CHAIN_LEN)
+            .map(|i| InstructionBuilder::new().mul(after(X3, i as usize), X1, X1).build()),
+    );
     program.extend(done_marker());
     program
 }
@@ -94,9 +98,9 @@ fn inorder_independent_ops_on_a_pipelined_unit_pay_the_latency_once() {
     assert_independent_ops_pay_latency_once(BackendKind::InOrder);
 }
 
-const TARGET_REG: usize = 3;
+const TARGET_REG: RegIdx = RegIdx::new(3);
 const TARGET_VALUE: u64 = 42;
-const WRONG_PATH_REG: usize = 4;
+const WRONG_PATH_REG: RegIdx = RegIdx::new(4);
 
 fn redirect_config(backend: BackendKind, width: usize, redirect_latency: u64) -> Config {
     let mut config = Config::minimal();
@@ -115,11 +119,11 @@ fn redirect_config(backend: BackendKind, width: usize, redirect_latency: u64) ->
 fn mispredicted_branch() -> Vec<u32> {
     let nop = InstructionBuilder::new().nop().build();
     let mut program = vec![
-        InstructionBuilder::new().addi(1, 0, 1).build(),
-        InstructionBuilder::new().beq(0, 0, 12).build(),
-        InstructionBuilder::new().addi(WRONG_PATH_REG as u32, 0, 99).build(),
-        InstructionBuilder::new().addi(WRONG_PATH_REG as u32, 0, 98).build(),
-        InstructionBuilder::new().addi(TARGET_REG as u32, 0, TARGET_VALUE as i32).build(),
+        InstructionBuilder::new().addi(X1, X0, 1).build(),
+        InstructionBuilder::new().beq(X0, X0, 12).build(),
+        InstructionBuilder::new().addi(WRONG_PATH_REG, X0, 99).build(),
+        InstructionBuilder::new().addi(WRONG_PATH_REG, X0, 98).build(),
+        InstructionBuilder::new().addi(TARGET_REG, X0, TARGET_VALUE as i32).build(),
     ];
     program.extend(std::iter::repeat_n(nop, 8));
     program
@@ -206,13 +210,13 @@ fn o3_a_wider_squash_recovers_sooner() {
 /// place.
 fn load_behind_store(with_store: bool) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let first = if with_store { i().sd(10, 0, 0).build() } else { i().nop().build() };
+    let first = if with_store { i().sd(X10, X0, 0).build() } else { i().nop().build() };
     let mut program = vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, 0x400).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, 0x400).build(),
         first,
-        i().ld(6, 10, 8).build(),
-        i().addi(7, 6, 1).build(),
+        i().ld(X6, X10, 8).build(),
+        i().addi(X7, X6, 1).build(),
     ];
     program.extend(done_marker());
     program
@@ -241,12 +245,12 @@ fn o3_load_behind_a_store_is_not_delayed_by_it() {
 fn pointer_chase(links: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().auipc(6, 0).build(),
-        i().addi(6, 6, 0x400).build(),
-        i().sd(6, 6, 0).build(),
+        i().auipc(X6, 0).build(),
+        i().addi(X6, X6, 0x400).build(),
+        i().sd(X6, X6, 0).build(),
         i().nop().build(),
     ];
-    program.extend((0..links).map(|_| i().ld(6, 6, 0).build()));
+    program.extend((0..links).map(|_| i().ld(X6, X6, 0).build()));
     program.extend(done_marker());
     program
 }
@@ -271,15 +275,15 @@ fn load_to_use(backend: BackendKind, l1d_latency: u64) -> u64 {
 fn store_load_chain(links: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, 0x400).build(),
-        i().addi(6, 0, 1).build(),
-        i().addi(7, 0, 1).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, 0x400).build(),
+        i().addi(X6, X0, 1).build(),
+        i().addi(X7, X0, 1).build(),
     ];
     for _ in 0..links {
-        program.push(i().sd(10, 6, 0).build());
-        program.push(i().ld(6, 10, 0).build());
-        program.push(i().mul(6, 6, 7).build());
+        program.push(i().sd(X10, X6, 0).build());
+        program.push(i().ld(X6, X10, 0).build());
+        program.push(i().mul(X6, X6, X7).build());
     }
     program.extend(done_marker());
     program
@@ -357,17 +361,17 @@ fn o3_zero_latency_forwarded_link_is_the_replay_cycle_and_the_multiply() {
 /// divide.
 fn load_past_a_store_of_slow_data(with_store: bool) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let store = if with_store { i().sd(10, 13, 0).build() } else { i().nop().build() };
+    let store = if with_store { i().sd(X10, X13, 0).build() } else { i().nop().build() };
     let mut program = vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, 0x400).build(),
-        i().addi(11, 0, 100).build(),
-        i().addi(12, 0, 7).build(),
-        i().div(13, 11, 12).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, 0x400).build(),
+        i().addi(X11, X0, 100).build(),
+        i().addi(X12, X0, 7).build(),
+        i().div(X13, X11, X12).build(),
         store,
-        i().ld(6, 10, 8).build(),
+        i().ld(X6, X10, 8).build(),
     ];
-    program.extend((0..40).map(|_| i().addi(6, 6, 1).build()));
+    program.extend((0..40).map(|_| i().addi(X6, X6, 1).build()));
     program.extend(done_marker());
     program
 }
@@ -492,7 +496,7 @@ fn cycles_under(backend: BackendKind, policy: CsrSquash, inst: u32) -> u64 {
 fn cycles_unsquashed(backend: BackendKind, inst: u32) -> u64 {
     match backend {
         BackendKind::InOrder => {
-            let addi = InstructionBuilder::new().addi(3, 0, 1).build();
+            let addi = InstructionBuilder::new().addi(X3, X0, 1).build();
             cycles_to_finish(&config(backend, 3), &system_then_done(addi))
         }
         BackendKind::OutOfOrder => cycles_under(backend, CsrSquash::Never, inst),
@@ -511,7 +515,7 @@ fn cycles_by_policy(backend: BackendKind, inst: u32) -> (u64, u64, u64) {
 
 #[test]
 fn a_csr_read_squashes_only_when_every_access_squashes() {
-    let csrr_mscratch = InstructionBuilder::new().csrrs(3, MSCRATCH, 0).build();
+    let csrr_mscratch = InstructionBuilder::new().csrrs(X3, MSCRATCH, X0).build();
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let (every, affecting, unsquashed) = cycles_by_policy(backend, csrr_mscratch);
 
@@ -522,7 +526,7 @@ fn a_csr_read_squashes_only_when_every_access_squashes() {
 
 #[test]
 fn a_scratch_csr_write_squashes_only_when_every_access_squashes() {
-    let csrw_mscratch = InstructionBuilder::new().csrrw(0, MSCRATCH, 1).build();
+    let csrw_mscratch = InstructionBuilder::new().csrrw(X0, MSCRATCH, X1).build();
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let (every, affecting, unsquashed) = cycles_by_policy(backend, csrw_mscratch);
 
@@ -533,7 +537,7 @@ fn a_scratch_csr_write_squashes_only_when_every_access_squashes() {
 
 #[test]
 fn a_write_to_a_csr_that_steers_execution_squashes_under_both_policies() {
-    let csrw_mtvec = InstructionBuilder::new().csrrw(0, MTVEC, 1).build();
+    let csrw_mtvec = InstructionBuilder::new().csrrw(X0, MTVEC, X1).build();
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let (every, affecting, unsquashed) = cycles_by_policy(backend, csrw_mtvec);
 
@@ -550,8 +554,8 @@ fn a_write_to_a_csr_that_steers_execution_squashes_under_both_policies() {
 /// access costs.
 #[test]
 fn a_csr_squash_is_taken_from_commit() {
-    let csrw_mtvec = InstructionBuilder::new().csrrw(0, MTVEC, 1).build();
-    let csrw_mscratch = InstructionBuilder::new().csrrw(0, MSCRATCH, 1).build();
+    let csrw_mtvec = InstructionBuilder::new().csrrw(X0, MTVEC, X1).build();
+    let csrw_mscratch = InstructionBuilder::new().csrrw(X0, MSCRATCH, X1).build();
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let steering = cycles_under(backend, CsrSquash::AffectingWrites, csrw_mtvec);
         let every = cycles_under(backend, CsrSquash::EveryAccess, csrw_mscratch);
@@ -572,9 +576,9 @@ fn pair_then_done(first: u32, second: u32) -> Vec<u32> {
 /// takes effect when it retires, in order, like any other.
 #[test]
 fn an_inorder_system_instruction_does_not_wait_to_be_the_oldest() {
-    let mul = InstructionBuilder::new().mul(4, 1, 2).build();
-    let csrw_mscratch = InstructionBuilder::new().csrrw(0, MSCRATCH, 1).build();
-    let addi = InstructionBuilder::new().addi(3, 0, 1).build();
+    let mul = InstructionBuilder::new().mul(X4, X1, X2).build();
+    let csrw_mscratch = InstructionBuilder::new().csrrw(X0, MSCRATCH, X1).build();
+    let addi = InstructionBuilder::new().addi(X3, X0, 1).build();
     let mut config = config_with_csr_squash(BackendKind::InOrder, CsrSquash::AffectingWrites);
     config.pipeline.fu_config.int_mul_latency = 20;
 
@@ -590,9 +594,9 @@ fn an_inorder_system_instruction_does_not_wait_to_be_the_oldest() {
 /// (memory1, memory2, writeback, commit).
 #[test]
 fn an_inorder_csr_read_reaches_its_dependent_when_it_retires() {
-    let csrr_mscratch = InstructionBuilder::new().csrrs(3, MSCRATCH, 0).build();
-    let dependent = InstructionBuilder::new().addi(4, 3, 1).build();
-    let independent = InstructionBuilder::new().addi(4, 5, 1).build();
+    let csrr_mscratch = InstructionBuilder::new().csrrs(X3, MSCRATCH, X0).build();
+    let dependent = InstructionBuilder::new().addi(X4, X3, 1).build();
+    let independent = InstructionBuilder::new().addi(X4, X5, 1).build();
     let config = config_with_csr_squash(BackendKind::InOrder, CsrSquash::AffectingWrites);
 
     let chained = cycles_to_finish(&config, &pair_then_done(csrr_mscratch, dependent));

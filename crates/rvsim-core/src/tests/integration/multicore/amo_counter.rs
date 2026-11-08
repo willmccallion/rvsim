@@ -4,16 +4,7 @@
 use crate::config::BackendKind;
 use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const T3: u32 = 28;
-const T4: u32 = 29;
-const T5: u32 = 30;
-const T6: u32 = 31;
-const A0: u32 = 10;
-const A2: u32 = 12;
+use crate::tests::support::regs::{A0, A2, T0, T1, T2, T3, T4, T5, T6, X0, X10, X11};
 const MHARTID: u32 = 0xF14;
 
 /// `data[0] += 1` `iterations` times on every hart, then `data[1] += 1`;
@@ -21,26 +12,26 @@ const MHARTID: u32 = 0xF14;
 pub fn program(harts: i32, iterations: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, 31).build(),
-        i().addi(T2, 0, 1).build(),
+        i().addi(T0, X0, 31).build(),
+        i().addi(T2, X0, 1).build(),
         i().sll(T2, T2, T0).build(),
         i().addi(T2, T2, 0x400).build(),
-        i().addi(T1, 0, iterations).build(),
-        i().addi(T3, 0, 1).build(),
+        i().addi(T1, X0, iterations).build(),
+        i().addi(T3, X0, 1).build(),
         i().addi(T4, T2, 8).build(),
-        i().amoadd_d(0, T2, T3).build(),
+        i().amoadd_d(X0, T2, T3).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -8).build(),
-        i().amoadd_d(0, T4, T3).build(),
-        i().csrrs(T5, MHARTID, 0).build(),
-        i().bne(T5, 0, 28).build(),
+        i().bne(T1, X0, -8).build(),
+        i().amoadd_d(X0, T4, T3).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
+        i().bne(T5, X0, 28).build(),
         i().ld(T6, T2, 8).build(),
-        i().addi(A2, 0, harts).build(),
+        i().addi(A2, X0, harts).build(),
         i().bne(T6, A2, -8).build(),
         i().ld(A0, T2, 0).build(),
-        i().addi(11, 10, 0).build(),
+        i().addi(X11, X10, 0).build(),
         M5_FAIL,
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 

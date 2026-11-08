@@ -6,14 +6,11 @@
 //! itself can learn the stride.
 
 use crate::config::{BackendKind, Config, LoadPrefetcherConfig, PageBoundary, PrefetcherKind};
+use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const A0: u32 = 10;
-const DONE_REG: u32 = 2;
+use crate::tests::support::regs::{A0, T0, T1, T2, X0};
+const DONE_REG: RegIdx = RegIdx::new(2);
 const DONE: u64 = 7;
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ITERATIONS: i32 = 64;
@@ -28,14 +25,14 @@ fn strided_loop() -> Vec<u32> {
         i().auipc(T0, 0).build(),
         i().lui(A0, 0x10).build(),
         i().add(A0, A0, T0).build(),
-        i().addi(T1, 0, ITERATIONS).build(),
+        i().addi(T1, X0, ITERATIONS).build(),
         i().ld(T2, A0, 0).build(),
         i().add(A0, A0, T2).build(),
         i().addi(A0, A0, STRIDE).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -16).build(),
-        i().addi(DONE_REG, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().bne(T1, X0, -16).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -78,7 +75,7 @@ fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
     let mut ctx =
         TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &strided_loop());
 
-    ctx.run_until(50_000, |ctx| ctx.get_reg(DONE_REG as usize) == DONE).expect("loop finished")
+    ctx.run_until(50_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("loop finished")
 }
 
 /// The dependent misses serialise without a prefetcher; with one that has

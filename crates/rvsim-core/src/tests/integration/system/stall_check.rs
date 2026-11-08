@@ -8,6 +8,7 @@ use crate::isa::encoding::privileged::WFI;
 use crate::system::simulator::StopAt;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::X0;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 /// Fewer cycles than the first instruction takes to fetch from cold caches.
@@ -20,7 +21,7 @@ fn system(program: &[u32]) -> TestContext {
 }
 
 fn spin() -> Vec<u32> {
-    vec![InstructionBuilder::new().jal(0, 0).build()]
+    vec![InstructionBuilder::new().jal(X0, 0).build()]
 }
 
 fn run_for(ctx: &mut TestContext, cycles: u64) -> Result<(), SimError> {
@@ -59,7 +60,7 @@ fn a_hart_retiring_in_a_loop_never_stalls() {
 
 #[test]
 fn a_hart_waiting_in_wfi_never_stalls() {
-    let mut ctx = system(&[WFI, InstructionBuilder::new().jal(0, 0).build()]);
+    let mut ctx = system(&[WFI, InstructionBuilder::new().jal(X0, 0).build()]);
     // A timer interrupt enabled but never due, so WFI waits for good.
     ctx.sim.state.harts[0].csrs.mie = MIE_MTIE;
     run_for(&mut ctx, 2_000).expect("the hart reaches WFI");

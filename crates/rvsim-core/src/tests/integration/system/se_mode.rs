@@ -5,11 +5,13 @@ use crate::Simulator;
 use crate::common::{SimError, VirtAddr};
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::op::pseudo::PseudoOp;
+use crate::isa::reg::RegIdx;
 use crate::system::checkpoint::CheckpointError;
 use crate::system::process::loader::PIE_BASE;
 use crate::system::simulator::{ProcessArgs, ProgramImage, ProgramKind, StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::build_simulator;
+use crate::tests::support::regs::{A0, A1, A2, A3, A4, A5, A7, S0, S1, S2, SP, T0, T1, X0};
 
 const ECALL: u32 = 0x0000_0073;
 const SYS_EXIT: i32 = 93;
@@ -20,7 +22,6 @@ const SYS_IOCTL: i32 = 29;
 const SYS_RISCV_HWPROBE: i32 = 258;
 const SYS_GETPID: i32 = 172;
 const SYS_GETTID: i32 = 178;
-const A4: u32 = 14;
 const M5_FAIL: u32 = 0x22;
 const M5_DUMP_STATS: u32 = 0x41;
 const SYS_WRITE: i32 = 64;
@@ -28,15 +29,6 @@ const AT_FDCWD: i32 = -100;
 const JAL_SELF: u32 = 0x0000_006f;
 /// `vsetvli x0, x0, e8`: a vector instruction with no effect on the test.
 const VSETVLI_ZERO: u32 = 0x0000_7057;
-const T0: u32 = 5;
-const T1: u32 = 6;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const A7: u32 = 17;
-const A5: u32 = 15;
-const SP: u32 = 2;
 const CYCLE: u32 = 0xC00;
 const LOAD_ADDRESS: u64 = 0x1_0000;
 const CODE_OFFSET: u64 = 0x80;
@@ -116,11 +108,11 @@ fn a_user_programs_output_reaches_the_console() {
     let mut code = vec![
         i().auipc(A1, 0).build(),
         i().addi(A1, A1, 8 * 4).build(),
-        i().addi(A0, 0, 1).build(),
-        i().addi(A2, 0, 3).build(),
-        i().addi(A7, 0, SYS_WRITE).build(),
+        i().addi(A0, X0, 1).build(),
+        i().addi(A2, X0, 3).build(),
+        i().addi(A7, X0, SYS_WRITE).build(),
         ECALL,
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ];
     code.push(u32::from_le_bytes(*b"hi\n\0"));
@@ -140,13 +132,13 @@ fn a_user_programs_output_reaches_the_console() {
 fn a_user_program_reads_what_the_host_typed() {
     let i = InstructionBuilder::new;
     let code = vec![
-        i().addi(A0, 0, 0).build(),
+        i().addi(A0, X0, 0).build(),
         i().addi(A1, SP, -16).build(),
-        i().addi(A2, 0, 1).build(),
-        i().addi(A7, 0, SYS_READ).build(),
+        i().addi(A2, X0, 1).build(),
+        i().addi(A7, X0, SYS_READ).build(),
         ECALL,
         i().lbu(A0, SP, -16).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ];
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
@@ -172,21 +164,21 @@ fn run(backend: BackendKind, code: &[u32], argv: &[&str]) -> StopReason {
 fn count_then_use_the_heap() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, 0).build(),
-        i().addi(T1, 0, 300).build(),
+        i().addi(T0, X0, 0).build(),
+        i().addi(T1, X0, 300).build(),
         i().addi(T0, T0, 1).build(),
         i().addi(A0, A0, 1).build(),
         i().blt(T0, T1, -8).build(),
-        i().addi(A0, 0, 0).build(),
-        i().addi(A7, 0, SYS_BRK).build(),
+        i().addi(A0, X0, 0).build(),
+        i().addi(A7, X0, SYS_BRK).build(),
         ECALL,
         i().addi(A1, A0, 64).build(),
         i().addi(A0, A1, 0).build(),
-        i().addi(A7, 0, SYS_BRK).build(),
+        i().addi(A7, X0, SYS_BRK).build(),
         ECALL,
         i().sd(A0, A7, -8).build(),
-        i().addi(A0, 0, 9).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A0, X0, 9).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ]
 }
@@ -224,10 +216,10 @@ fn a_checkpoint_is_refused_while_a_host_file_is_open() {
     let mut code = vec![
         i().auipc(A1, 0).build(),
         i().addi(A1, A1, path_offset).build(),
-        i().addi(A0, 0, AT_FDCWD).build(),
-        i().addi(A2, 0, 0).build(),
-        i().addi(A3, 0, 0).build(),
-        i().addi(A7, 0, SYS_OPENAT).build(),
+        i().addi(A0, X0, AT_FDCWD).build(),
+        i().addi(A2, X0, 0).build(),
+        i().addi(A3, X0, 0).build(),
+        i().addi(A7, X0, SYS_OPENAT).build(),
         ECALL,
         JAL_SELF,
     ];
@@ -259,21 +251,21 @@ fn a_read_only_file_mapping_holds_the_files_bytes() {
     let mut code = vec![
         i().auipc(A1, 0).build(),
         i().addi(A1, A1, 18 * 4).build(),
-        i().addi(A0, 0, AT_FDCWD).build(),
-        i().addi(A2, 0, 0).build(),
-        i().addi(A3, 0, 0).build(),
-        i().addi(A7, 0, SYS_OPENAT).build(),
+        i().addi(A0, X0, AT_FDCWD).build(),
+        i().addi(A2, X0, 0).build(),
+        i().addi(A3, X0, 0).build(),
+        i().addi(A7, X0, SYS_OPENAT).build(),
         ECALL,
         i().addi(A4, A0, 0).build(),
-        i().addi(A0, 0, 0).build(),
+        i().addi(A0, X0, 0).build(),
         i().lui(A1, 1).build(),
-        i().addi(A2, 0, PROT_READ).build(),
-        i().addi(A3, 0, MAP_PRIVATE).build(),
-        i().addi(A5, 0, 0).build(),
-        i().addi(A7, 0, SYS_MMAP).build(),
+        i().addi(A2, X0, PROT_READ).build(),
+        i().addi(A3, X0, MAP_PRIVATE).build(),
+        i().addi(A5, X0, 0).build(),
+        i().addi(A7, X0, SYS_MMAP).build(),
         ECALL,
         i().lbu(A0, A0, 0).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ];
     let mut name = path.to_str().expect("a UTF-8 path").as_bytes().to_vec();
@@ -290,7 +282,7 @@ fn a_read_only_file_mapping_holds_the_files_bytes() {
 
 fn exit_with(a0: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().addi(A0, 0, a0).build(), i().addi(A7, 0, SYS_EXIT).build(), ECALL]
+    vec![i().addi(A0, X0, a0).build(), i().addi(A7, X0, SYS_EXIT).build(), ECALL]
 }
 
 #[test]
@@ -308,14 +300,14 @@ fn a_user_program_exits_with_its_code() {
 fn the_console_is_a_terminal_to_tcgets2() {
     let i = InstructionBuilder::new;
     let code = vec![
-        i().addi(A0, 0, 1).build(),
+        i().addi(A0, X0, 1).build(),
         i().lui(A1, 0x802c5).build(),
         i().addi(A1, A1, 0x42a).build(),
         i().addi(A2, SP, -64).build(),
-        i().addi(A7, 0, SYS_IOCTL).build(),
+        i().addi(A7, X0, SYS_IOCTL).build(),
         ECALL,
         i().addi(A0, A0, 1).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ];
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
@@ -329,7 +321,7 @@ fn the_console_is_a_terminal_to_tcgets2() {
 #[test]
 fn a_pseudo_op_ends_a_user_program_with_its_code() {
     let i = InstructionBuilder::new;
-    let code = vec![i().addi(A1, 0, 7).build(), PseudoOp::encode(M5_FAIL)];
+    let code = vec![i().addi(A1, X0, 7).build(), PseudoOp::encode(M5_FAIL)];
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let stop = run(backend, &code, &["prog"]);
 
@@ -341,7 +333,7 @@ fn a_pseudo_op_ends_a_user_program_with_its_code() {
 #[test]
 fn a_pseudo_op_dumps_the_stats_with_its_label() {
     let i = InstructionBuilder::new;
-    let mut code = vec![i().addi(A0, 0, 3).build(), PseudoOp::encode(M5_DUMP_STATS)];
+    let mut code = vec![i().addi(A0, X0, 3).build(), PseudoOp::encode(M5_DUMP_STATS)];
     code.extend(exit_with(0));
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut sim = simulator(backend, &code, &["prog"]);
@@ -374,9 +366,9 @@ fn a_user_program_uses_the_vector_unit() {
 fn a_user_program_reads_the_cycle_counter() {
     let i = InstructionBuilder::new;
     let code = vec![
-        i().csrrs(A0, CYCLE, 0).build(),
-        i().sltu(A0, 0, A0).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().csrrs(A0, CYCLE, X0).build(),
+        i().sltu(A0, X0, A0).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ];
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
@@ -390,7 +382,7 @@ fn a_user_program_reads_the_cycle_counter() {
 #[test]
 fn the_program_finds_its_arguments_on_the_stack() {
     let i = InstructionBuilder::new;
-    let code = vec![i().ld(A0, SP, 0).build(), i().addi(A7, 0, SYS_EXIT).build(), ECALL];
+    let code = vec![i().ld(A0, SP, 0).build(), i().addi(A7, X0, SYS_EXIT).build(), ECALL];
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let stop = run(backend, &code, &["prog", "one", "two"]);
 
@@ -403,16 +395,16 @@ fn the_program_finds_its_arguments_on_the_stack() {
 fn brk_maps_the_heap_the_program_asks_for() {
     let i = InstructionBuilder::new;
     let code = vec![
-        i().addi(A0, 0, 0).build(),
-        i().addi(A7, 0, SYS_BRK).build(),
+        i().addi(A0, X0, 0).build(),
+        i().addi(A7, X0, SYS_BRK).build(),
         ECALL,
         i().addi(A1, A0, 64).build(),
         i().addi(A0, A1, 0).build(),
-        i().addi(A7, 0, SYS_BRK).build(),
+        i().addi(A7, X0, SYS_BRK).build(),
         ECALL,
         i().sd(A0, A7, -8).build(),
-        i().addi(A0, 0, 1).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A0, X0, 1).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ];
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
@@ -427,7 +419,7 @@ fn brk_maps_the_heap_the_program_asks_for() {
 #[test]
 fn a_fault_ends_the_program_with_the_signals_exit_status() {
     let i = InstructionBuilder::new;
-    let code = vec![i().lw(A0, 0, 0).build(), i().addi(A7, 0, SYS_EXIT).build(), ECALL];
+    let code = vec![i().lw(A0, X0, 0).build(), i().addi(A7, X0, SYS_EXIT).build(), ECALL];
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let stop = run(backend, &code, &["prog"]);
 
@@ -467,18 +459,18 @@ fn a_user_program_is_told_from_a_bare_metal_image_by_its_entry() {
 fn hwprobe_program(key: i32, exit_with_key: bool) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, key).build(),
+        i().addi(T0, X0, key).build(),
         i().sd(SP, T0, -16).build(),
-        i().sd(SP, 0, -8).build(),
+        i().sd(SP, X0, -8).build(),
         i().addi(A0, SP, -16).build(),
-        i().addi(A1, 0, 1).build(),
-        i().addi(A2, 0, 0).build(),
-        i().addi(A3, 0, 0).build(),
-        i().addi(A4, 0, 0).build(),
-        i().addi(A7, 0, SYS_RISCV_HWPROBE).build(),
+        i().addi(A1, X0, 1).build(),
+        i().addi(A2, X0, 0).build(),
+        i().addi(A3, X0, 0).build(),
+        i().addi(A4, X0, 0).build(),
+        i().addi(A7, X0, SYS_RISCV_HWPROBE).build(),
         ECALL,
         i().ld(A0, SP, if exit_with_key { -16 } else { -8 }).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ]
 }
@@ -530,15 +522,15 @@ fn madvise_refuses_advice_linux_6_6_does_not_know() {
         [
             i().lui(A0, (LOAD_ADDRESS >> 12) as i32).build(),
             i().lui(A1, 1).build(),
-            i().addi(A2, 0, advice).build(),
-            i().addi(A7, 0, SYS_MADVISE).build(),
+            i().addi(A2, X0, advice).build(),
+            i().addi(A7, X0, SYS_MADVISE).build(),
             ECALL,
         ]
     };
     let mut code = advise(MADV_GUARD_INSTALL).to_vec();
-    code.push(i().sub(T1, 0, A0).build());
+    code.push(i().sub(T1, X0, A0).build());
     code.extend(advise(MADV_DONTNEED));
-    code.extend([i().add(A0, A0, T1).build(), i().addi(A7, 0, SYS_EXIT).build(), ECALL]);
+    code.extend([i().add(A0, A0, T1).build(), i().addi(A7, X0, SYS_EXIT).build(), ECALL]);
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let stop = run(backend, &code, &["prog"]);
 
@@ -582,12 +574,12 @@ fn simulator_with_programs_in(
 fn count_then_exit(count: i32, code: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, 0).build(),
-        i().addi(T1, 0, count).build(),
+        i().addi(T0, X0, 0).build(),
+        i().addi(T1, X0, count).build(),
         i().addi(T0, T0, 1).build(),
         i().blt(T0, T1, -4).build(),
-        i().addi(A0, 0, code).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A0, X0, code).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ]
 }
@@ -598,13 +590,13 @@ fn count_then_exit(count: i32, code: i32) -> Vec<u32> {
 fn store_then_exit_with_load(value: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, value).build(),
+        i().addi(T0, X0, value).build(),
         i().sd(SP, T0, -32).build(),
-        i().addi(T1, 0, 200).build(),
+        i().addi(T1, X0, 200).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -4).build(),
+        i().bne(T1, X0, -4).build(),
         i().ld(A0, SP, -32).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ]
 }
@@ -690,14 +682,14 @@ fn exit_codes_hold_one_code_per_program() {
 fn exit_with_ids() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(A7, 0, SYS_GETPID).build(),
+        i().addi(A7, X0, SYS_GETPID).build(),
         ECALL,
-        i().addi(T1, 0, 16).build(),
+        i().addi(T1, X0, 16).build(),
         i().mul(T0, A0, T1).build(),
-        i().addi(A7, 0, SYS_GETTID).build(),
+        i().addi(A7, X0, SYS_GETTID).build(),
         ECALL,
         i().add(A0, A0, T0).build(),
-        i().addi(A7, 0, SYS_EXIT).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
         ECALL,
     ]
 }
@@ -749,10 +741,6 @@ fn a_checkpoint_resumes_two_programs() {
     assert_eq!(second.exit_codes(), whole.exit_codes());
     assert_eq!(second.state.instructions_retired(), whole.state.instructions_retired());
 }
-
-const S0: u32 = 8;
-const S1: u32 = 9;
-const S2: u32 = 18;
 const SYS_CLONE: i32 = 220;
 const SYS_FUTEX: i32 = 98;
 const SYS_EXIT_GROUP: i32 = 94;
@@ -771,9 +759,9 @@ const EAGAIN: u64 = 11;
 /// A branch or jump to a label of a test program.
 #[derive(Clone, Copy)]
 enum Jump {
-    Beq(u32, u32),
-    Bne(u32, u32),
-    Blt(u32, u32),
+    Beq(RegIdx, RegIdx),
+    Bne(RegIdx, RegIdx),
+    Blt(RegIdx, RegIdx),
     Jal,
 }
 
@@ -784,7 +772,7 @@ enum Line {
     Inst(u32),
     Label(&'static str),
     To(Jump, &'static str),
-    AddressOf(u32, &'static str),
+    AddressOf(RegIdx, &'static str),
 }
 
 /// The instructions of `lines`, with each jump's and address's offset to
@@ -812,7 +800,7 @@ fn assemble(lines: &[Line]) -> Vec<u32> {
                     Jump::Beq(a, b) => i().beq(a, b, offset).build(),
                     Jump::Bne(a, b) => i().bne(a, b, offset).build(),
                     Jump::Blt(a, b) => i().blt(a, b, offset).build(),
-                    Jump::Jal => i().jal(0, offset).build(),
+                    Jump::Jal => i().jal(X0, offset).build(),
                 });
             }
             Line::AddressOf(rd, name) => {
@@ -830,7 +818,7 @@ fn inst(word: u32) -> Line {
 }
 
 /// `rd = value`, for a value `lui` and `addi` can build.
-fn load_immediate(rd: u32, value: i32) -> [Line; 2] {
+fn load_immediate(rd: RegIdx, value: i32) -> [Line; 2] {
     let i = InstructionBuilder::new;
     let upper = (value + 0x800) >> 12;
     [inst(i().lui(rd, upper).build()), inst(i().addi(rd, rd, value - (upper << 12)).build())]
@@ -838,7 +826,7 @@ fn load_immediate(rd: u32, value: i32) -> [Line; 2] {
 
 /// `syscall(number)` with the arguments already in place.
 fn syscall(number: i32) -> [Line; 2] {
-    [inst(InstructionBuilder::new().addi(A7, 0, number).build()), inst(ECALL)]
+    [inst(InstructionBuilder::new().addi(A7, X0, number).build()), inst(ECALL)]
 }
 
 /// `clone(flags, sp - 64 KiB, s0, 0, s0)`: a thread on a stack below the
@@ -850,7 +838,7 @@ fn clone_thread(flags: i32) -> Vec<Line> {
     lines.extend([
         inst(i().sub(A1, SP, T0).build()),
         inst(i().addi(A2, S0, 0).build()),
-        inst(i().addi(A3, 0, 0).build()),
+        inst(i().addi(A3, X0, 0).build()),
         inst(i().addi(A4, S0, 0).build()),
     ]);
     lines.extend(syscall(SYS_CLONE));
@@ -864,10 +852,10 @@ fn join(wait: &'static str, joined: &'static str) -> Vec<Line> {
     let mut lines = vec![
         Line::Label(wait),
         inst(i().lw(A2, S0, 0).build()),
-        Line::To(Jump::Beq(A2, 0), joined),
+        Line::To(Jump::Beq(A2, X0), joined),
         inst(i().addi(A0, S0, 0).build()),
-        inst(i().addi(A1, 0, FUTEX_WAIT).build()),
-        inst(i().addi(A3, 0, 0).build()),
+        inst(i().addi(A1, X0, FUTEX_WAIT).build()),
+        inst(i().addi(A3, X0, 0).build()),
     ];
     lines.extend(syscall(SYS_FUTEX));
     lines.extend([Line::To(Jump::Jal, wait), Line::Label(joined)]);
@@ -877,7 +865,7 @@ fn join(wait: &'static str, joined: &'static str) -> Vec<Line> {
 /// Counts `t0` up to `count`.
 fn spin(count: i32, label: &'static str) -> Vec<Line> {
     let i = InstructionBuilder::new;
-    let mut lines = vec![inst(i().addi(T0, 0, 0).build())];
+    let mut lines = vec![inst(i().addi(T0, X0, 0).build())];
     lines.extend(load_immediate(T1, count));
     lines.extend([
         Line::Label(label),
@@ -889,7 +877,7 @@ fn spin(count: i32, label: &'static str) -> Vec<Line> {
 
 /// `exit(code)` or `exit_group(code)` with `code` an immediate.
 fn exit_lines(number: i32, code: i32) -> Vec<Line> {
-    let mut lines = vec![inst(InstructionBuilder::new().addi(A0, 0, code).build())];
+    let mut lines = vec![inst(InstructionBuilder::new().addi(A0, X0, code).build())];
     lines.extend(syscall(number));
     lines
 }
@@ -944,15 +932,15 @@ fn a_cloned_thread_runs_on_a_free_hart_and_shares_its_memory() {
     let mut lines = vec![Line::AddressOf(S0, "word")];
     lines.extend(clone_thread(CLONE_THREAD_FLAGS));
     lines.extend([
-        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::To(Jump::Beq(A0, X0), "child"),
         Line::Label("wait"),
         inst(i().lw(A0, S0, 0).build()),
-        Line::To(Jump::Beq(A0, 0), "wait"),
+        Line::To(Jump::Beq(A0, X0), "wait"),
     ]);
     lines.extend(syscall(SYS_EXIT_GROUP));
     lines.extend([
         Line::Label("child"),
-        inst(i().addi(T1, 0, 42).build()),
+        inst(i().addi(T1, X0, 42).build()),
         inst(i().sw(S0, T1, 0).build()),
     ]);
     lines.extend(exit_lines(SYS_EXIT, 0));
@@ -979,7 +967,7 @@ fn join_a_slow_thread() -> Vec<u32> {
     let mut lines = vec![Line::AddressOf(S0, "word")];
     lines.extend(clone_thread(CLONE_JOINABLE_FLAGS));
     lines.extend([
-        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::To(Jump::Beq(A0, X0), "child"),
         inst(i().addi(S1, A0, 0).build()),
         inst(i().lw(S2, S0, 0).build()),
     ]);
@@ -1012,7 +1000,7 @@ fn clone_fails_with_eagain_when_every_hart_is_taken() {
     let i = InstructionBuilder::new;
     let mut lines = vec![Line::AddressOf(S0, "word")];
     lines.extend(clone_thread(CLONE_THREAD_FLAGS));
-    lines.push(inst(i().sub(A0, 0, A0).build()));
+    lines.push(inst(i().sub(A0, X0, A0).build()));
     lines.extend(syscall(SYS_EXIT));
     lines.extend([Line::Label("word"), inst(0)]);
     let code = assemble(&lines);
@@ -1030,7 +1018,7 @@ fn a_thread_has_its_own_id_and_its_process_id() {
     let i = InstructionBuilder::new;
     let mut lines = clone_thread(CLONE_THREAD_FLAGS);
     lines.extend([
-        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::To(Jump::Beq(A0, X0), "child"),
         Line::Label("forever"),
         Line::To(Jump::Jal, "forever"),
         Line::Label("child"),
@@ -1039,7 +1027,7 @@ fn a_thread_has_its_own_id_and_its_process_id() {
     lines.push(inst(i().addi(S1, A0, 0).build()));
     lines.extend(syscall(SYS_GETPID));
     lines.extend([
-        inst(i().addi(T1, 0, 16).build()),
+        inst(i().addi(T1, X0, 16).build()),
         inst(i().mul(S1, S1, T1).build()),
         inst(i().add(A0, A0, S1).build()),
     ]);
@@ -1058,7 +1046,7 @@ fn a_thread_has_its_own_id_and_its_process_id() {
 #[test]
 fn exit_ends_one_thread_and_the_last_ends_the_process_with_the_first_ones_code() {
     let mut lines = clone_thread(CLONE_THREAD_FLAGS);
-    lines.push(Line::To(Jump::Beq(A0, 0), "child"));
+    lines.push(Line::To(Jump::Beq(A0, X0), "child"));
     lines.extend(exit_lines(SYS_EXIT, 3));
     lines.push(Line::Label("child"));
     lines.extend(spin(2000, "spin"));
@@ -1083,15 +1071,15 @@ fn exit_group_stops_its_processes_other_threads_only() {
     let mut lines = vec![Line::AddressOf(S0, "running")];
     lines.extend(clone_thread(CLONE_THREAD_FLAGS));
     lines.extend([
-        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::To(Jump::Beq(A0, X0), "child"),
         Line::Label("wait"),
         inst(i().lw(A0, S0, 0).build()),
-        Line::To(Jump::Beq(A0, 0), "wait"),
+        Line::To(Jump::Beq(A0, X0), "wait"),
     ]);
     lines.extend(exit_lines(SYS_EXIT_GROUP, 5));
     lines.extend([
         Line::Label("child"),
-        inst(i().addi(T1, 0, 1).build()),
+        inst(i().addi(T1, X0, 1).build()),
         inst(i().sw(S0, T1, 0).build()),
         Line::Label("forever"),
         Line::To(Jump::Jal, "forever"),
@@ -1119,7 +1107,7 @@ fn exit_group_stops_its_processes_other_threads_only() {
 fn a_fault_in_a_thread_ends_its_whole_process() {
     let mut lines = clone_thread(CLONE_THREAD_FLAGS);
     lines.extend([
-        Line::To(Jump::Beq(A0, 0), "child"),
+        Line::To(Jump::Beq(A0, X0), "child"),
         Line::Label("forever"),
         Line::To(Jump::Jal, "forever"),
         Line::Label("child"),
@@ -1138,18 +1126,18 @@ fn a_fault_in_a_thread_ends_its_whole_process() {
 fn wait_on_a_stack_word(word: i32, nanos: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut lines = vec![
-        inst(i().sd(SP, 0, -16).build()),
-        inst(i().addi(T0, 0, nanos).build()),
+        inst(i().sd(SP, X0, -16).build()),
+        inst(i().addi(T0, X0, nanos).build()),
         inst(i().sd(SP, T0, -8).build()),
-        inst(i().addi(T0, 0, word).build()),
+        inst(i().addi(T0, X0, word).build()),
         inst(i().sw(SP, T0, -24).build()),
         inst(i().addi(A0, SP, -24).build()),
-        inst(i().addi(A1, 0, FUTEX_WAIT).build()),
-        inst(i().addi(A2, 0, 0).build()),
+        inst(i().addi(A1, X0, FUTEX_WAIT).build()),
+        inst(i().addi(A2, X0, 0).build()),
         inst(i().addi(A3, SP, -16).build()),
     ];
     lines.extend(syscall(SYS_FUTEX));
-    lines.push(inst(i().sub(A0, 0, A0).build()));
+    lines.push(inst(i().sub(A0, X0, A0).build()));
     lines.extend(syscall(SYS_EXIT));
     assemble(&lines)
 }
@@ -1186,10 +1174,10 @@ fn a_freed_hart_takes_the_next_thread() {
     let i = InstructionBuilder::new;
     let mut lines = vec![Line::AddressOf(S0, "word")];
     lines.extend(clone_thread(CLONE_JOINABLE_FLAGS));
-    lines.push(Line::To(Jump::Beq(A0, 0), "child"));
+    lines.push(Line::To(Jump::Beq(A0, X0), "child"));
     lines.extend(join("join_first", "joined_first"));
     lines.extend(clone_thread(CLONE_JOINABLE_FLAGS));
-    lines.extend([Line::To(Jump::Beq(A0, 0), "child"), inst(i().addi(S1, A0, 0).build())]);
+    lines.extend([Line::To(Jump::Beq(A0, X0), "child"), inst(i().addi(S1, A0, 0).build())]);
     lines.extend(join("join_second", "joined_second"));
     lines.push(inst(i().addi(A0, S1, 0).build()));
     lines.extend(syscall(SYS_EXIT_GROUP));
@@ -1210,14 +1198,14 @@ fn a_freed_hart_takes_the_next_thread() {
 fn sched_getaffinity_reports_every_hart() {
     let i = InstructionBuilder::new;
     let mut lines = vec![
-        inst(i().addi(A0, 0, 0).build()),
-        inst(i().addi(A1, 0, 128).build()),
+        inst(i().addi(A0, X0, 0).build()),
+        inst(i().addi(A1, X0, 128).build()),
         inst(i().addi(A2, SP, -128).build()),
     ];
     lines.extend(syscall(SYS_SCHED_GETAFFINITY));
     lines.extend([
         inst(i().lbu(T0, SP, -128).build()),
-        inst(i().addi(T1, 0, 16).build()),
+        inst(i().addi(T1, X0, 16).build()),
         inst(i().mul(A0, A0, T1).build()),
         inst(i().add(A0, A0, T0).build()),
     ]);
@@ -1235,9 +1223,9 @@ fn tgkill_self(tid: i32, signal: i32) -> [Line; 5] {
     let i = InstructionBuilder::new;
     let [set, call] = syscall(SYS_TGKILL);
     [
-        inst(i().addi(A0, 0, 1).build()),
-        inst(i().addi(A1, 0, tid).build()),
-        inst(i().addi(A2, 0, signal).build()),
+        inst(i().addi(A0, X0, 1).build()),
+        inst(i().addi(A1, X0, tid).build()),
+        inst(i().addi(A2, X0, signal).build()),
         set,
         call,
     ]
@@ -1281,10 +1269,10 @@ fn map_a_page(flags: i32) -> Vec<Line> {
     let i = InstructionBuilder::new;
     let mut lines = vec![inst(i().lui(A1, 1).build())];
     lines.extend([
-        inst(i().addi(A2, 0, 3).build()),
-        inst(i().addi(A3, 0, flags).build()),
-        inst(i().addi(A4, 0, -1).build()),
-        inst(i().addi(A5, 0, 0).build()),
+        inst(i().addi(A2, X0, 3).build()),
+        inst(i().addi(A3, X0, flags).build()),
+        inst(i().addi(A4, X0, -1).build()),
+        inst(i().addi(A5, X0, 0).build()),
     ]);
     lines.extend(syscall(SYS_MMAP));
     lines
@@ -1299,15 +1287,15 @@ fn replacing_a_mapping_drops_the_other_threads_translations() {
     const MAP_PRIVATE_ANONYMOUS: i32 = 0x22;
     const MAP_FIXED: i32 = 0x10;
     let i = InstructionBuilder::new;
-    let mut lines = vec![inst(i().addi(A0, 0, 0).build())];
+    let mut lines = vec![inst(i().addi(A0, X0, 0).build())];
     lines.extend(map_a_page(MAP_PRIVATE_ANONYMOUS));
     lines.extend([
         inst(i().addi(S0, A0, 0).build()),
-        inst(i().addi(T0, 0, 5).build()),
+        inst(i().addi(T0, X0, 5).build()),
         inst(i().sw(S0, T0, 0).build()),
     ]);
     lines.extend(clone_thread(CLONE_THREAD_FLAGS));
-    lines.push(Line::To(Jump::Beq(A0, 0), "child"));
+    lines.push(Line::To(Jump::Beq(A0, X0), "child"));
     lines.extend(spin(500, "settle"));
     lines.push(inst(i().addi(A0, S0, 0).build()));
     lines.extend(map_a_page(MAP_PRIVATE_ANONYMOUS | MAP_FIXED));
@@ -1317,7 +1305,7 @@ fn replacing_a_mapping_drops_the_other_threads_translations() {
         Line::Label("child"),
         Line::Label("poll"),
         inst(i().lw(T0, S0, 0).build()),
-        Line::To(Jump::Bne(T0, 0), "poll"),
+        Line::To(Jump::Bne(T0, X0), "poll"),
     ]);
     lines.extend(exit_lines(SYS_EXIT_GROUP, 1));
     let code = assemble(&lines);
@@ -1367,27 +1355,27 @@ fn read_a_cpu_list(path: &str, flags: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut lines = vec![
         Line::AddressOf(A1, "path"),
-        inst(i().addi(A0, 0, AT_FDCWD).build()),
-        inst(i().addi(A2, 0, flags).build()),
-        inst(i().addi(A3, 0, 0).build()),
+        inst(i().addi(A0, X0, AT_FDCWD).build()),
+        inst(i().addi(A2, X0, flags).build()),
+        inst(i().addi(A3, X0, 0).build()),
     ];
     lines.extend(syscall(SYS_OPENAT));
     lines.extend([
-        Line::To(Jump::Blt(A0, 0), "failed"),
+        Line::To(Jump::Blt(A0, X0), "failed"),
         inst(i().addi(A1, SP, -64).build()),
-        inst(i().addi(A2, 0, 16).build()),
+        inst(i().addi(A2, X0, 16).build()),
     ]);
     lines.extend(syscall(SYS_READ));
     lines.extend([
         inst(i().add(T0, A1, A0).build()),
         inst(i().lbu(T1, T0, -2).build()),
         inst(i().addi(T1, T1, -i32::from(b'0')).build()),
-        inst(i().addi(A2, 0, 16).build()),
+        inst(i().addi(A2, X0, 16).build()),
         inst(i().mul(A0, A0, A2).build()),
         inst(i().add(A0, A0, T1).build()),
     ]);
     lines.extend(syscall(SYS_EXIT));
-    lines.extend([Line::Label("failed"), inst(i().sub(A0, 0, A0).build())]);
+    lines.extend([Line::Label("failed"), inst(i().sub(A0, X0, A0).build())]);
     lines.extend(syscall(SYS_EXIT));
     lines.push(Line::Label("path"));
     let mut bytes = path.as_bytes().to_vec();
@@ -1433,15 +1421,15 @@ fn read_proc_self_exe() -> Vec<u32> {
     const BUFFER_BYTES: i32 = 255;
     let i = InstructionBuilder::new;
     let mut lines = vec![
-        inst(i().addi(A0, 0, AT_FDCWD).build()),
+        inst(i().addi(A0, X0, AT_FDCWD).build()),
         Line::AddressOf(A1, "path"),
         inst(i().addi(A2, SP, -BUFFER_BYTES - 1).build()),
-        inst(i().addi(A3, 0, BUFFER_BYTES).build()),
+        inst(i().addi(A3, X0, BUFFER_BYTES).build()),
     ];
     lines.extend(syscall(SYS_READLINKAT));
-    lines.extend([Line::To(Jump::Blt(A0, 0), "failed")]);
+    lines.extend([Line::To(Jump::Blt(A0, X0), "failed")]);
     lines.extend(syscall(SYS_EXIT));
-    lines.extend([Line::Label("failed"), inst(i().sub(A0, 0, A0).build())]);
+    lines.extend([Line::Label("failed"), inst(i().sub(A0, X0, A0).build())]);
     lines.extend(syscall(SYS_EXIT));
     lines.push(Line::Label("path"));
     let mut bytes = b"/proc/self/exe".to_vec();

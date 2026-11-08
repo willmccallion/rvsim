@@ -6,6 +6,7 @@ use crate::common::{HartId, PhysAddr};
 use crate::config::BackendKind;
 use crate::config::{Config, HomeAgentConfig};
 use crate::isa::privileged::PrivilegeMode;
+use crate::isa::reg::RegIdx;
 use crate::isa::rvv::Vxrm;
 use crate::soc::coherence::CoherenceFabric;
 use crate::system::checkpoint::CheckpointError;
@@ -14,16 +15,12 @@ use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
 use crate::tests::support::pmp_entry;
+use crate::tests::support::regs::{X0, X5, X6, X7, X8, X9};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x1000;
 const SQUARES: u64 = 200;
-const X5: u32 = 5;
-const X6: u32 = 6;
-const X7: u32 = 7;
-const X8: u32 = 8;
-const X9: u32 = 9;
-const DONE: u32 = 31;
+const DONE: RegIdx = RegIdx::new(31);
 
 /// Stores the running sum of `i * i` for each `i` below [`SQUARES`] to
 /// consecutive doublewords at [`DATA`], then sets x31.
@@ -31,17 +28,17 @@ fn running_squares() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
         i().auipc(X5, 1).build(),
-        i().addi(X6, 0, 0).build(),
-        i().addi(X7, 0, SQUARES as i32).build(),
-        i().addi(X8, 0, 0).build(),
+        i().addi(X6, X0, 0).build(),
+        i().addi(X7, X0, SQUARES as i32).build(),
+        i().addi(X8, X0, 0).build(),
         i().mul(X9, X6, X6).build(),
         i().add(X8, X8, X9).build(),
         i().sd(X5, X8, 0).build(),
         i().addi(X5, X5, 8).build(),
         i().addi(X6, X6, 1).build(),
         i().bne(X6, X7, -20).build(),
-        i().addi(DONE, 0, 1).build(),
-        i().jal(0, 0).build(),
+        i().addi(DONE, X0, 1).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -57,11 +54,11 @@ fn outcome(ctx: &mut TestContext) -> (u64, Vec<u64>, u64) {
     let stored = (0..SQUARES)
         .map(|i| ctx.sim.probe_mem_load(PhysAddr::new(DATA + 8 * i), ProbeWidth::B8))
         .collect();
-    (ctx.get_reg(X8 as usize), stored, ctx.sim.state.harts[0].instructions_retired)
+    (ctx.get_reg(X8), stored, ctx.sim.state.harts[0].instructions_retired)
 }
 
 fn run_to_done(ctx: &mut TestContext) {
-    let done = ctx.run_until(200_000, |ctx| ctx.get_reg(DONE as usize) == 1);
+    let done = ctx.run_until(200_000, |ctx| ctx.get_reg(DONE) == 1);
     assert!(done.is_some(), "the program finishes");
 }
 
@@ -79,7 +76,7 @@ fn a_run_checkpointed_on_the_in_order_core_finishes_on_the_o3_core_as_one_run_wo
     let mut first_half = TestContext::with_fast_memory(&config(BackendKind::InOrder))
         .load_program(PROGRAM_BASE, &running_squares());
     first_half.run(600);
-    assert_eq!(first_half.get_reg(DONE as usize), 0, "the checkpoint is taken mid-run");
+    assert_eq!(first_half.get_reg(DONE), 0, "the checkpoint is taken mid-run");
     let checkpoint = saved(&mut first_half);
 
     let mut second_half = TestContext::with_fast_memory(&config(BackendKind::OutOfOrder));
@@ -163,7 +160,7 @@ fn a_restore_leaves_the_snoop_filter_tracking_nothing() {
         i().addi(X5, X5, (DATA_BASE - PROGRAM_BASE) as i32).build(),
         i().ld(X6, X5, 0).build(),
         i().sd(X5, X6, 64).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ];
     let mut two_harts = config(BackendKind::OutOfOrder);
     two_harts.system.hart_count = std::num::NonZero::new(2).unwrap();

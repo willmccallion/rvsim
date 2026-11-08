@@ -8,13 +8,7 @@ use crate::config::BackendKind;
 use crate::config::{Config, PrefetcherKind};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const A4: u32 = 14;
+use crate::tests::support::regs::{A1, A2, A3, A4, T0, T1, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const CHAIN: u64 = 60;
 const MUL_LATENCY: u64 = 3;
@@ -47,7 +41,7 @@ fn cycles_to_retire(program: &[u32], retired: u64) -> u64 {
 fn a_dependent_add_chain_issues_one_per_cycle_through_the_bypass() {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> = (0..CHAIN).map(|_| i().addi(T0, T0, 1).build()).collect();
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
 
     let cycles = cycles_to_retire(&program, CHAIN);
 
@@ -57,9 +51,9 @@ fn a_dependent_add_chain_issues_one_per_cycle_through_the_bypass() {
 #[test]
 fn a_dependent_multiply_chain_waits_the_multiplier_latency() {
     let i = InstructionBuilder::new;
-    let mut program = vec![i().addi(T0, 0, 1).build(), i().addi(T1, 0, 3).build()];
+    let mut program = vec![i().addi(T0, X0, 1).build(), i().addi(T1, X0, 3).build()];
     program.extend((0..CHAIN).map(|_| i().mul(T0, T0, T1).build()));
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
 
     let cycles = cycles_to_retire(&program, CHAIN + 2);
 
@@ -77,13 +71,13 @@ fn a_dependent_multiply_chain_waits_the_multiplier_latency() {
 fn independent_divides_serialise_on_the_non_pipelined_divider() {
     let i = InstructionBuilder::new;
     let program = vec![
-        i().addi(T0, 0, 100).build(),
-        i().addi(T1, 0, 7).build(),
+        i().addi(T0, X0, 100).build(),
+        i().addi(T1, X0, 7).build(),
         i().div(A1, T0, T1).build(),
         i().div(A2, T0, T1).build(),
         i().div(A3, T0, T1).build(),
         i().div(A4, T0, T1).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ];
 
     let cycles = cycles_to_retire(&program, 2 + DIVIDES);

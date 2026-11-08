@@ -59,20 +59,20 @@ impl IdExBuilder {
         self
     }
 
-    pub fn rs1(mut self, rs1: usize, val: u64) -> Self {
-        self.0.inst.rs1 = RegIdx::new(rs1 as u8);
+    pub fn rs1(mut self, rs1: RegIdx, val: u64) -> Self {
+        self.0.inst.rs1 = rs1;
         self.0.inst.rv1 = val;
         self
     }
 
-    pub fn rs2(mut self, rs2: usize, val: u64) -> Self {
-        self.0.inst.rs2 = RegIdx::new(rs2 as u8);
+    pub fn rs2(mut self, rs2: RegIdx, val: u64) -> Self {
+        self.0.inst.rs2 = rs2;
         self.0.inst.rv2 = val;
         self
     }
 
-    pub fn rd(mut self, rd: usize) -> Self {
-        self.0.inst.rd = RegIdx::new(rd as u8);
+    pub fn rd(mut self, rd: RegIdx) -> Self {
+        self.0.inst.rd = rd;
         self
     }
 

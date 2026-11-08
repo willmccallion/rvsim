@@ -7,11 +7,10 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X29, X31};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
-const X29: u32 = 29;
-const X31: u32 = 31;
 const LINE_BYTES: usize = 64;
 const LINES: usize = 8;
 const INSTS_PER_LINE: usize = LINE_BYTES / 4;
@@ -22,8 +21,8 @@ const FENCE_I: u32 = 0x0000_100f;
 fn straight_line_program() -> Vec<u32> {
     let mut program = vec![InstructionBuilder::new().nop().build(); LINES * INSTS_PER_LINE];
     let last = program.len() - 1;
-    program[last - 1] = InstructionBuilder::new().addi(X31, 0, 1).build();
-    program[last] = InstructionBuilder::new().jal(0, 0).build();
+    program[last - 1] = InstructionBuilder::new().addi(X31, X0, 1).build();
+    program[last] = InstructionBuilder::new().jal(X0, 0).build();
     program
 }
 
@@ -32,11 +31,11 @@ fn straight_line_program() -> Vec<u32> {
 fn fence_i_loop(iterations: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(X29, 0, iterations).build(),
+        i().addi(X29, X0, iterations).build(),
         FENCE_I,
         i().addi(X31, X31, 1).build(),
         i().bne(X31, X29, -8).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -53,7 +52,7 @@ fn run_until(backend: BackendKind, program: &[u32], marker: u64) -> (u64, u64) {
         .load_program(RAM_BASE, program);
 
     let mut cycles = 0;
-    while tc.get_reg(X31 as usize) != marker {
+    while tc.get_reg(X31) != marker {
         tc.run(1);
         cycles += 1;
         assert!(cycles < 10_000, "program never reached its marker");

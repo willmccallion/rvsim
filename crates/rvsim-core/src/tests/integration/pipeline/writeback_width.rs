@@ -3,28 +3,30 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{T0, X0, after};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ADDS_PER_ITERATION: usize = 32;
 const ITERATIONS: usize = 50;
-const COUNTER: u32 = 28;
-const DONE_REG: usize = 31;
+const COUNTER: RegIdx = RegIdx::new(28);
+const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 
 /// A loop of independent adds, long enough for the warm front end to keep
 /// the backend fed.
 fn independent_adds() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let mut program = vec![i().addi(COUNTER, 0, ITERATIONS as i32).build()];
+    let mut program = vec![i().addi(COUNTER, X0, ITERATIONS as i32).build()];
     program
-        .extend((0..ADDS_PER_ITERATION).map(|n| i().addi(5 + (n % 8) as u32, 0, n as i32).build()));
+        .extend((0..ADDS_PER_ITERATION).map(|n| i().addi(after(T0, n % 8), X0, n as i32).build()));
     let body_bytes = 4 * (ADDS_PER_ITERATION as i32 + 1);
     program.push(i().addi(COUNTER, COUNTER, -1).build());
-    program.push(i().bne(COUNTER, 0, -body_bytes).build());
-    program.push(i().addi(DONE_REG as u32, 0, DONE as i32).build());
-    program.push(i().jal(0, 0).build());
+    program.push(i().bne(COUNTER, X0, -body_bytes).build());
+    program.push(i().addi(DONE_REG, X0, DONE as i32).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 

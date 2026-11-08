@@ -1,8 +1,8 @@
 //! Pipeline flushes by cause and the cycles each stage stalled.
 
 use super::program::{
-    A1, BACKENDS, MHARTID, T0, T1, T2, config, ending_in_spin, exit_sequence, run_to_exit,
-    run_to_pc, system, system_with, system_with_configured_latency, three_handled_ecalls,
+    BACKENDS, MHARTID, config, ending_in_spin, exit_sequence, run_to_exit, run_to_pc, system,
+    system_with, system_with_configured_latency, three_handled_ecalls,
 };
 use super::{Recorder, accounting_checks};
 use crate::config::{BackendKind, Config};
@@ -10,6 +10,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{A1, T0, T1, T2, X0, after};
 
 const LOOPS: i32 = 5;
 const MIE: u32 = 0x304;
@@ -31,9 +32,9 @@ fn flushes_by_cause(rec: &mut Recorder, sim: &crate::Simulator, context: &str) -
 fn mispredicted_loop() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T1, 0, LOOPS).build(),
+        i().addi(T1, X0, LOOPS).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -4).build(),
+        i().bne(T1, X0, -4).build(),
     ];
     program.extend(exit_sequence());
     program
@@ -84,7 +85,7 @@ fn traps_flush_under_trap_and_returns_under_system(rec: &mut Recorder) {
 fn load_past_unresolved_store() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T0, 0, 7).build(),
+        i().addi(T0, X0, 7).build(),
         i().div(T1, T0, T0).build(),
         i().add(T2, A1, T1).build(),
         i().addi(T2, T2, -1).build(),
@@ -104,7 +105,7 @@ fn a_load_that_passed_an_aliasing_store_flushes_under_mem_violations(rec: &mut R
 
         let counts = flushes_by_cause(rec, &ctx.sim, &context);
         assert_eq!(counts, [0, 0, violations, 0, 0], "{context}");
-        assert_eq!(ctx.get_reg(T1 as usize), 7, "{context}: the load saw the store");
+        assert_eq!(ctx.get_reg(T1), 7, "{context}: the load saw the store");
     }
 }
 
@@ -131,8 +132,9 @@ const STRAIGHT_LINE: u32 = 24;
 /// exit.
 fn independent_alu_ops(count: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let mut program: Vec<u32> =
-        (0..count).map(|n| i().addi(T0 + n % 3, 0, n.cast_signed()).build()).collect();
+    let mut program: Vec<u32> = (0..count)
+        .map(|n| i().addi(after(T0, (n % 3) as usize), X0, n.cast_signed()).build())
+        .collect();
     program.extend(exit_sequence());
     program
 }
@@ -141,9 +143,9 @@ fn independent_alu_ops(count: u32) -> Vec<u32> {
 /// otherwise all of the same operands; then the exit.
 fn divides(dependent: bool) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let mut program = vec![i().addi(T0, 0, 1).build(), i().addi(T1, 0, 1000).build()];
+    let mut program = vec![i().addi(T0, X0, 1).build(), i().addi(T1, X0, 1000).build()];
     for n in 0..DIVIDES as u32 {
-        let destination = if dependent { T1 } else { T2 + n % 2 * (A1 - T2) };
+        let destination = if dependent { T1 } else { [T2, A1][(n % 2) as usize] };
         program.push(i().div(destination, T1, T0).build());
     }
     program.extend(exit_sequence());
@@ -193,8 +195,8 @@ fn independent_divides_stall_on_the_one_divider_not_on_data(rec: &mut Recorder) 
 fn behind_a_divide(then: &[u32]) -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T0, 0, 1).build(),
-        i().addi(T1, 0, 1000).build(),
+        i().addi(T0, X0, 1).build(),
+        i().addi(T1, X0, 1000).build(),
         i().div(T1, T1, T0).build(),
     ];
     program.extend_from_slice(then);
@@ -203,7 +205,7 @@ fn behind_a_divide(then: &[u32]) -> (Vec<u32>, u64) {
 
 fn alu_ops(count: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    (0..count).map(|n| i().addi(T2 + n % 2 * (A1 - T2), 0, n.cast_signed()).build()).collect()
+    (0..count).map(|n| i().addi([T2, A1][(n % 2) as usize], X0, n.cast_signed()).build()).collect()
 }
 
 fn straight_line() -> (Vec<u32>, u64) {
@@ -223,7 +225,7 @@ fn an_instruction_that_must_be_oldest_waits_under_ordering(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
     for (backend, waits) in [
         (BackendKind::InOrder, i().amoadd_d(T2, A1, T0).build()),
-        (BackendKind::OutOfOrder, i().csrrs(T2, MHARTID, 0).build()),
+        (BackendKind::OutOfOrder, i().csrrs(T2, MHARTID, X0).build()),
     ] {
         let context = format!("{backend:?}");
         let config = config(backend);
@@ -240,7 +242,7 @@ fn an_instruction_that_must_be_oldest_waits_under_ordering(rec: &mut Recorder) {
 
 fn rename_waits_behind_a_csr_access_on_out_of_order_only(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
-    let mut csr_then_alu = vec![i().csrrs(T2, MHARTID, 0).build()];
+    let mut csr_then_alu = vec![i().csrrs(T2, MHARTID, X0).build()];
     csr_then_alu.extend(alu_ops(8));
     for (backend, serializes) in [(BackendKind::InOrder, false), (BackendKind::OutOfOrder, true)] {
         let context = format!("{backend:?}");
@@ -258,8 +260,8 @@ fn rename_waits_behind_a_csr_access_on_out_of_order_only(rec: &mut Recorder) {
 fn branches_wait_for_a_checkpoint_only_when_they_run_out(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T0, 0, 1).build(),
-        i().addi(T1, 0, 1000).build(),
+        i().addi(T0, X0, 1).build(),
+        i().addi(T1, X0, 1000).build(),
         i().div(T1, T1, T0).build(),
     ];
     program.extend((0..6).map(|_| i().bne(T0, T0, 8).build()));
@@ -301,9 +303,9 @@ fn rename_waits_for_a_full_rob_under_dispatch(rec: &mut Recorder) {
 fn a_mispredicted_loop_counts_control_and_squash_cycles(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
     let looping = vec![
-        i().addi(T1, 0, LOOPS).build(),
+        i().addi(T1, X0, LOOPS).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -4).build(),
+        i().bne(T1, X0, -4).build(),
     ];
     for (backend, walks_the_rob) in [(BackendKind::InOrder, false), (BackendKind::OutOfOrder, true)]
     {
@@ -363,7 +365,7 @@ fn supervisor_loads(backend: BackendKind, paged: bool) -> (TestContext, u64) {
     let body = vec![
         i().auipc(T1, 0).build(),
         i().addi(T0, T1, 16).build(),
-        i().csrrw(0, super::program::MEPC, T0).build(),
+        i().csrrw(X0, super::program::MEPC, T0).build(),
         MRET,
         i().ld(T2, A1, 0).build(),
         i().ld(T2, A1, 64).build(),
@@ -419,17 +421,17 @@ fn wait_for_the_timer(clint_base: u64) -> (Vec<u32>, u64) {
     let clint_mtimecmp_upper = ((clint_base + MTIMECMP) >> 12) as i32;
     ending_in_spin(vec![
         i().lui(T0, clint_mtimecmp_upper).build(),
-        i().addi(T1, 0, WAKE_AT as i32).build(),
+        i().addi(T1, X0, WAKE_AT as i32).build(),
         i().sd(T0, T1, 0).build(),
-        i().csrrs(T2, MIP, 0).build(),
+        i().csrrs(T2, MIP, X0).build(),
         i().andi(T2, T2, crate::isa::csr::MIP_MTIP as i32).build(),
-        i().bne(T2, 0, -8).build(),
-        i().addi(T2, 0, crate::isa::csr::MIE_MTIE as i32).build(),
-        i().csrrs(0, MIE, T2).build(),
+        i().bne(T2, X0, -8).build(),
+        i().addi(T2, X0, crate::isa::csr::MIE_MTIE as i32).build(),
+        i().csrrs(X0, MIE, T2).build(),
         crate::isa::encoding::privileged::WFI,
         // A waiting hart's PC is already past the WFI; the run stops after
         // this, which runs once it wakes.
-        i().addi(T2, 0, 0).build(),
+        i().addi(T2, X0, 0).build(),
     ])
 }
 

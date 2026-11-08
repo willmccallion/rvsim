@@ -4,14 +4,16 @@
 
 use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, MemDepPredictorKind};
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X6, X10, X11, X12, X13};
 
 const BASE_ADDR: u64 = 0x8000_0000;
 const MEM_SIZE: usize = 0x1000;
 const DATA_OFFSET: i32 = 0x400;
-const DONE_REG: usize = 2;
+const DONE_REG: RegIdx = RegIdx::new(2);
 const DONE_VALUE: u64 = 7;
 
 /// Stores `100 / 7` from a divide, so the store's address is known long
@@ -19,16 +21,16 @@ const DONE_VALUE: u64 = 7;
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, DATA_OFFSET).build(),
-        i().addi(11, 0, 100).build(),
-        i().addi(12, 0, 7).build(),
-        i().div(13, 11, 12).build(),
-        i().sd(10, 13, 0).build(),
-        i().ld(6, 10, 0).build(),
-        i().addi(DONE_REG as u32, 0, DONE_VALUE as i32).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, DATA_OFFSET).build(),
+        i().addi(X11, X0, 100).build(),
+        i().addi(X12, X0, 7).build(),
+        i().div(X13, X11, X12).build(),
+        i().sd(X10, X13, 0).build(),
+        i().ld(X6, X10, 0).build(),
+        i().addi(DONE_REG, X0, DONE_VALUE as i32).build(),
         // Spin, so the store's write can reach memory after it retires.
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ];
     program.extend(std::iter::repeat_n(i().nop().build(), 4));
     program
@@ -53,7 +55,7 @@ fn run(predictor: MemDepPredictorKind) -> TestContext {
 fn a_load_of_a_store_whose_data_comes_late_reads_that_data() {
     for predictor in [MemDepPredictorKind::Blind, MemDepPredictorKind::StoreSet] {
         let tc = run(predictor);
-        assert_eq!(tc.get_reg(6), 100 / 7, "{predictor:?}");
+        assert_eq!(tc.get_reg(X6), 100 / 7, "{predictor:?}");
     }
 }
 

@@ -6,21 +6,8 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, A3, A4, A5, A6, S0, S1, S2, T0, T1, T2, X0};
 use crate::uarch::pipeline::rob::RobTag;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const S0: u32 = 8;
-const S1: u32 = 9;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const A4: u32 = 14;
-const A5: u32 = 15;
-const A6: u32 = 16;
-const S2: u32 = 18;
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ITERATIONS: i32 = 24;
 
@@ -29,8 +16,11 @@ const ITERATIONS: i32 = 24;
 /// take; then a done flag and a spin.
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let setup =
-        [i().auipc(A0, 2).build(), i().addi(T0, 0, ITERATIONS).build(), i().addi(T1, 0, 1).build()];
+    let setup = [
+        i().auipc(A0, 2).build(),
+        i().addi(T0, X0, ITERATIONS).build(),
+        i().addi(T1, X0, 1).build(),
+    ];
     let body = [
         i().div(T2, A0, T1).build(),
         i().ld(A1, T2, 0).build(),
@@ -54,9 +44,9 @@ fn program() -> Vec<u32> {
     let back = -4 * (body.len() as i32);
     let mut program = setup.to_vec();
     program.extend(body);
-    program.push(i().bne(T0, 0, back).build());
-    program.push(i().addi(S2, 0, 1).build());
-    program.push(i().jal(0, 0).build());
+    program.push(i().bne(T0, X0, back).build());
+    program.push(i().addi(S2, X0, 1).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 
@@ -77,7 +67,7 @@ fn run(backend: BackendKind, first: RobTag) -> Outcome {
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.state.cores[0].pipeline.start_rob_tags_at(first);
 
-    let finished = ctx.run_until(50_000, |ctx| ctx.get_reg(S2 as usize) == 1);
+    let finished = ctx.run_until(50_000, |ctx| ctx.get_reg(S2) == 1);
 
     let cycle = finished.unwrap_or_else(|| panic!("{backend:?}: the loop did not finish"));
     let stats = ctx
@@ -90,7 +80,7 @@ fn run(backend: BackendKind, first: RobTag) -> Outcome {
         .iter()
         .map(|(path, v)| (path.to_string(), v))
         .collect();
-    Outcome { sum: ctx.get_reg(S1 as usize), cycle, stats }
+    Outcome { sum: ctx.get_reg(S1), cycle, stats }
 }
 
 /// The first statistic two outcomes disagree on, or the cycle and sum.

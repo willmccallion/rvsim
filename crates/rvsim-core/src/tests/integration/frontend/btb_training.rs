@@ -9,12 +9,8 @@ use crate::config::BackendKind;
 use crate::config::{BranchPredictorKind, Config};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{T0, T1, T2, T3, X0};
 use crate::uarch::bpred::ControlInst;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const T3: u32 = 28;
 const PROGRAM_BASE: u64 = 0x8000_0000;
 /// The indirect jump only the wrong path reaches.
 const WRONG_PATH_JALR: u64 = PROGRAM_BASE + 0x14;
@@ -26,14 +22,14 @@ const WRONG_PATH_JALR: u64 = PROGRAM_BASE + 0x14;
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, 7).build(),
+        i().addi(T0, X0, 7).build(),
         i().div(T1, T0, T0).build(),
-        i().bne(T1, 0, 20).build(),
-        i().addi(T3, 0, 0xff).build(),
+        i().bne(T1, X0, 20).build(),
+        i().addi(T3, X0, 0xff).build(),
         i().add(T2, T1, T3).build(),
-        i().jalr(0, T2, 0).build(),
-        i().addi(0, 0, 0).build(),
-        i().jal(0, 0).build(),
+        i().jalr(X0, T2, 0).build(),
+        i().addi(X0, X0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 

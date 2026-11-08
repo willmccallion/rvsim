@@ -7,11 +7,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const A0: u32 = 10;
+use crate::tests::support::regs::{A0, T0, T1, T2, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const CHAIN: usize = 40;
 /// The CLINT's `mtime`, which counts every cycle with an every-cycle timer.
@@ -30,7 +26,7 @@ fn program() -> Vec<u32> {
         i().lui(A0, (MTIME >> 12) as i32 + 1).build(),
         i().addi(A0, A0, (MTIME & 0xFFF) as i32 - 0x1000).build(),
         i().ld(T1, A0, 0).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]);
     program
 }
@@ -45,8 +41,8 @@ fn mtime_seen_by_the_load(backend: BackendKind) -> u64 {
 
     ctx.run(400);
 
-    assert_eq!(ctx.get_reg(T0 as usize), CHAIN as u64, "{backend:?}: the chain retired");
-    ctx.get_reg(T1 as usize)
+    assert_eq!(ctx.get_reg(T0), CHAIN as u64, "{backend:?}: the chain retired");
+    ctx.get_reg(T1)
 }
 
 #[test]
@@ -68,7 +64,7 @@ fn a_device_load_waits_until_it_is_the_oldest_instruction_inorder() {
 fn uart_receive_after_transmit(fenced: bool) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T1, 0, i32::from(b'A')).build(),
+        i().addi(T1, X0, i32::from(b'A')).build(),
         i().lui(A0, UART_THR_RBR >> 12).build(),
         i().sb(A0, T1, 0).build(),
     ];
@@ -77,8 +73,8 @@ fn uart_receive_after_transmit(fenced: bool) -> Vec<u32> {
     }
     program.extend([
         i().lbu(T2, A0, 0).build(),
-        i().addi(T0, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().addi(T0, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]);
     program
 }
@@ -91,10 +87,10 @@ fn receive_register_read(backend: BackendKind, width: usize, fenced: bool) -> u6
     let program = uart_receive_after_transmit(fenced);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
 
-    let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(T0 as usize) == DONE);
+    let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(T0) == DONE);
 
     assert!(finished.is_some(), "{backend:?} width {width}: the program did not finish");
-    ctx.get_reg(T2 as usize)
+    ctx.get_reg(T2)
 }
 
 #[test]

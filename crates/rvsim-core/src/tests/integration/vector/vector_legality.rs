@@ -2,19 +2,15 @@
 
 use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, Console};
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, A3, A4, T0, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x200;
 const DATA: u64 = PROGRAM_BASE + 0x400;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const A4: u32 = 14;
-const T0: u32 = 5;
 const MCAUSE: u32 = 0x342;
 const VSTART: u32 = 0x008;
 const VTYPE: u32 = 0xC21;
@@ -29,13 +25,18 @@ const E8M2: u32 = 0b001;
 const RESERVED_LMUL: u32 = 0b100;
 
 /// `vsetvli x0, rs1, zimm`.
-const fn vsetvli(rs1: u32, zimm: u32) -> u32 {
-    (zimm << 20) | (rs1 << 15) | (0b111 << 12) | 0x57
+const fn vsetvli(rs1: RegIdx, zimm: u32) -> u32 {
+    (zimm << 20) | (rs1.field() << 15) | (0b111 << 12) | 0x57
 }
 
 /// `vsetvl rd, rs1, rs2`.
-const fn vsetvl(rd: u32, rs1: u32, rs2: u32) -> u32 {
-    (0b100_0000 << 25) | (rs2 << 20) | (rs1 << 15) | (0b111 << 12) | (rd << 7) | 0x57
+const fn vsetvl(rd: RegIdx, rs1: RegIdx, rs2: RegIdx) -> u32 {
+    (0b100_0000 << 25)
+        | (rs2.field() << 20)
+        | (rs1.field() << 15)
+        | (0b111 << 12)
+        | (rd.field() << 7)
+        | 0x57
 }
 
 /// `vsetivli x0, uimm, zimm`.
@@ -44,23 +45,23 @@ const fn vsetivli(uimm: u32, zimm: u32) -> u32 {
 }
 
 /// `vl<nf>re8.v vd, (rs1)`.
-const fn vl_re8(nf: u32, vd: u32, rs1: u32) -> u32 {
-    ((nf - 1) << 29) | (1 << 25) | (0b01000 << 20) | (rs1 << 15) | (vd << 7) | 0x07
+const fn vl_re8(nf: u32, vd: u32, rs1: RegIdx) -> u32 {
+    ((nf - 1) << 29) | (1 << 25) | (0b01000 << 20) | (rs1.field() << 15) | (vd << 7) | 0x07
 }
 
 /// `vs1r.v vs3, (rs1)`.
-const fn vs1r(vs3: u32, rs1: u32) -> u32 {
-    (1 << 25) | (0b01000 << 20) | (rs1 << 15) | (vs3 << 7) | 0x27
+const fn vs1r(vs3: u32, rs1: RegIdx) -> u32 {
+    (1 << 25) | (0b01000 << 20) | (rs1.field() << 15) | (vs3 << 7) | 0x27
 }
 
 /// `vle8.v vd, (rs1)`.
-const fn vle8(vd: u32, rs1: u32) -> u32 {
-    0x0200_0007 | (vd << 7) | (rs1 << 15)
+const fn vle8(vd: u32, rs1: RegIdx) -> u32 {
+    0x0200_0007 | (vd << 7) | (rs1.field() << 15)
 }
 
 /// `vse8.v vs3, (rs1)`.
-const fn vse8(vs3: u32, rs1: u32) -> u32 {
-    0x0200_0027 | (vs3 << 7) | (rs1 << 15)
+const fn vse8(vs3: u32, rs1: RegIdx) -> u32 {
+    0x0200_0027 | (vs3 << 7) | (rs1.field() << 15)
 }
 
 /// `vmv1r.v vd, vs2`.
@@ -74,8 +75,8 @@ const fn vfadd_vv(vd: u32, vs2: u32, vs1: u32) -> u32 {
 }
 
 /// `vlm.v vd, (rs1)`.
-const fn vlm(vd: u32, rs1: u32) -> u32 {
-    (1 << 25) | (0b01011 << 20) | (rs1 << 15) | (vd << 7) | 0x07
+const fn vlm(vd: u32, rs1: RegIdx) -> u32 {
+    (1 << 25) | (0b01011 << 20) | (rs1.field() << 15) | (vd << 7) | 0x07
 }
 
 /// What a run left behind: `mcause` as the handler recorded it (zero when
@@ -94,11 +95,11 @@ fn run(backend: BackendKind, body: &[u32]) -> Outcome {
     let mut program = vec![
         i().auipc(A0, 0).build(),
         i().addi(A0, A0, (DATA - PROGRAM_BASE) as i32).build(),
-        i().addi(A2, 0, 16).build(),
+        i().addi(A2, X0, 16).build(),
     ];
     program.extend_from_slice(body);
-    program.extend([i().addi(A1, 0, RAN as i32).build(), i().jal(0, 0).build()]);
-    let handler = [i().csrrs(A2, MCAUSE, 0).build(), i().jal(0, 0).build()];
+    program.extend([i().addi(A1, X0, RAN as i32).build(), i().jal(X0, 0).build()]);
+    let handler = [i().csrrs(A2, MCAUSE, X0).build(), i().jal(X0, 0).build()];
 
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
@@ -119,12 +120,12 @@ fn run(backend: BackendKind, body: &[u32]) -> Outcome {
 
     ctx.run(5_000);
 
-    let ran_on = ctx.get_reg(A1 as usize) == RAN;
+    let ran_on = ctx.get_reg(A1) == RAN;
     Outcome {
-        mcause: if ran_on { 0 } else { ctx.get_reg(A2 as usize) },
+        mcause: if ran_on { 0 } else { ctx.get_reg(A2) },
         ran_on,
-        a3: ctx.get_reg(A3 as usize),
-        a4: ctx.get_reg(A4 as usize),
+        a3: ctx.get_reg(A3),
+        a4: ctx.get_reg(A4),
     }
 }
 
@@ -177,10 +178,10 @@ fn vstart_reads_zero_after_a_vector_store() {
     let body = [
         vsetvli(A2, E8M1),
         vle8(3, A0),
-        i().addi(T0, 0, 3).build(),
-        i().csrrw(0, VSTART, T0).build(),
+        i().addi(T0, X0, 3).build(),
+        i().csrrw(X0, VSTART, T0).build(),
         vse8(3, A0),
-        i().csrrs(A3, VSTART, 0).build(),
+        i().csrrs(A3, VSTART, X0).build(),
     ];
 
     let vstarts = BACKENDS.map(|b| run(b, &body).a3);
@@ -192,7 +193,7 @@ fn vstart_reads_zero_after_a_vector_store() {
 fn vsetvl_with_a_reserved_vtype_bit_sets_vill() {
     let i = InstructionBuilder::new;
     let body =
-        [i().addi(T0, 0, 1 << 8).build(), vsetvl(A4, A2, T0), i().csrrs(A3, VTYPE, 0).build()];
+        [i().addi(T0, X0, 1 << 8).build(), vsetvl(A4, A2, T0), i().csrrs(A3, VTYPE, X0).build()];
 
     let results = BACKENDS.map(|b| {
         let outcome = run(b, &body);
@@ -205,7 +206,7 @@ fn vsetvl_with_a_reserved_vtype_bit_sets_vill() {
 #[test]
 fn vsetivli_sets_the_vtype_it_names() {
     let i = InstructionBuilder::new;
-    let body = [vsetivli(4, E8M2), i().csrrs(A3, VTYPE, 0).build()];
+    let body = [vsetivli(4, E8M2), i().csrrs(A3, VTYPE, X0).build()];
 
     let vtypes = BACKENDS.map(|b| run(b, &body).a3);
 

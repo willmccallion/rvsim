@@ -17,22 +17,9 @@ use crate::tests::support::builder::instruction::{
     FENCE_IORW, InstructionBuilder, M5_FAIL, exit_with_a0,
 };
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const T3: u32 = 28;
-const T4: u32 = 29;
-const T5: u32 = 30;
-const T6: u32 = 31;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const A4: u32 = 14;
-const A5: u32 = 15;
-const A6: u32 = 16;
-const S2: u32 = 18;
+use crate::tests::support::regs::{
+    A0, A1, A2, A3, A4, A5, A6, S2, T0, T1, T2, T3, T4, T5, T6, X0, X10, X11,
+};
 const MHARTID: u32 = 0xF14;
 
 fn cached(harts: usize, backend: BackendKind) -> Config {
@@ -59,36 +46,36 @@ fn shared_line_stores(harts: i32, iterations: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let idle = 25 + 2 * harts;
     let mut code = vec![
-        i().addi(T0, 0, 31).build(),
-        i().addi(T2, 0, 1).build(),
+        i().addi(T0, X0, 31).build(),
+        i().addi(T2, X0, 1).build(),
         i().sll(T2, T2, T0).build(),
         i().addi(T2, T2, 0x400).build(),
-        i().csrrs(T5, MHARTID, 0).build(),
-        i().addi(T6, 0, 3).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
+        i().addi(T6, X0, 3).build(),
         i().sll(T5, T5, T6).build(),
         i().add(T4, T2, T5).build(),
-        i().addi(T1, 0, iterations).build(),
+        i().addi(T1, X0, iterations).build(),
         i().ld(T6, T4, 0).build(),
         i().addi(T6, T6, 1).build(),
         i().sd(T4, T6, 0).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -16).build(),
+        i().bne(T1, X0, -16).build(),
         i().addi(T3, T2, 0x80).build(),
-        i().addi(A1, 0, 1).build(),
-        i().amoadd_d(0, T3, A1).build(),
-        i().csrrs(A1, MHARTID, 0).build(),
-        i().bne(A1, 0, (idle - 18) * 4).build(),
+        i().addi(A1, X0, 1).build(),
+        i().amoadd_d(X0, T3, A1).build(),
+        i().csrrs(A1, MHARTID, X0).build(),
+        i().bne(A1, X0, (idle - 18) * 4).build(),
         i().ld(A2, T3, 0).build(),
-        i().addi(A3, 0, harts).build(),
+        i().addi(A3, X0, harts).build(),
         i().bne(A2, A3, -8).build(),
-        i().addi(A0, 0, 0).build(),
+        i().addi(A0, X0, 0).build(),
     ];
     for hart in 0..harts {
         code.push(i().ld(A1, T2, hart * 8).build());
         code.push(i().add(A0, A0, A1).build());
     }
     code.extend(exit_with_a0());
-    code.push(i().jal(0, 0).build());
+    code.push(i().jal(X0, 0).build());
     assert_eq!(code.len() as i32, idle + 1);
     code
 }
@@ -98,46 +85,46 @@ fn shared_line_stores(harts: i32, iterations: i32) -> Vec<u32> {
 fn producer_consumer(harts: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut code = vec![
-        i().addi(T0, 0, 31).build(),
-        i().addi(T2, 0, 1).build(),
+        i().addi(T0, X0, 31).build(),
+        i().addi(T2, X0, 1).build(),
         i().sll(T2, T2, T0).build(),
         i().addi(T2, T2, 0x400).build(),
-        i().csrrs(T5, MHARTID, 0).build(),
-        i().bne(T5, 0, (26 - 5) * 4).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
+        i().bne(T5, X0, (26 - 5) * 4).build(),
     ];
     for k in 0..8 {
-        code.push(i().addi(T6, 0, k + 1).build());
+        code.push(i().addi(T6, X0, k + 1).build());
         code.push(i().sd(T2, T6, 0x40 + 8 * k).build());
     }
     code.push(FENCE_IORW);
-    code.push(i().addi(T6, 0, 1).build());
+    code.push(i().addi(T6, X0, 1).build());
     code.push(i().sd(T2, T6, 0).build());
-    code.push(i().jal(0, (48 - 25) * 4).build());
+    code.push(i().jal(X0, (48 - 25) * 4).build());
     assert_eq!(code.len(), 26);
     code.push(i().ld(T6, T2, 0).build());
-    code.push(i().beq(T6, 0, -4).build());
+    code.push(i().beq(T6, X0, -4).build());
     code.push(FENCE_IORW);
-    code.push(i().addi(A0, 0, 0).build());
+    code.push(i().addi(A0, X0, 0).build());
     for k in 0..8 {
         code.push(i().ld(T6, T2, 0x40 + 8 * k).build());
         code.push(i().add(A0, A0, T6).build());
     }
     code.push(i().addi(T3, T2, 0x80).build());
-    code.push(i().amoadd_d(0, T3, A0).build());
+    code.push(i().amoadd_d(X0, T3, A0).build());
     assert_eq!(code.len(), 48);
     code.extend([
         i().addi(T3, T2, 0x88).build(),
-        i().addi(T6, 0, 1).build(),
-        i().amoadd_d(0, T3, T6).build(),
-        i().bne(T5, 0, (59 - 51) * 4).build(),
+        i().addi(T6, X0, 1).build(),
+        i().amoadd_d(X0, T3, T6).build(),
+        i().bne(T5, X0, (59 - 51) * 4).build(),
         i().ld(A2, T3, 0).build(),
-        i().addi(A3, 0, harts).build(),
+        i().addi(A3, X0, harts).build(),
         i().bne(A2, A3, -8).build(),
         i().addi(T3, T2, 0x80).build(),
         i().ld(A0, T3, 0).build(),
-        i().addi(11, 10, 0).build(),
+        i().addi(X11, X10, 0).build(),
         M5_FAIL,
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]);
     assert_eq!(code.len(), 60);
     code
@@ -305,17 +292,17 @@ fn reload_of_a_word_in_the_code_line() -> Vec<u32> {
     const OFFSET_FROM_T0: i32 = (WORD_INDEX - 2) * 4;
     let i = InstructionBuilder::new;
     let mut code = vec![
-        i().csrrs(T5, MHARTID, 0).build(),
-        i().bne(T5, 0, (10 - 1) * 4).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
+        i().bne(T5, X0, (10 - 1) * 4).build(),
         i().auipc(T0, 0).build(),
         i().lw(A1, T0, OFFSET_FROM_T0).build(),
         i().addi(A1, A1, 1).build(),
         i().sw(T0, A1, OFFSET_FROM_T0).build(),
         i().lw(A2, T0, OFFSET_FROM_T0).build(),
         i().sub(A0, A2, A1).build(),
-        i().addi(11, 10, 0).build(),
+        i().addi(X11, X10, 0).build(),
         M5_FAIL,
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ];
     code.resize(WORD_INDEX as usize, i().nop().build());
     code.push(0x41);
@@ -340,27 +327,30 @@ fn a_reload_sees_its_write_combined_store_while_the_line_is_shared() {
 /// fence that waits for it, and exits with 0.
 fn cbo_after_another_hart_writes(cbo_imm: i64) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let cbo = ((cbo_imm as u32 & 0xFFF) << 20) | (T2 << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM;
+    let cbo = ((cbo_imm as u32 & 0xFFF) << 20)
+        | (T2.field() << 15)
+        | (i_f3::CBO << 12)
+        | i_op::OP_MISC_MEM;
     let code = vec![
-        i().addi(T0, 0, 31).build(),
-        i().addi(T2, 0, 1).build(),
+        i().addi(T0, X0, 31).build(),
+        i().addi(T2, X0, 1).build(),
         i().sll(T2, T2, T0).build(),
         i().addi(T2, T2, 0x400).build(),
-        i().csrrs(T5, MHARTID, 0).build(),
-        i().bne(T5, 0, (13 - 5) * 4).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
+        i().bne(T5, X0, (13 - 5) * 4).build(),
         i().ld(T6, T2, 0x80).build(),
-        i().beq(T6, 0, -4).build(),
+        i().beq(T6, X0, -4).build(),
         cbo,
         FENCE_IORW,
-        i().addi(A0, 0, 0).build(),
-        i().addi(11, 10, 0).build(),
+        i().addi(A0, X0, 0).build(),
+        i().addi(X11, X10, 0).build(),
         M5_FAIL,
-        i().addi(T6, 0, 5).build(),
+        i().addi(T6, X0, 5).build(),
         i().sd(T2, T6, 0).build(),
         FENCE_IORW,
-        i().addi(T6, 0, 1).build(),
+        i().addi(T6, X0, 1).build(),
         i().sd(T2, T6, 0x80).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ];
     assert_eq!(code.len(), 19);
     code
@@ -448,54 +438,54 @@ fn contended_streams(harts: i32, rounds: i32) -> Vec<u32> {
     const SUM_LOOP: i32 = 41;
     let i = InstructionBuilder::new;
     let mut code = vec![
-        i().addi(T0, 0, 31).build(),
-        i().addi(T2, 0, 1).build(),
+        i().addi(T0, X0, 31).build(),
+        i().addi(T2, X0, 1).build(),
         i().sll(T2, T2, T0).build(),
         i().addi(T2, T2, 0x400).build(),
         i().lui(A4, 1).build(),
         i().add(A4, T2, A4).build(),
-        i().csrrs(T5, MHARTID, 0).build(),
-        i().bne(T5, 0, (READER - 7) * 4).build(),
-        i().addi(T1, 0, STREAM_LINES).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
+        i().bne(T5, X0, (READER - 7) * 4).build(),
+        i().addi(T1, X0, STREAM_LINES).build(),
         i().addi(A5, A4, 0).build(),
-        i().addi(T6, 0, 1).build(),
+        i().addi(T6, X0, 1).build(),
         i().sd(A5, T6, 0).build(),
         i().addi(A5, A5, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, (11 - 14) * 4).build(),
-        i().jal(0, (BARRIER - 15) * 4).build(),
+        i().bne(T1, X0, (11 - 14) * 4).build(),
+        i().jal(X0, (BARRIER - 15) * 4).build(),
     ];
     assert_eq!(code.len() as i32, READER);
     code.extend([
-        i().addi(T6, 0, 3).build(),
+        i().addi(T6, X0, 3).build(),
         i().sll(A6, T5, T6).build(),
-        i().addi(S2, 0, rounds).build(),
+        i().addi(S2, X0, rounds).build(),
         i().add(A5, A4, A6).build(),
-        i().addi(T1, 0, STREAM_LINES).build(),
+        i().addi(T1, X0, STREAM_LINES).build(),
         i().ld(T6, A5, 0).build(),
         i().addi(T6, T6, 1).build(),
         i().sd(A5, T6, 0).build(),
         i().addi(A5, A5, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, (21 - 26) * 4).build(),
+        i().bne(T1, X0, (21 - 26) * 4).build(),
         i().addi(S2, S2, -1).build(),
-        i().bne(S2, 0, (19 - 28) * 4).build(),
+        i().bne(S2, X0, (19 - 28) * 4).build(),
     ]);
     assert_eq!(code.len() as i32, BARRIER);
     let idle = SUM_LOOP + 2 * harts + 5;
     code.extend([
         FENCE_IORW,
         i().addi(T3, T2, 0x88).build(),
-        i().addi(T6, 0, 1).build(),
-        i().amoadd_d(0, T3, T6).build(),
-        i().bne(T5, 0, (idle - 33) * 4).build(),
+        i().addi(T6, X0, 1).build(),
+        i().amoadd_d(X0, T3, T6).build(),
+        i().bne(T5, X0, (idle - 33) * 4).build(),
         i().ld(A2, T3, 0).build(),
-        i().addi(A3, 0, harts).build(),
+        i().addi(A3, X0, harts).build(),
         i().bne(A2, A3, -8).build(),
         FENCE_IORW,
-        i().addi(A0, 0, 0).build(),
+        i().addi(A0, X0, 0).build(),
         i().addi(A5, A4, 0).build(),
-        i().addi(T1, 0, STREAM_LINES).build(),
+        i().addi(T1, X0, STREAM_LINES).build(),
     ]);
     assert_eq!(code.len() as i32, SUM_LOOP);
     for hart in 0..harts {
@@ -506,12 +496,12 @@ fn contended_streams(harts: i32, rounds: i32) -> Vec<u32> {
     code.extend([
         i().addi(A5, A5, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, back * 4).build(),
-        i().addi(11, 10, 0).build(),
+        i().bne(T1, X0, back * 4).build(),
+        i().addi(X11, X10, 0).build(),
         M5_FAIL,
     ]);
     assert_eq!(code.len() as i32, idle);
-    code.push(i().jal(0, 0).build());
+    code.push(i().jal(X0, 0).build());
     code
 }
 
@@ -561,44 +551,44 @@ fn reserved_line_under_store_prefetch(harts: i32, iterations: i32) -> Vec<u32> {
     const IDLE: i32 = 37;
     let i = InstructionBuilder::new;
     let code = vec![
-        i().addi(T0, 0, 31).build(),
-        i().addi(T2, 0, 1).build(),
+        i().addi(T0, X0, 31).build(),
+        i().addi(T2, X0, 1).build(),
         i().sll(T2, T2, T0).build(),
         i().addi(T2, T2, 0x400).build(),
         i().lui(A4, 2).build(),
         i().add(A4, T2, A4).build(),
         i().lui(A6, 2).build(),
         i().add(A6, A4, A6).build(),
-        i().csrrs(T5, MHARTID, 0).build(),
-        i().addi(T6, 0, 3).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
+        i().addi(T6, X0, 3).build(),
         i().sll(A3, T5, T6).build(),
-        i().addi(T1, 0, iterations).build(),
-        i().addi(T3, 0, 1).build(),
+        i().addi(T1, X0, iterations).build(),
+        i().addi(T3, X0, 1).build(),
         i().lr_d(T4, A6).build(),
         i().addi(T4, T4, 1).build(),
         i().sc_d(T6, A6, T4).build(),
-        i().bne(T6, 0, (OUTER - 16) * 4).build(),
-        i().beq(T5, 0, (NEXT - 17) * 4).build(),
+        i().bne(T6, X0, (OUTER - 16) * 4).build(),
+        i().beq(T5, X0, (NEXT - 17) * 4).build(),
         i().add(A5, A4, A3).build(),
-        i().addi(S2, 0, RESERVED_RUN_LINES).build(),
+        i().addi(S2, X0, RESERVED_RUN_LINES).build(),
         i().sd(A5, T3, 0).build(),
         i().addi(A5, A5, 64).build(),
         i().addi(S2, S2, -1).build(),
-        i().bne(S2, 0, (STREAM - 23) * 4).build(),
+        i().bne(S2, X0, (STREAM - 23) * 4).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, (OUTER - 25) * 4).build(),
+        i().bne(T1, X0, (OUTER - 25) * 4).build(),
         FENCE_IORW,
         i().addi(A1, T2, 0x88).build(),
-        i().amoadd_d(0, A1, T3).build(),
-        i().bne(T5, 0, (IDLE - 29) * 4).build(),
+        i().amoadd_d(X0, A1, T3).build(),
+        i().bne(T5, X0, (IDLE - 29) * 4).build(),
         i().ld(A2, A1, 0).build(),
-        i().addi(T6, 0, harts).build(),
+        i().addi(T6, X0, harts).build(),
         i().bne(A2, T6, (WAIT - 32) * 4).build(),
         FENCE_IORW,
         i().ld(A0, A6, 0).build(),
-        i().addi(11, 10, 0).build(),
+        i().addi(X11, X10, 0).build(),
         M5_FAIL,
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ];
     assert_eq!(code.len() as i32, IDLE + 1);
     code

@@ -88,13 +88,13 @@ impl TestContext {
     }
 
     /// Set a general-purpose register value.
-    pub fn set_reg(&mut self, reg: usize, val: u64) {
-        self.sim.state.harts[0].regs.write(RegIdx::new(reg as u8), val);
+    pub fn set_reg(&mut self, reg: RegIdx, val: u64) {
+        self.sim.state.harts[0].regs.write(reg, val);
     }
 
     /// Read a general-purpose register value.
-    pub fn get_reg(&self, reg: usize) -> u64 {
-        self.sim.state.harts[0].regs.read(RegIdx::new(reg as u8))
+    pub fn get_reg(&self, reg: RegIdx) -> u64 {
+        self.sim.state.harts[0].regs.read(reg)
     }
 
     /// Ticks until `done` holds and returns the cycle it first held, or

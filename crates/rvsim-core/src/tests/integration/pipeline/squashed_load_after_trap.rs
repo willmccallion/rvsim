@@ -6,28 +6,29 @@ use crate::Simulator;
 use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, Console, MemoryControllerKind};
 use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
+use crate::isa::reg::RegIdx;
 use crate::soc::exit::ExitSignal;
 use crate::system::SystemState;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::harness::valid;
+use crate::tests::support::regs::{
+    A0, A5, T0, T2, X0, X6, X11, X12, X13, X14, X18, X19, X20, X21, X22, X23, X24, X25, X26, X28,
+    X29, X30, X31,
+};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
 const LOADED: u64 = 0x1234_5678_9ABC_DEF0;
 const LATENCY: u64 = 600;
-const A0: u32 = 10;
-const A5: u32 = 15;
-const T0: u32 = 5;
-const T2: u32 = 7;
 /// SYSTEM with funct3=4, which the hart does not implement.
 const ILLEGAL: u32 = 0x0000_4073;
 const HANDLER_INDEX: usize = 7;
 /// What the handler writes in the I-cache line it shares with the load.
-const WRITTEN: [u32; 9] = [6, 11, 12, 13, 14, 28, 29, 30, 31];
+const WRITTEN: [RegIdx; 9] = [X6, X11, X12, X13, X14, X28, X29, X30, X31];
 /// Where the handler copies each, once its next line has arrived.
-const COPIES: [u32; 9] = [18, 19, 20, 21, 22, 23, 24, 25, 26];
+const COPIES: [RegIdx; 9] = [X18, X19, X20, X21, X22, X23, X24, X25, X26];
 const BASE_VALUE: i32 = 100;
 
 /// Divides hold an illegal instruction from commit while the load after
@@ -39,16 +40,16 @@ fn program() -> Vec<u32> {
     let mut program = vec![
         i().auipc(A0, 0).build(),
         i().addi(A0, A0, (DATA - PROGRAM_BASE) as i32).build(),
-        i().addi(T0, 0, 1).build(),
+        i().addi(T0, X0, 1).build(),
         i().div(T2, T0, T0).build(),
         i().div(T2, T2, T0).build(),
         ILLEGAL,
         i().ld(A5, A0, 0).build(),
     ];
     assert_eq!(program.len(), HANDLER_INDEX);
-    program.extend(WRITTEN.iter().zip(BASE_VALUE..).map(|(&r, v)| i().addi(r, 0, v).build()));
+    program.extend(WRITTEN.iter().zip(BASE_VALUE..).map(|(&r, v)| i().addi(r, X0, v).build()));
     program.extend(WRITTEN.iter().zip(COPIES).map(|(&r, copy)| i().addi(copy, r, 0).build()));
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 
@@ -83,7 +84,7 @@ fn copies(backend: BackendKind) -> Vec<u64> {
 
     ctx.run(8 * LATENCY);
 
-    COPIES.iter().map(|&r| ctx.get_reg(r as usize)).collect()
+    COPIES.iter().map(|&r| ctx.get_reg(r)).collect()
 }
 
 fn written() -> Vec<u64> {

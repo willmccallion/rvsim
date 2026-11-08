@@ -5,16 +5,15 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::{Config, Console};
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SOURCE: u64 = PROGRAM_BASE + 0x400;
 const DEST: u64 = SOURCE + 64;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
 const ELEMENTS: u64 = 8;
 const VSB_ENTRIES: usize = 4;
 
@@ -24,13 +23,13 @@ const fn vsetivli_e8(uimm: u32) -> u32 {
 }
 
 /// `vle8.v vd, (rs1)`.
-const fn vle8(vd: u32, rs1: u32) -> u32 {
-    0x0200_0007 | (vd << 7) | (rs1 << 15)
+const fn vle8(vd: u32, rs1: RegIdx) -> u32 {
+    0x0200_0007 | (vd << 7) | (rs1.field() << 15)
 }
 
 /// `vse8.v vs3, (rs1)`.
-const fn vse8(vs3: u32, rs1: u32) -> u32 {
-    0x0200_0027 | (vs3 << 7) | (rs1 << 15)
+const fn vse8(vs3: u32, rs1: RegIdx) -> u32 {
+    0x0200_0027 | (vs3 << 7) | (rs1.field() << 15)
 }
 
 /// More `vl` = 0 stores than the buffer has entries, then a real store of
@@ -47,7 +46,7 @@ fn program() -> Vec<u32> {
     ];
     words.extend(std::iter::repeat_n(vse8(1, A1), 2 * VSB_ENTRIES));
     words.extend([vsetivli_e8(ELEMENTS as u32), vse8(1, A1), i().ld(A2, A1, 0).build()]);
-    words.push(i().jal(0, 0).build());
+    words.push(i().jal(X0, 0).build());
     words
 }
 
@@ -64,7 +63,7 @@ fn run(backend: BackendKind) -> u64 {
 
     ctx.run(5_000);
 
-    ctx.get_reg(A2 as usize)
+    ctx.get_reg(A2)
 }
 
 #[test]

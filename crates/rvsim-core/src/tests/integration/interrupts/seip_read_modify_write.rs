@@ -8,25 +8,24 @@ use crate::isa::csr::{MIP, MIP_SEIP, MIP_STIP};
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{T0, T1, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;
 const UART_IER: u64 = 0x1000_0001;
 const UART_SOURCE: u64 = 10;
 const HART0_S_CONTEXT: u64 = 1;
-const T0: u32 = 5;
-const T1: u32 = 6;
 
 /// Waits for SEIP to show in `mip`, clears STIP with a CSRRC, then spins.
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, MIP_STIP as i32).build(),
-        i().csrrs(T1, MIP.as_u32(), 0).build(),
+        i().addi(T0, X0, MIP_STIP as i32).build(),
+        i().csrrs(T1, MIP.as_u32(), X0).build(),
         i().andi(T1, T1, MIP_SEIP as i32).build(),
-        i().beq(T1, 0, -8).build(),
-        i().csrrc(0, MIP.as_u32(), T0).build(),
-        i().jal(0, 0).build(),
+        i().beq(T1, X0, -8).build(),
+        i().csrrc(X0, MIP.as_u32(), T0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 

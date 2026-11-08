@@ -13,6 +13,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{A0, A1, T0, X0};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -30,9 +31,6 @@ const L2_LATENCY: u64 = 25;
 const L1_TLB_ENTRIES: usize = 32;
 const L2_TLB_ENTRIES: usize = 512;
 const L2_TLB_WAYS: usize = 4;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const T0: u32 = 5;
 const PTE_V: u64 = 1;
 const PTE_LEAF_RWX_AD: u64 = 0b1100_1111;
 
@@ -52,7 +50,7 @@ fn program() -> Vec<u32> {
     program.extend((0..DRAIN_NOPS).map(|_| i().nop().build()));
     program.push(i().lui(A0, (DATA_VA >> 12) as i32).build());
     program.push(i().ld(A1, A0, 0).build());
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 

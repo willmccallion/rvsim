@@ -7,14 +7,11 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A1, A2, A3, T0, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 const DATA: u64 = PROGRAM_BASE + 0x1000;
-const T0: u32 = 5;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
 const MCAUSE: u32 = 0x342;
 const MTVAL: u32 = 0x343;
 const BREAKPOINT: u64 = 3;
@@ -27,14 +24,18 @@ const MCONTROL_STORE_M: u64 = (2 << 60) | (1 << 1) | (1 << 6);
 /// Loads from or stores to `DATA`, then spins.
 fn access(store: bool) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let access = if store { i().sw(T0, 0, 0).build() } else { i().lw(A1, T0, 0).build() };
-    vec![i().auipc(T0, 1).build(), access, i().jal(0, 0).build()]
+    let access = if store { i().sw(T0, X0, 0).build() } else { i().lw(A1, T0, 0).build() };
+    vec![i().auipc(T0, 1).build(), access, i().jal(X0, 0).build()]
 }
 
 /// Records `mcause` and `mtval`, then spins.
 fn handler() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().csrrs(A2, MCAUSE, 0).build(), i().csrrs(A3, MTVAL, 0).build(), i().jal(0, 0).build()]
+    vec![
+        i().csrrs(A2, MCAUSE, X0).build(),
+        i().csrrs(A3, MTVAL, X0).build(),
+        i().jal(X0, 0).build(),
+    ]
 }
 
 /// The `mcause` and `mtval` a trigger armed with `tdata1` on `DATA` leaves.
@@ -59,7 +60,7 @@ fn trap_of_data_trigger(backend: BackendKind, store: bool, tdata1: u64) -> (u64,
 
     ctx.run(500);
 
-    (ctx.get_reg(A2 as usize), ctx.get_reg(A3 as usize))
+    (ctx.get_reg(A2), ctx.get_reg(A3))
 }
 
 #[test]

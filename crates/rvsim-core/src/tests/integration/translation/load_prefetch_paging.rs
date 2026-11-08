@@ -9,7 +9,9 @@
 //! Sv48 and Sv57 the data lies above Sv39's address range, so the walk uses
 //! nonzero indices at the extra levels.
 
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
+use crate::tests::support::regs::{X0, X6, X7, X13};
 use std::collections::HashMap;
 
 use crate::common::{Asid, LineAddr, PhysAddr, Ppn, VirtAddr, Vpn};
@@ -42,9 +44,9 @@ const STRIDE: i32 = 256;
 /// prefetches none; a trained stream's last prefetches run four lines into
 /// the second page.
 const LOADS: i32 = 16;
-const DATA_REG: usize = 10;
-const NEXT_PAGE_REG: usize = 11;
-const DONE_REG: usize = 2;
+const DATA_REG: RegIdx = RegIdx::new(10);
+const NEXT_PAGE_REG: RegIdx = RegIdx::new(11);
+const DONE_REG: RegIdx = RegIdx::new(2);
 const DONE: u64 = 7;
 
 #[derive(Clone, Copy, Debug)]
@@ -168,20 +170,20 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
 
 fn program(touch_second_page: bool) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let (data, next) = (DATA_REG as u32, NEXT_PAGE_REG as u32);
+    let (data, next) = (DATA_REG, NEXT_PAGE_REG);
     let mut program = Vec::new();
     if touch_second_page {
-        program.push(i().ld(13, next, 0).build());
+        program.push(i().ld(X13, next, 0).build());
     }
     program.extend([
-        i().addi(6, 0, LOADS).build(),
-        i().ld(7, data, 0).build(),
-        i().add(data, data, 7).build(),
+        i().addi(X6, X0, LOADS).build(),
+        i().ld(X7, data, 0).build(),
+        i().add(data, data, X7).build(),
         i().addi(data, data, STRIDE).build(),
-        i().addi(6, 6, -1).build(),
-        i().bne(6, 0, -16).build(),
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().addi(X6, X6, -1).build(),
+        i().bne(X6, X0, -16).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]);
     program
 }

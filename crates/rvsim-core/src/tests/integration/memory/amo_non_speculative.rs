@@ -5,16 +5,18 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{T3, T4, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
-const BASE: u32 = 5;
-const ONE: u32 = 6;
-const SLOW: u32 = 7;
-const DONE_REG: usize = 31;
+const BASE: RegIdx = RegIdx::new(5);
+const ONE: RegIdx = RegIdx::new(6);
+const SLOW: RegIdx = RegIdx::new(7);
+const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 
 /// A branch that is taken once a divide finishes, skipping an `amoadd`
@@ -24,12 +26,12 @@ fn program() -> Vec<u32> {
     vec![
         i().auipc(BASE, 0).build(),
         i().addi(BASE, BASE, (DATA - PROGRAM_BASE) as i32).build(),
-        i().addi(ONE, 0, 1).build(),
+        i().addi(ONE, X0, 1).build(),
         i().div(SLOW, ONE, ONE).build(),
-        i().bne(SLOW, 0, 8).build(),
-        i().amoadd_d(0, BASE, ONE).build(),
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().bne(SLOW, X0, 8).build(),
+        i().amoadd_d(X0, BASE, ONE).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -52,8 +54,6 @@ fn an_amo_on_a_mispredicted_path_never_reaches_memory() {
     }
 }
 
-const T0: u32 = 28;
-const T1: u32 = 29;
 const MTVEC: u32 = 0x305;
 const MEPC: u32 = 0x341;
 const MRET: u32 = 0x3020_0073;
@@ -66,19 +66,19 @@ fn amo_behind_a_trap() -> Vec<u32> {
     vec![
         i().auipc(BASE, 0).build(),                                 // 0x00
         i().addi(BASE, BASE, (DATA - PROGRAM_BASE) as i32).build(), // 0x04
-        i().addi(ONE, 0, 1).build(),                                // 0x08
-        i().auipc(T0, 0).build(),                                   // 0x0c
-        i().addi(T0, T0, 0x24).build(),                             // 0x10: the handler
-        i().csrrw(0, MTVEC, T0).build(),                            // 0x14
+        i().addi(ONE, X0, 1).build(),                               // 0x08
+        i().auipc(T3, 0).build(),                                   // 0x0c
+        i().addi(T3, T3, 0x24).build(),                             // 0x10: the handler
+        i().csrrw(X0, MTVEC, T3).build(),                           // 0x14
         ILLEGAL,                                                    // 0x18
-        i().amoadd_d(0, BASE, ONE).build(),                         // 0x1c
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),          // 0x20
-        i().jal(0, 0).build(),                                      // 0x24
+        i().amoadd_d(X0, BASE, ONE).build(),                        // 0x1c
+        i().addi(DONE_REG, X0, DONE as i32).build(),                // 0x20
+        i().jal(X0, 0).build(),                                     // 0x24
         i().nop().build(),                                          // 0x28
         i().nop().build(),                                          // 0x2c
-        i().csrrs(T1, MEPC, 0).build(),                             // 0x30: handler
-        i().addi(T1, T1, 4).build(),                                // 0x34
-        i().csrrw(0, MEPC, T1).build(),                             // 0x38
+        i().csrrs(T4, MEPC, X0).build(),                            // 0x30: handler
+        i().addi(T4, T4, 4).build(),                                // 0x34
+        i().csrrw(X0, MEPC, T4).build(),                            // 0x38
         MRET,                                                       // 0x3c
     ]
 }

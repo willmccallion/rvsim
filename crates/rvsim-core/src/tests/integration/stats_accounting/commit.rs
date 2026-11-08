@@ -2,8 +2,8 @@
 //! and hart keeps: by privilege mode and by how many instructions retired.
 
 use super::program::{
-    A1, A2, BACKENDS, HANDLER, MEPC, MHARTID, MTVEC, PROGRAM_BASE, T0, T1, T2, config,
-    exit_sequence, run_to_exit, store_words, system, system_with, three_handled_ecalls,
+    BACKENDS, HANDLER, MEPC, MHARTID, MTVEC, PROGRAM_BASE, config, exit_sequence, run_to_exit,
+    store_words, system, system_with, three_handled_ecalls,
 };
 use super::{Recorder, accounting_checks};
 use crate::config::BackendKind;
@@ -12,6 +12,7 @@ use crate::isa::privileged::PrivilegeMode;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, MRET};
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{A1, A2, T0, T1, T2, X0, after};
 
 const LOOPS: i32 = 5;
 /// A width at which three or more instructions can retire in a cycle.
@@ -56,13 +57,13 @@ const VAESZ_VS: u32 = 0xa623_a2f7;
 fn every_class() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T1, 0, LOOPS).build(),
+        i().addi(T1, X0, LOOPS).build(),
         i().ld(T2, A1, 0).build(),
         i().addi(T2, T2, 1).build(),
         i().sd(A1, T2, 16).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -16).build(),
-        i().jal(0, 4).build(),
+        i().bne(T1, X0, -16).build(),
+        i().jal(X0, 4).build(),
         FLD,
         FSD,
         FADD_D,
@@ -80,7 +81,7 @@ fn every_class() -> Vec<u32> {
         i().amoadd_d(T0, A2, T1).build(),
         i().lr_d(T0, A2).build(),
         i().sc_d(T0, A2, T1).build(),
-        i().csrrs(T0, MHARTID, 0).build(),
+        i().csrrs(T0, MHARTID, X0).build(),
     ];
     program.extend(exit_sequence());
     program
@@ -148,13 +149,14 @@ fn run_in(backend: BackendKind, width: usize, mode: PrivilegeMode) -> TestContex
     let program = [
         i().auipc(T1, 0).build(),
         i().addi(T0, T1, (BODY - PROGRAM_BASE) as i32).build(),
-        i().csrrw(0, MEPC, T0).build(),
+        i().csrrw(X0, MEPC, T0).build(),
         MRET,
     ];
-    let mut spin: Vec<u32> =
-        (0..STRAIGHT_LINE).map(|n| i().addi(T0 + n % 3, 0, n.cast_signed()).build()).collect();
+    let mut spin: Vec<u32> = (0..STRAIGHT_LINE)
+        .map(|n| i().addi(after(T0, (n % 3) as usize), X0, n.cast_signed()).build())
+        .collect();
     spin.push(ECALL);
-    let mut handler = vec![i().csrrw(0, MTVEC, 0).build()];
+    let mut handler = vec![i().csrrw(X0, MTVEC, X0).build()];
     handler.extend(exit_sequence());
     let mut config = config(backend);
     config.pipeline.width = width;

@@ -8,12 +8,10 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
 const AMOS: u64 = 8;
 
 /// `AMOS` `amoadd.d a1, a2, (a0)` on one word, then a spin.
@@ -22,10 +20,10 @@ fn program() -> Vec<u32> {
     let mut program = vec![
         i().auipc(A0, 0).build(),
         i().addi(A0, A0, (DATA - PROGRAM_BASE) as i32).build(),
-        i().addi(A2, 0, 3).build(),
+        i().addi(A2, X0, 3).build(),
     ];
     program.extend((0..AMOS).map(|_| i().amoadd_d(A1, A0, A2).build()));
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 
@@ -43,11 +41,7 @@ fn check_one_access_per_amo(backend: BackendKind) {
     let paths = &ctx.sim.state.cores[0].units.l1_d_cache.stat_paths;
     let stats = &ctx.sim.state.uncore.kernel.stats;
     let accesses = stats.get(paths.hits).unwrap_or(0.0) + stats.get(paths.misses).unwrap_or(0.0);
-    assert_eq!(
-        ctx.get_reg(A1 as usize),
-        100 + 3 * (AMOS - 1),
-        "{backend:?}: the last AMO's old value"
-    );
+    assert_eq!(ctx.get_reg(A1), 100 + 3 * (AMOS - 1), "{backend:?}: the last AMO's old value");
     assert_eq!(
         ctx.sim.probe_mem_load(PhysAddr::new(DATA), ProbeWidth::B8),
         100 + 3 * AMOS,

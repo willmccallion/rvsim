@@ -7,8 +7,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::{InstructionBuilder, MRET};
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
+use crate::tests::support::regs::{T0, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const MEPC: u32 = 0x341;
 /// Where MRET returns to, in the program's own line.
@@ -21,11 +20,11 @@ fn program() -> Vec<u32> {
     let mut program = vec![
         i().auipc(T0, 0).build(),
         i().addi(T0, T0, (TARGET - PROGRAM_BASE) as i32).build(),
-        i().csrrw(0, MEPC, T0).build(),
+        i().csrrw(X0, MEPC, T0).build(),
         MRET,
     ];
     program.resize(((TARGET - PROGRAM_BASE) / 4) as usize, i().nop().build());
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 
