@@ -15,6 +15,18 @@ pub enum VecOperand {
     Immediate(i64),
 }
 
+/// The sources a vector operation may draw on: `operand1` as the
+/// instruction encodes it, the `vs1` register, and the value of `rs1`.
+#[derive(Clone, Copy, Debug)]
+pub struct VecSources {
+    /// The first operand as encoded (vector, scalar or immediate).
+    pub operand1: VecOperand,
+    /// The `vs1` register, for the forms that only take a vector there.
+    pub vs1: VRegIdx,
+    /// The value of `rs1`, for the forms that only take a scalar.
+    pub rs1: u64,
+}
+
 /// What executing a vector instruction produced besides its register writes.
 #[derive(Debug, Default)]
 pub struct VecExecResult {

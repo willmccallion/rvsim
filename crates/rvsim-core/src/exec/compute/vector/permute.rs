@@ -9,23 +9,11 @@
 //! operation based on the [`VectorOp`] variant.
 
 use crate::exec::compute::vector::context::FillTarget;
-use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand, VecSources};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::FpFlags;
 use crate::isa::op::{PermuteOp, SlideOffset, WholeRegisters};
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
-
-/// The sources a permutation may draw on: `operand1` as the instruction
-/// encodes it, the `vs1` register, and the value of `rs1`.
-#[derive(Clone, Copy, Debug)]
-pub struct PermuteSources {
-    /// The first operand as encoded (vector, scalar or immediate).
-    pub operand1: VecOperand,
-    /// The `vs1` register, for the forms that only take a vector there.
-    pub vs1: VRegIdx,
-    /// The value of `rs1`, for the forms that only take a scalar.
-    pub rs1: u64,
-}
 
 /// Execute a permutation operation.
 ///
@@ -37,7 +25,7 @@ pub fn vec_permute_execute(
     vpr: &mut impl VectorRegFile,
     vd: VRegIdx,
     vs2: VRegIdx,
-    sources: PermuteSources,
+    sources: VecSources,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     match op {

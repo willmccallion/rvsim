@@ -30,7 +30,7 @@ use crate::exec::compute::fpu::half::F16_NAN_BOX_MASK;
 use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
 use crate::exec::compute::fpu::nan_handling::F32_NAN_BOX_MASK;
 use crate::exec::compute::fpu::{IntTarget, fp_to_int};
-use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperand};
+use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecSources};
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::{IntRounding, Signedness, VecFpOp};
@@ -60,12 +60,12 @@ pub fn vec_fp_execute(
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
-    operand1: VecOperand,
+    sources: VecSources,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
     // Set host FPU rounding mode from fcsr.frm for this instruction.
     let saved_rm = set_host_round_mode(ctx.frm);
-    let result = vec_fp_dispatch(op, vpr, vd_idx, vs2_idx, operand1, ctx);
+    let result = vec_fp_dispatch(op, vpr, vd_idx, vs2_idx, sources, ctx);
     restore_host_round_mode(saved_rm);
     result
 }
@@ -75,9 +75,10 @@ fn vec_fp_dispatch(
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
     vs2_idx: VRegIdx,
-    operand1: VecOperand,
+    sources: VecSources,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
+    let operand1 = sources.operand1;
     match op {
         VecFpOp::Binary(op) => {
             exec_fp_standard(StandardOp::Binary(op), vpr, vd_idx, vs2_idx, operand1, ctx)
@@ -97,13 +98,13 @@ fn vec_fp_dispatch(
         VecFpOp::NarrowConvert(op) => exec_fp_narrowing(op, vpr, vd_idx, vs2_idx, ctx),
         VecFpOp::Merge => exec_fp_merge(vpr, vd_idx, vs2_idx, operand1, ctx),
         VecFpOp::Slide1Up => {
-            exec_fp_slide1(SlideDirection::Up, vpr, vd_idx, vs2_idx, operand1, ctx)
+            exec_fp_slide1(SlideDirection::Up, vpr, vd_idx, vs2_idx, sources.rs1, ctx)
         }
         VecFpOp::Slide1Down => {
-            exec_fp_slide1(SlideDirection::Down, vpr, vd_idx, vs2_idx, operand1, ctx)
+            exec_fp_slide1(SlideDirection::Down, vpr, vd_idx, vs2_idx, sources.rs1, ctx)
         }
         VecFpOp::MoveToScalar => move_to_scalar(vpr, vs2_idx, ctx),
-        VecFpOp::MoveFromScalar => move_from_scalar(vpr, vd_idx, operand1, ctx),
+        VecFpOp::MoveFromScalar => move_from_scalar(vpr, vd_idx, sources.rs1, ctx),
     }
 }
 
@@ -123,13 +124,9 @@ fn move_to_scalar(vpr: &impl VectorRegFile, vs2_idx: VRegIdx, ctx: &VecExecCtx) 
 fn move_from_scalar(
     vpr: &mut impl VectorRegFile,
     vd_idx: VRegIdx,
-    operand1: VecOperand,
+    scalar: u64,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
-    let scalar = match operand1 {
-        VecOperand::Scalar(s) => s,
-        _ => 0,
-    };
     if ctx.vl > 0 {
         vpr.write_element(vd_idx, ElemIdx::new(0), ctx.sew, scalar & ctx.sew.mask());
     }
@@ -176,6 +173,7 @@ const fn elem_to_f64(val: u64) -> f64 {
 mod tests {
     use super::*;
     use crate::arch::regs::vpr::Vpr;
+    use crate::exec::compute::vector::context::VecOperand;
     use crate::isa::fp::FpFlags;
     use crate::isa::fp::RoundingMode;
     use crate::isa::op::{
@@ -188,6 +186,16 @@ mod tests {
         Vpr::new(Vlen::new_unchecked(128))
     }
 
+    /// The sources of a `.vv` form reading `vs1`.
+    const fn vector_sources(vs1: VRegIdx) -> VecSources {
+        VecSources { operand1: VecOperand::Vector(vs1), vs1, rs1: 0 }
+    }
+
+    /// The sources of a `.vf` form reading `rs1`.
+    const fn scalar_sources(rs1: u64) -> VecSources {
+        VecSources { operand1: VecOperand::Scalar(rs1), vs1: VRegIdx::new(0), rs1 }
+    }
+
     /// The flags `op` raises on one Zvfh element pair `vs2[0]`, `vs1[0]`
     /// with `vd[0]` as an FMA's addend.
     fn f16_flags(op: VecFpOp, vs2: u16, vs1: u16, vd: u16) -> FpFlags {
@@ -198,7 +206,7 @@ mod tests {
         vpr.write_element(v1, ElemIdx::new(0), Sew::E16, u64::from(vs1));
         vpr.write_element(v3, ElemIdx::new(0), Sew::E16, u64::from(vd));
 
-        vec_fp_execute(op, &mut vpr, v3, v2, VecOperand::Vector(v1), &ctx).fp_flags
+        vec_fp_execute(op, &mut vpr, v3, v2, vector_sources(v1), &ctx).fp_flags
     }
 
     /// The flags a widening `op` raises with a signaling NaN in `vs2[0]` and
@@ -210,7 +218,7 @@ mod tests {
         vpr.write_element(v2, ElemIdx::new(0), sew, snan);
         vpr.write_element(v1, ElemIdx::new(0), sew, one);
         vpr.write_element(v4, ElemIdx::new(0), Sew::E64, 1f64.to_bits());
-        vec_fp_execute(op, &mut vpr, v4, v2, VecOperand::Vector(v1), &ctx).fp_flags
+        vec_fp_execute(op, &mut vpr, v4, v2, vector_sources(v1), &ctx).fp_flags
     }
 
     #[test]
@@ -286,7 +294,7 @@ mod tests {
         let ctx = VecExecCtx { frm, zvfh, ..VecExecCtx::unmasked(sew, 1) };
         let (v2, v4) = (VRegIdx::new(2), VRegIdx::new(4));
         vpr.write_element(v2, ElemIdx::new(0), src_sew, src);
-        let flags = vec_fp_execute(op, &mut vpr, v4, v2, VecOperand::Vector(v2), &ctx).fp_flags;
+        let flags = vec_fp_execute(op, &mut vpr, v4, v2, vector_sources(v2), &ctx).fp_flags;
         (vpr.read_element(v4, ElemIdx::new(0), dst_sew), flags)
     }
 
@@ -305,7 +313,7 @@ mod tests {
             &mut vpr,
             v4,
             v2,
-            VecOperand::Vector(v12),
+            vector_sources(v12),
             &ctx,
         )
         .fp_flags;
@@ -507,7 +515,7 @@ mod tests {
             &mut vpr,
             v4,
             v2,
-            VecOperand::Vector(v1),
+            vector_sources(v1),
             &ctx,
         );
 
@@ -559,7 +567,7 @@ mod tests {
             &mut vpr,
             v3,
             v2,
-            VecOperand::Vector(v1),
+            vector_sources(v1),
             &ctx,
         );
 
@@ -589,7 +597,7 @@ mod tests {
             &mut vpr,
             v2,
             v1,
-            VecOperand::Scalar(0),
+            vector_sources(VRegIdx::new(0)),
             &ctx,
         );
 
@@ -611,7 +619,7 @@ mod tests {
             &mut vpr,
             v1,
             VRegIdx::new(0),
-            VecOperand::Scalar(scalar),
+            scalar_sources(scalar),
             &ctx,
         );
 
@@ -633,7 +641,7 @@ mod tests {
             &mut vpr,
             VRegIdx::new(2),
             v1,
-            VecOperand::Scalar(0),
+            vector_sources(VRegIdx::new(0)),
             &ctx,
         );
 
