@@ -6,7 +6,6 @@ use crate::common::trace::Hex;
 use crate::isa::csr;
 use crate::isa::encoding::privileged::WFI;
 use crate::isa::privileged::{PrivilegeMode, Satp};
-use crate::isa::reg;
 use crate::soc::bus::HartIrqs;
 use crate::trace_trap;
 
@@ -124,10 +123,8 @@ impl CoreCtx<'_> {
         }
     }
 
-    /// Post-tick: zero x0, privilege tracing, status printing.
-    pub fn post_tick(&mut self, prev_priv: PrivilegeMode) {
-        self.hart.regs.write(reg::REG_ZERO, 0);
-
+    /// Post-tick: privilege tracing, status printing.
+    pub fn post_tick(&self, prev_priv: PrivilegeMode) {
         if self.uncore.kernel.config.general.trace_instructions {
             if self.hart.privilege != prev_priv {
                 trace_trap!(self.uncore.kernel.config.general.trace_instructions;
@@ -203,16 +200,5 @@ mod tests {
             state.uncore.kernel.stats.get(state.core.stat_paths.pipeline.cycles_total),
             Some(3.0)
         );
-    }
-
-    #[test]
-    fn x0_reads_zero_after_post_tick() {
-        let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
-        let mut state = sys.core_ctx(0);
-
-        state.hart.regs.write(reg::REG_ZERO, 42);
-        state.post_tick(PrivilegeMode::Machine);
-        assert_eq!(state.hart.regs.read(reg::REG_ZERO), 0);
     }
 }
