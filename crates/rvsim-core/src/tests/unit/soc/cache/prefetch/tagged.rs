@@ -83,3 +83,18 @@ fn degree_zero_defaults_to_one() {
     let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs.len(), 1);
 }
+
+/// The filter holds one prefetched line per entry whatever the line size,
+/// so with 128-byte lines it still remembers the first of 30 prefetches.
+#[test]
+fn the_filter_remembers_a_line_per_entry_whatever_the_line_size() {
+    const LINE: u64 = 128;
+    let mut pf = TaggedPrefetcher::new(LINE as usize, 1);
+    for miss in (0..60).step_by(2) {
+        let _ = pf.observe(miss * LINE, None, false);
+    }
+
+    let extended = pf.observe(LINE, None, true);
+
+    assert_eq!(extended, [2 * LINE]);
+}

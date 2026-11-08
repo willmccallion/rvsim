@@ -12,6 +12,9 @@
 use super::Prefetcher;
 use crate::common::VirtAddr;
 
+/// Lines the filter remembers having prefetched.
+const FILTER_ENTRIES: usize = 64;
+
 /// Tagged Prefetcher state.
 #[derive(Debug)]
 pub struct TaggedPrefetcher {
@@ -29,26 +32,28 @@ pub struct TaggedPrefetcher {
 impl TaggedPrefetcher {
     /// A tagged prefetcher fetching `degree` lines ahead.
     pub fn new(line_bytes: usize, degree: usize) -> Self {
-        let filter_size = 64;
-
         Self {
             line_bytes: line_bytes as u64,
             degree: if degree == 0 { 1 } else { degree },
-            prefetched_filter: vec![0; filter_size],
-            filter_mask: filter_size - 1,
+            prefetched_filter: vec![0; FILTER_ENTRIES],
+            filter_mask: FILTER_ENTRIES - 1,
         }
+    }
+
+    /// The filter entry for the line at `addr`.
+    const fn filter_slot(&self, addr: u64) -> usize {
+        (addr / self.line_bytes) as usize & self.filter_mask
     }
 
     /// Checks if an address was recently prefetched.
     fn was_prefetched(&self, addr: u64) -> bool {
-        let idx = ((addr >> 6) as usize) & self.filter_mask;
-        self.prefetched_filter[idx] == addr
+        self.prefetched_filter[self.filter_slot(addr)] == addr
     }
 
     /// Marks an address as prefetched.
     fn mark_prefetched(&mut self, addr: u64) {
-        let idx = ((addr >> 6) as usize) & self.filter_mask;
-        self.prefetched_filter[idx] = addr;
+        let slot = self.filter_slot(addr);
+        self.prefetched_filter[slot] = addr;
     }
 }
 
