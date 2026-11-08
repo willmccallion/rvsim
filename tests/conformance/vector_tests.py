@@ -22,7 +22,6 @@ import concurrent.futures as cf
 import contextlib
 import glob
 import hashlib
-import json
 import os
 import subprocess
 import sys
@@ -31,7 +30,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from tests.conformance.common import BUILDS, SPIKE
+from tests.conformance.common import BUILDS, SPIKE, Sweep, run_sweep, select_pipelines
 from tests.conformance.configs.pipelines import PIPELINES, VECTOR_SMOKE_PIPELINES
 
 WORKER = os.path.join(ROOT, "tests", "conformance", "_worker.py")
@@ -183,6 +182,7 @@ def run_one(args):
         "pipeline": pipeline_label,
         "status": "fail",
         "diff_line": diff_at,
+        "reason": f"signature differs at line {diff_at}",
         "seconds": round(time.time() - t0, 2),
     }
 
@@ -220,102 +220,33 @@ def main():
     if not elfs:
         sys.exit(f"no ELFs matching {pattern} under {args.build_dir}/vlen{args.vlen}")
 
-    selected_pipelines = PIPELINES
-    if args.pipelines:
-        wanted = {p.strip() for p in args.pipelines.split(",")}
-        selected_pipelines = [(label, c) for label, c in PIPELINES if label in wanted]
-        missing = wanted - {label for label, _ in selected_pipelines}
-        if missing:
-            sys.exit(f"unknown pipeline label(s): {sorted(missing)}")
-    if args.smoke:
-        selected_pipelines = [
-            (lbl, c) for lbl, c in PIPELINES if lbl in VECTOR_SMOKE_PIPELINES
-        ]
-
-    os.makedirs(RESULTS_DIR, exist_ok=True)
+    pipelines = select_pipelines(
+        PIPELINES, args.pipelines, VECTOR_SMOKE_PIPELINES if args.smoke else None
+    )
     sig_cache_dir = os.path.join(args.build_dir, f"spike-sigs-vlen{args.vlen}")
     spike_sigs = cache_spike_sigs(elfs, args.vlen, args.march, sig_cache_dir, args.jobs)
     elfs = [e for e in elfs if os.path.isfile(spike_sigs[e])]
-
+    scratch = os.path.join(RESULTS_DIR, "scratch_vector")
+    os.makedirs(scratch, exist_ok=True)
     work = [
-        (elf, spike_sigs[elf], label, os.path.join(RESULTS_DIR, "scratch_vector"))
-        for label, _cfg in selected_pipelines
+        (elf, spike_sigs[elf], label, scratch)
+        for label, _cfg in pipelines
         for elf in elfs
     ]
-    os.makedirs(os.path.join(RESULTS_DIR, "scratch_vector"), exist_ok=True)
-
     print(
         f"vector multi-config: {len(elfs)} tests x "
-        f"{len(selected_pipelines)} pipelines = {len(work)} runs (jobs={args.jobs})"
+        f"{len(pipelines)} pipelines = {len(work)} runs (jobs={args.jobs})"
     )
-    print(f"streaming results to: {args.out}")
-
-    results = []
-    counts = {}
-
-    def write_partial():
-        with open(args.out, "w") as f:
-            json.dump(
-                {
-                    "vlen": args.vlen,
-                    "total_planned": len(work),
-                    "completed": len(results),
-                    "counts": counts,
-                    "pipelines": [label for label, _ in selected_pipelines],
-                    "results": results,
-                },
-                f,
-                indent=2,
-            )
-
-    try:
-        with cf.ProcessPoolExecutor(max_workers=args.jobs) as ex:
-            futs = {ex.submit(run_one, w): w for w in work}
-            for i, fut in enumerate(cf.as_completed(futs), 1):
-                try:
-                    r = fut.result()
-                except Exception as e:
-                    w = futs[fut]
-                    r = {
-                        "test": os.path.basename(w[0])[:-4],
-                        "pipeline": w[2],
-                        "status": "error",
-                        "reason": f"{type(e).__name__}: {e}",
-                    }
-                results.append(r)
-                counts[r["status"]] = counts.get(r["status"], 0) + 1
-                if r["status"] != "pass":
-                    extra = ""
-                    if r["status"] == "fail":
-                        extra = f" diff@{r.get('diff_line', '?')}"
-                    elif r["status"] == "error":
-                        extra = f" ({(r.get('reason') or '')[:60]})"
-                    print(
-                        f"[{i:6}/{len(work)}] {r['status'].upper():7} "
-                        f"{r['pipeline']:24} {r['test']}{extra}",
-                        flush=True,
-                    )
-                if i % 200 == 0:
-                    write_partial()
-                    pct = 100 * i / len(work)
-                    print(
-                        f"  ... {i}/{len(work)} ({pct:.1f}%) — "
-                        + " ".join(f"{k}={v}" for k, v in sorted(counts.items())),
-                        flush=True,
-                    )
-    finally:
-        write_partial()
-
-    print()
-    print(
-        f"=== vector multi-config (vlen={args.vlen}): {len(results)} / {len(work)} ==="
+    sweep = Sweep(
+        title=f"vector multi-config (vlen={args.vlen})",
+        run_one=run_one,
+        work=work,
+        out=args.out,
+        describe=lambda run: (os.path.basename(run[0])[:-4], run[2]),
+        jobs=args.jobs,
+        header={"vlen": args.vlen, "pipelines": [label for label, _ in pipelines]},
     )
-    for k in ("pass", "fail", "timeout", "skip", "error"):
-        if k in counts:
-            print(f"  {k:8} {counts[k]}")
-    print(f"results: {args.out}")
-    failed = sum(counts.get(k, 0) for k in ("fail", "timeout", "error"))
-    sys.exit(0 if failed == 0 else 1)
+    sys.exit(run_sweep(sweep))
 
 
 if __name__ == "__main__":
