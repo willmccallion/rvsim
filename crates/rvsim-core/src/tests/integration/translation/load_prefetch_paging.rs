@@ -238,7 +238,7 @@ pub fn run_system(
     config.cache.load_prefetcher =
         LoadPrefetcherConfig::Stride { table_size: 64, l1_lines: 4, l2_lines: 0, page_boundary };
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     let code = program(matches!(data, Data::TouchedSecondPage));
     for (n, inst) in code.iter().enumerate() {
         ctx.sim.probe_mem_store(

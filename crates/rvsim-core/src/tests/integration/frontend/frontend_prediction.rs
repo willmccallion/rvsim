@@ -34,7 +34,7 @@ fn mispredicts_running(backend: BackendKind, program: &[u16], retired: u64) -> f
     config.pipeline.backend = backend;
     config.pipeline.width = 2;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config);
+    let mut ctx = TestContext::with_fast_memory(&config);
     for (i, half) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(PROGRAM_BASE + 2 * i as u64),

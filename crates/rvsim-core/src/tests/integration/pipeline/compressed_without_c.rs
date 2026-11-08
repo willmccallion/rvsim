@@ -33,7 +33,7 @@ fn trap_seen(backend: BackendKind, isa: &str) -> (u64, u64) {
     config.isa.string = Some(isa.to_owned());
     config.system.console = crate::config::Console::Quiet;
     let program = [TWO_C_NOPS, InstructionBuilder::new().jal(0, 0).build()];
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + 4 * n as u64),

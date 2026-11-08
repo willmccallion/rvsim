@@ -34,7 +34,7 @@ fn one_walk_of_a_megapage_translates_every_page_in_it() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut config = Config::minimal();
         config.pipeline.backend = backend;
-        let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+        let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
         let i = InstructionBuilder::new;
         let program = [i().lui(10, (DATA_VA >> 12) as i32).build(), i().ld(11, 10, 0).build()];
         for (n, inst) in program.iter().chain(&[i().jal(0, 0).build()]).enumerate() {

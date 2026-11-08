@@ -84,7 +84,7 @@ fn run(backend: BackendKind, second_pa: Option<u64>) -> Outcome {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     store_program(&mut ctx, CODE, &program());
     store_program(&mut ctx, HANDLER, &handler());
     for (offset, byte) in (0u64..).zip(0x11u64..=0x18) {

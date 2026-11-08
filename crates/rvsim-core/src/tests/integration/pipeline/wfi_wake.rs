@@ -43,7 +43,7 @@ fn check(backend: BackendKind, width: usize) {
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.probe_mem_store(
         PhysAddr::new(HANDLER),
         u64::from(InstructionBuilder::new().jal(0, 0).build()),

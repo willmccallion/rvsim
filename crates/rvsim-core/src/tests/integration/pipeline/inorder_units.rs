@@ -33,7 +33,7 @@ fn cycles_to_retire(program: &[u32], retired: u64) -> u64 {
     config.cache.l1_i.prefetcher = PrefetcherKind::NextLine;
     config.cache.l1_i.prefetch_degree = std::num::NonZero::new(4).unwrap();
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     let mut cycles = 0;
     while ctx.sim.state.harts[0].instructions_retired < retired && cycles < 100_000 {
         ctx.run(1);

@@ -73,16 +73,16 @@ fn saved(ctx: &mut TestContext) -> Vec<u8> {
 
 #[test]
 fn a_run_checkpointed_on_the_in_order_core_finishes_on_the_o3_core_as_one_run_would() {
-    let mut whole = TestContext::new_with_config(&config(BackendKind::OutOfOrder))
+    let mut whole = TestContext::with_fast_memory(&config(BackendKind::OutOfOrder))
         .load_program(PROGRAM_BASE, &running_squares());
     run_to_done(&mut whole);
-    let mut first_half = TestContext::new_with_config(&config(BackendKind::InOrder))
+    let mut first_half = TestContext::with_fast_memory(&config(BackendKind::InOrder))
         .load_program(PROGRAM_BASE, &running_squares());
     first_half.run(600);
     assert_eq!(first_half.get_reg(DONE as usize), 0, "the checkpoint is taken mid-run");
     let checkpoint = saved(&mut first_half);
 
-    let mut second_half = TestContext::new_with_config(&config(BackendKind::OutOfOrder));
+    let mut second_half = TestContext::with_fast_memory(&config(BackendKind::OutOfOrder));
     second_half.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
     run_to_done(&mut second_half);
 
@@ -91,7 +91,7 @@ fn a_run_checkpointed_on_the_in_order_core_finishes_on_the_o3_core_as_one_run_wo
 
 #[test]
 fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
-    let mut source = TestContext::new_with_config(&config(BackendKind::InOrder));
+    let mut source = TestContext::with_fast_memory(&config(BackendKind::InOrder));
     let hart = &mut source.sim.state.harts[0];
     let fields: [&mut u64; 11] = [
         &mut hart.csrs.mstatus,
@@ -127,7 +127,7 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
     let before = source.sim.state.harts[0].csrs.clone();
     let checkpoint = saved(&mut source);
 
-    let mut restored = TestContext::new_with_config(&config(BackendKind::OutOfOrder));
+    let mut restored = TestContext::with_fast_memory(&config(BackendKind::OutOfOrder));
     restored.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
 
     let hart = &restored.sim.state.harts[0];
@@ -141,11 +141,11 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
 
 #[test]
 fn a_checkpoint_does_not_restore_into_a_system_with_other_harts() {
-    let mut one = TestContext::new_with_config(&config(BackendKind::InOrder));
+    let mut one = TestContext::with_fast_memory(&config(BackendKind::InOrder));
     let checkpoint = saved(&mut one);
     let mut two_harts = config(BackendKind::InOrder);
     two_harts.system.hart_count = std::num::NonZero::new(2).unwrap();
-    let mut two = TestContext::new_with_config(&two_harts);
+    let mut two = TestContext::with_fast_memory(&two_harts);
 
     let result = two.sim.restore_checkpoint(&mut checkpoint.as_slice());
 
@@ -196,11 +196,11 @@ fn a_restore_leaves_the_snoop_filter_tracking_nothing() {
 
 #[test]
 fn ram_that_was_zero_at_the_save_is_zero_after_a_restore_and_costs_no_space() {
-    let mut system = TestContext::new_with_config(&config(BackendKind::InOrder))
+    let mut system = TestContext::with_fast_memory(&config(BackendKind::InOrder))
         .load_program(PROGRAM_BASE, &running_squares());
     let far = PROGRAM_BASE + 0x40_0000;
     let checkpoint = saved(&mut system);
-    let mut restored = TestContext::new_with_config(&config(BackendKind::InOrder));
+    let mut restored = TestContext::with_fast_memory(&config(BackendKind::InOrder));
     restored.sim.probe_mem_store(PhysAddr::new(far), 0x1234, ProbeWidth::B8);
 
     restored.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
@@ -222,12 +222,12 @@ fn ram_that_was_zero_at_the_save_is_zero_after_a_restore_and_costs_no_space() {
 #[test]
 fn a_restored_checkpoint_saves_back_to_the_same_bytes() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let mut source = TestContext::new_with_config(&config(backend))
+        let mut source = TestContext::with_fast_memory(&config(backend))
             .load_program(PROGRAM_BASE, &running_squares());
         source.run(600);
         let checkpoint = saved(&mut source);
 
-        let mut restored = TestContext::new_with_config(&config(backend));
+        let mut restored = TestContext::with_fast_memory(&config(backend));
         restored.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
         let resaved = saved(&mut restored);
 

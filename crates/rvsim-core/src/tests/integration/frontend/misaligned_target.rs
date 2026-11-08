@@ -33,7 +33,7 @@ fn run(backend: BackendKind, program: &[u32]) -> Outcome {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.isa.string = Some("rv64imafd".to_owned());
-    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().chain(&[JAL_SELF]).enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(RAM_BASE + 4 * n as u64),

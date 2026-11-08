@@ -35,7 +35,7 @@ fn retire_and_refetch_cycles(backend: BackendKind) -> (u64, u64) {
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     let mut retired = None;
 
     for _ in 0..500 {

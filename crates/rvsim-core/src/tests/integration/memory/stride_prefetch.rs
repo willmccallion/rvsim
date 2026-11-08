@@ -75,7 +75,8 @@ fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
     config.cache.l2.enabled = true;
     config.cache.l2.latency = 60;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &strided_loop());
+    let mut ctx =
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &strided_loop());
 
     ctx.run_until(50_000, |ctx| ctx.get_reg(DONE_REG as usize) == DONE).expect("loop finished")
 }

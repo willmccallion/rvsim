@@ -47,7 +47,7 @@ pub fn system(backend: BackendKind, program: &[u32], handler: &[u32]) -> TestCon
 
 /// [`system`] with `config`.
 pub fn system_with(config: &Config, program: &[u32], handler: &[u32]) -> TestContext {
-    prepare(TestContext::new_with_config(config), program, handler)
+    prepare(TestContext::with_fast_memory(config), program, handler)
 }
 
 /// [`system_with`] keeping `config`'s memory and bus latencies, which the

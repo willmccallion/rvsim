@@ -59,7 +59,7 @@ fn l1d_accesses(backend: BackendKind, with_store: bool) -> (u64, TestContext) {
     config.cache.l1_d.enabled = true;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx =
-        TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &copy(with_store));
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &copy(with_store));
     for byte in 0..BYTES {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }

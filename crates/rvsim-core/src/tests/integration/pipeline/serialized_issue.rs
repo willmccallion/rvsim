@@ -32,7 +32,7 @@ fn retire_and_issue_cycles(backend: BackendKind) -> (Option<u64>, u64) {
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     let csr_pc = PROGRAM_BASE + 4 * ADDS;
     let (mut last_add_retired, mut queued) = (None, false);
 

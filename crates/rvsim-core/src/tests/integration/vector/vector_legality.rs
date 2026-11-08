@@ -103,7 +103,7 @@ fn run(backend: BackendKind, body: &[u32]) -> Outcome {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in handler.iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + 4 * n as u64),

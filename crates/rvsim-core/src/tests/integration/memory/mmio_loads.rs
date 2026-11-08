@@ -41,7 +41,7 @@ fn mtime_seen_by_the_load(backend: BackendKind) -> u64 {
     config.pipeline.width = 4;
     config.system.timer = crate::config::Timer::EveryCycle;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);
 
@@ -89,7 +89,7 @@ fn receive_register_read(backend: BackendKind, width: usize, fenced: bool) -> u6
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;
     let program = uart_receive_after_transmit(fenced);
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
 
     let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(T0 as usize) == DONE);
 
@@ -121,7 +121,7 @@ fn retire_and_device_read_cycles(backend: BackendKind) -> (u64, u64) {
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     let older_than_load = CHAIN as u64 + 2;
     let mut older_retired = None;
 

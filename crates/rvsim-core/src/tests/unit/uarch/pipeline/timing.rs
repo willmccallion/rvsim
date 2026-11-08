@@ -26,7 +26,7 @@ fn config(backend: BackendKind, int_mul_latency: u64) -> Config {
 
 /// Cycle at which `program` writes `DONE_VALUE` into `DONE_REG`.
 fn cycles_to_finish(config: &Config, program: &[u32]) -> u64 {
-    let mut tc = TestContext::new_with_config(config)
+    let mut tc = TestContext::with_fast_memory(config)
         .with_memory(MEM_SIZE, BASE_ADDR)
         .load_program(BASE_ADDR, program);
     tc.run_until(5_000, |tc| tc.get_reg(DONE_REG) == DONE_VALUE).expect("program did not finish")
@@ -126,7 +126,7 @@ fn mispredicted_branch() -> Vec<u32> {
 }
 
 fn cycles_to_reach_target(config: &Config) -> u64 {
-    let mut tc = TestContext::new_with_config(config)
+    let mut tc = TestContext::with_fast_memory(config)
         .with_memory(MEM_SIZE, BASE_ADDR)
         .load_program(BASE_ADDR, &mispredicted_branch());
     let cycles = tc
@@ -165,7 +165,7 @@ fn nothing_on_the_wrong_path_retires_while_the_redirect_is_pending() {
 fn squash_recovery(squash_width: usize) -> (f64, f64, u64) {
     let mut config = redirect_config(BackendKind::OutOfOrder, 4, 2);
     config.pipeline.squash_width = squash_width;
-    let mut tc = TestContext::new_with_config(&config)
+    let mut tc = TestContext::with_fast_memory(&config)
         .with_memory(MEM_SIZE, BASE_ADDR)
         .load_program(BASE_ADDR, &mispredicted_branch());
     let cycles = tc
@@ -418,7 +418,7 @@ fn o3_dependent_load_waits_the_l1d_latency_plus_one_cycle() {
 
 /// Runs `program` until `done` holds; returns its control stall cycles.
 fn control_stalls(config: &Config, program: &[u32], done: impl Fn(&TestContext) -> bool) -> f64 {
-    let mut tc = TestContext::new_with_config(config)
+    let mut tc = TestContext::with_fast_memory(config)
         .with_memory(MEM_SIZE, BASE_ADDR)
         .load_program(BASE_ADDR, program);
     tc.run_until(5_000, done).expect("program never finished");

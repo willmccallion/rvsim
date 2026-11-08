@@ -51,7 +51,7 @@ fn finish_cycle(backend: BackendKind, wrong_path: u32) -> u64 {
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;
     let program = program(wrong_path);
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
 
     let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(S4 as usize) == 1);
 
@@ -97,7 +97,7 @@ fn handler_finish_cycle(backend: BackendKind, behind: u32) -> u64 {
     config.pipeline.width = 1;
     config.system.console = crate::config::Console::Quiet;
     let program = faulting_load_then(behind);
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in dividing_handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + 4 * n as u64),

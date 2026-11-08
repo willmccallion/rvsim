@@ -41,7 +41,7 @@ fn run(predictor: MemDepPredictorKind) -> TestContext {
     config.pipeline.mem_dep_predictor = predictor;
     config.pipeline.fu_config.int_div_latency = 20;
     config.cache.l1_d.enabled = true;
-    let mut tc = TestContext::new_with_config(&config)
+    let mut tc = TestContext::with_fast_memory(&config)
         .with_memory(MEM_SIZE, BASE_ADDR)
         .load_program(BASE_ADDR, &program());
     tc.run_until(2_000, |tc| tc.get_reg(DONE_REG) == DONE_VALUE).expect("program did not finish");

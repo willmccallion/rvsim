@@ -44,7 +44,7 @@ fn masked_add_result(backend: BackendKind) -> Vec<u8> {
         i().addi(DONE_REG as u32, 0, DONE as i32).build(),
         i().jal(0, 0).build(),
     ];
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     let vpr = ctx.sim.state.harts[0].regs.vpr_mut();
     vpr.write_bytes(VRegIdx::new(0), &elements([MASK, 0, 0, 0]));
     vpr.write_bytes(VRegIdx::new(1), &elements([7; 4]));
@@ -80,7 +80,7 @@ fn rewriting_v0_from_reset_returns_its_physical_register() {
         let i = InstructionBuilder::new;
         let program = [VSETIVLI_4_E32_M1, VMV_V0_ALL_ONES, ILLEGAL];
         let handler = [i().addi(DONE_REG as u32, 0, DONE as i32).build(), i().jal(0, 0).build()];
-        let mut ctx = TestContext::new_with_config(&config)
+        let mut ctx = TestContext::with_fast_memory(&config)
             .load_program(PROGRAM_BASE, &program)
             .load_program(HANDLER, &handler);
         ctx.sim.set_pc(0, VirtAddr::new(PROGRAM_BASE));
@@ -108,7 +108,7 @@ fn masked_compare_into_v0(backend: BackendKind) -> u8 {
         i().addi(DONE_REG as u32, 0, DONE as i32).build(),
         i().jal(0, 0).build(),
     ];
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     let vpr = ctx.sim.state.harts[0].regs.vpr_mut();
     vpr.write_bytes(VRegIdx::new(0), &elements([MASK, 0, 0, 0]));
     vpr.write_bytes(VRegIdx::new(2), &elements([1, 1, 4, 5]));

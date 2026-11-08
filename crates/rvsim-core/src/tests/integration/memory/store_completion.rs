@@ -28,7 +28,7 @@ fn config(backend: BackendKind, store_buffer_size: usize) -> Config {
 }
 
 fn cycles_to_finish(config: &Config, program: &[u32]) -> u64 {
-    let mut ctx = TestContext::new_with_config(config).load_program(PROGRAM_BASE, program);
+    let mut ctx = TestContext::with_fast_memory(config).load_program(PROGRAM_BASE, program);
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished")
 }
 

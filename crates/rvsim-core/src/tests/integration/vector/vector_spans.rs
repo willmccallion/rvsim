@@ -67,7 +67,8 @@ fn config(backend: BackendKind, vector_mem_width: Option<usize>) -> Config {
 
 /// L1D accesses of `copy(with_load)`, and the context after it finished.
 fn l1d_accesses(config: &Config, with_load: bool) -> (u64, TestContext) {
-    let mut ctx = TestContext::new_with_config(config).load_program(PROGRAM_BASE, &copy(with_load));
+    let mut ctx =
+        TestContext::with_fast_memory(config).load_program(PROGRAM_BASE, &copy(with_load));
     for byte in 0..BYTES {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }
@@ -139,7 +140,7 @@ fn a_fault_inside_a_span_reports_the_first_element_that_faults() {
         config.memory.ram_size = 0x4000;
         // No kernel boots, but the offset it would load at must lie in RAM.
         config.system.kernel_offset = 0;
-        let mut ctx = TestContext::new_with_config(&config)
+        let mut ctx = TestContext::with_fast_memory(&config)
             .load_program(PROGRAM_BASE, &load_past_the_end_of_ram());
 
         ctx.run_until(20_000, |ctx| ctx.state().harts[0].csrs.mcause != 0)

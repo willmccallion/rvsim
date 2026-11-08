@@ -62,7 +62,7 @@ fn partial_overlap_program() -> Vec<u32> {
 }
 
 fn run_program(config: &Config) -> TestContext {
-    let mut tc = TestContext::new_with_config(config)
+    let mut tc = TestContext::with_fast_memory(config)
         .with_memory(RAM_SIZE, RAM_BASE)
         .load_program(RAM_BASE, &partial_overlap_program());
     tc.set_reg(X8 as usize, DATA_BASE);

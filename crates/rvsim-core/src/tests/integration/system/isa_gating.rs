@@ -33,7 +33,7 @@ fn exit_code_of(backend: BackendKind, isa: Option<&str>, instruction: u32) -> Op
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
     config.isa.string = isa.map(str::to_owned);
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in handler.iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(HANDLER + 4 * n as u64),

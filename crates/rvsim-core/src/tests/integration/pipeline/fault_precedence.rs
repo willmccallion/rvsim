@@ -59,7 +59,7 @@ fn run(backend: BackendKind) -> (u64, u64, u64) {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     store_program(&mut ctx, HANDLER, &handler());
     ctx.sim.probe_mem_store(PhysAddr::new(DATA), 0x1234_5678, ProbeWidth::B4);
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;

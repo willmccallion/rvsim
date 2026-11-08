@@ -50,7 +50,7 @@ fn run(backend: BackendKind, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     let i = InstructionBuilder::new;
     let program = [
         i().lui(X10, (DATA_VA >> 12) as i32).build(),

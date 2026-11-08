@@ -24,7 +24,7 @@ fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64
     config.pipeline.backend = backend;
     let i = InstructionBuilder::new;
     let program = [i().lui(10, (UNMAPPED >> 12) as i32).build(), access, JAL_SELF];
-    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(RAM_BASE + 4 * n as u64),

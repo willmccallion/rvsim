@@ -40,7 +40,7 @@ fn straddling_context(backend: BackendKind) -> TestContext {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
 
     write_pte(&mut ctx, ROOT_PPN, (CODE_VA >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, CODE_L1_PPN, (CODE_VA >> 21) & 0x1ff, (CODE_L0_PPN << 10) | PTE_V);

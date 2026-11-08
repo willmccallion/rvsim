@@ -38,7 +38,7 @@ fn run_from_a_cold_tlb(backend: BackendKind, width: usize) -> (u64, u64) {
     config.pipeline.backend = backend;
     config.pipeline.width = width;
     config.system.console = crate::config::Console::Quiet;
-    let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
+    let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (i, word) in PROGRAM.iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(CODE + (i as u64) * 4),
