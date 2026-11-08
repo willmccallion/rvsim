@@ -19,16 +19,16 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{LineAddr, PhysAddr};
+use crate::common::PhysAddr;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
 use crate::sim::memory::write_log::Writer;
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
+use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
 use crate::soc::devices::Device;
 use crate::soc::exit::ExitSignal;
 use crate::soc::terminal::SharedTerminal;
-use crate::soc::traits::{RestoreError, parse_state};
+use crate::soc::traits::{MmioRegisters, RestoreError, parse_state, serve_mmio};
 use crate::system::process::errno::Errno;
 use crate::system::process::file_calls::{self, FileCalls, GuestMemory, PhysicalMemory};
 use crate::system::process::files::{AT_FDCWD, Fd, FileTable, PATH_MAX};
@@ -241,37 +241,28 @@ fn getmainvars(
 
 impl Handle for Htif {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
-        if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            let offset = paddr.val().saturating_sub(self.base_addr);
-            let word = matches!(size, AccessSize::B4 | AccessSize::B8);
-            // Only word- or doubleword-sized accesses touch the protocol;
-            // spike's HTIF ignores sub-word partial writes too.
-            let data = match (offset, op, word) {
-                (0, MemOp::Write { data: WriteData::Small(val), .. }, true) => {
-                    self.handle_tohost(val, ctx.memory);
-                    0
-                }
-                (FROMHOST_OFFSET, MemOp::Write { data: WriteData::Small(val), .. }, true) => {
-                    self.fromhost = val;
-                    0
-                }
-                (FROMHOST_OFFSET, MemOp::Read | MemOp::ReadOwn | MemOp::Atomic { .. }, _) => {
-                    self.fromhost
-                }
-                _ => 0,
-            };
-            ctx.scheduler.schedule(
-                ctx.cycle + ctx.config.system.device_access_cycles(self.name()),
-                source,
-                ctx.self_id,
-                Packet::MemResp {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, 64),
-                    data: MemRespData::Small(data),
-                    hit_level: HitLevel::Mmio,
-                    state: MesiState::Exclusive,
-                },
-            );
+        serve_mmio(self, packet, source, ctx);
+    }
+}
+
+impl MmioRegisters for Htif {
+    fn access(&mut self, offset: u64, size: AccessSize, op: MemOp, ctx: &mut HandleCtx<'_>) -> u64 {
+        let word = matches!(size, AccessSize::B4 | AccessSize::B8);
+        // Only word- or doubleword-sized accesses touch the protocol;
+        // spike's HTIF ignores sub-word partial writes too.
+        match (offset, op, word) {
+            (0, MemOp::Write { data: WriteData::Small(val), .. }, true) => {
+                self.handle_tohost(val, ctx.memory);
+                0
+            }
+            (FROMHOST_OFFSET, MemOp::Write { data: WriteData::Small(val), .. }, true) => {
+                self.fromhost = val;
+                0
+            }
+            (FROMHOST_OFFSET, MemOp::Read | MemOp::ReadOwn | MemOp::Atomic { .. }, _) => {
+                self.fromhost
+            }
+            _ => 0,
         }
     }
 }

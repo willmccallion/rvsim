@@ -9,11 +9,12 @@
 //! * `0x00`: Time (Low 32 bits)
 //! * `0x04`: Time (High 32 bits)
 
-use crate::common::{IrqId, LineAddr};
+use crate::common::IrqId;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
+use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::soc::devices::Device;
+use crate::soc::traits::{MmioRegisters, serve_mmio};
 
 /// Goldfish RTC device structure.
 #[derive(Debug)]
@@ -45,35 +46,26 @@ impl GoldfishRtc {
 
 impl Handle for GoldfishRtc {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
-        if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            let offset = paddr.val().saturating_sub(self.base_addr);
-            let value: u64 = match op {
-                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
-                    let now = self.time_ns(ctx.cycle);
-                    match (offset, size) {
-                        (0x00, AccessSize::B4) => u64::from(now as u32),
-                        (0x04, AccessSize::B4) => u64::from((now >> 32) as u32),
-                        (0x00, AccessSize::B8) => now,
-                        _ => 0,
-                    }
+        serve_mmio(self, packet, source, ctx);
+    }
+}
+
+impl MmioRegisters for GoldfishRtc {
+    fn access(&mut self, offset: u64, size: AccessSize, op: MemOp, ctx: &mut HandleCtx<'_>) -> u64 {
+        match op {
+            MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
+                let now = self.time_ns(ctx.cycle);
+                match (offset, size) {
+                    (0x00, AccessSize::B4) => u64::from(now as u32),
+                    (0x04, AccessSize::B4) => u64::from((now >> 32) as u32),
+                    (0x00, AccessSize::B8) => now,
+                    _ => 0,
                 }
-                MemOp::Write { .. }
-                | MemOp::Writeback { .. }
-                | MemOp::Maintain { .. }
-                | MemOp::Prefetch { .. } => 0,
-            };
-            ctx.scheduler.schedule(
-                ctx.cycle + ctx.config.system.device_access_cycles(self.name()),
-                source,
-                ctx.self_id,
-                Packet::MemResp {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, 64),
-                    data: MemRespData::Small(value),
-                    hit_level: HitLevel::Mmio,
-                    state: MesiState::Exclusive,
-                },
-            );
+            }
+            MemOp::Write { .. }
+            | MemOp::Writeback { .. }
+            | MemOp::Maintain { .. }
+            | MemOp::Prefetch { .. } => 0,
         }
     }
 }

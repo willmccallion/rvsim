@@ -15,12 +15,12 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{HartId, LineAddr};
+use crate::common::HartId;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
+use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
 use crate::soc::devices::Device;
-use crate::soc::traits::{RestoreError, parse_state};
+use crate::soc::traits::{MmioRegisters, RestoreError, parse_state, serve_mmio};
 
 /// Base offset for PLIC priority registers (one per interrupt source).
 const PLIC_PRIORITY_BASE: u64 = 0x000000;
@@ -319,50 +319,44 @@ impl Plic {
 
 impl Handle for Plic {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
-        if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            let offset = paddr.val().saturating_sub(self.base_addr);
-            let value: u64 = match (size, op) {
-                (
-                    AccessSize::B4 | AccessSize::B8,
-                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
-                ) => u64::from(self.read_u32_reg(offset)),
-                (
-                    AccessSize::B1,
-                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
-                ) => {
-                    let aligned = offset & !3;
-                    let shift = (offset & 3) * 8;
-                    u64::from((self.read_u32_reg(aligned) >> shift) as u8)
-                }
-                (
-                    AccessSize::B2,
-                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
-                ) => {
-                    let aligned = offset & !3;
-                    let shift = (offset & 3) * 8;
-                    u64::from((self.read_u32_reg(aligned) >> shift) as u16)
-                }
-                (
-                    AccessSize::B4 | AccessSize::B8,
-                    MemOp::Write { data: WriteData::Small(val), .. },
-                ) => {
-                    self.write_u32_reg(offset, val as u32);
-                    0
-                }
-                _ => 0,
-            };
-            ctx.scheduler.schedule(
-                ctx.cycle + ctx.config.system.device_access_cycles(self.name()),
-                source,
-                ctx.self_id,
-                Packet::MemResp {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, 64),
-                    data: MemRespData::Small(value),
-                    hit_level: HitLevel::Mmio,
-                    state: MesiState::Exclusive,
-                },
-            );
+        serve_mmio(self, packet, source, ctx);
+    }
+}
+
+impl MmioRegisters for Plic {
+    fn access(
+        &mut self,
+        offset: u64,
+        size: AccessSize,
+        op: MemOp,
+        _ctx: &mut HandleCtx<'_>,
+    ) -> u64 {
+        match (size, op) {
+            (
+                AccessSize::B4 | AccessSize::B8,
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+            ) => u64::from(self.read_u32_reg(offset)),
+            (
+                AccessSize::B1,
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+            ) => {
+                let aligned = offset & !3;
+                let shift = (offset & 3) * 8;
+                u64::from((self.read_u32_reg(aligned) >> shift) as u8)
+            }
+            (
+                AccessSize::B2,
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+            ) => {
+                let aligned = offset & !3;
+                let shift = (offset & 3) * 8;
+                u64::from((self.read_u32_reg(aligned) >> shift) as u16)
+            }
+            (AccessSize::B4 | AccessSize::B8, MemOp::Write { data: WriteData::Small(val), .. }) => {
+                self.write_u32_reg(offset, val as u32);
+                0
+            }
+            _ => 0,
         }
     }
 }

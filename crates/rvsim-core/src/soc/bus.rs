@@ -7,12 +7,12 @@
 use super::devices::Device;
 use super::devices::clint::Clint;
 use super::devices::uart::Uart;
-use crate::common::{HartId, LineAddr, PhysAddr};
+use crate::common::{HartId, PhysAddr};
 use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
-use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
-use crate::soc::traits::RestoreError;
+use crate::sim::packet::{MemOp, Packet, WriteData};
+use crate::soc::traits::{RestoreError, mmio_response};
 use std::collections::HashMap;
 
 /// Interrupt lines presented to one hart, sampled by [`Bus::tick`] each cycle.
@@ -426,19 +426,12 @@ impl Handle for Bus {
                     return;
                 }
                 // Unmapped address: reply with zeros so the originator unblocks.
-                let line_addr = LineAddr::from_phys(paddr, 64);
                 let arrives = self.send_response(ctx.cycle, response_bytes(&packet));
                 ctx.scheduler.schedule(
                     arrives,
                     source,
                     ctx.self_id,
-                    Packet::MemResp {
-                        req_id,
-                        line_addr,
-                        data: MemRespData::Small(0),
-                        hit_level: HitLevel::Mmio,
-                        state: MesiState::Exclusive,
-                    },
+                    mmio_response(req_id, paddr, 0),
                 );
             }
             Packet::MemResp { req_id, line_addr, data, hit_level, state } => {
