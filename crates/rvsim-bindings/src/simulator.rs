@@ -4,19 +4,19 @@
 //! and methods that users interact with live here — nothing leaks through a Python
 //! wrapper layer.
 
-use crate::conversion::py_dict_to_config;
+use crate::conversion::config_from_py;
 use crate::instruction::PyInstruction;
 use crate::snapshot::PyPipelineSnapshot;
 use crate::stats::PyStats;
 use crate::views::{Csrs, Harts, Memory, Registers, VirtualMemory, Width};
 use pyo3::exceptions::{PyOSError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use rvsim_core::Simulator;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader::KernelBoot;
 use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramImage};
 use rvsim_core::system::simulator::{ProbeWidth, StopAt, StopReason};
-use rvsim_core::{Simulator, ValidConfig};
 use std::num::NonZeroU64;
 
 /// A user program as Python hands it over: its ELF bytes, `argv` and `envp`.
@@ -271,8 +271,7 @@ impl PySimulator {
         script_path: Option<String>,
         outdir: Option<String>,
     ) -> PyResult<Self> {
-        let config = ValidConfig::try_from(py_dict_to_config(py, config_dict)?)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let config = config_from_py(py, config_dict)?;
         let mut sim = Simulator::build(&config, disk_path)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         if let Some(script) = script_path {

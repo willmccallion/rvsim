@@ -2,12 +2,9 @@
 //!
 //! Provides version and other helpers for the `rvsim` module.
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use rvsim_core::ValidConfig;
-
-use crate::conversion::py_dict_to_config;
+use crate::conversion::config_from_py;
 
 /// The version of the extension, as built.
 #[pyfunction]
@@ -35,7 +32,5 @@ pub fn disassemble(inst: u32) -> String {
 /// the simulator cannot implement.
 #[pyfunction]
 pub fn isa_string(py: Python<'_>, config_dict: &Bound<'_, PyAny>) -> PyResult<String> {
-    let config = ValidConfig::try_from(py_dict_to_config(py, config_dict)?)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(config.isa_string())
+    Ok(config_from_py(py, config_dict)?.isa_string())
 }

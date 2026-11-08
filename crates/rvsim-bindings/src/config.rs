@@ -1,11 +1,10 @@
 //! The core's machines and its configuration check, as the nested dicts
 //! a simulator takes.
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rvsim_core::config::{ComponentDefaults, Config, ValidConfig};
+use rvsim_core::config::{ComponentDefaults, Config};
 
-use crate::conversion::{config_to_py_dict, py_dict_to_config};
+use crate::conversion::{config_from_py, config_to_py_dict};
 
 /// The default machine, which the Python API's `Config()` describes.
 ///
@@ -48,7 +47,5 @@ pub fn component_defaults(py: Python<'_>) -> PyResult<PyObject> {
 /// machine the core refuses to build.
 #[pyfunction]
 pub fn check_config(py: Python<'_>, config_dict: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-    let config = ValidConfig::try_from(py_dict_to_config(py, config_dict)?)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    config_to_py_dict(py, &*config)
+    config_to_py_dict(py, &*config_from_py(py, config_dict)?)
 }

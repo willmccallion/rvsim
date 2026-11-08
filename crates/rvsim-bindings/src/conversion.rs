@@ -5,16 +5,17 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rvsim_core::config::Config;
+use rvsim_core::config::{Config, ValidConfig};
 use serde_json;
 
-/// Converts a Python dict to a simulator `Config` via JSON serialization.
+/// The configuration a Python dict describes, read through JSON and
+/// checked by the core.
 ///
 /// # Errors
 ///
-/// Returns `ValueError` when the dict is not a configuration the core
-/// accepts, naming the field at fault.
-pub fn py_dict_to_config(py: Python<'_>, dict: &Bound<'_, PyAny>) -> PyResult<Config> {
+/// Returns `ValueError` when the dict is not a configuration, naming the
+/// field at fault, or describes a machine the core refuses to build.
+pub fn config_from_py(py: Python<'_>, dict: &Bound<'_, PyAny>) -> PyResult<ValidConfig> {
     let json = py.import("json")?;
     let dumps = json.getattr("dumps")?;
     let json_str_obj = dumps.call1((dict,))?;
@@ -32,8 +33,7 @@ pub fn py_dict_to_config(py: Python<'_>, dict: &Bound<'_, PyAny>) -> PyResult<Co
     deserializer
         .end()
         .map_err(|e| PyValueError::new_err(format!("Invalid config: {}", without_position(&e))))?;
-
-    Ok(config)
+    ValidConfig::try_from(config).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// A JSON error's message without its line and column, which point into
@@ -48,7 +48,7 @@ fn without_position(error: &serde_json::Error) -> String {
 }
 
 /// Converts a configuration value, a whole `Config` or a component of one,
-/// to the Python dict `py_dict_to_config` reads it from.
+/// to the Python dict `config_from_py` reads it from.
 ///
 /// # Errors
 ///

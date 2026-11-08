@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 
 /// The core's default and minimal machines and its configuration check.
 pub mod config;
-/// Python dict to Rust `Config` conversion.
+/// Conversion between Python config dicts and the core's `Config`.
 pub mod conversion;
 /// Instruction binding (`PyInstruction` exposed as `Instruction`).
 pub mod instruction;
