@@ -56,6 +56,37 @@ pub enum VectorOp {
     Crypto(CryptoOp),
 }
 
+/// A vector operation that computes on the registers: any but a
+/// configuration, a load or a store.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VectorCompute {
+    /// The integer ALU.
+    Alu(VecAluOp),
+    /// A floating-point operation.
+    Fp(VecFpOp),
+    /// A reduction.
+    Reduce(ReduceOp),
+    /// A mask operation.
+    Mask(MaskOp),
+    /// A permutation.
+    Permute(PermuteOp),
+    /// A cryptography operation.
+    Crypto(CryptoOp),
+}
+
+impl From<VectorCompute> for VectorOp {
+    fn from(op: VectorCompute) -> Self {
+        match op {
+            VectorCompute::Alu(op) => Self::Alu(op),
+            VectorCompute::Fp(op) => Self::Fp(op),
+            VectorCompute::Reduce(op) => Self::Reduce(op),
+            VectorCompute::Mask(op) => Self::Mask(op),
+            VectorCompute::Permute(op) => Self::Permute(op),
+            VectorCompute::Crypto(op) => Self::Crypto(op),
+        }
+    }
+}
+
 /// The configuration instructions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VecConfigOp {
@@ -132,6 +163,21 @@ impl VecOperandGroups {
 }
 
 impl VectorOp {
+    /// The operation as a computation on the registers; `None` for a
+    /// configuration, a load or a store.
+    #[must_use]
+    pub const fn compute(self) -> Option<VectorCompute> {
+        Some(match self {
+            Self::Config(_) | Self::Load(_) | Self::Store(_) => return None,
+            Self::Alu(op) => VectorCompute::Alu(op),
+            Self::Fp(op) => VectorCompute::Fp(op),
+            Self::Reduce(op) => VectorCompute::Reduce(op),
+            Self::Mask(op) => VectorCompute::Mask(op),
+            Self::Permute(op) => VectorCompute::Permute(op),
+            Self::Crypto(op) => VectorCompute::Crypto(op),
+        })
+    }
+
     /// The group this operation belongs to.
     #[must_use]
     pub const fn group(self) -> VecOpGroup {

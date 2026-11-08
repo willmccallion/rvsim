@@ -4,9 +4,10 @@ use super::O3Entry;
 use super::issue_queue::IssueQueueEntry;
 use crate::common::usize_of;
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
-use crate::exec::compute::vector::execute::execute_vec_op_on;
+use crate::exec::compute::vector::execute::{VecEnv, execute_vec_op_on};
 use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses, is_vec_store};
 use crate::isa::extension::Extension;
+use crate::isa::op::{VectorCompute, VectorOp};
 use crate::isa::rvv::{VRegIdx, parse_vtype};
 use crate::soc::uncore::commit_log_open;
 use crate::uarch::ctx::CoreCtx;
@@ -90,11 +91,11 @@ impl O3Engine {
 
         // vsetvl* run synchronously in execute_one; exclude from deferred VecPrfView.
         let is_vec_config = entry.inst.ctrl.is_vector_config();
-        let is_vec_arith = fu_type.is_vector() && fu_type != FuType::VecMem && !is_vec_config;
+        let vec_compute = entry.inst.ctrl.vec_op.and_then(VectorOp::compute);
         let is_vec_mem = fu_type == FuType::VecMem;
         let dest = vector_dest(&entry);
 
-        let complete_cycle = if is_vec_arith {
+        let complete_cycle = if vec_compute.is_some() {
             let latency = self.fu_pool.vector_op_latency(
                 fu_type,
                 &entry.inst.ctrl,
@@ -124,12 +125,11 @@ impl O3Engine {
             self.common.vector_config_unresolved = false;
         }
 
-        if (is_vec_arith || is_vec_mem) && result.op.trap.is_none() {
+        if (vec_compute.is_some() || is_vec_mem) && result.op.trap.is_none() {
             let issued = IssuedVector { entry: &entry, result, fu_type, dest, complete_cycle };
-            if is_vec_arith {
-                self.execute_vector_arith(state, issued, now);
-            } else {
-                self.start_vector_memory(state, issued, now);
+            match vec_compute {
+                Some(op) => self.execute_vector_arith(state, issued, op, now),
+                None => self.start_vector_memory(state, issued, now),
             }
             return;
         }
@@ -151,7 +151,13 @@ impl O3Engine {
     /// Runs a vector arithmetic instruction on the registers it renamed,
     /// with the vtype and vl it was dispatched under, and tracks its result
     /// until its lanes finish.
-    fn execute_vector_arith(&mut self, state: &CoreCtx<'_>, issued: IssuedVector<'_>, now: u64) {
+    fn execute_vector_arith(
+        &mut self,
+        state: &CoreCtx<'_>,
+        issued: IssuedVector<'_>,
+        op: VectorCompute,
+        now: u64,
+    ) {
         let IssuedVector { entry, result, fu_type, dest, complete_cycle } = issued;
         let ctrl = &entry.inst.ctrl;
 
@@ -179,14 +185,13 @@ impl O3Engine {
 
         let mut view = VecPrfView::new(&mut self.vec_prf, mapping);
         let mut recorder = AgnosticRecorder::new(&mut view, commit_log_open(state.uncore));
-        let executed = execute_vec_op_on(
-            &mut recorder,
-            entry.vector_config,
-            entry.vector_rounding,
-            state.uncore.kernel.config.isa.vector.elen,
-            state.core.isa.extensions.contains(Extension::Zvfh),
-            &entry.inst,
-        );
+        let env = VecEnv {
+            config: entry.vector_config,
+            rounding: entry.vector_rounding,
+            elen: state.uncore.kernel.config.isa.vector.elen,
+            zvfh: state.core.isa.extensions.contains(Extension::Zvfh),
+        };
+        let executed = execute_vec_op_on(&mut recorder, op, &entry.inst, env);
         #[cfg(feature = "commit-log")]
         let fills = recorder.into_fills();
         let vec_result = match executed {

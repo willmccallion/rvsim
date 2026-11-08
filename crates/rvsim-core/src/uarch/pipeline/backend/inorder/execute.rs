@@ -7,10 +7,11 @@ use super::issue::InOrderEntry;
 use crate::common::trace::Hex;
 use crate::common::trace::Hex32;
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
-use crate::exec::compute::vector::execute::execute_vec_op_on;
+use crate::exec::compute::vector::execute::{VecEnv, execute_vec_op_on};
 use crate::exec::compute::vector::shadow::ShadowVpr;
 use crate::exec::execute::{evaluate, illegal_in_current_state, operands};
 use crate::isa::extension::Extension;
+use crate::isa::op::{VectorCompute, VectorOp};
 use crate::isa::privileged::Trap;
 use crate::soc::uncore::commit_log_open;
 use crate::trace_execute;
@@ -102,8 +103,8 @@ fn execute_one(
 
     // A vector op's registers are read at issue, so what follows one is
     // refetched. Its result is ready when its unit finishes, like any other.
-    if issued.inst.ctrl.vec_op.is_some() {
-        return match execute_vector(state, issued, rob) {
+    if let Some(op) = issued.inst.ctrl.vec_op.and_then(VectorOp::compute) {
+        return match execute_vector(state, issued, op, rob) {
             Ok(scalar) => (ExMem1Entry::from_issue(issued, scalar, 0), Some(refetch_after(issued))),
             Err(trap) => faulted(state, issued, trap),
         };
@@ -143,19 +144,22 @@ fn execute_system_inorder(
 
 /// Executes a vector instruction against a shadow of the architectural
 /// registers and files what it wrote on its ROB entry for commit.
-fn execute_vector(state: &StageCtx<'_>, issued: &InOrderEntry, rob: &mut Rob) -> Result<u64, Trap> {
+fn execute_vector(
+    state: &StageCtx<'_>,
+    issued: &InOrderEntry,
+    op: VectorCompute,
+    rob: &mut Rob,
+) -> Result<u64, Trap> {
     let csrs = &state.hart().csrs;
-    let vector = &state.uncore().kernel.config.isa.vector;
+    let env = VecEnv {
+        config: csrs.vector_config(),
+        rounding: csrs.vector_rounding(),
+        elen: state.uncore().kernel.config.isa.vector.elen,
+        zvfh: state.core().isa.extensions.contains(Extension::Zvfh),
+    };
     let mut shadow = ShadowVpr::new(state.hart().regs.vpr());
     let mut recorder = AgnosticRecorder::new(&mut shadow, commit_log_open(state.uncore()));
-    let result = execute_vec_op_on(
-        &mut recorder,
-        csrs.vector_config(),
-        csrs.vector_rounding(),
-        vector.elen,
-        state.core().isa.extensions.contains(Extension::Zvfh),
-        &issued.inst,
-    )?;
+    let result = execute_vec_op_on(&mut recorder, op, &issued.inst, env)?;
     #[cfg(feature = "commit-log")]
     if let Some(fills) = recorder.into_fills() {
         rob.set_vec_agnostic(issued.rob_tag, fills);

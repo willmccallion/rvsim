@@ -20,5 +20,6 @@ pub use vector::{
     FpReduceOp, FpUnaryOp, FpWidenConvertOp, FpWidenOp, FpWidenReduceOp, IntConvert, IntOp,
     IntReduceOp, IntRounding, MaccOp, MaskLogicalOp, MaskOp, MaskSetOp, NarrowOp, PermuteOp,
     ReduceOp, SlideOffset, VecAluOp, VecConfigOp, VecFpOp, VecLoadOp, VecOpGroup, VecOperandGroups,
-    VecSrcEncoding, VecStoreOp, VectorOp, WholeRegisters, WidenIntReduceOp, WidenMaccOp, WidenOp,
+    VecSrcEncoding, VecStoreOp, VectorCompute, VectorOp, WholeRegisters, WidenIntReduceOp,
+    WidenMaccOp, WidenOp,
 };
