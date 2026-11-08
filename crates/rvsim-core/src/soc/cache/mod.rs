@@ -431,7 +431,7 @@ impl Cache {
     /// so audit tests can plant a fault.
     #[cfg(test)]
     pub fn plant_line(&mut self, way: usize, addr: u64, state: MesiState) {
-        let index = self.set_index(addr) * self.ways + way;
+        let index = self.slot(self.set_index(addr), way);
         self.lines[index] =
             CacheLine { tag: self.tag_of(addr), state, upper: 0, prefetched: false };
     }
@@ -453,6 +453,12 @@ impl Cache {
         LineAddr::from_phys(PhysAddr::new(addr), self.line_bytes as u64)
     }
 
+    /// Where way `way` of set `set` sits in `lines`.
+    #[inline]
+    const fn slot(&self, set: usize, way: usize) -> usize {
+        set * self.ways + way
+    }
+
     const fn set_index(&self, addr: u64) -> usize {
         ((addr as usize) / self.line_bytes) % self.num_sets
     }
@@ -469,7 +475,7 @@ impl Cache {
         let set_index = self.set_index(addr);
         let tag = self.tag_of(addr);
         (0..self.ways).find(|&way| {
-            let line = self.lines[set_index * self.ways + way];
+            let line = self.lines[self.slot(set_index, way)];
             line.valid() && line.tag == tag
         })
     }
@@ -483,7 +489,7 @@ impl Cache {
     /// Returns whether it was dirty.
     fn clean_line(&mut self, addr: u64) -> bool {
         let Some(way) = self.find_way(addr) else { return false };
-        let index = self.set_index(addr) * self.ways + way;
+        let index = self.slot(self.set_index(addr), way);
         let was_dirty = self.lines[index].dirty();
         if was_dirty {
             self.lines[index].state = MesiState::Exclusive;
@@ -495,7 +501,7 @@ impl Cache {
     /// dirty.
     fn invalidate_line(&mut self, addr: u64, stats: &mut Stats) -> bool {
         let Some(way) = self.find_way(addr) else { return false };
-        let index = self.set_index(addr) * self.ways + way;
+        let index = self.slot(self.set_index(addr), way);
         let was_dirty = self.lines[index].dirty();
         self.drop_line(index, stats);
         was_dirty

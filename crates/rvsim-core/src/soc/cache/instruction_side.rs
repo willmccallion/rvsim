@@ -65,7 +65,7 @@ impl Cache {
     fn writable_upper_copies(&self, line: LineAddr, requester: ComponentId) -> Vec<ComponentId> {
         let holders = match self.find_way(line.val()) {
             Some(way) => {
-                let held = self.lines[self.set_index(line.val()) * self.ways + way];
+                let held = self.lines[self.slot(self.set_index(line.val()), way)];
                 if held.state == MesiState::Shared {
                     return Vec::new();
                 }
