@@ -13,6 +13,27 @@ use crate::config::*;
 use crate::isa::csr::MISA_DEFAULT_RV64GCB;
 use crate::isa::csr::MISA_EXT_V;
 use crate::isa::extension::Extension;
+use serde_json::{Value, json};
+use std::num::NonZero;
+
+/// The minimal machine's JSON with `overrides` merged over it, read back.
+fn read_minimal_with(overrides: Value) -> Config {
+    let mut json = serde_json::to_value(Config::minimal()).expect("a config serializes");
+    merge(&mut json, overrides);
+    serde_json::from_value(json).expect("the merged JSON is a config")
+}
+
+/// Merges `overrides` into `json`, object by object.
+fn merge(json: &mut Value, overrides: Value) {
+    match (json, overrides) {
+        (Value::Object(base), Value::Object(changes)) => {
+            for (key, value) in changes {
+                merge(base.entry(key).or_insert(Value::Null), value);
+            }
+        }
+        (slot, value) => *slot = value,
+    }
+}
 
 #[test]
 fn the_minimal_config_starts_untraced_at_0x8000_0000() {
@@ -40,7 +61,7 @@ fn the_default_system_config_has_the_standard_memory_map() {
     assert_eq!(system.bus_width, 8);
     assert_eq!(system.bus_latency, 4);
     assert_eq!(system.timer, Timer::RealTime);
-    assert_eq!(system.timebase_hz, std::num::NonZero::new(10_000_000).unwrap());
+    assert_eq!(system.timebase_hz, NonZero::new(10_000_000).unwrap());
     assert_eq!(system.console, Console::Stdout);
 }
 
@@ -60,14 +81,14 @@ fn the_default_memory_is_128_mib_behind_a_simple_controller() {
 fn a_default_cache_is_disabled_direct_mapped_4_kib_lru() {
     let cache = CacheConfig::default();
     assert!(!cache.enabled);
-    assert_eq!(cache.size_bytes, std::num::NonZero::new(4096).unwrap());
-    assert_eq!(cache.line_bytes, std::num::NonZero::new(64).unwrap());
-    assert_eq!(cache.ways, std::num::NonZero::new(1).unwrap());
+    assert_eq!(cache.size_bytes, NonZero::new(4096).unwrap());
+    assert_eq!(cache.line_bytes, NonZero::new(64).unwrap());
+    assert_eq!(cache.ways, NonZero::new(1).unwrap());
     assert_eq!(cache.policy, ReplacementPolicyKind::Lru);
     assert_eq!(cache.latency, 1);
     assert_eq!(cache.prefetcher, PrefetcherKind::Off);
     assert_eq!(cache.prefetch_table_size, 64);
-    assert_eq!(cache.prefetch_degree, std::num::NonZero::new(1).unwrap());
+    assert_eq!(cache.prefetch_degree, NonZero::new(1).unwrap());
 }
 
 #[test]
@@ -122,488 +143,85 @@ fn each_component_kind_defaults_to_its_simplest_choice() {
 }
 
 #[test]
-fn a_complete_untraced_config_is_read_from_json() {
-    let json = r#"{
-        "general": {
-            "trace_instructions": false,
-            "start_pc": 2147483648
-        },
-        "system": {
-            "ram_base": 2147483648,
-            "uart_base": 268435456,
-            "disk_base": 2415919104,
-            "clint_base": 33554432,
-            "syscon_base": 1048576,
-            "kernel_offset": 2097152,
-            "bus_width": 8,
-            "bus_latency": 4,
-            "timer": "RealTime", "timebase_hz": 10000000,
-            "console": "Stdout"
-        },
-        "memory": {
-            "ram_size": 134217728,
-            "controller": "Simple",
-            "t_cas": 14,
-            "t_ras": 14,
-            "t_pre": 14,
-            "simple_latency": 120,
-            "tlb_size": 32
-        },
-        "cache": {
-            "l1_i": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l1_d": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l2": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l3": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            }
-        },
-        "pipeline": {
-            "width": 1,
-            "branch_predictor": "Static",
-            "btb_size": 256,
-            "ras_size": 8,
-            "tage": {
-                "num_banks": 4,
-                "table_size": 2048,
-                "reset_interval": 256000,
-                "history_lengths": [5, 15, 44, 130],
-                "tag_widths": [9, 9, 10, 10]
-            },
-            "perceptron": {
-                "history_length": 32,
-                "table_bits": 10
-            },
-            "tournament": {
-                "global_size_bits": 12,
-                "local_hist_bits": 10,
-                "local_pred_bits": 10
-            }
-        }
-    }"#;
-
-    let config: Config = serde_json::from_str(json).unwrap();
-    assert!(!config.general.trace_instructions);
-    assert_eq!(config.general.start_pc, 0x8000_0000);
-}
-
-#[test]
 fn tracing_cache_and_predictor_settings_are_read_from_json() {
-    let json = r#"{
-        "general": {
-            "trace_instructions": true,
-            "start_pc": 2147483648
-        },
-        "system": {
-            "ram_base": 2147483648,
-            "uart_base": 268435456,
-            "disk_base": 2415919104,
-            "clint_base": 33554432,
-            "syscon_base": 1048576,
-            "kernel_offset": 2097152,
-            "bus_width": 8,
-            "bus_latency": 4,
-            "timer": "RealTime", "timebase_hz": 10000000,
-            "console": "Stdout"
-        },
-        "memory": {
-            "ram_size": 134217728,
-            "controller": "Simple",
-            "t_cas": 14,
-            "t_ras": 14,
-            "t_pre": 14,
-            "simple_latency": 120,
-            "tlb_size": 32
-        },
+    let config = read_minimal_with(json!({
+        "general": {"trace_instructions": true},
         "cache": {
-            "l1_i": {
-                "enabled": true,
-                "size_bytes": 32768,
-                "line_bytes": 64,
-                "ways": 4,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "NextLine",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l1_d": {
-                "enabled": true,
-                "size_bytes": 32768,
-                "line_bytes": 64,
-                "ways": 4,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Stride",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l2": {
-                "enabled": true,
-                "size_bytes": 131072,
-                "line_bytes": 64,
-                "ways": 8,
-                "policy": "Lru",
-                "latency": 10,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l3": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 20,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            }
+            "l1_i": {"enabled": true},
+            "l1_d": {"enabled": true, "size_bytes": 32768, "ways": 4, "prefetcher": "Stride"},
+            "l2": {"enabled": true}
         },
-        "pipeline": {
-            "width": 1,
-            "branch_predictor": "GShare",
-            "btb_size": 256,
-            "ras_size": 8,
-            "tage": {
-                "num_banks": 4,
-                "table_size": 2048,
-                "reset_interval": 256000,
-                "history_lengths": [5, 15, 44, 130],
-                "tag_widths": [9, 9, 10, 10]
-            },
-            "perceptron": {
-                "history_length": 32,
-                "table_bits": 10
-            },
-            "tournament": {
-                "global_size_bits": 12,
-                "local_hist_bits": 10,
-                "local_pred_bits": 10
-            }
-        }
-    }"#;
+        "pipeline": {"branch_predictor": "GShare"}
+    }));
 
-    let config: Config = serde_json::from_str(json).unwrap();
     assert!(config.general.trace_instructions);
-    assert!(config.cache.l1_i.enabled);
-    assert!(config.cache.l1_d.enabled);
-    assert!(config.cache.l2.enabled);
-    assert!(!config.cache.l3.enabled);
-    assert_eq!(config.cache.l1_d.size_bytes, std::num::NonZero::new(32768).unwrap());
-    assert_eq!(config.cache.l1_d.ways, std::num::NonZero::new(4).unwrap());
+    let enabled = [&config.cache.l1_i, &config.cache.l1_d, &config.cache.l2, &config.cache.l3]
+        .map(|level| level.enabled);
+    assert_eq!(enabled, [true, true, true, false]);
+    assert_eq!(config.cache.l1_d.size_bytes, NonZero::new(32768).unwrap());
+    assert_eq!(config.cache.l1_d.ways, NonZero::new(4).unwrap());
     assert_eq!(config.cache.l1_d.prefetcher, PrefetcherKind::Stride);
     assert_eq!(config.pipeline.branch_predictor, BranchPredictorKind::GShare);
 }
 
 #[test]
 fn a_dram_controller_is_read_from_json() {
-    let json = r#"{
-        "general": {
-            "trace_instructions": false,
-            "start_pc": 2147483648
-        },
-        "system": {
-            "ram_base": 2147483648,
-            "uart_base": 268435456,
-            "disk_base": 2415919104,
-            "clint_base": 33554432,
-            "syscon_base": 1048576,
-            "kernel_offset": 2097152,
-            "bus_width": 8,
-            "bus_latency": 4,
-            "timer": "RealTime", "timebase_hz": 10000000,
-            "console": "Stdout"
-        },
-        "memory": {
-            "ram_size": 134217728,
-            "controller": "Dram",
-            "t_cas": 14,
-            "t_ras": 14,
-            "t_pre": 14,
-            "tlb_size": 32
-        },
-        "cache": {
-            "l1_i": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l1_d": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l2": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l3": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            }
-        },
-        "pipeline": {
-            "width": 1,
-            "branch_predictor": "Static",
-            "btb_size": 256,
-            "ras_size": 8,
-            "tage": {
-                "num_banks": 4,
-                "table_size": 2048,
-                "reset_interval": 256000,
-                "history_lengths": [5, 15, 44, 130],
-                "tag_widths": [9, 9, 10, 10]
-            },
-            "perceptron": {
-                "history_length": 32,
-                "table_bits": 10
-            },
-            "tournament": {
-                "global_size_bits": 12,
-                "local_hist_bits": 10,
-                "local_pred_bits": 10
-            }
-        }
-    }"#;
+    let config = read_minimal_with(json!({"memory": {"controller": "Dram"}}));
 
-    let config: Config = serde_json::from_str(json).unwrap();
     assert_eq!(config.memory.controller, MemoryControllerKind::Dram);
 }
 
 #[test]
 fn every_replacement_policy_is_read_from_json() {
-    for policy in &["Lru", "Fifo", "Random", "Mru", "Plru"] {
-        let json = format!(
-            r#"{{
-            "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "timer": "RealTime", "timebase_hz": 10000000, "console": "Stdout"}},
-            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
-            "cache": {{
-                "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 4, "policy": "{}", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}}
-            }},
-            "pipeline": {{"width": 1, "branch_predictor": "Static", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
-        }}"#,
-            policy
-        );
-        let config: Config = serde_json::from_str(&json).unwrap();
-        assert!(config.cache.l1_i.enabled);
+    use ReplacementPolicyKind::{Fifo, Lru, Mru, Plru, Random};
+    for (name, policy) in
+        [("Lru", Lru), ("Plru", Plru), ("Fifo", Fifo), ("Random", Random), ("Mru", Mru)]
+    {
+        let config = read_minimal_with(json!({"cache": {"l1_i": {"policy": name}}}));
+
+        assert_eq!(config.cache.l1_i.policy, policy, "{name}");
     }
 }
 
 #[test]
 fn every_prefetcher_is_read_from_json() {
-    for prefetcher in &["Off", "NextLine", "Stride", "Stream", "Tagged"] {
-        let json = format!(
-            r#"{{
-            "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "timer": "RealTime", "timebase_hz": 10000000, "console": "Stdout"}},
-            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
-            "cache": {{
-                "l1_i": {{"enabled": true, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "{}", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}}
-            }},
-            "pipeline": {{"width": 1, "branch_predictor": "Static", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
-        }}"#,
-            prefetcher
-        );
-        let config: Config = serde_json::from_str(&json).unwrap();
-        assert!(config.cache.l1_i.enabled);
+    use PrefetcherKind::{NextLine, Off, Stream, Stride, Tagged};
+    for (name, prefetcher) in [
+        ("Off", Off),
+        ("NextLine", NextLine),
+        ("Stride", Stride),
+        ("Stream", Stream),
+        ("Tagged", Tagged),
+    ] {
+        let config = read_minimal_with(json!({"cache": {"l1_i": {"prefetcher": name}}}));
+
+        assert_eq!(config.cache.l1_i.prefetcher, prefetcher, "{name}");
     }
 }
 
 #[test]
 fn every_branch_predictor_is_read_from_json() {
-    for predictor in &["Static", "GShare", "Perceptron", "Tage", "Tournament"] {
-        let json = format!(
-            r#"{{
-            "general": {{"trace_instructions": false, "start_pc": 2147483648}},
-            "system": {{"ram_base": 2147483648, "uart_base": 268435456, "disk_base": 2415919104, "clint_base": 33554432, "syscon_base": 1048576, "kernel_offset": 2097152, "bus_width": 8, "bus_latency": 4, "timer": "RealTime", "timebase_hz": 10000000, "console": "Stdout"}},
-            "memory": {{"ram_size": 134217728, "controller": "Simple", "t_cas": 14, "t_ras": 14, "t_pre": 14, "simple_latency": 120, "tlb_size": 32}},
-            "cache": {{
-                "l1_i": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l1_d": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l2": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}},
-                "l3": {{"enabled": false, "size_bytes": 4096, "line_bytes": 64, "ways": 1, "policy": "Lru", "latency": 1, "prefetcher": "Off", "prefetch_table_size": 64, "prefetch_degree": 1}}
-            }},
-            "pipeline": {{"width": 1, "branch_predictor": "{}", "btb_size": 256, "ras_size": 8, "tage": {{"num_banks": 4, "table_size": 2048, "reset_interval": 256000, "history_lengths": [5, 15, 44, 130], "tag_widths": [9, 9, 10, 10]}}, "perceptron": {{"history_length": 32, "table_bits": 10}}, "tournament": {{"global_size_bits": 12, "local_hist_bits": 10, "local_pred_bits": 10}}}}
-        }}"#,
-            predictor
-        );
-        let config: Config = serde_json::from_str(&json).unwrap();
-        assert_eq!(config.general.start_pc, 0x8000_0000);
+    use BranchPredictorKind::{Bht, GShare, Perceptron, ScLTage, Static, Tage, Tournament};
+    let predictors = [
+        ("Static", Static),
+        ("GShare", GShare),
+        ("Bht", Bht),
+        ("Perceptron", Perceptron),
+        ("Tage", Tage),
+        ("Tournament", Tournament),
+        ("ScLTage", ScLTage),
+    ];
+    for (name, predictor) in predictors {
+        let config = read_minimal_with(json!({"pipeline": {"branch_predictor": name}}));
+
+        assert_eq!(config.pipeline.branch_predictor, predictor, "{name}");
     }
 }
 
 #[test]
 fn an_isa_string_sets_misa_and_leaves_out_unnamed_extensions() {
-    let json = r#"{
-        "isa": { "string": "rv64imafdc_zba_zbb_zbs" },
-        "general": {
-            "trace_instructions": false,
-            "start_pc": 2147483648
-        },
-        "system": {
-            "ram_base": 2147483648,
-            "uart_base": 268435456,
-            "disk_base": 2415919104,
-            "clint_base": 33554432,
-            "syscon_base": 1048576,
-            "kernel_offset": 2097152,
-            "bus_width": 8,
-            "bus_latency": 4,
-            "timer": "RealTime", "timebase_hz": 10000000,
-            "console": "Stdout"
-        },
-        "memory": {
-            "ram_size": 134217728,
-            "controller": "Simple",
-            "t_cas": 14,
-            "t_ras": 14,
-            "t_pre": 14,
-            "simple_latency": 120,
-            "tlb_size": 32
-        },
-        "cache": {
-            "l1_i": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l1_d": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l2": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l3": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            }
-        },
-        "pipeline": {
-            "width": 1,
-            "branch_predictor": "Static",
-            "btb_size": 256,
-            "ras_size": 8,
-            "tage": {
-                "num_banks": 4,
-                "table_size": 2048,
-                "reset_interval": 256000,
-                "history_lengths": [5, 15, 44, 130],
-                "tag_widths": [9, 9, 10, 10]
-            },
-            "perceptron": {
-                "history_length": 32,
-                "table_bits": 10
-            },
-            "tournament": {
-                "global_size_bits": 12,
-                "local_hist_bits": 10,
-                "local_pred_bits": 10
-            }
-        }
-    }"#;
+    let config = read_minimal_with(json!({"isa": {"string": "rv64imafdc_zba_zbb_zbs"}}));
 
-    let config: Config = serde_json::from_str(json).unwrap();
     assert_eq!(config.misa().bits(), MISA_DEFAULT_RV64GCB);
     assert!(!config.extensions().contains(Extension::Zbc));
 }
@@ -630,320 +248,53 @@ fn an_isa_string_naming_another_vlen_is_a_config_error() {
 
 #[test]
 fn a_captured_console_is_read_from_json() {
-    let json = r#"{
-        "general": {
-            "trace_instructions": false,
-            "start_pc": 2147483648
-        },
-        "system": {
-            "ram_base": 2147483648,
-            "uart_base": 268435456,
-            "disk_base": 2415919104,
-            "clint_base": 33554432,
-            "syscon_base": 1048576,
-            "kernel_offset": 2097152,
-            "bus_width": 8,
-            "bus_latency": 4,
-            "timer": "RealTime", "timebase_hz": 10000000,
-            "console": "Captured"
-        },
-        "memory": {
-            "ram_size": 134217728,
-            "controller": "Simple",
-            "t_cas": 14,
-            "t_ras": 14,
-            "t_pre": 14,
-            "simple_latency": 120,
-            "tlb_size": 32
-        },
-        "cache": {
-            "l1_i": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l1_d": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l2": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l3": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            }
-        },
-        "pipeline": {
-            "width": 1,
-            "branch_predictor": "Static",
-            "btb_size": 256,
-            "ras_size": 8,
-            "tage": {
-                "num_banks": 4,
-                "table_size": 2048,
-                "reset_interval": 256000,
-                "history_lengths": [5, 15, 44, 130],
-                "tag_widths": [9, 9, 10, 10]
-            },
-            "perceptron": {
-                "history_length": 32,
-                "table_bits": 10
-            },
-            "tournament": {
-                "global_size_bits": 12,
-                "local_hist_bits": 10,
-                "local_pred_bits": 10
-            }
-        }
-    }"#;
+    let config = read_minimal_with(json!({"system": {"console": "Captured"}}));
 
-    let config: Config = serde_json::from_str(json).unwrap();
     assert_eq!(config.system.console, Console::Captured);
 }
 
 #[test]
 fn custom_cache_sizes_ways_and_latencies_are_read_from_json() {
-    let json = r#"{
-        "general": {
-            "trace_instructions": false,
-            "start_pc": 2147483648
+    let config = read_minimal_with(json!({"cache": {
+        "l1_i": {
+            "enabled": true,
+            "size_bytes": 16384,
+            "ways": 2,
+            "latency": 2,
+            "prefetch_table_size": 128,
+            "prefetch_degree": 2
         },
-        "system": {
-            "ram_base": 2147483648,
-            "uart_base": 268435456,
-            "disk_base": 2415919104,
-            "clint_base": 33554432,
-            "syscon_base": 1048576,
-            "kernel_offset": 2097152,
-            "bus_width": 8,
-            "bus_latency": 4,
-            "timer": "RealTime", "timebase_hz": 10000000,
-            "console": "Stdout"
-        },
-        "memory": {
-            "ram_size": 134217728,
-            "controller": "Simple",
-            "t_cas": 14,
-            "t_ras": 14,
-            "t_pre": 14,
-            "simple_latency": 120,
-            "tlb_size": 32
-        },
-        "cache": {
-            "l1_i": {
-                "enabled": true,
-                "size_bytes": 16384,
-                "line_bytes": 64,
-                "ways": 2,
-                "policy": "Lru",
-                "latency": 2,
-                "prefetcher": "Off",
-                "prefetch_table_size": 128,
-                "prefetch_degree": 2
-            },
-            "l1_d": {
-                "enabled": true,
-                "size_bytes": 16384,
-                "line_bytes": 64,
-                "ways": 2,
-                "policy": "Lru",
-                "latency": 2,
-                "prefetcher": "Off",
-                "prefetch_table_size": 128,
-                "prefetch_degree": 2
-            },
-            "l2": {
-                "enabled": true,
-                "size_bytes": 262144,
-                "line_bytes": 64,
-                "ways": 8,
-                "policy": "Lru",
-                "latency": 15,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l3": {
-                "enabled": true,
-                "size_bytes": 1048576,
-                "line_bytes": 64,
-                "ways": 16,
-                "policy": "Lru",
-                "latency": 40,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            }
-        },
-        "pipeline": {
-            "width": 1,
-            "branch_predictor": "Static",
-            "btb_size": 256,
-            "ras_size": 8,
-            "tage": {
-                "num_banks": 4,
-                "table_size": 2048,
-                "reset_interval": 256000,
-                "history_lengths": [5, 15, 44, 130],
-                "tag_widths": [9, 9, 10, 10]
-            },
-            "perceptron": {
-                "history_length": 32,
-                "table_bits": 10
-            },
-            "tournament": {
-                "global_size_bits": 12,
-                "local_hist_bits": 10,
-                "local_pred_bits": 10
-            }
-        }
-    }"#;
+        "l2": {"enabled": true, "size_bytes": 262144, "ways": 8, "latency": 15},
+        "l3": {"enabled": true, "size_bytes": 1048576, "ways": 16, "latency": 40}
+    }}));
 
-    let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(config.cache.l1_i.size_bytes, std::num::NonZero::new(16384).unwrap());
-    assert_eq!(config.cache.l1_i.ways, std::num::NonZero::new(2).unwrap());
-    assert_eq!(config.cache.l1_i.latency, 2);
-    assert_eq!(config.cache.l1_i.prefetch_table_size, 128);
-    assert_eq!(config.cache.l1_i.prefetch_degree, std::num::NonZero::new(2).unwrap());
-    assert_eq!(config.cache.l2.size_bytes, std::num::NonZero::new(262144).unwrap());
-    assert_eq!(config.cache.l2.latency, 15);
-    assert_eq!(config.cache.l3.size_bytes, std::num::NonZero::new(1048576).unwrap());
-    assert_eq!(config.cache.l3.ways, std::num::NonZero::new(16).unwrap());
-    assert_eq!(config.cache.l3.latency, 40);
-    assert!(config.cache.l3.enabled);
+    let l1_i = &config.cache.l1_i;
+    assert_eq!(
+        (l1_i.size_bytes, l1_i.ways),
+        (NonZero::new(16384).unwrap(), NonZero::new(2).unwrap())
+    );
+    assert_eq!((l1_i.latency, l1_i.prefetch_table_size), (2, 128));
+    assert_eq!(l1_i.prefetch_degree, NonZero::new(2).unwrap());
+    assert_eq!(
+        (config.cache.l2.size_bytes, config.cache.l2.latency),
+        (NonZero::new(262144).unwrap(), 15)
+    );
+    let l3 = &config.cache.l3;
+    assert!(l3.enabled);
+    assert_eq!(
+        (l3.size_bytes, l3.ways, l3.latency),
+        (NonZero::new(1048576).unwrap(), NonZero::new(16).unwrap(), 40)
+    );
 }
 
 #[test]
 fn custom_dram_timings_are_read_from_json() {
-    let json = r#"{
-        "general": {
-            "trace_instructions": false,
-            "start_pc": 2147483648
-        },
-        "system": {
-            "ram_base": 2147483648,
-            "uart_base": 268435456,
-            "disk_base": 2415919104,
-            "clint_base": 33554432,
-            "syscon_base": 1048576,
-            "kernel_offset": 2097152,
-            "bus_width": 8,
-            "bus_latency": 4,
-            "timer": "RealTime", "timebase_hz": 10000000,
-            "console": "Stdout"
-        },
-        "memory": {
-            "ram_size": 134217728,
-            "controller": "Dram",
-            "t_cas": 20,
-            "t_ras": 45,
-            "t_pre": 20,
-            "tlb_size": 64
-        },
-        "cache": {
-            "l1_i": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l1_d": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l2": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            },
-            "l3": {
-                "enabled": false,
-                "size_bytes": 4096,
-                "line_bytes": 64,
-                "ways": 1,
-                "policy": "Lru",
-                "latency": 1,
-                "prefetcher": "Off",
-                "prefetch_table_size": 64,
-                "prefetch_degree": 1
-            }
-        },
-        "pipeline": {
-            "width": 1,
-            "branch_predictor": "Static",
-            "btb_size": 256,
-            "ras_size": 8,
-            "tage": {
-                "num_banks": 4,
-                "table_size": 2048,
-                "reset_interval": 256000,
-                "history_lengths": [5, 15, 44, 130],
-                "tag_widths": [9, 9, 10, 10]
-            },
-            "perceptron": {
-                "history_length": 32,
-                "table_bits": 10
-            },
-            "tournament": {
-                "global_size_bits": 12,
-                "local_hist_bits": 10,
-                "local_pred_bits": 10
-            }
-        }
-    }"#;
+    let config = read_minimal_with(json!({"memory": {
+        "controller": "Dram", "t_cas": 20, "t_ras": 45, "t_pre": 20, "tlb_size": 64
+    }}));
 
-    let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(config.memory.t_cas, 20);
-    assert_eq!(config.memory.t_ras, 45);
-    assert_eq!(config.memory.t_pre, 20);
-    assert_eq!(config.memory.tlb_size, 64);
+    let memory = &config.memory;
+    assert_eq!((memory.t_cas, memory.t_ras, memory.t_pre, memory.tlb_size), (20, 45, 20, 64));
 }
 
 #[test]
