@@ -45,6 +45,9 @@ const FP_WIDTH_WORD: u32 = 0x2;
 /// Floating-point width encoding for 64-bit double operations.
 const FP_WIDTH_DOUBLE: u32 = 0x3;
 
+/// The `fmt` field, `funct7[1:0]`.
+const FP_FMT_MASK: u32 = 0x3;
+
 /// Floating-point format encoding for single-precision (32-bit).
 const FP_FMT_SINGLE: u32 = 0;
 
@@ -439,7 +442,7 @@ const fn misc_mem_op(d: &Decoded) -> Option<SystemOp> {
 
 /// The 12-bit I-type immediate, which selects the Zbb/Zbkb unary ops.
 const fn imm12(inst: u32) -> u32 {
-    (inst >> b_funct3::I_IMM_SHIFT) & 0xFFF
+    (inst & b_funct3::I_IMM_MASK) >> b_funct3::I_IMM_SHIFT
 }
 
 /// The width a W-opcode operation computes at: Zba's `.uw` ops sit in the
@@ -460,7 +463,7 @@ const fn word_op_width(op: AluOp) -> IntWidth {
 /// The format an FP instruction's `fmt` field (`funct7[1:0]`) names, or
 /// `None` for the quad-precision encoding, which is not implemented.
 const fn fp_format(funct7: u32) -> Option<FpFormat> {
-    match funct7 & 0x3 {
+    match funct7 & FP_FMT_MASK {
         FP_FMT_SINGLE => Some(FpFormat::Single),
         FP_FMT_DOUBLE => Some(FpFormat::Double),
         FP_FMT_HALF => Some(FpFormat::Half),

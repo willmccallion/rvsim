@@ -26,10 +26,10 @@ pub const fn box_f16(bits: u16) -> u64 {
 pub const F16_SIGN: u16 = 0x8000;
 
 /// binary16 +∞: the exponent all ones and the fraction zero.
-const F16_INFINITY: u16 = 0x7C00;
+pub const F16_INFINITY: u16 = 0x7C00;
 
 /// The largest finite binary16 magnitude.
-const F16_MAX_FINITE: u16 = 0x7BFF;
+pub const F16_MAX_FINITE: u16 = 0x7BFF;
 
 /// Bits in binary16's fraction field.
 const F16_FRAC_BITS: u32 = 10;
