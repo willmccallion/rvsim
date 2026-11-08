@@ -8,9 +8,11 @@
 #![expect(clippy::cast_precision_loss, reason = "stats report counts as f64, exact below 2^53")]
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyIterator, PyList};
+use pyo3::types::{PyIterator, PyList};
+use rvsim_core::stats::QueryResult;
 use rvsim_core::stats::Stats;
 use rvsim_core::system::StatsEpoch;
+use std::collections::BTreeMap;
 
 /// Python-facing view over the hierarchical stats tree.
 ///
@@ -126,9 +128,7 @@ impl PyStats {
     /// - `*` matches any characters within a single segment (`core*` → `core0`).
     /// - `**` matches zero or more full segments (`**.misses` matches at any depth).
     fn query(&self, pattern: &str) -> PyQueryResult {
-        let matches: Vec<(String, f64)> =
-            self.stats.query(pattern).iter().map(|(p, v)| (p.to_string(), v)).collect();
-        PyQueryResult { matches }
+        PyQueryResult { inner: self.stats.query(pattern) }
     }
 
     /// Render the auto-generated summary as text.
@@ -173,49 +173,43 @@ impl PyStats {
 #[pyclass(name = "QueryResult", module = "rvsim._core")]
 #[derive(Clone, Debug)]
 pub struct PyQueryResult {
-    matches: Vec<(String, f64)>,
+    inner: QueryResult,
 }
 
 #[pymethods]
 impl PyQueryResult {
     /// Sum of all matched values (0.0 for an empty result).
     fn sum(&self) -> f64 {
-        self.matches.iter().map(|(_, v)| *v).sum()
+        self.inner.sum()
     }
 
     /// Number of matched paths.
     const fn __len__(&self) -> usize {
-        self.matches.len()
+        self.inner.len()
     }
 
     /// True when no path matched.
     const fn is_empty(&self) -> bool {
-        self.matches.is_empty()
+        self.inner.is_empty()
     }
 
     /// Iterate over `(path, value)` tuples.
     fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyIterator>> {
-        PyList::new(py, &self.matches)?.try_iter()
+        PyList::new(py, self.inner.iter())?.try_iter()
     }
 
     /// Return `{first_segment: sum}` — folds every matched path onto its
     /// top-level subject.
-    fn by_subject<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let d = PyDict::new(py);
-        for (path, value) in &self.matches {
-            let subject = path.split_once('.').map_or(path.as_str(), |(s, _)| s);
-            let entry: f64 = d.get_item(subject)?.map_or(0.0, |v| v.extract().unwrap_or(0.0));
-            d.set_item(subject, entry + *value)?;
-        }
-        Ok(d)
+    fn by_subject(&self) -> BTreeMap<String, f64> {
+        self.inner.by_subject()
     }
 
     /// Return every matched path as a list of strings.
     fn paths(&self) -> Vec<String> {
-        self.matches.iter().map(|(p, _)| p.clone()).collect()
+        self.inner.iter().map(|(path, _)| path.to_owned()).collect()
     }
 
     fn __repr__(&self) -> String {
-        format!("QueryResult(len={}, sum={:.4})", self.matches.len(), self.sum())
+        format!("QueryResult(len={}, sum={:.4})", self.inner.len(), self.inner.sum())
     }
 }
