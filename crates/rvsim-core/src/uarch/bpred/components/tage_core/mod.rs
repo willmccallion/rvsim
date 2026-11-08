@@ -1,8 +1,8 @@
 //! Core TAGE direction predictor logic shared by standalone TAGE and SC-L-TAGE.
 //!
-//! Owns the bimodal base table, tagged banks (`GeoBankSet`), and `USE_ALT_ON_NA`
-//! counter. Does NOT own a GHR, BTB, RAS, loop predictor, or SC — callers
-//! compose those on top.
+//! Owns the bimodal base table, the tagged banks, their global and path
+//! histories, and the `USE_ALT_ON_NA` counters. Callers compose a BTB, RAS,
+//! loop predictor or SC on top.
 
 use super::sc_types::{TageConfLevel, TageScMeta};
 use super::tage_history::{HistoryBranch, HistoryCheckpoint, TageHistories};
@@ -155,7 +155,7 @@ impl TagePrediction {
 /// Core TAGE direction predictor.
 ///
 /// Provides speculative prediction via `predict()` and commit-time update via
-/// `update()`. CSR management is delegated to the internal `GeoBankSet`.
+/// `update()`. Its folded histories live in `TageHistories`.
 #[derive(Debug)]
 pub struct TageCore {
     bimodal: Bimodal,

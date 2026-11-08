@@ -1,4 +1,4 @@
-//! Shared geometric bank infrastructure for TAGE-family predictors.
+//! ITTAGE's geometric-history banks.
 //!
 //! Manages N sets of `FoldedHistory` CSRs for geometric-history tagged tables.
 //! Handles speculative update, snapshot recompute, and repair. Provides indexing
@@ -16,7 +16,6 @@ pub const MAX_BANKS: usize = MAX_TAGE_BANKS;
 
 /// Manages N sets of `FoldedHistory` CSRs for geometric-history tagged tables.
 ///
-/// This is the core primitive shared by TAGE (direction) and ITTAGE (indirect target).
 /// Each bank has four CSRs: two for index computation, two for tag computation.
 ///
 /// All per-bank arrays are fixed-size `[T; MAX_BANKS]` — only the first
