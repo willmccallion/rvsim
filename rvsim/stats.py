@@ -293,6 +293,23 @@ def _format_table(
     return "\n".join(parts)
 
 
+def _framed(table: str, speedup: str | None = None, title: str = "") -> str:
+    """``table``, and a dimmed ``speedup`` table under it, between coloured
+    rules for a terminal; both are `_format_table` output."""
+    lines = table.split("\n")
+    width = max(len(line) for line in lines)
+    rule = f"{BOLD}{TEAL}{'─' * (width + 4)}{RESET}"
+    parts = ["", f"  {BOLD}{PURPLE}›  {title}{RESET}"] if title else []
+    parts += [rule, f"  {BOLD}{lines[0]}{RESET}", rule]
+    parts += [f"  {line}" for line in lines[2:]]
+    if speedup is not None:
+        parts.append(f"{DIM}{TEAL}{'─' * (width + 4)}{RESET}")
+        # The speedup table's header and rule repeat the main table's.
+        parts += [f"  {DIM}{line}{RESET}" for line in speedup.split("\n")[2:]]
+    parts.append(rule)
+    return "\n".join(parts)
+
+
 class Table:
     """Rendered comparison table.  Created by `tabulate`, displayed via
     ``print()`` or REPL auto-repr."""
@@ -360,37 +377,13 @@ class Table:
                 plain += "\n" + _format_table(headers, spd_rows)
             return plain
 
-        bold, teal, dim, rst = BOLD, TEAL, DIM, RESET
-
-        lines = plain.split("\n")
-        width = max(len(line) for line in lines)
-        rule = f"{bold}{teal}{'─' * (width + 4)}{rst}"
-
-        parts = []
-        if self.__title:
-            # Prominent section header above the rule
-            purple = PURPLE
-            parts.append("")
-            parts.append(f"  {bold}{purple}›  {self.__title}{rst}")
-        parts.append(rule)
-        parts.append(f"  {bold}{lines[0]}{rst}")
-        parts.append(rule)
-        for line in lines[2:]:
-            parts.append(f"  {line}")
+        speedup = None
         if speedup_labels:
-            dim_rule = f"{dim}{teal}{'─' * (width + 4)}{rst}"
-            parts.append(dim_rule)
             spd_rows = [
                 [label] + cells for label, cells in zip(speedup_labels, speedup_grid)
             ]
-            spd_plain = _format_table(headers, spd_rows)
-            for line in spd_plain.split("\n")[2:]:  # skip repeated header/rule
-                parts.append(f"  {dim}{line}{rst}")
-            parts.append(rule)
-        else:
-            parts.append(rule)
-
-        return "\n".join(parts)
+            speedup = _format_table(headers, spd_rows)
+        return _framed(plain, speedup, self.__title)
 
 
 def _compare_flat(
@@ -427,8 +420,6 @@ def _compare_flat(
         rows.append(row)
 
     is_tty = stdout_is_tty()
-    bold, teal, dim, rst = BOLD, TEAL, DIM, RESET
-
     plain = _format_table(headers, rows)
 
     speedup_rows: list[list[str]] = []
@@ -460,29 +451,8 @@ def _compare_flat(
         print(plain)
         return
 
-    lines = plain.split("\n")
-    width = max(len(line) for line in lines)
-    rule = f"{bold}{teal}{'─' * (width + 4)}{rst}"
-
-    parts = []
-    parts.append(rule)
-    parts.append(f"  {bold}{lines[0]}{rst}")
-    parts.append(rule)
-    for line in lines[2:]:
-        parts.append(f"  {line}")
-    parts.append(rule)
-
-    if speedup_rows:
-        dim_rule = f"{dim}{teal}{'─' * (width + 4)}{rst}"
-        parts.append(dim_rule)
-        spd_plain = _format_table(headers, speedup_rows)
-        for line in spd_plain.split("\n")[2:]:
-            parts.append(f"  {dim}{line}{rst}")
-        parts.append(rule)
-    else:
-        parts.append(rule)
-
-    print("\n".join(parts))
+    speedup = _format_table(headers, speedup_rows) if speedup_rows else None
+    print(_framed(plain, speedup))
 
 
 def _compare_matrix(

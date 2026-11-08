@@ -136,5 +136,30 @@ class DefaultComparison(unittest.TestCase):
         self.assertNotIn("core0.commit.op.load", table)
 
 
+class _Terminal(io.StringIO):
+    def isatty(self):
+        return True
+
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _is_rule(line):
+    return set(line.strip()) == {"─"}
+
+
+class TerminalComparison(unittest.TestCase):
+    def test_a_comparison_closes_with_one_rule(self):
+        results = {"a": Result(exit_code=0, stats=run(cycles=100, ipc=1.0))}
+
+        out = _Terminal()
+        with contextlib.redirect_stdout(out):
+            Result.compare(results)
+
+        lines = _ANSI.sub("", out.getvalue()).rstrip("\n").split("\n")
+        self.assertTrue(_is_rule(lines[-1]))
+        self.assertFalse(_is_rule(lines[-2]), lines[-2])
+
+
 if __name__ == "__main__":
     unittest.main()
