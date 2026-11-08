@@ -706,7 +706,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         self.engine.common_mut().frontend_empty = frontend_empty;
         // The engine dispatches the bundle, or leaves it when a trap or squash
         // makes it wrong-path; the redirect below discards the frontend then.
-        let mut dispatch = self.rename_output.take(state.kernel.cycle);
+        let mut dispatch = self.rename_output.take(state.uncore.kernel.cycle);
         self.engine.tick(state, &mut dispatch, &mut self.redirect);
 
         let fetch_squashing = match self.redirect.take() {
@@ -719,7 +719,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             None => false,
         };
 
-        if !fetch_squashing && state.peek_exit().is_none() && !state.hart.wfi_waiting {
+        if !fetch_squashing && state.uncore.peek_exit().is_none() && !state.hart.wfi_waiting {
             self.frontend.tick(&mut state.stage(), &mut self.engine, &mut self.rename_output);
         }
         self.count_control_stall(state);

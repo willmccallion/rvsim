@@ -90,7 +90,7 @@ fn within_directory(name: &str) -> Option<&Path> {
 /// `EFAULT` when the buffer is not mapped.
 pub fn read_file(state: &mut CoreCtx<'_>) -> Result<u64, Errno> {
     let [buffer, len, offset] = [REG_A0, REG_A1, REG_A2].map(|reg| state.hart.regs.read(reg));
-    let bytes = state.host.host_files.script_bytes(offset, len_as_usize(len)).to_vec();
+    let bytes = state.uncore.host.host_files.script_bytes(offset, len_as_usize(len)).to_vec();
     match state.write_now(buffer, &bytes) {
         Ok(()) => Ok(bytes.len() as u64),
         Err(trap) => {
@@ -124,7 +124,7 @@ pub fn write_file(state: &CoreCtx<'_>) -> Result<u64, Errno> {
         })
         .and_then(|(name, bytes)| {
             let name = String::from_utf8_lossy(&name);
-            state.host.host_files.write_output(&name, offset, &bytes).inspect_err(|errno| {
+            state.uncore.host.host_files.write_output(&name, offset, &bytes).inspect_err(|errno| {
                 tracing::warn!(target: "rvsim::pseudo_op", pc = %crate::common::trace::Hex(state.hart.pc.val()),
                     name = %name, ?errno, "writefile: the host file could not be written");
             })

@@ -46,7 +46,7 @@ impl CoreCtx<'_> {
             return;
         }
 
-        trace_trap!(self.trace_trap_enabled(cause);
+        trace_trap!(self.uncore.trace_trap_enabled(cause);
             event      = "taken",
             epc        = %Hex(epc.val()),
             cause      = ?cause,
@@ -73,7 +73,7 @@ impl CoreCtx<'_> {
         }
 
         let hart_paths = self.hart_paths();
-        self.kernel.stats.counter(hart_paths.traps).inc();
+        self.uncore.kernel.stats.counter(hart_paths.traps).inc();
     }
 
     /// An SE-mode program has no kernel to take its trap: it dies as it

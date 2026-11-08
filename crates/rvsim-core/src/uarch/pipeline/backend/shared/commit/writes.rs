@@ -64,7 +64,7 @@ pub(super) fn send_data_store(
     // MMIO, including the HTIF window over RAM, bypasses the WCB so its
     // device sees each store.
     let via_wcb = !state.core.wcb.is_disabled() && is_pure_ram(state, paddr, width);
-    trace_commit!(state.kernel.config.general.trace_instructions;
+    trace_commit!(state.uncore.kernel.config.general.trace_instructions;
         paddr      = %Hex(paddr.val()),
         data       = %Hex(data),
         width      = ?width,
@@ -115,8 +115,8 @@ pub(super) fn send_block_op(
         .memory
         .outstanding_stores
         .insert(req_id, OutstandingStore { owner: StoreOwner::StoreBuffer });
-    let cycle = state.kernel.cycle;
-    state.kernel.event_queue.schedule(
+    let cycle = state.uncore.kernel.cycle;
+    state.uncore.kernel.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),
         ComponentId::Pipeline(common.pipeline_id),
@@ -131,8 +131,8 @@ pub(super) fn send_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut Backen
     let req_id = common.alloc_req_id();
     let owner = StoreOwner::DataCacheFlush;
     let _ = common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner });
-    let cycle = state.kernel.cycle;
-    state.kernel.event_queue.schedule(
+    let cycle = state.uncore.kernel.cycle;
+    state.uncore.kernel.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),
         ComponentId::Pipeline(common.pipeline_id),
@@ -215,7 +215,7 @@ pub(super) fn drain_vec_store_line(
     let Some((rob_tag, line)) = vec_store_buffer.take_drainable_line() else { return false };
     let paddr = PhysAddr::new(line.line_addr);
     let owner = StoreOwner::VecStoreBuffer;
-    let requests = if state.bus.is_ram(paddr, VSB_LINE_BYTES as u64) {
+    let requests = if state.uncore.bus.is_ram(paddr, VSB_LINE_BYTES as u64) {
         vec![emit_line_write(state, common, paddr, &line.data, line.valid_mask, owner)]
     } else {
         let write = StoreWrite { origin: WriteOrigin::Hart(state.hart.hart_id), owner };
@@ -243,8 +243,8 @@ pub(super) fn emit_line_write(
     let req_id = common.alloc_req_id();
     let _ = common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner });
     let origin = WriteOrigin::Hart(state.hart.hart_id);
-    let cycle = state.kernel.cycle;
-    state.kernel.event_queue.schedule(
+    let cycle = state.uncore.kernel.cycle;
+    state.uncore.kernel.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),
         ComponentId::Pipeline(common.pipeline_id),
@@ -376,8 +376,8 @@ pub(super) fn emit_store_write_packet_to(
     let pipeline_id = common.pipeline_id;
     let _ =
         common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner });
-    let cycle = state.kernel.cycle;
-    state.kernel.event_queue.schedule(
+    let cycle = state.uncore.kernel.cycle;
+    state.uncore.kernel.event_queue.schedule(
         cycle,
         target,
         ComponentId::Pipeline(pipeline_id),
