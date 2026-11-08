@@ -2,7 +2,7 @@
 //!
 //! Exposes `PipelineSnapshot` as a read-only Python class with built-in
 //! `render()` / `visualize()` methods. All stage latches are lists of per-slot
-//! dicts. No private methods are exposed.
+//! dicts.
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
