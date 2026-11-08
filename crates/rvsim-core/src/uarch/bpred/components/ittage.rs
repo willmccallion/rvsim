@@ -171,13 +171,6 @@ impl Ittage {
     pub fn repair_history(&mut self, ghr: &Ghr) {
         self.banks.recompute_all(ghr);
     }
-
-    /// Incrementally advances committed CSRs for a committed branch outcome.
-    /// Must be called BEFORE `commit_ghr.push()`.
-    #[inline]
-    pub fn commit_advance(&mut self, taken: bool, ghr: &Ghr) {
-        self.banks.update_committed_csrs(taken, ghr);
-    }
 }
 
 #[cfg(test)]
