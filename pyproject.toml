@@ -34,6 +34,20 @@ include = ["LICENSE-APACHE", "LICENSE-MIT"]
 [tool.ruff]
 extend-exclude = ["tests/builds", "third_party", "docs/spec", "*.md"]
 
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "RUF", "BLE", "C4", "N", "PERF",
+    "ARG", "PIE", "RET",
+]
+ignore = [
+    "E501",  # ruff format owns line length; what it leaves long is a string
+    "N818",  # KernelPanic and Stalled name what happened, not an error type
+]
+# The stats tables' title marker and the docs' "N×" multipliers.
+allowed-confusables = ["›", "×"]
+
 [tool.ruff.lint.per-file-ignores]
-# The runners record any worker failure as that test's error and carry on.
-"tests/conformance/**" = ["BLE001"]
+# The runners record any worker failure as that test's error and carry on,
+# and each script puts the repository on sys.path before importing from it.
+"tests/conformance/**" = ["BLE001", "E402"]
+"tools/**" = ["E402"]

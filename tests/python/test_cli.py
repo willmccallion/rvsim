@@ -41,8 +41,17 @@ class JsonExport(unittest.TestCase):
             out = os.path.join(tmp, "stats.json")
 
             result = subprocess.run(
-                [sys.executable, "-m", "rvsim", FIB, "--json", out, "--quiet"]
-                + ["--limit", str(limit)],
+                [
+                    sys.executable,
+                    "-m",
+                    "rvsim",
+                    FIB,
+                    "--json",
+                    out,
+                    "--quiet",
+                    "--limit",
+                    str(limit),
+                ],
                 cwd=ROOT,
                 check=False,
                 capture_output=True,

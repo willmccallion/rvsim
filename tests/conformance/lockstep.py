@@ -93,11 +93,11 @@ def find_workloads(filter_substr=None, smoke=False):
     """(name, path) of every single-hart workload."""
     workloads = list(find_riscv_tests())
     for kind in ("programs", "benchmarks"):
-        for path in sorted(glob.glob(os.path.join(SOFTWARE_BIN, kind, "*.elf"))):
-            workloads.append((f"{kind}/{os.path.basename(path)}", path))
+        paths = sorted(glob.glob(os.path.join(SOFTWARE_BIN, kind, "*.elf")))
+        workloads += [(f"{kind}/{os.path.basename(path)}", path) for path in paths]
     vector_build = VECTOR_SMOKE_BUILD if smoke else VECTOR_BUILD
-    for path in sorted(glob.glob(os.path.join(vector_build, "vlen*", "*.elf"))):
-        workloads.append((f"vector/{os.path.basename(path)}", path))
+    paths = sorted(glob.glob(os.path.join(vector_build, "vlen*", "*.elf")))
+    workloads += [(f"vector/{os.path.basename(path)}", path) for path in paths]
     if filter_substr:
         workloads = [(name, path) for name, path in workloads if filter_substr in name]
     return workloads

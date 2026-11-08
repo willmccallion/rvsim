@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import concurrent.futures as cf
+import contextlib
 import glob
 import hashlib
 import json
@@ -149,10 +150,8 @@ def run_one(args):
         return {"test": name, "pipeline": pipeline_label, "status": "timeout"}
 
     if res.returncode == 124:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(sig_out)
-        except OSError:
-            pass
         return {"test": name, "pipeline": pipeline_label, "status": "timeout"}
 
     if not os.path.isfile(sig_out):
@@ -171,10 +170,8 @@ def run_one(args):
         with open(ref_sig_path) as f:
             ref = f.read()
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.remove(sig_out)
-        except OSError:
-            pass
 
     if dut_sig == ref:
         return {

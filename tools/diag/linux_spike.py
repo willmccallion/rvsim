@@ -67,7 +67,7 @@ def parse_log(path, skip_nops=True, skip_reset=False, max_entries=0):
 
 def compare_traces(spike_trace, rvsim_trace):
     """Compare two traces by PC. Returns (match_count, divergence_info | None)."""
-    for i, (s, r) in enumerate(zip(spike_trace, rvsim_trace)):
+    for i, (s, r) in enumerate(zip(spike_trace, rvsim_trace, strict=False)):
         if s[0] != r[0]:
             return i, {
                 "inst_num": i + 1,
@@ -205,7 +205,7 @@ def run_rvsim_trace(cycle_limit):
 # ── Disassembly helper ──────────────────────────────────────────────────────
 
 
-def try_disasm(pc, inst):
+def try_disasm(inst):
     """Try to disassemble a single instruction using objdump."""
     # 32-bit instruction
     inst_bytes = inst.to_bytes(4, "little")
@@ -353,13 +353,10 @@ def main():
     for i in range(start, end):
         s_pc, s_inst = spike_trace[i]
         r_pc, r_inst = rvsim_trace[i]
-        if s_pc == r_pc:
-            status = "  ok"
-        else:
-            status = "  <<< DIVERGE"
+        status = "  ok" if s_pc == r_pc else "  <<< DIVERGE"
         disasm = ""
         if not args.no_disasm and s_pc == r_pc:
-            disasm = try_disasm(s_pc, s_inst)
+            disasm = try_disasm(s_inst)
             if disasm:
                 disasm = f"  {disasm}"
 
@@ -405,7 +402,7 @@ def main():
         pc, inst = spike_trace[i]
         disasm = ""
         if not args.no_disasm:
-            disasm = try_disasm(pc, inst)
+            disasm = try_disasm(inst)
             if disasm:
                 disasm = f"  {disasm}"
         print(f"  {i + 1:>8,d}  0x{pc:016x} (0x{inst:08x}){disasm}")
@@ -415,7 +412,7 @@ def main():
         pc, inst = rvsim_trace[i]
         disasm = ""
         if not args.no_disasm:
-            disasm = try_disasm(pc, inst)
+            disasm = try_disasm(inst)
             if disasm:
                 disasm = f"  {disasm}"
         print(f"  {i + 1:>8,d}  0x{pc:016x} (0x{inst:08x}){disasm}")

@@ -91,9 +91,9 @@ class FakeCore:
     def __init__(self, values):
         self.values = values
 
-    def query(self, pattern):
+    def query(self, _pattern):
         paths = list(self.values)
-        return type("Query", (), {"paths": lambda self: paths})()
+        return type("Query", (), {"paths": lambda _self: paths})()
 
     def get(self, path):
         return self.values[path]
