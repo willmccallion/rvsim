@@ -12,12 +12,12 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{HartId, LineAddr};
+use crate::common::HartId;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
+use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
 use crate::soc::devices::Device;
-use crate::soc::traits::{RestoreError, parse_state};
+use crate::soc::traits::{MmioRegisters, RestoreError, parse_state, serve_mmio};
 
 /// Offset of the first MSIP register; one 4-byte word per hart.
 const MSIP_BASE: u64 = 0x0000;
@@ -207,33 +207,30 @@ impl Clint {
 
 impl Handle for Clint {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
-        if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            let offset = paddr.val().saturating_sub(self.base_addr);
-            let value = match op {
-                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
-                    self.read_register(offset, size)
-                }
-                MemOp::Write { data: WriteData::Small(val), .. } => {
-                    self.write_register(offset, size, val);
-                    0
-                }
-                MemOp::Write { .. }
-                | MemOp::Writeback { .. }
-                | MemOp::Maintain { .. }
-                | MemOp::Prefetch { .. } => 0,
-            };
-            ctx.scheduler.schedule(
-                ctx.cycle + ctx.config.system.device_access_cycles(self.name()),
-                source,
-                ctx.self_id,
-                Packet::MemResp {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, 64),
-                    data: MemRespData::Small(value),
-                    hit_level: HitLevel::Mmio,
-                    state: MesiState::Exclusive,
-                },
-            );
+        serve_mmio(self, packet, source, ctx);
+    }
+}
+
+impl MmioRegisters for Clint {
+    fn access(
+        &mut self,
+        offset: u64,
+        size: AccessSize,
+        op: MemOp,
+        _ctx: &mut HandleCtx<'_>,
+    ) -> u64 {
+        match op {
+            MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
+                self.read_register(offset, size)
+            }
+            MemOp::Write { data: WriteData::Small(val), .. } => {
+                self.write_register(offset, size, val);
+                0
+            }
+            MemOp::Write { .. }
+            | MemOp::Writeback { .. }
+            | MemOp::Maintain { .. }
+            | MemOp::Prefetch { .. } => 0,
         }
     }
 }

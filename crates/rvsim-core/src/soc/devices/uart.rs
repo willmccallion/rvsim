@@ -7,13 +7,14 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{IrqId, LineAddr};
+use crate::common::IrqId;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
-use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
+use crate::sim::packet::AccessSize;
+use crate::sim::packet::{MemOp, Packet, WriteData};
 use crate::soc::devices::Device;
 use crate::soc::terminal::SharedTerminal;
-use crate::soc::traits::{RestoreError, parse_state};
+use crate::soc::traits::{MmioRegisters, RestoreError, parse_state, serve_mmio};
 use std::collections::VecDeque;
 
 /// Receiver Buffer Register (Read) / Divisor Latch Low (DLAB=1).
@@ -383,33 +384,30 @@ impl Uart {
 
 impl Handle for Uart {
     fn handle(&mut self, packet: Packet, source: ComponentId, ctx: &mut HandleCtx<'_>) {
-        if let Packet::MemReq { req_id, paddr, op, .. } = packet {
-            let offset = paddr.val().saturating_sub(self.base_addr);
-            let value: u64 = match op {
-                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
-                    u64::from(self.read_register(offset))
-                }
-                MemOp::Write { data: WriteData::Small(val), .. } => {
-                    self.write_register(offset, val as u8);
-                    0
-                }
-                MemOp::Write { .. }
-                | MemOp::Writeback { .. }
-                | MemOp::Maintain { .. }
-                | MemOp::Prefetch { .. } => 0,
-            };
-            ctx.scheduler.schedule(
-                ctx.cycle + ctx.config.system.device_access_cycles(self.name()),
-                source,
-                ctx.self_id,
-                Packet::MemResp {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, 64),
-                    data: MemRespData::Small(value),
-                    hit_level: HitLevel::Mmio,
-                    state: MesiState::Exclusive,
-                },
-            );
+        serve_mmio(self, packet, source, ctx);
+    }
+}
+
+impl MmioRegisters for Uart {
+    fn access(
+        &mut self,
+        offset: u64,
+        _size: AccessSize,
+        op: MemOp,
+        _ctx: &mut HandleCtx<'_>,
+    ) -> u64 {
+        match op {
+            MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. } => {
+                u64::from(self.read_register(offset))
+            }
+            MemOp::Write { data: WriteData::Small(val), .. } => {
+                self.write_register(offset, val as u8);
+                0
+            }
+            MemOp::Write { .. }
+            | MemOp::Writeback { .. }
+            | MemOp::Maintain { .. }
+            | MemOp::Prefetch { .. } => 0,
         }
     }
 }

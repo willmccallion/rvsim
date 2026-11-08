@@ -5,11 +5,50 @@
 //! `Device` itself describes the device's location on the bus, its lifecycle
 //! tick, and type-specific upcasts that the bus uses for IRQ aggregation.
 
-use crate::common::IrqId;
-use crate::sim::handle::Handle;
+use crate::common::{IrqId, LineAddr, PhysAddr};
+use crate::sim::components::{ComponentId, ReqId};
+use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
+use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
 use crate::soc::devices::{Clint, Plic, Uart};
 use serde::de::DeserializeOwned;
+
+/// The line size an MMIO response's address is rounded to. Devices have no
+/// cache lines; the requester matches the response by its id.
+const MMIO_LINE_BYTES: u64 = 64;
+
+/// A device whose registers MMIO reads and writes reach.
+pub trait MmioRegisters: Device {
+    /// Performs `op` of `size` bytes at `offset` from the device's base,
+    /// and returns what a read returns (0 for anything else).
+    fn access(&mut self, offset: u64, size: AccessSize, op: MemOp, ctx: &mut HandleCtx<'_>) -> u64;
+}
+
+/// Serves an MMIO request: performs it on `device` and answers `source`
+/// after the device's access latency. Anything but a request is ignored.
+pub fn serve_mmio<D: MmioRegisters>(
+    device: &mut D,
+    packet: Packet,
+    source: ComponentId,
+    ctx: &mut HandleCtx<'_>,
+) {
+    let Packet::MemReq { req_id, paddr, size, op, .. } = packet else { return };
+    let value = device.access(paddr.val().saturating_sub(device.address_range().0), size, op, ctx);
+    let answered_at = ctx.cycle + ctx.config.system.device_access_cycles(device.name());
+    ctx.scheduler.schedule(answered_at, source, ctx.self_id, mmio_response(req_id, paddr, value));
+}
+
+/// The answer to MMIO request `req_id` for `paddr`, carrying `value`.
+#[must_use]
+pub const fn mmio_response(req_id: ReqId, paddr: PhysAddr, value: u64) -> Packet {
+    Packet::MemResp {
+        req_id,
+        line_addr: LineAddr::from_phys(paddr, MMIO_LINE_BYTES),
+        data: MemRespData::Small(value),
+        hit_level: HitLevel::Mmio,
+        state: MesiState::Exclusive,
+    }
+}
 
 /// Why a device cannot take the state a checkpoint holds for it.
 #[derive(Debug, thiserror::Error)]

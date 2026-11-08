@@ -6,13 +6,13 @@
 mod checkpoint;
 mod queue;
 
-use crate::common::{IrqId, LineAddr, PhysAddr};
+use crate::common::{IrqId, PhysAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
-use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet, WriteData};
+use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
 use crate::soc::devices::Device;
-use crate::soc::traits::{RestoreError, parse_state};
+use crate::soc::traits::{MmioRegisters, RestoreError, parse_state, serve_mmio};
 use std::collections::BTreeSet;
 use std::collections::VecDeque;
 
@@ -396,62 +396,57 @@ impl Handle for VirtioBlock {
             self.on_dma_response(req_id, ctx);
             return;
         }
-        if let Packet::MemReq { req_id, paddr, size, op, .. } = packet {
-            let offset = paddr.val().saturating_sub(self.base_addr);
-            let notified = matches!(op, MemOp::Write { .. }) && (offset & !3) == REG_QUEUE_NOTIFY;
-            let value: u64 = match (size, op) {
-                (
-                    AccessSize::B4 | AccessSize::B8,
-                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
-                ) => u64::from(self.read_u32_reg(offset)),
-                (
-                    AccessSize::B1,
-                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
-                ) => {
-                    let aligned = offset & !3;
-                    let shift = (offset & 3) * 8;
-                    u64::from((self.read_u32_reg(aligned) >> shift) as u8)
-                }
-                (
-                    AccessSize::B2,
-                    MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
-                ) => {
-                    let aligned = offset & !3;
-                    let shift = (offset & 3) * 8;
-                    u64::from((self.read_u32_reg(aligned) >> shift) as u16)
-                }
-                (
-                    AccessSize::B4 | AccessSize::B8,
-                    MemOp::Write { data: WriteData::Small(val), .. },
-                ) => {
-                    self.write_u32_reg(offset, val as u32);
-                    0
-                }
-                (
-                    AccessSize::B1 | AccessSize::B2,
-                    MemOp::Write { data: WriteData::Small(val), .. },
-                ) => {
-                    self.write_u32_reg(offset & !3, val as u32);
-                    0
-                }
-                _ => 0,
-            };
-            ctx.scheduler.schedule(
-                ctx.cycle + ctx.config.system.device_access_cycles(self.name()),
-                source,
-                ctx.self_id,
-                Packet::MemResp {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, 64),
-                    data: MemRespData::Small(value),
-                    hit_level: HitLevel::Mmio,
-                    state: MesiState::Exclusive,
-                },
-            );
-            if notified {
-                tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, busy = self.job.is_some(), "virtio: notified");
-                self.start_next_request(ctx);
+        let notified = matches!(
+            packet,
+            Packet::MemReq { paddr, op: MemOp::Write { .. }, .. }
+                if (paddr.val().saturating_sub(self.base_addr) & !3) == REG_QUEUE_NOTIFY
+        );
+        serve_mmio(self, packet, source, ctx);
+        if notified {
+            tracing::trace!(target: "rvsim::dma", cycle = ctx.cycle, busy = self.job.is_some(), "virtio: notified");
+            self.start_next_request(ctx);
+        }
+    }
+}
+
+impl MmioRegisters for VirtioBlock {
+    fn access(
+        &mut self,
+        offset: u64,
+        size: AccessSize,
+        op: MemOp,
+        _ctx: &mut HandleCtx<'_>,
+    ) -> u64 {
+        match (size, op) {
+            (
+                AccessSize::B4 | AccessSize::B8,
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+            ) => u64::from(self.read_u32_reg(offset)),
+            (
+                AccessSize::B1,
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+            ) => {
+                let aligned = offset & !3;
+                let shift = (offset & 3) * 8;
+                u64::from((self.read_u32_reg(aligned) >> shift) as u8)
             }
+            (
+                AccessSize::B2,
+                MemOp::Read | MemOp::ReadOwn | MemOp::Fetch | MemOp::Atomic { .. },
+            ) => {
+                let aligned = offset & !3;
+                let shift = (offset & 3) * 8;
+                u64::from((self.read_u32_reg(aligned) >> shift) as u16)
+            }
+            (AccessSize::B4 | AccessSize::B8, MemOp::Write { data: WriteData::Small(val), .. }) => {
+                self.write_u32_reg(offset, val as u32);
+                0
+            }
+            (AccessSize::B1 | AccessSize::B2, MemOp::Write { data: WriteData::Small(val), .. }) => {
+                self.write_u32_reg(offset & !3, val as u32);
+                0
+            }
+            _ => 0,
         }
     }
 }
