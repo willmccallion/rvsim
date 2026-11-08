@@ -7,13 +7,22 @@
 use crate::common::PhysAddr;
 use crate::config::AddressMappingKind;
 use crate::config::ddr5::CACHE_LINE_OFFSET_BITS;
-use crate::soc::memory::address::AddressMapper;
+use crate::soc::memory::address::{AddressMapper, DramGeometry};
 
 /// A standard-ish DDR5 topology used by most tests below:
 /// 2 channels, 2 subchannels, 2 ranks, 4 bank groups, 4 banks/group,
 /// 15-bit rows, 10-bit columns.
 fn make(kind: AddressMappingKind) -> AddressMapper {
-    AddressMapper::new(kind, 2, 2, 2, 4, 4, 15, 10)
+    let geometry = DramGeometry {
+        channels: 2,
+        subchannels: 2,
+        ranks: 2,
+        bank_groups: 4,
+        banks_per_group: 4,
+        row_bits: 15,
+        column_bits: 10,
+    };
+    AddressMapper::new(kind, geometry)
 }
 
 const LINE_BYTES: u64 = 1 << CACHE_LINE_OFFSET_BITS;

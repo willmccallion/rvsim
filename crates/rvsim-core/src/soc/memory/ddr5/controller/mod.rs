@@ -42,7 +42,7 @@ use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{
     AccessSize, DramCmdKind, HitLevel, MemOp, MemRespData, MesiState, Packet,
 };
-use crate::soc::memory::address::AddressMapper;
+use crate::soc::memory::address::{AddressMapper, DramGeometry};
 use crate::soc::memory::controller::{MemoryController, read_response};
 use crate::soc::memory::ddr5::ecc::EccPolicy;
 use crate::soc::memory::ddr5::refresh::{RankLayout, RefreshPolicy};
@@ -144,13 +144,15 @@ impl Ddr5Controller {
     ) -> Self {
         let mapper = AddressMapper::new(
             config.address_mapping,
-            config.channels,
-            config.subchannels_per_channel,
-            config.ranks_per_channel,
-            config.bank_groups_per_rank,
-            config.banks_per_group,
-            config.row_bits,
-            config.column_bits,
+            DramGeometry {
+                channels: config.channels,
+                subchannels: config.subchannels_per_channel,
+                ranks: config.ranks_per_channel,
+                bank_groups: config.bank_groups_per_rank,
+                banks_per_group: config.banks_per_group,
+                row_bits: config.row_bits,
+                column_bits: config.column_bits,
+            },
         );
         let layout = RankLayout {
             bank_groups: config.bank_groups_per_rank,
