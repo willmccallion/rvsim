@@ -11,7 +11,7 @@
 
 use crate::common::{CoreId, HartId};
 
-use super::{StatId, Stats, Unit};
+use super::StatId;
 
 macro_rules! stat_paths {
     (
@@ -25,25 +25,29 @@ macro_rules! stat_paths {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug)]
         pub struct $name {
-            $( $(#[$fmeta])* pub $field: StatId, )*
-            $( $( $(#[$dmeta])* pub $dfield: StatId, )* )?
+            $( $(#[$fmeta])* pub $field: $crate::sim::stats::StatId, )*
+            $( $( $(#[$dmeta])* pub $dfield: $crate::sim::stats::StatId, )* )?
         }
 
         impl $name {
-            fn under(subject: &str) -> Self {
+            /// The paths under `subject`.
+            #[must_use]
+            pub fn under(subject: &str) -> Self {
                 Self {
-                    $( $field: StatId::of(&format!("{subject}.{}", $tail)), )*
-                    $( $( $dfield: StatId::of(&format!("{subject}.{}", $dtail)), )* )?
+                    $( $field: $crate::sim::stats::StatId::of(&format!("{subject}.{}", $tail)), )*
+                    $( $( $dfield: $crate::sim::stats::StatId::of(&format!("{subject}.{}", $dtail)), )* )?
                 }
             }
 
             /// Registers every counter in its unit.
-            pub(super) fn register(&self, stats: &mut Stats) {
-                $( stats.register(self.$field, Unit::$unit); )*
+            pub fn register_counters(&self, stats: &mut $crate::sim::stats::Stats) {
+                $( stats.register(self.$field, $crate::sim::stats::Unit::$unit); )*
             }
         }
     };
 }
+
+pub(crate) use stat_paths;
 
 stat_paths! {
     /// Architectural, per-hart counters (retired insts, traps, mode-cycle mix).

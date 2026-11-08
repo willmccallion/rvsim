@@ -356,7 +356,7 @@ impl Stats {
     ) -> Self {
         let mut s = Self::new();
         for hart in harts {
-            hart.register(&mut s);
+            hart.register_counters(&mut s);
         }
         for (core, first_hart) in cores {
             register_core(&mut s, core, &harts[first_hart.as_index()]);
@@ -574,13 +574,13 @@ impl Stats {
 /// Registers a core's counters and its derived rates (BP accuracies,
 /// IPC/CPI against `first_hart`'s retired instructions).
 fn register_core(stats: &mut Stats, core: &CorePaths, first_hart: &HartPaths) {
-    core.commit.register(stats);
-    core.pipeline.register(stats);
-    core.bp.register(stats);
-    core.mdp.register(stats);
-    core.lsq.register(stats);
-    core.wcb.register(stats);
-    core.load_prefetch.register(stats);
+    core.commit.register_counters(stats);
+    core.pipeline.register_counters(stats);
+    core.bp.register_counters(stats);
+    core.mdp.register_counters(stats);
+    core.lsq.register_counters(stats);
+    core.wcb.register_counters(stats);
+    core.load_prefetch.register_counters(stats);
     for path in core.fu.all {
         stats.register(path, Unit::Cycles);
     }
