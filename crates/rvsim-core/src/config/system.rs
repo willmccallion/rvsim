@@ -197,8 +197,6 @@ pub struct SystemConfig {
     pub tohost_addr: u64,
 
     /// Number of harts in the simulated `SoC`. Default 1 (single-hart).
-    /// Multi-hart support lands later in Phase C; this knob exists from
-    /// Phase A so config plumbing is in place when n>1 is enabled.
     #[serde(default = "SystemConfig::default_hart_count")]
     pub hart_count: usize,
 }

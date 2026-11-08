@@ -143,7 +143,6 @@ fn producer_consumer(harts: i32) -> Vec<u32> {
     code
 }
 
-/// Runs to exit, auditing the coherence invariants along the way.
 /// Runs to the guest's exit with every cache invariant checked after every
 /// event; a broken one fails the test with the event's cycle.
 fn run_audited(system: &mut MultiHart, max_cycles: u64) -> Option<u64> {

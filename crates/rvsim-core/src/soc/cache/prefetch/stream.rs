@@ -29,7 +29,7 @@ pub struct StreamPrefetcher {
     line_bytes: u64,
     /// Number of lines to prefetch ahead.
     degree: usize,
-    /// The address accessed in the previous cycle.
+    /// The address the previous access touched.
     last_addr: u64,
     /// The current detected stream direction.
     direction: Direction,

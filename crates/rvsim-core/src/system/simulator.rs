@@ -98,10 +98,10 @@ pub enum StopReason {
     Cancelled,
 }
 
-/// Cycles between [`Simulator::run_to_with`]'s checks of `keep_going`.
 /// The RAM a bare-metal image's device tree takes at the top.
 pub const DTB_RESERVE: u64 = 64 * 1024;
 
+/// Cycles between [`Simulator::run_to_with`]'s checks of `keep_going`.
 const CANCEL_POLL_CYCLES: u64 = 1 << 16;
 
 /// The most cycles one quiet skip covers, so a system idle forever still
