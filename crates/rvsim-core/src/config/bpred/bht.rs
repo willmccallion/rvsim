@@ -9,49 +9,30 @@ use thiserror::Error;
 /// placed above the PC bits.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct BhtConfig {
     /// Counters in the table; a power of two.
-    #[serde(default = "BhtConfig::default_entries")]
     pub entries: usize,
     /// Bits per counter: 1 or 2.
-    #[serde(default = "BhtConfig::default_counter_bits")]
     pub counter_bits: u32,
     /// Bits of global history kept.
-    #[serde(default = "BhtConfig::default_history_length")]
     pub history_length: u32,
     /// Bits the history is hashed to, placed above the PC bits of the index.
-    #[serde(default = "BhtConfig::default_history_bits")]
     pub history_bits: u32,
 }
 
 impl Default for BhtConfig {
     fn default() -> Self {
         Self {
-            entries: Self::default_entries(),
-            counter_bits: Self::default_counter_bits(),
-            history_length: Self::default_history_length(),
-            history_bits: Self::default_history_bits(),
+            entries: defaults::BHT_ENTRIES,
+            counter_bits: defaults::BHT_COUNTER_BITS,
+            history_length: defaults::BHT_HISTORY_LENGTH,
+            history_bits: defaults::BHT_HISTORY_BITS,
         }
     }
 }
 
 impl BhtConfig {
-    const fn default_entries() -> usize {
-        defaults::BHT_ENTRIES
-    }
-
-    const fn default_counter_bits() -> u32 {
-        defaults::BHT_COUNTER_BITS
-    }
-
-    const fn default_history_length() -> u32 {
-        defaults::BHT_HISTORY_LENGTH
-    }
-
-    const fn default_history_bits() -> u32 {
-        defaults::BHT_HISTORY_BITS
-    }
-
     /// Bits of the table index: `log2(entries)`.
     #[must_use]
     pub const fn index_bits(&self) -> u32 {

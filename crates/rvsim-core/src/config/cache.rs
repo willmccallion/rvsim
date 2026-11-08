@@ -131,116 +131,52 @@ impl CacheHierarchyConfig {
 /// Individual cache level configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct CacheConfig {
     /// Enable this cache level
-    #[serde(default)]
     pub enabled: bool,
 
     /// Total cache size in bytes
-    #[serde(default = "CacheConfig::default_size")]
     pub size_bytes: usize,
 
     /// Cache line size in bytes
-    #[serde(default = "CacheConfig::default_line")]
     pub line_bytes: usize,
 
     /// Associativity (number of ways)
-    #[serde(default = "CacheConfig::default_ways")]
     pub ways: usize,
 
     /// Replacement policy
-    #[serde(default)]
     pub policy: ReplacementPolicyKind,
 
     /// Access latency in cycles
-    #[serde(default = "CacheConfig::default_latency")]
     pub latency: u64,
 
     /// Cycles from a line arriving from the next level to the requests
     /// waiting on it being answered: the fill is forwarded to them as it is
     /// written into the array (gem5's `response_latency`).
-    #[serde(default = "CacheConfig::default_response_latency")]
     pub response_latency: u64,
 
     /// Hardware prefetcher type
-    #[serde(default)]
     pub prefetcher: PrefetcherKind,
 
     /// Prefetcher table size (for stride prefetcher)
-    #[serde(default = "CacheConfig::default_prefetch_table")]
     pub prefetch_table_size: usize,
 
     /// Prefetch degree (lines to prefetch per trigger)
-    #[serde(default = "CacheConfig::default_prefetch_degree")]
     pub prefetch_degree: usize,
 
     /// Number of MSHRs (Miss Status Holding Registers): outstanding line
     /// fetches this level can have in flight. One gives a blocking cache.
-    #[serde(default = "CacheConfig::default_mshr_count")]
     pub mshr_count: NonZeroUsize,
 
     /// Writeback buffer entries: victims in flight to the next level before
     /// the cache stops accepting requests.
-    #[serde(default = "CacheConfig::default_write_buffers")]
     pub write_buffers: NonZeroUsize,
 
     /// Requests one MSHR can hold (gem5's `tgts_per_mshr`): once a line in
     /// flight has this many waiting, the cache accepts nothing until that
     /// line's fill returns.
-    #[serde(default = "CacheConfig::default_targets_per_mshr")]
     pub targets_per_mshr: NonZeroUsize,
-}
-
-impl CacheConfig {
-    /// Returns the default cache size in bytes.
-    const fn default_size() -> usize {
-        defaults::CACHE_SIZE
-    }
-
-    /// Returns the default cache line size in bytes.
-    const fn default_line() -> usize {
-        defaults::CACHE_LINE
-    }
-
-    /// Returns the default cache associativity (number of ways).
-    const fn default_ways() -> usize {
-        defaults::CACHE_WAYS
-    }
-
-    /// Returns the default cache access latency in cycles.
-    const fn default_latency() -> u64 {
-        defaults::CACHE_LATENCY
-    }
-
-    /// Returns the default fill-forwarding latency.
-    const fn default_response_latency() -> u64 {
-        defaults::CACHE_RESPONSE_LATENCY
-    }
-
-    /// Returns the default prefetcher pattern table size.
-    const fn default_prefetch_table() -> usize {
-        defaults::PREFETCH_TABLE_SIZE
-    }
-
-    /// Returns the default prefetch degree (lines per trigger).
-    const fn default_prefetch_degree() -> usize {
-        defaults::PREFETCH_DEGREE
-    }
-
-    /// Returns the default MSHR count.
-    const fn default_mshr_count() -> NonZeroUsize {
-        defaults::MSHR_COUNT
-    }
-
-    /// Returns the default writeback buffer size.
-    const fn default_write_buffers() -> NonZeroUsize {
-        defaults::WRITE_BUFFERS
-    }
-
-    /// Returns the default number of requests one MSHR can hold.
-    const fn default_targets_per_mshr() -> NonZeroUsize {
-        defaults::TARGETS_PER_MSHR
-    }
 }
 
 impl Default for CacheConfig {

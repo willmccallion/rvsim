@@ -36,78 +36,61 @@ pub enum MemoryControllerKind {
 /// and TLB configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct MemoryConfig {
     /// RAM size in bytes
-    #[serde(default = "MemoryConfig::default_ram_size")]
     pub ram_size: usize,
 
     /// Memory controller type
-    #[serde(default)]
     pub controller: MemoryControllerKind,
 
     /// DDR5 controller parameters; used when `controller` is `Ddr5`.
-    #[serde(default)]
     pub ddr5: crate::config::ddr5::Ddr5Params,
 
     /// CAS latency (column access strobe)
-    #[serde(default = "MemoryConfig::default_t_cas")]
     pub t_cas: u64,
 
     /// RAS latency (row access strobe)
-    #[serde(default = "MemoryConfig::default_t_ras")]
     pub t_ras: u64,
 
     /// Precharge latency
-    #[serde(default = "MemoryConfig::default_t_pre")]
     pub t_pre: u64,
 
     /// Latency of the Simple controller in core cycles.
-    #[serde(default = "MemoryConfig::default_simple_latency")]
     pub simple_latency: u64,
 
     /// Bandwidth of the Simple controller in GiB/s; requests are
     /// serialised on it, each busying the controller for its bytes' time.
-    #[serde(default = "MemoryConfig::default_simple_bandwidth_gib_s")]
     pub simple_bandwidth_gib_s: f64,
 
     /// Number of DRAM banks per rank
-    #[serde(default = "MemoryConfig::default_num_banks")]
     pub num_banks: usize,
 
     /// Row-to-Row Delay (different bank activation spacing)
-    #[serde(default = "MemoryConfig::default_t_rrd")]
     pub t_rrd: u64,
 
     /// DRAM row (page) size in bytes
-    #[serde(default = "MemoryConfig::default_row_size")]
     pub row_size_bytes: usize,
 
     /// Refresh interval in cycles
-    #[serde(default = "MemoryConfig::default_t_refi")]
     pub t_refi: u64,
 
     /// Refresh cycle time in cycles
-    #[serde(default = "MemoryConfig::default_t_rfc")]
     pub t_rfc: u64,
 
     /// L1 TLB entry count
-    #[serde(default = "MemoryConfig::default_tlb_size")]
     pub tlb_size: usize,
 
     /// L1 TLB associativity (ways per set); 0 for fully associative
-    #[serde(default = "MemoryConfig::default_tlb_ways")]
     pub tlb_ways: usize,
 
     /// L2 TLB entry count (shared between iTLB and dTLB); 0 for none
-    #[serde(default = "MemoryConfig::default_l2_tlb_size")]
     pub l2_tlb_size: usize,
 
     /// L2 TLB associativity (ways per set)
-    #[serde(default = "MemoryConfig::default_l2_tlb_ways")]
     pub l2_tlb_ways: usize,
 
     /// L2 TLB hit latency in cycles
-    #[serde(default = "MemoryConfig::default_l2_tlb_latency")]
     pub l2_tlb_latency: u64,
 
     /// Trap on misaligned memory accesses instead of handling them natively.
@@ -115,7 +98,6 @@ pub struct MemoryConfig {
     /// `StoreAddressMisaligned` exceptions (matching spike's default behavior).
     /// When false, misaligned accesses are handled transparently with a latency
     /// penalty (like many modern RISC-V cores). Default: true.
-    #[serde(default = "MemoryConfig::default_misaligned_access_trap")]
     pub misaligned_access_trap: bool,
 
     /// Highest SATP paging mode the CPU's CSR writer will accept.
@@ -124,7 +106,6 @@ pub struct MemoryConfig {
     /// configurations pin the active mode without rebuilding the kernel
     /// (e.g. force a Sv57-aware Linux to fall back to Sv39): `"Bare"`,
     /// `"Sv39"`, `"Sv48"` or `"Sv57"`, the default (no cap).
-    #[serde(default = "MemoryConfig::default_paging_mode_max")]
     pub paging_mode_max: crate::isa::privileged::PagingMode,
 }
 
@@ -138,98 +119,6 @@ impl MemoryConfig {
             return None;
         }
         std::num::NonZeroU64::new((gib_s * f64::from(1u32 << 30)) as u64)
-    }
-
-    /// Returns the default RAM size in bytes.
-    const fn default_ram_size() -> usize {
-        defaults::RAM_SIZE
-    }
-
-    /// Returns the default CAS latency in DRAM cycles.
-    const fn default_t_cas() -> u64 {
-        defaults::T_CAS
-    }
-
-    /// Returns the default RAS latency in DRAM cycles.
-    const fn default_t_ras() -> u64 {
-        defaults::T_RAS
-    }
-
-    /// Returns the default precharge latency in DRAM cycles.
-    const fn default_t_pre() -> u64 {
-        defaults::T_PRE
-    }
-
-    const fn default_simple_latency() -> u64 {
-        defaults::SIMPLE_LATENCY
-    }
-
-    const fn default_simple_bandwidth_gib_s() -> f64 {
-        defaults::SIMPLE_BANDWIDTH_GIB_S
-    }
-
-    /// Returns the default number of DRAM banks.
-    const fn default_num_banks() -> usize {
-        defaults::NUM_BANKS
-    }
-
-    /// Returns the default row-to-row delay in DRAM cycles.
-    const fn default_t_rrd() -> u64 {
-        defaults::T_RRD
-    }
-
-    /// Returns the default row size in bytes.
-    const fn default_row_size() -> usize {
-        defaults::ROW_SIZE_BYTES
-    }
-
-    /// Returns the default refresh interval in cycles.
-    const fn default_t_refi() -> u64 {
-        defaults::T_REFI
-    }
-
-    /// Returns the default refresh cycle time in cycles.
-    const fn default_t_rfc() -> u64 {
-        defaults::T_RFC
-    }
-
-    /// Returns the default TLB entry count.
-    const fn default_tlb_size() -> usize {
-        defaults::TLB_SIZE
-    }
-
-    /// Returns the default L1 TLB associativity.
-    const fn default_tlb_ways() -> usize {
-        defaults::TLB_WAYS
-    }
-
-    /// Returns the default L2 TLB entry count.
-    const fn default_l2_tlb_size() -> usize {
-        defaults::L2_TLB_SIZE
-    }
-
-    /// Returns the default L2 TLB associativity.
-    const fn default_l2_tlb_ways() -> usize {
-        defaults::L2_TLB_WAYS
-    }
-
-    /// Returns the default L2 TLB hit latency.
-    const fn default_l2_tlb_latency() -> u64 {
-        defaults::L2_TLB_LATENCY
-    }
-
-    /// Returns the default value for misaligned access trap behavior.
-    ///
-    /// Default `true` matches spike and avoids the cross-page corruption bug:
-    /// Misaligned accesses are handled in hardware by the unaligned access unit.
-    /// Keep this `false` to allow hardware misaligned handling by default.
-    const fn default_misaligned_access_trap() -> bool {
-        false
-    }
-
-    /// Default paging-mode cap: accept every supported mode.
-    const fn default_paging_mode_max() -> crate::isa::privileged::PagingMode {
-        crate::isa::privileged::PagingMode::Sv57
     }
 }
 

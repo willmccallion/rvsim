@@ -9,17 +9,15 @@ use serde::{Deserialize, Serialize};
 /// initial program counter, and direct (bare-metal) execution mode.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct GeneralConfig {
     /// Enable instruction tracing to stderr and debug output (hang detection, status updates, mode switches)
-    #[serde(default)]
     pub trace_instructions: bool,
 
     /// Initial PC value (defaults to RAM base)
-    #[serde(default = "GeneralConfig::default_start_pc")]
     pub start_pc: u64,
 
     /// The paging mode a user program runs under in SE mode.
-    #[serde(default)]
     pub page_mode: SePagingMode,
 }
 
@@ -45,13 +43,6 @@ impl SePagingMode {
             Self::Sv48 => PagingMode::Sv48,
             Self::Sv57 => PagingMode::Sv57,
         }
-    }
-}
-
-impl GeneralConfig {
-    /// Returns the default starting program counter.
-    const fn default_start_pc() -> u64 {
-        defaults::RAM_BASE
     }
 }
 
