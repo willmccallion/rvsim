@@ -7,77 +7,61 @@ use serde::{Deserialize, Serialize};
 /// TAGE (Tagged Geometric) predictor configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct TageConfig {
     /// Number of tagged tables
-    #[serde(default = "TageConfig::default_banks")]
     pub num_banks: usize,
 
     /// Entries per table
-    #[serde(default = "TageConfig::default_table_size")]
     pub table_size: usize,
 
     /// Useful counter reset interval
-    #[serde(default = "TageConfig::default_reset_interval")]
     pub reset_interval: u32,
 
     /// History lengths for each bank
-    #[serde(default = "TageConfig::default_history_lengths")]
     pub history_lengths: Vec<usize>,
 
     /// Tag widths for each bank
-    #[serde(default = "TageConfig::default_tag_widths")]
     pub tag_widths: Vec<usize>,
 
     /// `USE_ALT_ON_NA` counters. One is `TAGEBase`'s; more are indexed by
     /// the provider's bank group and the alternate's confidence, as
     /// TAGE-SC-L indexes its 16.
-    #[serde(default = "TageConfig::default_use_alt_counters")]
     pub use_alt_counters: usize,
 
     /// Width of each `USE_ALT_ON_NA` counter.
-    #[serde(default = "TageConfig::default_use_alt_bits")]
     pub use_alt_bits: u32,
 
     /// Width of each tagged entry's useful counter.
-    #[serde(default = "TageConfig::default_useful_bits")]
     pub useful_bits: u32,
 
     /// Most entries one misprediction allocates.
-    #[serde(default = "TageConfig::default_max_allocations")]
     pub max_allocations: usize,
 
     /// How a misprediction takes new entries and how useful bits age.
-    #[serde(default)]
     pub allocation: TageAllocation,
 
     /// Which entries a committed branch trains.
-    #[serde(default)]
     pub update: TageUpdate,
 
     /// What each control instruction shifts into the global history.
-    #[serde(default)]
     pub history: TageHistoryMode,
 
     /// Bits of path history the tables hash.
-    #[serde(default = "TageConfig::default_path_history_bits")]
     pub path_history_bits: u32,
 
     /// Bimodal entries, a power of two; `table_size` when absent.
-    #[serde(default)]
     pub bimodal_entries: Option<usize>,
 
     /// `2^bimodal_hysteresis_share_log` bimodal entries share one
     /// hysteresis bit, as `TAGEBase`'s `logRatioBiModalHystEntries`.
-    #[serde(default = "TageConfig::default_bimodal_hysteresis_share_log")]
     pub bimodal_hysteresis_share_log: u32,
 
     /// How the PC enters the table, tag and bimodal hashes.
-    #[serde(default)]
     pub hashing: TageHashing,
 
     /// TAGE-SC-L's table organization; each bank its own table of
     /// `table_size` entries when absent.
-    #[serde(default)]
     pub banking: Option<TageBanking>,
 }
 
@@ -157,21 +141,21 @@ pub enum TageUpdate {
 impl Default for TageConfig {
     fn default() -> Self {
         Self {
-            num_banks: Self::default_banks(),
-            table_size: Self::default_table_size(),
-            reset_interval: Self::default_reset_interval(),
-            history_lengths: Self::default_history_lengths(),
-            tag_widths: Self::default_tag_widths(),
-            use_alt_counters: Self::default_use_alt_counters(),
-            use_alt_bits: Self::default_use_alt_bits(),
-            useful_bits: Self::default_useful_bits(),
-            max_allocations: Self::default_max_allocations(),
+            num_banks: defaults::TAGE_BANKS,
+            table_size: defaults::TAGE_TABLE_SIZE,
+            reset_interval: defaults::TAGE_RESET_INTERVAL,
+            history_lengths: vec![5, 11, 22, 44, 89, 178, 356, 712],
+            tag_widths: vec![8, 8, 9, 9, 10, 10, 11, 11],
+            use_alt_counters: 1,
+            use_alt_bits: 4,
+            useful_bits: 2,
+            max_allocations: 1,
             allocation: TageAllocation::default(),
             update: TageUpdate::default(),
             history: TageHistoryMode::default(),
-            path_history_bits: Self::default_path_history_bits(),
+            path_history_bits: 16,
             bimodal_entries: None,
-            bimodal_hysteresis_share_log: Self::default_bimodal_hysteresis_share_log(),
+            bimodal_hysteresis_share_log: 2,
             hashing: TageHashing::default(),
             banking: None,
         }
@@ -207,7 +191,7 @@ impl TageConfig {
             history: TageHistoryMode::PcBits,
             path_history_bits: 27,
             bimodal_entries: Some(8192),
-            bimodal_hysteresis_share_log: Self::default_bimodal_hysteresis_share_log(),
+            bimodal_hysteresis_share_log: 2,
             hashing: TageHashing::TageScL,
             banking: Some(TageBanking {
                 short_factor: 10,
@@ -216,59 +200,6 @@ impl TageConfig {
                 enabled: (0..BANKS).map(|bank| ENABLED_BANKS.contains(&bank)).collect(),
             }),
         }
-    }
-
-    /// Returns the default number of TAGE predictor banks.
-    const fn default_banks() -> usize {
-        defaults::TAGE_BANKS
-    }
-
-    /// Returns the default TAGE predictor table size per bank.
-    const fn default_table_size() -> usize {
-        defaults::TAGE_TABLE_SIZE
-    }
-
-    /// Returns the default TAGE useful counter reset interval.
-    const fn default_reset_interval() -> u32 {
-        defaults::TAGE_RESET_INTERVAL
-    }
-
-    /// Returns the default history lengths for each TAGE bank.
-    ///
-    /// Geometric progression: [5, 11, 22, 44, 89, 178, 356, 712] (~2× ratio).
-    fn default_history_lengths() -> Vec<usize> {
-        vec![5, 11, 22, 44, 89, 178, 356, 712]
-    }
-
-    /// Returns the default tag widths for each TAGE bank.
-    ///
-    /// Tag widths increase with history length: [8, 8, 9, 9, 10, 10, 11, 11] bits.
-    fn default_tag_widths() -> Vec<usize> {
-        vec![8, 8, 9, 9, 10, 10, 11, 11]
-    }
-
-    const fn default_use_alt_counters() -> usize {
-        1
-    }
-
-    const fn default_use_alt_bits() -> u32 {
-        4
-    }
-
-    const fn default_useful_bits() -> u32 {
-        2
-    }
-
-    const fn default_max_allocations() -> usize {
-        1
-    }
-
-    const fn default_path_history_bits() -> u32 {
-        16
-    }
-
-    const fn default_bimodal_hysteresis_share_log() -> u32 {
-        2
     }
 
     /// The bimodal's entries.

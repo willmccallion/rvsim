@@ -31,10 +31,7 @@ impl HomeAgentConfig {
 
 impl Default for HomeAgentConfig {
     fn default() -> Self {
-        Self::SnoopFilter {
-            capacity_factor: Self::default_capacity_factor(),
-            ways: Self::default_ways(),
-        }
+        Self::SnoopFilter { capacity_factor: 1.5, ways: 8 }
     }
 }
 
@@ -101,10 +98,7 @@ impl InterconnectConfig {
 
 impl Default for InterconnectConfig {
     fn default() -> Self {
-        Self::Crossbar {
-            hop_latency: Self::default_hop_latency(),
-            bytes_per_cycle: Self::default_bytes_per_cycle(),
-        }
+        Self::Crossbar { hop_latency: 2, bytes_per_cycle: 32 }
     }
 }
 
@@ -120,25 +114,16 @@ pub enum CoherenceProtocolConfig {
 /// Coherence fabric configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct CoherenceConfig {
     /// Protocol.
-    #[serde(default)]
     pub protocol: CoherenceProtocolConfig,
     /// Home agent.
-    #[serde(default)]
     pub home_agent: HomeAgentConfig,
     /// Interconnect.
-    #[serde(default)]
     pub interconnect: InterconnectConfig,
     /// Transactions the home can have live at once.
-    #[serde(default = "CoherenceConfig::default_txn_entries")]
     pub txn_entries: usize,
-}
-
-impl CoherenceConfig {
-    const fn default_txn_entries() -> usize {
-        32
-    }
 }
 
 impl Default for CoherenceConfig {
@@ -147,7 +132,7 @@ impl Default for CoherenceConfig {
             protocol: CoherenceProtocolConfig::default(),
             home_agent: HomeAgentConfig::default(),
             interconnect: InterconnectConfig::default(),
-            txn_entries: Self::default_txn_entries(),
+            txn_entries: 32,
         }
     }
 }

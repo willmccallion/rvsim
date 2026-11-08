@@ -35,49 +35,42 @@ pub enum MemDepPredictorKind {
 /// Pipeline and branch predictor configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct PipelineConfig {
     /// Superscalar width (instructions per cycle)
-    #[serde(default = "PipelineConfig::default_width")]
     pub width: usize,
 
     /// Cycles between commit detecting a trap or interrupt and the pipeline
     /// squashing into its handler.
-    #[serde(default = "PipelineConfig::default_trap_latency")]
     pub trap_latency: u64,
 
     /// Cycles between execute resolving a misprediction, CSR write, fault
     /// or ordering violation and the pipeline squashing into the redirect;
     /// the backend's gem5 value when unset.
-    #[serde(default)]
     pub redirect_latency: Option<u64>,
 
     /// Cycles from fetch2 writing a bundle to decode reading it: one stage
     /// boundary, two for a front end with a stage between its cache
     /// response and decode (BOOM's F3). At least 1.
-    #[serde(default = "PipelineConfig::default_stage_latency")]
     pub fetch_decode_latency: u64,
 
     /// Cycles from decode writing a bundle to rename reading it; `0` runs
     /// both in one stage, as Rocket's ID decodes and reads the registers
     /// together.
-    #[serde(default = "PipelineConfig::default_stage_latency")]
     pub decode_rename_latency: u64,
 
     /// Cycles from rename writing a bundle to the backend issuing from it:
     /// gem5's two from rename to IEW, Rocket's one from ID to EX. At least 1.
-    #[serde(default = "PipelineConfig::default_rename_issue_latency")]
     pub rename_issue_latency: u64,
 
     /// Which CSR accesses squash the instructions fetched behind them and
     /// refetch; the backend's gem5 behaviour when unset (every access on
     /// the in-order backend, none on the out-of-order one, which holds
     /// rename instead).
-    #[serde(default)]
     pub csr_squash: Option<CsrSquash>,
 
     /// Whether a FENCE squashes the instructions fetched behind it when it
     /// commits, as BOOM's `flush_on_commit` does.
-    #[serde(default)]
     pub fence_squash: bool,
 
     /// Cycles from a load matching a store in the store buffer to its data
@@ -87,167 +80,128 @@ pub struct PipelineConfig {
     /// writes back the cycle after it executes; `0` writes the load back in
     /// the cycle it matches. A forwarded vector span takes at least one
     /// cycle.
-    #[serde(default)]
     pub store_forward_latency: Option<u64>,
 
     /// Instructions fetched per cycle; `width` when unset.
-    #[serde(default)]
     pub fetch_width: Option<usize>,
 
     /// Instructions decoded per cycle; `width` when unset.
-    #[serde(default)]
     pub decode_width: Option<usize>,
 
     /// Instructions renamed and dispatched per cycle; `width` when unset.
-    #[serde(default)]
     pub rename_width: Option<usize>,
 
     /// Instructions issued to execute per cycle; `width` when unset.
-    #[serde(default)]
     pub issue_width: Option<usize>,
 
     /// Instructions retired per cycle; `width` when unset.
-    #[serde(default)]
     pub commit_width: Option<usize>,
 
     /// Results written back (waking dependents and completing in the ROB)
     /// per cycle in the out-of-order backend; `width` when unset.
-    #[serde(default)]
     pub writeback_width: Option<usize>,
 
     /// Branch predictor type
-    #[serde(default)]
     pub branch_predictor: BranchPredictorKind,
 
     /// Branch Target Buffer size
-    #[serde(default = "PipelineConfig::default_btb_size")]
     pub btb_size: usize,
 
     /// Branch Target Buffer associativity (ways per set)
-    #[serde(default = "PipelineConfig::default_btb_ways")]
     pub btb_ways: usize,
 
     /// Return Address Stack size
-    #[serde(default = "PipelineConfig::default_ras_size")]
     pub ras_size: usize,
 
     /// TAGE predictor configuration
-    #[serde(default)]
     pub tage: TageConfig,
 
     /// Perceptron predictor configuration
-    #[serde(default)]
     pub perceptron: PerceptronConfig,
 
     /// Rocket's BHT configuration
-    #[serde(default)]
     pub bht: BhtConfig,
 
     /// Tournament predictor configuration
-    #[serde(default)]
     pub tournament: TournamentConfig,
 
     /// Statistical Corrector configuration (used by SC-L-TAGE)
-    #[serde(default)]
     pub sc: ScConfig,
 
     /// Indirect Target TAGE configuration (used by SC-L-TAGE)
-    #[serde(default)]
     pub ittage: IttageConfig,
 
     /// Loop predictor configuration (used by SC-L-TAGE)
-    #[serde(default)]
     pub loop_predictor: LoopConfig,
 
     /// Backend type (`InOrder` or `OutOfOrder`)
-    #[serde(default)]
     pub backend: BackendKind,
 
     /// Reorder Buffer size
-    #[serde(default = "PipelineConfig::default_rob_size")]
     pub rob_size: usize,
 
     /// Store Buffer size
-    #[serde(default = "PipelineConfig::default_store_buffer_size")]
     pub store_buffer_size: usize,
 
     /// Issue Queue size (for O3 backend)
-    #[serde(default = "PipelineConfig::default_issue_queue_size")]
     pub issue_queue_size: usize,
 
     /// Physical Register File GPR size (O3 backend).
     /// Must satisfy: `prf_gpr_size` >= 32 + `rob_size`.
-    #[serde(default = "PipelineConfig::default_prf_gpr_size")]
     pub prf_gpr_size: usize,
 
     /// Physical Register File FPR size (O3 backend).
     /// Must satisfy: `prf_fpr_size` >= 32 + `rob_size`.
-    #[serde(default = "PipelineConfig::default_prf_fpr_size")]
     pub prf_fpr_size: usize,
 
     /// Load Queue size (O3 backend).
-    #[serde(default = "PipelineConfig::default_load_queue_size")]
     pub load_queue_size: usize,
 
     /// Number of load ports (loads issued per cycle, O3 backend).
-    #[serde(default = "PipelineConfig::default_load_ports")]
     pub load_ports: usize,
 
     /// Number of store ports (stores issued per cycle, O3 backend).
-    #[serde(default = "PipelineConfig::default_store_ports")]
     pub store_ports: usize,
 
     /// Functional unit pool configuration (O3 backend).
-    #[serde(default)]
     pub fu_config: FuConfig,
 
     /// Number of checkpoint slots for O(1) branch recovery (0 = disabled).
-    #[serde(default = "PipelineConfig::default_checkpoint_count")]
     pub checkpoint_count: usize,
 
     /// Reorder-buffer entries commit squashes per cycle after a
     /// misprediction, trap or ordering violation; rename is blocked until
     /// it has finished (gem5's `squashWidth`).
-    #[serde(default = "PipelineConfig::default_squash_width")]
     pub squash_width: usize,
 
     /// Memory dependence predictor type
-    #[serde(default)]
     pub mem_dep_predictor: MemDepPredictorKind,
 
     /// Store-set predictor configuration
-    #[serde(default)]
     pub store_set: StoreSetConfig,
 
     /// Vector register width in bits (VLEN), a power of 2 in [128, 2048].
-    #[serde(default)]
     pub vlen: Vlen,
 
     /// Number of vector execution lanes. Defaults to vlen/64 (min 1).
-    #[serde(default)]
     pub num_vec_lanes: Option<usize>,
 
     /// Bytes one unit-stride vector memory access moves: the vector memory
     /// datapath width. Defaults to one register, VLEN/8, up to a line.
-    #[serde(default)]
     pub vector_mem_width: Option<usize>,
 
     /// Vector Physical Register File size (O3 backend).
-    #[serde(default = "PipelineConfig::default_prf_vpr_size")]
     pub prf_vpr_size: usize,
 
     /// Enable vector operation chaining.
-    #[serde(default = "PipelineConfig::default_vec_chaining")]
     pub vec_chaining: bool,
 
     /// Vector Store Buffer capacity (in-flight vec stores). O3 backend only.
-    #[serde(default = "PipelineConfig::default_vec_store_buffer_size")]
     pub vec_store_buffer_size: usize,
 
     /// Forwarding policy for vector-store→load. O3 backend only. Default
     /// `ByteMask` matches BOOM/Apple/Intel/AMD/ARM. `Stall` matches Saturn.
     /// `Off` always stalls.
-    #[serde(default)]
     pub vec_store_forwarding: crate::config::VecStoreForwarding,
 }
 
@@ -319,56 +273,6 @@ impl PipelineConfig {
         }
     }
 
-    /// Returns the default pipeline width (instructions per cycle).
-    const fn default_width() -> usize {
-        defaults::PIPELINE_WIDTH
-    }
-
-    /// Returns the default Branch Target Buffer size.
-    const fn default_btb_size() -> usize {
-        defaults::BTB_SIZE
-    }
-
-    /// Returns the default BTB associativity.
-    const fn default_btb_ways() -> usize {
-        defaults::BTB_WAYS
-    }
-
-    /// Returns the default Return Address Stack size.
-    const fn default_ras_size() -> usize {
-        defaults::RAS_SIZE
-    }
-
-    /// Returns the default ROB size.
-    const fn default_rob_size() -> usize {
-        defaults::ROB_SIZE
-    }
-
-    /// Returns the default store buffer size.
-    const fn default_store_buffer_size() -> usize {
-        defaults::STORE_BUFFER_SIZE
-    }
-
-    /// Returns the default issue queue size.
-    const fn default_issue_queue_size() -> usize {
-        defaults::ISSUE_QUEUE_SIZE
-    }
-
-    /// Returns the default PRF GPR size.
-    const fn default_prf_gpr_size() -> usize {
-        defaults::PRF_GPR_SIZE
-    }
-
-    /// Returns the default PRF FPR size.
-    const fn default_prf_fpr_size() -> usize {
-        defaults::PRF_FPR_SIZE
-    }
-
-    /// Returns the default load queue size.
-    const fn default_load_queue_size() -> usize {
-        defaults::LOAD_QUEUE_SIZE
-    }
-
     /// Returns the default number of load ports.
     /// Vector execution lanes: `num_vec_lanes`, or one per 64 bits of VLEN.
     #[must_use]
@@ -381,52 +285,6 @@ impl PipelineConfig {
     #[must_use]
     pub fn vector_mem_width_bytes(&self) -> usize {
         self.vector_mem_width.unwrap_or_else(|| self.vlen.bytes().min(MAX_VECTOR_MEM_WIDTH))
-    }
-
-    const fn default_load_ports() -> usize {
-        defaults::LOAD_PORTS
-    }
-
-    /// Returns the default number of store ports.
-    const fn default_store_ports() -> usize {
-        defaults::STORE_PORTS
-    }
-
-    /// Returns the default checkpoint count.
-    const fn default_checkpoint_count() -> usize {
-        defaults::CHECKPOINT_COUNT
-    }
-
-    const fn default_squash_width() -> usize {
-        defaults::SQUASH_WIDTH
-    }
-
-    const fn default_trap_latency() -> u64 {
-        defaults::TRAP_LATENCY
-    }
-
-    const fn default_stage_latency() -> u64 {
-        1
-    }
-
-    /// gem5's two cycles from rename to IEW.
-    const fn default_rename_issue_latency() -> u64 {
-        2
-    }
-
-    /// Returns the default vector PRF size.
-    const fn default_prf_vpr_size() -> usize {
-        64
-    }
-
-    /// Returns the default vector chaining setting.
-    const fn default_vec_chaining() -> bool {
-        true
-    }
-
-    /// Returns the default Vector Store Buffer size.
-    const fn default_vec_store_buffer_size() -> usize {
-        defaults::VEC_STORE_BUFFER_SIZE
     }
 }
 
@@ -487,45 +345,22 @@ impl Default for PipelineConfig {
 /// Store-set memory dependence predictor configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct StoreSetConfig {
     /// SSIT (Store Set ID Table) size — indexed by `(pc >> 2) % ssit_size`.
-    #[serde(default = "StoreSetConfig::default_ssit_size")]
     pub ssit_size: usize,
 
     /// LFST (Last Fetched Store Table) size — indexed by store set ID.
-    #[serde(default = "StoreSetConfig::default_lfst_size")]
     pub lfst_size: usize,
 
     /// Loads and stores dispatched between wipes of both tables (0 = never),
     /// so stale learned dependencies do not throttle a program forever.
-    #[serde(default = "StoreSetConfig::default_clear_period")]
     pub clear_period: u64,
 }
 
 impl Default for StoreSetConfig {
     fn default() -> Self {
-        Self {
-            ssit_size: Self::default_ssit_size(),
-            lfst_size: Self::default_lfst_size(),
-            clear_period: Self::default_clear_period(),
-        }
-    }
-}
-
-impl StoreSetConfig {
-    /// gem5 O3's `SSITSize`.
-    const fn default_ssit_size() -> usize {
-        1024
-    }
-
-    /// gem5 O3's `LFSTSize`.
-    const fn default_lfst_size() -> usize {
-        1024
-    }
-
-    /// gem5 O3's `store_set_clear_period`.
-    const fn default_clear_period() -> u64 {
-        250_000
+        Self { ssit_size: 1024, lfst_size: 1024, clear_period: 250_000 }
     }
 }
 
