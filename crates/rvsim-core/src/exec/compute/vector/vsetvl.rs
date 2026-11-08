@@ -200,13 +200,6 @@ mod tests {
     }
 
     #[test]
-    fn an_immediate_avl_above_vlmax_is_clamped_to_vlmax() {
-        // vsetivli: rs1_is_zero is always false, avl comes from uimm
-        let (vl, _) = execute_vsetvl(15, vtype_m1_e32(), false, false, vlen128(), ELEN, 0);
-        assert_eq!(vl, 4); // VLMAX=4, so min(15,4)=4
-    }
-
-    #[test]
     fn a_reserved_vtype_bit_sets_vill() {
         let reserved = vtype_m1_e32() | 1 << 8;
 

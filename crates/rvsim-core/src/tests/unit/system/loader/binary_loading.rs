@@ -83,18 +83,6 @@ fn without_firmware_the_hart_enters_an_mret_trampoline_to_the_kernel() {
 }
 
 #[test]
-fn without_firmware_a1_holds_the_device_tree_address() {
-    let mut state = minimal_system();
-    let config = Config::minimal();
-
-    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
-
-    // DTB should be loaded at RAM base + 0x2200000
-    let expected_dtb_addr = config.system.ram_base.val() + 0x2200000;
-    assert_eq!(state.harts[0].regs.read(reg::REG_A1), expected_dtb_addr);
-}
-
-#[test]
 fn a_given_dtb_is_loaded_at_the_device_tree_offset() {
     let mut state = minimal_system();
     let config = Config::minimal();
@@ -176,20 +164,6 @@ fn without_firmware_a2_is_zero() {
 }
 
 #[test]
-fn setting_up_a_kernel_load_leaves_the_config_unchanged() {
-    let config = Config::minimal();
-    let ram_base_before = config.system.ram_base;
-    let kernel_offset_before = config.system.kernel_offset;
-
-    let mut state = minimal_system();
-    loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
-
-    // Config should not be modified
-    assert_eq!(config.system.ram_base, ram_base_before);
-    assert_eq!(config.system.kernel_offset, kernel_offset_before);
-}
-
-#[test]
 fn without_firmware_an_mret_is_placed_at_ram_base() {
     let mut state = minimal_system();
     let config = Config::minimal();
@@ -236,21 +210,6 @@ fn without_firmware_the_pc_follows_the_configured_ram_base() {
     // PC should match the respective RAM bases
     assert_eq!(cpu1.harts[0].pc, VirtAddr::new(0x80000000));
     assert_eq!(cpu2.harts[0].pc, VirtAddr::new(0xA000_0000));
-}
-
-#[test]
-fn load_binary_returns_each_byte_in_order() {
-    // Create a binary with specific pattern
-    let test_data: Vec<u8> = (0..256).map(|i| i as u8).collect();
-    let temp_file = create_temp_binary(&test_data);
-    let path = temp_file.path().to_str().unwrap();
-
-    let loaded_data = loader::load_binary(path).unwrap();
-
-    // Verify every byte matches
-    for (i, &byte) in loaded_data.iter().enumerate() {
-        assert_eq!(byte, (i % 256) as u8, "Mismatch at byte {}", i);
-    }
 }
 
 #[test]

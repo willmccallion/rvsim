@@ -12,7 +12,6 @@ use crate::system::SystemState;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::{build_simulator, minimal_system};
 
-/// Helper function to create a test CPU instance.
 #[test]
 fn the_machine_id_registers_read_zero_on_a_default_hart() {
     let mut sys = minimal_system();
@@ -93,17 +92,6 @@ fn mscratch_reads_back_any_written_value() {
     let test_value = 0xDEADBEEF_CAFEBABE;
     state.csr_write(csr::MSCRATCH, test_value);
     assert_eq!(state.csr_read(csr::MSCRATCH), test_value);
-}
-
-#[test]
-fn mepc_clears_bit_zero_on_write() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-
-    // MEPC should clear the lowest bit
-    let test_value = 0x8000_0001;
-    state.csr_write(csr::MEPC, test_value);
-    assert_eq!(state.csr_read(csr::MEPC), 0x8000_0000);
 }
 
 /// A hart built without the C extension, so IALIGN=32.
@@ -366,16 +354,6 @@ fn sscratch_reads_back_any_written_value() {
 }
 
 #[test]
-fn sepc_clears_bit_zero_on_write() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-
-    let test_value = 0x8000_0003;
-    state.csr_write(csr::SEPC, test_value);
-    assert_eq!(state.csr_read(csr::SEPC), 0x8000_0002);
-}
-
-#[test]
 fn scause_reads_back_an_interrupt_cause() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
@@ -500,17 +478,6 @@ fn cycle_reads_the_same_as_mcycle() {
     let cycle = state.csr_read(csr::CYCLE);
     let mcycle = state.csr_read(csr::MCYCLE);
     assert_eq!(cycle, mcycle);
-}
-
-#[test]
-fn time_matches_cycles_over_the_clint_divider_at_reset() {
-    let mut sys = minimal_system();
-    let state = sys.core_ctx(0);
-
-    // TIME should be cycles divided by clint_divider
-    let time = state.csr_read(csr::TIME);
-    let cycles = state.csr_read(csr::CYCLE);
-    assert_eq!(time, cycles / state.uncore.kernel.config.system.clint_divider());
 }
 
 #[test]

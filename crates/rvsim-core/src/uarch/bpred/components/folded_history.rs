@@ -115,29 +115,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn incremental_updates_match_a_recompute_of_a_44_bit_history() {
-        let hist_length = 44;
-        let fold_width = 11;
-        let mut ghr = Ghr::with_len(hist_length);
-        let mut csr = FoldedHistory::new(fold_width, hist_length);
-
-        for i in 0..200 {
-            let bit = (i * 7 + 3) % 2 == 0;
-            let old_bit = if hist_length > 0 { ghr.bit(hist_length - 1) } else { false };
-            csr.update(bit, old_bit);
-            ghr.push(bit);
-        }
-
-        let mut recomputed = FoldedHistory::new(fold_width, hist_length);
-        recomputed.recompute(&ghr);
-        assert_eq!(
-            csr.val, recomputed.val,
-            "Incremental CSR ({:#x}) != recomputed ({:#x})",
-            csr.val, recomputed.val
-        );
-    }
-
-    #[test]
     fn incremental_updates_match_a_recompute_across_lengths_and_widths() {
         for &(hist_len, fold_w) in &[(5, 3), (15, 9), (44, 11), (130, 10), (712, 11)] {
             let mut ghr = Ghr::with_len(hist_len);
