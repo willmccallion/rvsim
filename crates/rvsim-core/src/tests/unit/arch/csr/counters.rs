@@ -122,6 +122,5 @@ fn the_time_csr_reads_the_clint_counter() {
     ctx.run(one_tick.get() + 1);
 
     let time = ctx.sim.state.core_ctx(0).csr_read(csr::TIME);
-    assert_eq!(time, ctx.sim.state.uncore.bus.mtime());
-    assert!(time > 0, "the CLINT has ticked");
+    assert_eq!((time, ctx.sim.state.uncore.bus.mtime()), (1, 1), "one CLINT tick");
 }
