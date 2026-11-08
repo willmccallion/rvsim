@@ -112,8 +112,8 @@ pub(crate) fn setup_kernel_load(
     let ram_base = config.system.ram_base;
 
     let opensbi_addr = ram_base;
-    let kernel_addr = ram_base + config.system.kernel_offset;
-    let dtb_addr = ram_base + DTB_OFFSET;
+    let kernel_addr = ram_base.val() + config.system.kernel_offset;
+    let dtb_addr = ram_base.val() + DTB_OFFSET;
 
     if let Some(path) = &boot.dtb {
         let dtb_data = load_binary(path)?;
@@ -125,7 +125,7 @@ pub(crate) fn setup_kernel_load(
 
     if let Some(firmware) = Firmware::find(boot) {
         let sbi_data = load_binary(firmware.path())?;
-        state.uncore.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
+        state.uncore.load_binary_at(&sbi_data, opensbi_addr);
 
         load_kernel(state, boot, PhysAddr::new(kernel_addr))?;
         let next_arg = match firmware {
@@ -136,17 +136,17 @@ pub(crate) fn setup_kernel_load(
         // Every hart starts in OpenSBI with its own id in a0; the firmware's
         // boot lottery picks the cold-boot hart and parks the rest.
         for hart in &mut state.harts {
-            hart.pc = VirtAddr::new(opensbi_addr);
+            hart.pc = VirtAddr::new(opensbi_addr.val());
             hart.privilege = PrivilegeMode::Machine;
             hart.regs.write(reg::REG_A0, u64::from(hart.hart_id.val()));
             hart.regs.write(reg::REG_A1, dtb_addr);
             hart.regs.write(reg::REG_A2, next_arg);
         }
     } else {
-        state.uncore.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
+        state.uncore.load_binary_at(&sys_ops::MRET.to_le_bytes(), ram_base);
         for core in 0..state.cores.len() {
             let mut ctx = state.core_ctx(core);
-            ctx.hart.pc = VirtAddr::new(ram_base);
+            ctx.hart.pc = VirtAddr::new(ram_base.val());
             ctx.hart.privilege = PrivilegeMode::Machine;
             ctx.csr_write(csr::MEPC, kernel_addr);
             let hart_id = u64::from(ctx.hart.hart_id.val());
@@ -281,7 +281,7 @@ mod tests {
     fn the_fw_dynamic_info_block_enters_the_kernel_in_s_mode_with_the_tree() {
         let config = Config::minimal();
         let mut state = SystemState::build(&config);
-        let dtb_addr = config.system.ram_base + DTB_OFFSET;
+        let dtb_addr = config.system.ram_base.val() + DTB_OFFSET;
 
         let info_addr = write_fw_dynamic_info(&mut state, 0x8020_0000, dtb_addr);
 
@@ -301,12 +301,12 @@ mod tests {
         setup_kernel_load(&mut state, &config, &KernelBoot::default()).unwrap();
 
         let ram_base = config.system.ram_base;
-        let load_addr = ram_base + config.system.kernel_offset;
+        let load_addr = ram_base.val() + config.system.kernel_offset;
 
-        assert_eq!(state.harts[0].pc, VirtAddr::new(ram_base));
+        assert_eq!(state.harts[0].pc, VirtAddr::new(ram_base.val()));
         assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
         assert_eq!(state.core_ctx(0).csr_read(csr::MEPC), load_addr);
         assert_eq!(state.harts[0].regs.read(reg::REG_A0), 0);
-        assert_eq!(state.harts[0].regs.read(reg::REG_A1), ram_base + 0x2200000);
+        assert_eq!(state.harts[0].regs.read(reg::REG_A1), ram_base.val() + 0x2200000);
     }
 }

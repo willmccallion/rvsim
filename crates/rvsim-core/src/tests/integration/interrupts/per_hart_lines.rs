@@ -15,7 +15,7 @@ fn two_hart_sim() -> Simulator {
     config.system.hart_count = 2;
     config.system.console = crate::config::Console::Quiet;
     let mut sim = build_simulator(&config);
-    sim.probe_mem_store(PhysAddr::new(config.system.ram_base), 0x0000_006F, 4);
+    sim.probe_mem_store(config.system.ram_base, 0x0000_006F, 4);
     sim
 }
 

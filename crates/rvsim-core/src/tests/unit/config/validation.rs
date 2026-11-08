@@ -1,5 +1,6 @@
 //! Tests for the checks `Config::validate` applies before a system is built.
 
+use crate::common::PhysAddr;
 use crate::config::DeviceKind;
 use crate::config::{
     BackendKind, BhtConfigError, CacheConfig, Config, ConfigError, CsrSquash, HomeAgentConfig,
@@ -371,7 +372,8 @@ fn ram_is_a_whole_number_of_pages_holding_the_kernel_offset() {
 
 #[test]
 fn no_two_regions_of_the_address_map_overlap() {
-    let uart_in_ram = refused(Config::minimal(), |c| c.system.uart_base = 0x8000_1000);
+    let uart_in_ram =
+        refused(Config::minimal(), |c| c.system.uart_base = PhysAddr::new(0x8000_1000));
     let ram_over_disk = refused(Config::minimal(), |c| c.memory.ram_size = 512 << 20);
 
     assert_eq!(uart_in_ram, ConfigError::RegionsOverlap { first: "RAM", second: "UART0" });

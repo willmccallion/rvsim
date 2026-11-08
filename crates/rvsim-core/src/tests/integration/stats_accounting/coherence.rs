@@ -344,7 +344,7 @@ fn an_upgrade_a_snoop_overtook_is_retried_for_data(rec: &mut Recorder) {
         config.coherence.interconnect =
             InterconnectConfig::Crossbar { hop_latency: 40, bytes_per_cycle: 16 };
         let clint = config.system.clint_base;
-        let program = per_hart(&read_meet_write(clint), &read_meet_write(clint));
+        let program = per_hart(&read_meet_write(clint.val()), &read_meet_write(clint.val()));
 
         let system = run_settled(&config, program, &context);
 

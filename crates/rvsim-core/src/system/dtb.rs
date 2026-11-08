@@ -263,7 +263,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
 
 /// `/chosen`: the kernel command line and the console.
 fn add_chosen(fdt: &mut FdtBuilder, config: &Config) {
-    let uart_base = config.system.uart_base;
+    let uart_base = config.system.uart_base.val();
     fdt.node("chosen", |fdt| {
         fdt.prop_string(
             "bootargs",
@@ -325,7 +325,7 @@ fn add_cpu(fdt: &mut FdtBuilder, config: &Config, phandles: &Phandles, hart: u32
 
 /// `/memory`: the RAM.
 fn add_memory(fdt: &mut FdtBuilder, config: &Config) {
-    let ram_base = config.system.ram_base;
+    let ram_base = config.system.ram_base.val();
     fdt.node(&format!("memory@{ram_base:x}"), |fdt| {
         fdt.prop_string("device_type", "memory");
         fdt.prop_reg_2_2(ram_base, config.memory.ram_size as u64);
@@ -340,28 +340,28 @@ fn add_soc(fdt: &mut FdtBuilder, config: &Config, phandles: &Phandles) {
         fdt.prop_u32("#size-cells", 2);
         fdt.prop_string("compatible", "simple-bus");
         fdt.prop_empty("ranges");
-        fdt.node(&format!("clint@{:x}", system.clint_base), |fdt| {
+        fdt.node(&format!("clint@{:x}", system.clint_base.val()), |fdt| {
             fdt.prop_string("compatible", "riscv,clint0");
-            fdt.prop_reg_2_2(system.clint_base, CLINT_REGION_BYTES);
+            fdt.prop_reg_2_2(system.clint_base.val(), CLINT_REGION_BYTES);
             let causes = [interrupt::MACHINE_SOFTWARE, interrupt::MACHINE_TIMER];
             fdt.prop_bytes("interrupts-extended", &interrupts_extended(phandles, &causes));
         });
-        fdt.node(&format!("uart@{:x}", system.uart_base), |fdt| {
+        fdt.node(&format!("uart@{:x}", system.uart_base.val()), |fdt| {
             fdt.prop_string("compatible", "ns16550a");
-            fdt.prop_reg_2_2(system.uart_base, UART_REGION_BYTES);
+            fdt.prop_reg_2_2(system.uart_base.val(), UART_REGION_BYTES);
             fdt.prop_u32("clock-frequency", UART_CLOCK_HZ);
             fdt.prop_u32("interrupt-parent", phandles.plic());
             fdt.prop_bytes("interrupts", &Uart::IRQ.val().to_be_bytes());
             fdt.prop_string("status", "okay");
         });
-        fdt.node(&format!("virtio_mmio@{:x}", system.disk_base), |fdt| {
+        fdt.node(&format!("virtio_mmio@{:x}", system.disk_base.val()), |fdt| {
             fdt.prop_string("compatible", "virtio,mmio");
-            fdt.prop_reg_2_2(system.disk_base, VIRTIO_REGION_BYTES);
+            fdt.prop_reg_2_2(system.disk_base.val(), VIRTIO_REGION_BYTES);
             fdt.prop_u32("interrupt-parent", phandles.plic());
             fdt.prop_bytes("interrupts", &VirtioBlock::IRQ.val().to_be_bytes());
         });
         add_plic(fdt, phandles);
-        add_syscon(fdt, system.syscon_base, phandles);
+        add_syscon(fdt, system.syscon_base.val(), phandles);
         fdt.node(&format!("rtc@{RTC_BASE:x}"), |fdt| {
             fdt.prop_string("compatible", "google,goldfish-rtc");
             fdt.prop_reg_2_2(RTC_BASE, RTC_REGION_BYTES);

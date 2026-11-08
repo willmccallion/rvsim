@@ -10,7 +10,7 @@ use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
-use crate::common::{HartId, NANOS_PER_SECOND, PhysAddr, SimError, VirtAddr};
+use crate::common::{HartId, NANOS_PER_SECOND, SimError, VirtAddr};
 use crate::config::{Config, InclusionPolicy, MemoryControllerKind, ValidConfig};
 use crate::isa::csr::MSTATUS_DEFAULT_RV64;
 use crate::isa::privileged::PrivilegeMode;
@@ -64,26 +64,34 @@ fn build_bus(
 ) -> Result<Bus, SimError> {
     let system = &config.system;
     let mut bus = Bus::new(system.bus_width, system.bus_latency, hart_count);
-    let mut disk_device = VirtioBlock::new(system.disk_base);
+    let mut disk_device = VirtioBlock::new(system.disk_base.val());
     if let Some(path) = disk {
         disk_device.load(load_binary(path)?);
     }
     let rtc_epoch_ns = system.rtc_epoch_seconds.saturating_mul(NANOS_PER_SECOND);
-    bus.add_device(Box::new(Uart::new(system.uart_base, terminal.clone(), system.cpu_clock_mhz)));
+    bus.add_device(Box::new(Uart::new(
+        system.uart_base.val(),
+        terminal.clone(),
+        system.cpu_clock_mhz,
+    )));
     bus.add_device(Box::new(disk_device));
-    bus.add_device(Box::new(Clint::new(system.clint_base, system.clint_divider(), hart_count)));
+    bus.add_device(Box::new(Clint::new(
+        system.clint_base.val(),
+        system.clint_divider(),
+        hart_count,
+    )));
     bus.add_device(Box::new(Plic::new(crate::config::PLIC_BASE, hart_count)));
-    bus.add_device(Box::new(SysCon::new(system.syscon_base, exit_signal.clone())));
+    bus.add_device(Box::new(SysCon::new(system.syscon_base.val(), exit_signal.clone())));
     bus.add_device(Box::new(GoldfishRtc::new(
         crate::config::RTC_BASE,
         rtc_epoch_ns,
         system.cpu_clock_mhz,
     )));
-    if system.tohost_addr != 0 {
-        let htif = Htif::new(system.tohost_addr, exit_signal.clone(), Vec::new(), terminal.clone());
+    if let Some(tohost) = system.tohost_addr {
+        let htif = Htif::new(tohost.val(), exit_signal.clone(), Vec::new(), terminal.clone());
         bus.add_device(Box::new(htif));
     }
-    bus.attach_ram(MemCtrlId::new(0), system.ram_base, config.memory.ram_size as u64);
+    bus.attach_ram(MemCtrlId::new(0), system.ram_base.val(), config.memory.ram_size as u64);
     Ok(bus)
 }
 
@@ -104,7 +112,7 @@ fn build_mem_controller(config: &Config) -> Box<dyn MemoryController> {
             ))
         }
         MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
-            PhysAddr::new(config.system.ram_base),
+            config.system.ram_base,
             config.memory.ram_size as u64,
             &config.memory.ddr5.to_config(),
             MemCtrlId::new(0),
@@ -278,7 +286,7 @@ impl SystemState {
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
         let hart_count = topology.hart_count();
         let ram_size = config.memory.ram_size;
-        let ram = Ram::new(config.system.ram_base, ram_size)
+        let ram = Ram::new(config.system.ram_base.val(), ram_size)
             .map_err(|source| SimError::RamAllocation { bytes: ram_size, source })?;
         let terminal = Terminal::shared(config.system.console);
         let bus = build_bus(config, hart_count, &terminal, &exit_signal, disk)?;
@@ -383,6 +391,7 @@ impl SystemState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::PhysAddr;
     use crate::config::Config;
 
     #[test]

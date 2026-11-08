@@ -193,7 +193,7 @@ fn a_device_read_waiting_to_be_oldest_counts_one_wait(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
     for backend in BACKENDS {
         let context = format!("{backend:?}");
-        let mtime = config(backend).system.clint_base + MTIME;
+        let mtime = config(backend).system.clint_base.val() + MTIME;
         let mut program = vec![
             i().addi(T0, 0, 7).build(),
             i().div(T1, T0, T0).build(),

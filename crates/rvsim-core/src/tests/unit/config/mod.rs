@@ -6,6 +6,7 @@
 pub mod serde_defaults;
 pub mod validation;
 
+use crate::common::PhysAddr;
 use crate::config::*;
 
 #[test]
@@ -25,11 +26,11 @@ fn test_general_config_defaults() {
 #[test]
 fn test_system_config_defaults() {
     let system = SystemConfig::default();
-    assert_eq!(system.uart_base, 0x1000_0000);
-    assert_eq!(system.disk_base, 0x9000_0000);
-    assert_eq!(system.ram_base, 0x8000_0000);
-    assert_eq!(system.clint_base, 0x0200_0000);
-    assert_eq!(system.syscon_base, 0x0010_0000);
+    assert_eq!(system.uart_base, PhysAddr::new(0x1000_0000));
+    assert_eq!(system.disk_base, PhysAddr::new(0x9000_0000));
+    assert_eq!(system.ram_base, PhysAddr::new(0x8000_0000));
+    assert_eq!(system.clint_base, PhysAddr::new(0x0200_0000));
+    assert_eq!(system.syscon_base, PhysAddr::new(0x0010_0000));
     assert_eq!(system.kernel_offset, 0x0020_0000);
     assert_eq!(system.bus_width, 8);
     assert_eq!(system.bus_latency, 4);

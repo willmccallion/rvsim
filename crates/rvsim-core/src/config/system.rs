@@ -1,6 +1,7 @@
 //! The system's address map and devices.
 
 use super::defaults;
+use crate::common::PhysAddr;
 use crate::config::Console;
 use serde::{Deserialize, Serialize};
 
@@ -128,19 +129,19 @@ pub enum Timer {
 #[serde(default)]
 pub struct SystemConfig {
     /// UART MMIO base address
-    pub uart_base: u64,
+    pub uart_base: PhysAddr,
 
     /// virtio disk MMIO base address
-    pub disk_base: u64,
+    pub disk_base: PhysAddr,
 
     /// Main RAM base address
-    pub ram_base: u64,
+    pub ram_base: PhysAddr,
 
     /// CLINT (timer) MMIO base address
-    pub clint_base: u64,
+    pub clint_base: PhysAddr,
 
     /// Syscon (power control) MMIO base address
-    pub syscon_base: u64,
+    pub syscon_base: PhysAddr,
 
     /// Where a kernel image is loaded, from RAM base. With `fw_jump`
     /// firmware it must be where that firmware was built to jump.
@@ -177,9 +178,9 @@ pub struct SystemConfig {
     /// overriding `device_latency_ns`.
     pub device_latency_ns_overrides: std::collections::HashMap<DeviceKind, u64>,
 
-    /// HTIF tohost address (0 = disabled). When non-zero, an HTIF device is
-    /// registered at this address to intercept riscv-tests pass/fail writes.
-    pub tohost_addr: u64,
+    /// HTIF's tohost address: when set, an HTIF device there takes the
+    /// riscv-tests' pass/fail writes.
+    pub tohost_addr: Option<PhysAddr>,
 
     /// Number of harts in the simulated `SoC`. Default 1 (single-hart).
     pub hart_count: usize,
@@ -193,17 +194,17 @@ impl SystemConfig {
         [
             DeviceRegion {
                 name: DeviceKind::Uart.name(),
-                base: self.uart_base,
+                base: self.uart_base.val(),
                 size: UART_REGION_BYTES,
             },
             DeviceRegion {
                 name: DeviceKind::VirtioBlk.name(),
-                base: self.disk_base,
+                base: self.disk_base.val(),
                 size: VIRTIO_REGION_BYTES,
             },
             DeviceRegion {
                 name: DeviceKind::Clint.name(),
-                base: self.clint_base,
+                base: self.clint_base.val(),
                 size: CLINT_REGION_BYTES,
             },
             DeviceRegion {
@@ -213,7 +214,7 @@ impl SystemConfig {
             },
             DeviceRegion {
                 name: DeviceKind::SysCon.name(),
-                base: self.syscon_base,
+                base: self.syscon_base.val(),
                 size: SYSCON_REGION_BYTES,
             },
             DeviceRegion {
@@ -263,11 +264,11 @@ impl SystemConfig {
 impl Default for SystemConfig {
     fn default() -> Self {
         Self {
-            uart_base: defaults::UART_BASE,
-            disk_base: defaults::DISK_BASE,
-            ram_base: defaults::RAM_BASE,
-            clint_base: defaults::CLINT_BASE,
-            syscon_base: defaults::SYSCON_BASE,
+            uart_base: PhysAddr::new(defaults::UART_BASE),
+            disk_base: PhysAddr::new(defaults::DISK_BASE),
+            ram_base: PhysAddr::new(defaults::RAM_BASE),
+            clint_base: PhysAddr::new(defaults::CLINT_BASE),
+            syscon_base: PhysAddr::new(defaults::SYSCON_BASE),
             kernel_offset: defaults::KERNEL_OFFSET,
             bus_width: defaults::BUS_WIDTH,
             bus_latency: defaults::BUS_LATENCY,
@@ -278,7 +279,7 @@ impl Default for SystemConfig {
             console: Console::default(),
             device_latency_ns: defaults::DEVICE_LATENCY_NS,
             device_latency_ns_overrides: std::collections::HashMap::new(),
-            tohost_addr: 0,
+            tohost_addr: None,
             hart_count: 1,
         }
     }

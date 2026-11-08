@@ -1,5 +1,6 @@
 //! The memory map the configuration describes is the one the bus builds.
 
+use crate::common::PhysAddr;
 use crate::config::Config;
 use crate::system::SystemState;
 use crate::tests::support::harness::valid;
@@ -34,7 +35,7 @@ fn a_ram_the_host_cannot_map_fails_the_build() {
     /// More than any host's user address space, and clear of every device.
     const HUGE: usize = 1 << 62;
     let mut config = Config::minimal();
-    config.system.ram_base = HUGE as u64;
+    config.system.ram_base = PhysAddr::new(HUGE as u64);
     config.memory.ram_size = HUGE;
 
     let built = crate::Simulator::build(&valid(&config), None);
