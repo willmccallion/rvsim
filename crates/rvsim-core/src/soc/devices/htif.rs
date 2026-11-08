@@ -20,6 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::PhysAddr;
+use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
@@ -276,8 +277,8 @@ struct HtifState {
 }
 
 impl Device for Htif {
-    fn name(&self) -> &'static str {
-        "HTIF"
+    fn kind(&self) -> DeviceKind {
+        DeviceKind::Htif
     }
 
     fn checkpoint(&self) -> Option<serde_json::Value> {
@@ -287,7 +288,7 @@ impl Device for Htif {
     }
 
     fn check_restore(&self, state: &serde_json::Value) -> Result<(), RestoreError> {
-        let state: HtifState = parse_state("HTIF", state)?;
+        let state: HtifState = parse_state(DeviceKind::Htif, state)?;
         if state.host_files_open > 0 {
             return Err(RestoreError::HostFilesOpen { count: state.host_files_open });
         }
@@ -296,7 +297,7 @@ impl Device for Htif {
 
     fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
         self.check_restore(state)?;
-        self.fromhost = parse_state::<HtifState>("HTIF", state)?.fromhost;
+        self.fromhost = parse_state::<HtifState>(DeviceKind::Htif, state)?.fromhost;
         Ok(())
     }
 

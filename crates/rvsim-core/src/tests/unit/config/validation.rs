@@ -1,10 +1,12 @@
 //! Tests for the checks `Config::validate` applies before a system is built.
 
+use crate::config::DeviceKind;
 use crate::config::{
     BackendKind, BhtConfigError, CacheConfig, Config, ConfigError, CsrSquash, HomeAgentConfig,
     InterconnectConfig, LoadPrefetcherConfig, MAX_ITTAGE_HISTORY, MemoryControllerKind,
     PageBoundary, PrefetcherKind, ReplacementPolicyKind, StorePrefetcherConfig,
 };
+use std::collections::HashMap;
 
 #[test]
 fn minimal_config_validates() {
@@ -377,17 +379,21 @@ fn no_two_regions_of_the_address_map_overlap() {
 }
 
 #[test]
-fn a_latency_override_names_a_device_the_system_has() {
-    let typo = refused(Config::minimal(), |c| {
-        c.system.device_latency_ns_overrides.insert("UARTT0".to_owned(), 5);
-    });
-    let known = minimal_with(|c| {
-        c.system.device_latency_ns_overrides.insert("UART0".to_owned(), 5);
-        c.system.device_latency_ns_overrides.insert("HTIF".to_owned(), 5);
-    });
+fn a_latency_override_must_name_a_device_kind() {
+    let parse = |json: &str| serde_json::from_str::<HashMap<DeviceKind, u64>>(json);
 
-    assert_eq!(typo, ConfigError::UnknownDevice("UARTT0".to_owned()));
-    assert!(known.is_ok(), "{known:?}");
+    let typo = parse(r#"{"UARTT0": 5}"#);
+    let known = parse(r#"{"UART0": 5, "HTIF": 5}"#);
+
+    assert!(typo.is_err(), "{typo:?}");
+    assert_eq!(known.ok(), Some(HashMap::from([(DeviceKind::Uart, 5), (DeviceKind::Htif, 5)])));
+}
+
+#[test]
+fn each_device_kind_parses_from_its_name() {
+    for kind in DeviceKind::ALL {
+        assert_eq!(serde_json::to_value(kind).ok(), Some(serde_json::Value::from(kind.name())));
+    }
 }
 
 #[test]

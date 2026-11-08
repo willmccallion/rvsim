@@ -7,6 +7,7 @@ mod checkpoint;
 mod queue;
 
 use crate::common::{IrqId, PhysAddr};
+use crate::config::DeviceKind;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
@@ -476,15 +477,15 @@ impl Device for VirtioBlock {
     }
 
     fn check_restore(&self, state: &serde_json::Value) -> Result<(), RestoreError> {
-        self.check_state(&parse_state("virtio disk", state)?)
+        self.check_state(&parse_state(DeviceKind::VirtioBlk, state)?)
     }
 
     fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
-        self.set_state(&parse_state("virtio disk", state)?)
+        self.set_state(&parse_state(DeviceKind::VirtioBlk, state)?)
     }
 
-    fn name(&self) -> &'static str {
-        "VirtIO-Blk"
+    fn kind(&self) -> DeviceKind {
+        DeviceKind::VirtioBlk
     }
 
     fn address_range(&self) -> (u64, u64) {

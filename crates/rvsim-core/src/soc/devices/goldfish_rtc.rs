@@ -10,6 +10,7 @@
 //! * `0x04`: Time (High 32 bits)
 
 use crate::common::IrqId;
+use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, MemOp, Packet};
@@ -74,8 +75,8 @@ impl MmioRegisters for GoldfishRtc {
 }
 
 impl Device for GoldfishRtc {
-    fn name(&self) -> &'static str {
-        "GoldfishRTC"
+    fn kind(&self) -> DeviceKind {
+        DeviceKind::GoldfishRtc
     }
 
     fn address_range(&self) -> (u64, u64) {
