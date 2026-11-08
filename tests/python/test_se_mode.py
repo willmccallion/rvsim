@@ -219,6 +219,10 @@ class SeMode(unittest.TestCase):
 
         self.assertEqual(cpu.privilege, "M")
 
+    def test_an_unknown_load_mode_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "mode must be 'se' or 'bare'"):
+            Simulator(Config(), elf_data=user_elf(EXIT_WITH_ARGC), mode="kernel")
+
 
 M5_READ_FILE = 0x50
 M5_WRITE_FILE = 0x4F
@@ -275,6 +279,18 @@ class Threads(unittest.TestCase):
 class SeveralPrograms(unittest.TestCase):
     """Several programs run at once, one per hart, and the run ends when the
     last of them exits."""
+
+    def test_programs_and_a_binary_together_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prog.elf")
+            with open(path, "wb") as f:
+                f.write(user_elf(EXIT_WITH_ARGC))
+            with self.assertRaisesRegex(ValueError, "programs or a binary, not both"):
+                Simulator(
+                    Config(),
+                    elf_data=user_elf(EXIT_WITH_ARGC),
+                    programs=[Program(path)],
+                )
 
     def test_two_programs_run_on_two_harts(self):
         with tempfile.TemporaryDirectory() as tmp:
