@@ -629,3 +629,20 @@ fn an_every_cycle_timer_takes_any_timebase() {
 
     assert!(config.validate().is_ok());
 }
+
+/// The write log tracks lines of the L1D's size even when the L1D is off,
+/// so a line size it cannot use is refused rather than panicking the build.
+#[test]
+fn a_disabled_cache_still_needs_a_power_of_two_line() {
+    let mut config = Config::minimal();
+    config.system.hart_count = std::num::NonZero::new(2).unwrap();
+    config.cache.l1_d.enabled = false;
+    config.cache.l1_d.line_bytes = 48;
+
+    let checked = config.validate();
+
+    assert!(
+        matches!(checked, Err(ConfigError::NotPowerOfTwo { field: "cache line_bytes", value: 48 })),
+        "{checked:?}"
+    );
+}
