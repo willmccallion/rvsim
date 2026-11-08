@@ -355,7 +355,7 @@ mod tests {
     use crate::isa::op::{IntOp, VecAluOp};
 
     #[test]
-    fn test_is_vec_load() {
+    fn is_vec_load_accepts_every_load_kind_and_nothing_else() {
         assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::Unit))));
         assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::FaultOnlyFirst))));
         assert!(is_vec_load(Some(VectorOp::Load(VecLoadOp::Strided))));
@@ -369,7 +369,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_vec_store() {
+    fn is_vec_store_accepts_every_store_kind_and_rejects_others() {
         assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::Unit))));
         assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::Strided))));
         assert!(is_vec_store(Some(VectorOp::Store(VecStoreOp::IndexedOrdered))));

@@ -197,7 +197,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_vregidx_range() {
+    fn v31_is_valid_and_only_v0_is_the_mask() {
         let v0 = VRegIdx::new(0);
         assert!(v0.is_v0());
         assert_eq!(v0.as_u8(), 0);
@@ -209,12 +209,12 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "vector register index out of range")]
-    fn test_vregidx_out_of_range() {
+    fn a_vector_register_index_of_32_panics() {
         let _ = VRegIdx::new(32);
     }
 
     #[test]
-    fn test_vregidx_alignment() {
+    fn an_lmul_4_group_aligns_at_multiples_of_four() {
         let v0 = VRegIdx::new(0);
         let v1 = VRegIdx::new(1);
         let v4 = VRegIdx::new(4);
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn test_nf() {
+    fn an_nf_encoding_is_one_less_than_the_field_count() {
         let nf = Nf::from_encoding(0);
         assert_eq!(nf.fields(), 1);
         assert!(nf.is_single());

@@ -388,7 +388,7 @@ mod tests {
     use crate::config::Config;
 
     #[test]
-    fn test_cpu_reservation() {
+    fn a_reservation_covers_its_granule_until_it_is_cleared() {
         let config = Config::minimal();
         let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cpu_take_exit() {
+    fn take_exit_returns_a_signalled_code_once() {
         let config = Config::minimal();
         let state = SystemState::build(&config);
 

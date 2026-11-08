@@ -182,7 +182,7 @@ mod tests {
     use crate::config::Config;
 
     #[test]
-    fn test_track_mode_cycles() {
+    fn each_cycle_is_charged_to_the_current_privilege_mode() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_post_tick_zero_reg() {
+    fn x0_reads_zero_after_post_tick() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);

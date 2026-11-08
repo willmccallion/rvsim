@@ -549,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfadd_f32() {
+    fn vfadd_sums_single_precision_elements() {
         let mut vpr = vpr128();
         let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
@@ -580,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfclass_f32() {
+    fn vfclass_sets_the_class_bit_of_zeros_infinity_and_nan() {
         let mut vpr = vpr128();
         let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
@@ -608,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfmv_sf() {
+    fn vfmv_s_f_writes_the_scalar_to_element_zero() {
         let mut vpr = vpr128();
         let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
@@ -629,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfmv_fs() {
+    fn vfmv_f_s_returns_element_zero_as_the_scalar() {
         let mut vpr = vpr128();
         let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);

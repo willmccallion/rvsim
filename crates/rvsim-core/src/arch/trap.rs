@@ -77,7 +77,7 @@ mod tests {
     use crate::isa::csr;
 
     #[test]
-    fn test_irq_to_trap() {
+    fn interrupt_bits_map_to_their_traps_and_others_to_machine_timer() {
         assert_eq!(irq_to_trap(csr::MIP_USIP), Trap::UserSoftwareInterrupt);
         assert_eq!(irq_to_trap(csr::MIP_SSIP), Trap::SupervisorSoftwareInterrupt);
         assert_eq!(irq_to_trap(csr::MIP_MSIP), Trap::MachineSoftwareInterrupt);

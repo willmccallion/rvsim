@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn test_basic_vsetvli() {
+    fn an_avl_below_vlmax_becomes_vl_and_vtype_is_kept() {
         // VLEN=128, SEW=32, LMUL=1 → VLMAX=4
         // AVL=3, rd!=0, rs1!=0
         let (vl, vtype) = execute_vsetvl(3, vtype_m1_e32(), false, false, vlen128(), ELEN, 0);
@@ -93,27 +93,27 @@ mod tests {
     }
 
     #[test]
-    fn test_avl_exceeds_vlmax() {
+    fn an_avl_above_vlmax_is_clamped_to_vlmax() {
         // VLMAX=4, AVL=10 → vl = min(10, 4) = 4
         let (vl, _) = execute_vsetvl(10, vtype_m1_e32(), false, false, vlen128(), ELEN, 0);
         assert_eq!(vl, 4);
     }
 
     #[test]
-    fn test_avl_zero() {
+    fn a_zero_avl_gives_a_zero_vl() {
         let (vl, _) = execute_vsetvl(0, vtype_m1_e32(), false, false, vlen128(), ELEN, 0);
         assert_eq!(vl, 0);
     }
 
     #[test]
-    fn test_rs1_zero_rd_nonzero_sets_vlmax() {
+    fn rs1_x0_with_rd_nonzero_sets_vl_to_vlmax() {
         // rs1=x0, rd!=x0 → vl = VLMAX = 4
         let (vl, _) = execute_vsetvl(0, vtype_m1_e32(), false, true, vlen128(), ELEN, 0);
         assert_eq!(vl, 4);
     }
 
     #[test]
-    fn test_rd_zero_rs1_zero_keeps_vl() {
+    fn rd_and_rs1_x0_keep_the_current_vl() {
         // rd=x0, rs1=x0 → keep current vl
         let (vl, vtype) = execute_vsetvl(0, vtype_m1_e32(), true, true, vlen128(), ELEN, 7);
         assert_eq!(vl, 7);
@@ -121,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn test_illegal_vtype_sets_vill() {
+    fn a_reserved_vlmul_sets_vill_and_zeroes_vl() {
         // Reserved vlmul=0b100 → vill
         let illegal_vtype = 0b0000_0100_u64;
         let (vl, vtype) = execute_vsetvl(10, illegal_vtype, false, false, vlen128(), ELEN, 0);
@@ -130,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_large_vlmax_m8_e8() {
+    fn e8_m8_at_vlen_128_clamps_vl_to_128() {
         // VLEN=128, SEW=8, LMUL=8 → VLMAX=128
         let (vl, _) = execute_vsetvl(100, vtype_m8_e8(), false, false, vlen128(), ELEN, 0);
         assert_eq!(vl, 100);
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_vlmax_with_large_vlen() {
+    fn rs1_x0_sets_vl_to_vlmax_at_vlen_256() {
         let vlen = Vlen::new_unchecked(256);
         // VLEN=256, SEW=32, LMUL=1 → VLMAX=8
         let (vl, _) = execute_vsetvl(0, vtype_m1_e32(), false, true, vlen, ELEN, 0);
@@ -148,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sew_too_large_for_fractional_lmul() {
+    fn e64_with_mf8_sets_vill() {
         // vlmul=Mf8, vsew=E64 → SEW > ELEN*LMUL → vill
         let bad_vtype = encode_vtype(&VtypeFields {
             vsew: Sew::E64,
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vsetvli_m8_e32() {
+    fn e32_m8_is_legal_and_takes_a_smaller_avl() {
         // AVL=4, e32/m8: VLMAX=(128/32)*8=32, vl=min(4,32)=4
         let bad_vtype = encode_vtype(&VtypeFields {
             vsew: Sew::E32,
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vsetvli_mf8_e8_legal() {
+    fn e8_mf8_is_legal_with_a_vlmax_of_two() {
         // vsetvli e8, mf8 — encoding bit5:3=vsew=0(E8), bit2:0=vlmul=0b101(Mf8)
         // This is a LEGAL configuration: SEW * lmul_den (8*8=64) <= ELEN * lmul_num (64*1=64).
         // VLMAX = (128/8)*1/8 = 2
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vsetivli_uimm() {
+    fn an_immediate_avl_above_vlmax_is_clamped_to_vlmax() {
         // vsetivli: rs1_is_zero is always false, avl comes from uimm
         let (vl, _) = execute_vsetvl(15, vtype_m1_e32(), false, false, vlen128(), ELEN, 0);
         assert_eq!(vl, 4); // VLMAX=4, so min(15,4)=4

@@ -243,7 +243,7 @@ mod tests {
     use std::io::Write;
 
     #[test]
-    fn test_try_load_elf_invalid() {
+    fn data_without_the_elf_magic_is_not_elf() {
         let mut memory = GlobalMemory::new(None, 1, 64);
         let data = b"NOT AN ELF FILE";
         let result = try_load_elf(data, &mut memory);
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn test_try_load_elf_too_short() {
+    fn data_shorter_than_the_elf_magic_is_not_elf() {
         let mut memory = GlobalMemory::new(None, 1, 64);
         let data = b"EL";
         let result = try_load_elf(data, &mut memory);
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_binary_success() {
+    fn load_binary_returns_the_file_contents() {
         let mut temp_file = tempfile::NamedTempFile::new().unwrap();
         temp_file.write_all(b"Hello World").unwrap();
 
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_binary_missing_file() {
+    fn a_missing_binary_is_an_error_naming_its_path() {
         let result = load_binary("/nonexistent/path/that/cannot/exist.bin");
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_setup_kernel_load_fallback() {
+    fn without_firmware_the_hart_enters_an_mret_trampoline_to_the_kernel() {
         let config = Config::minimal();
         let mut state = SystemState::build(&config);
 

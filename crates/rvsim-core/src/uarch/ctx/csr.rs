@@ -269,7 +269,7 @@ mod tests {
     use crate::isa::csr;
 
     #[test]
-    fn test_cpu_csr_read_write_mstatus() {
+    fn mstatus_ignores_unwritable_bits_and_sstatus_shows_its_supervisor_view() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cpu_csr_read_write_fcsr() {
+    fn an_fcsr_write_splits_into_fflags_and_frm() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);

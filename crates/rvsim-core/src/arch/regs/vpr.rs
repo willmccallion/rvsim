@@ -122,14 +122,14 @@ mod tests {
     }
 
     #[test]
-    fn test_new_zeroed() {
+    fn a_new_vpr_is_32_zeroed_registers_of_vlen_bits() {
         let vpr = vpr128();
         assert_eq!(vpr.bytes().len(), 32 * 16);
         assert!(vpr.bytes().iter().all(|&b| b == 0));
     }
 
     #[test]
-    fn test_element_read_write_e8() {
+    fn an_e8_element_reads_back_without_touching_its_neighbour() {
         let mut vpr = vpr128();
         let v1 = VRegIdx::new(1);
         vpr.write_element(v1, ElemIdx::new(0), Sew::E8, 0xAB);
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_element_read_write_e32() {
+    fn an_e32_element_reads_back_what_was_written() {
         let mut vpr = vpr128();
         let v5 = VRegIdx::new(5);
         vpr.write_element(v5, ElemIdx::new(2), Sew::E32, 0xDEAD_BEEF);
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn test_element_read_write_e64() {
+    fn an_e64_element_reads_back_what_was_written() {
         let mut vpr = vpr128();
         let v0 = VRegIdx::new(0);
         vpr.write_element(v0, ElemIdx::new(1), Sew::E64, 0x1234_5678_9ABC_DEF0);
@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn test_element_truncation() {
+    fn a_written_element_is_truncated_to_sew() {
         let mut vpr = vpr128();
         let v0 = VRegIdx::new(0);
         vpr.write_element(v0, ElemIdx::new(0), Sew::E8, 0x1FF);
@@ -162,7 +162,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mask_bit_read_write() {
+    fn a_mask_bit_sets_and_clears_without_touching_its_neighbours() {
         let mut vpr = vpr128();
         let v0 = VRegIdx::new(0);
 
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_write_bytes() {
+    fn register_bytes_read_back_what_was_written() {
         let mut vpr = vpr128();
         let v3 = VRegIdx::new(3);
         let data: Vec<u8> = (0..16).collect();
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn test_register_group() {
+    fn a_register_group_spans_consecutive_registers_in_order() {
         let mut vpr = vpr128();
         let group = Vlmul::M4.group_regs();
         let v0 = VRegIdx::new(0);
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "not aligned")]
-    fn test_register_group_unaligned_panics() {
+    fn reading_an_unaligned_register_group_panics() {
         let vpr = vpr128();
         let group = Vlmul::M4.group_regs();
         let v1 = VRegIdx::new(1);
@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_reg() {
+    fn copy_reg_duplicates_the_source_register() {
         let mut vpr = vpr128();
         let v2 = VRegIdx::new(2);
         let v7 = VRegIdx::new(7);
@@ -221,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn test_zero_reg() {
+    fn zero_reg_clears_a_written_register() {
         let mut vpr = vpr128();
         let v1 = VRegIdx::new(1);
         vpr.write_element(v1, ElemIdx::new(0), Sew::E64, u64::MAX);
@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_different_sew_same_data() {
+    fn narrower_sews_read_a_wider_element_little_endian() {
         let mut vpr = vpr128();
         let v0 = VRegIdx::new(0);
         vpr.write_element(v0, ElemIdx::new(0), Sew::E32, 0x04030201);

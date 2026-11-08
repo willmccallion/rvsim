@@ -9,7 +9,7 @@ use crate::isa::reg::RegIdx;
 use crate::tests::support::harness::minimal_system;
 
 #[test]
-fn test_trap_clears_load_reservation() {
+fn a_trap_clears_the_load_reservation() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.set_reservation(PhysAddr::new(0x8000_0000));
@@ -20,7 +20,7 @@ fn test_trap_clears_load_reservation() {
 }
 
 #[test]
-fn test_trap_sets_mcause_without_interrupt_bit_for_exceptions() {
+fn an_illegal_instruction_leaves_the_mcause_interrupt_bit_clear() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -34,7 +34,7 @@ fn test_trap_sets_mcause_without_interrupt_bit_for_exceptions() {
 }
 
 #[test]
-fn test_trap_exceptions_dont_set_interrupt_bit() {
+fn exceptions_leave_the_mcause_interrupt_bit_clear() {
     let exceptions = vec![
         Trap::InstructionAddressMisaligned(0),
         Trap::InstructionAccessFault(0),
@@ -63,7 +63,7 @@ fn test_trap_exceptions_dont_set_interrupt_bit() {
 }
 
 #[test]
-fn test_trap_ecall_from_all_modes() {
+fn ecalls_from_every_mode_leave_the_mcause_interrupt_bit_clear() {
     let ecalls = vec![
         Trap::EnvironmentCallFromUMode,
         Trap::EnvironmentCallFromSMode,
@@ -84,7 +84,7 @@ fn test_trap_ecall_from_all_modes() {
 }
 
 #[test]
-fn test_trap_page_faults() {
+fn page_faults_leave_the_mcause_interrupt_bit_clear() {
     let page_faults = vec![
         Trap::InstructionPageFault(0x1000_0000),
         Trap::LoadPageFault(0x2000_0000),
@@ -105,7 +105,7 @@ fn test_trap_page_faults() {
 }
 
 #[test]
-fn test_trap_double_fault_detection() {
+fn a_trap_raised_at_the_handler_address_dispatches_without_exiting() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -119,7 +119,7 @@ fn test_trap_double_fault_detection() {
 }
 
 #[test]
-fn test_trap_interrupts_set_interrupt_bit() {
+fn interrupts_set_the_mcause_interrupt_bit() {
     let interrupts = vec![
         Trap::UserSoftwareInterrupt,
         Trap::SupervisorSoftwareInterrupt,
@@ -146,7 +146,7 @@ fn test_trap_interrupts_set_interrupt_bit() {
 }
 
 #[test]
-fn test_trap_machine_timer_interrupt() {
+fn a_machine_timer_interrupt_sets_the_mcause_interrupt_bit() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -160,7 +160,7 @@ fn test_trap_machine_timer_interrupt() {
 }
 
 #[test]
-fn test_trap_supervisor_timer_interrupt() {
+fn a_delegated_supervisor_timer_interrupt_enters_supervisor_mode() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -176,7 +176,7 @@ fn test_trap_supervisor_timer_interrupt() {
 }
 
 #[test]
-fn test_trap_machine_software_interrupt() {
+fn a_machine_software_interrupt_sets_the_mcause_interrupt_bit() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -190,7 +190,7 @@ fn test_trap_machine_software_interrupt() {
 }
 
 #[test]
-fn test_trap_supervisor_software_interrupt() {
+fn a_delegated_supervisor_software_interrupt_enters_supervisor_mode() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -205,7 +205,7 @@ fn test_trap_supervisor_software_interrupt() {
 }
 
 #[test]
-fn test_trap_machine_external_interrupt() {
+fn a_machine_external_interrupt_sets_the_mcause_interrupt_bit() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -219,7 +219,7 @@ fn test_trap_machine_external_interrupt() {
 }
 
 #[test]
-fn test_trap_supervisor_external_interrupt() {
+fn a_delegated_supervisor_external_interrupt_enters_supervisor_mode() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -234,7 +234,7 @@ fn test_trap_supervisor_external_interrupt() {
 }
 
 #[test]
-fn test_trap_delegation_to_supervisor_with_medeleg() {
+fn an_exception_delegated_by_medeleg_sets_scause_and_sepc() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -252,7 +252,7 @@ fn test_trap_delegation_to_supervisor_with_medeleg() {
 }
 
 #[test]
-fn test_trap_delegation_to_supervisor_with_mideleg() {
+fn an_interrupt_delegated_by_mideleg_sets_the_scause_interrupt_bit() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -268,7 +268,7 @@ fn test_trap_delegation_to_supervisor_with_mideleg() {
 }
 
 #[test]
-fn test_trap_no_delegation_when_medeleg_not_set() {
+fn an_undelegated_illegal_instruction_from_user_mode_traps_to_machine_mode() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -284,7 +284,7 @@ fn test_trap_no_delegation_when_medeleg_not_set() {
 }
 
 #[test]
-fn test_trap_delegation_only_from_lower_privilege() {
+fn a_machine_mode_trap_ignores_medeleg() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -300,7 +300,7 @@ fn test_trap_delegation_only_from_lower_privilege() {
 }
 
 #[test]
-fn test_trap_user_mode_no_delegation_without_medeleg() {
+fn an_undelegated_misaligned_load_from_user_mode_jumps_to_mtvec() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -316,7 +316,7 @@ fn test_trap_user_mode_no_delegation_without_medeleg() {
 }
 
 #[test]
-fn test_trap_vectored_mode_direct_for_exceptions() {
+fn a_vectored_mtvec_sends_exceptions_to_the_base() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -331,7 +331,7 @@ fn test_trap_vectored_mode_direct_for_exceptions() {
 }
 
 #[test]
-fn test_trap_vectored_mode_offset_for_interrupts() {
+fn a_vectored_mtvec_offsets_interrupts_by_four_times_the_cause() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -345,7 +345,7 @@ fn test_trap_vectored_mode_offset_for_interrupts() {
 }
 
 #[test]
-fn test_trap_direct_mode_no_offset() {
+fn a_direct_mtvec_sends_interrupts_to_the_base() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -359,7 +359,7 @@ fn test_trap_direct_mode_no_offset() {
 }
 
 #[test]
-fn test_trap_supervisor_vectored_mode() {
+fn a_vectored_stvec_offsets_delegated_interrupts_by_four_times_the_cause() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -376,7 +376,7 @@ fn test_trap_supervisor_vectored_mode() {
 }
 
 #[test]
-fn test_trap_tval_for_address_exceptions() {
+fn a_misaligned_load_writes_the_fault_address_to_mtval() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -390,7 +390,7 @@ fn test_trap_tval_for_address_exceptions() {
 }
 
 #[test]
-fn test_trap_tval_for_page_faults() {
+fn a_store_page_fault_writes_the_fault_address_to_mtval() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -404,7 +404,7 @@ fn test_trap_tval_for_page_faults() {
 }
 
 #[test]
-fn test_trap_tval_for_illegal_instruction() {
+fn an_illegal_instruction_writes_its_encoding_to_mtval() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -418,7 +418,7 @@ fn test_trap_tval_for_illegal_instruction() {
 }
 
 #[test]
-fn test_trap_tval_zero_for_ecall() {
+fn an_ecall_leaves_mtval_zero() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -432,7 +432,7 @@ fn test_trap_tval_zero_for_ecall() {
 }
 
 #[test]
-fn test_trap_stval_on_delegation() {
+fn a_delegated_load_page_fault_writes_the_fault_address_to_stval() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -447,7 +447,7 @@ fn test_trap_stval_on_delegation() {
 }
 
 #[test]
-fn test_trap_saves_previous_privilege_in_mpp() {
+fn a_trap_from_supervisor_mode_records_it_in_mpp() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Supervisor;
@@ -461,7 +461,7 @@ fn test_trap_saves_previous_privilege_in_mpp() {
 }
 
 #[test]
-fn test_trap_disables_mie_and_saves_to_mpie() {
+fn a_trap_moves_mie_into_mpie_and_clears_mie() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -479,7 +479,7 @@ fn test_trap_disables_mie_and_saves_to_mpie() {
 }
 
 #[test]
-fn test_trap_saves_previous_privilege_in_spp_on_delegation() {
+fn a_delegated_trap_from_user_mode_leaves_spp_clear() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -494,7 +494,7 @@ fn test_trap_saves_previous_privilege_in_spp_on_delegation() {
 }
 
 #[test]
-fn test_trap_disables_sie_on_delegation() {
+fn a_delegated_illegal_instruction_enters_supervisor_mode_and_sets_sepc() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;
@@ -511,7 +511,7 @@ fn test_trap_disables_sie_on_delegation() {
 }
 
 #[test]
-fn test_trap_requested_trap_custom_code() {
+fn a_requested_trap_writes_its_code_to_mcause() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -525,7 +525,7 @@ fn test_trap_requested_trap_custom_code() {
 }
 
 #[test]
-fn test_trap_breakpoint() {
+fn a_breakpoint_writes_cause_three_to_mcause() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -539,7 +539,7 @@ fn test_trap_breakpoint() {
 }
 
 #[test]
-fn test_trap_all_access_faults() {
+fn access_faults_write_their_cause_codes_to_mcause() {
     let faults = vec![
         (Trap::InstructionAccessFault(0x1000), 1),
         (Trap::LoadAccessFault(0x2000), 5),
@@ -560,7 +560,7 @@ fn test_trap_all_access_faults() {
 }
 
 #[test]
-fn test_trap_all_misaligned() {
+fn misaligned_accesses_write_their_cause_codes_to_mcause() {
     let misaligned = vec![
         (Trap::InstructionAddressMisaligned(0x1001), 0),
         (Trap::LoadAddressMisaligned(0x2001), 4),
@@ -581,7 +581,7 @@ fn test_trap_all_misaligned() {
 }
 
 #[test]
-fn test_trap_preserves_registers() {
+fn a_trap_preserves_the_integer_registers() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -600,7 +600,7 @@ fn test_trap_preserves_registers() {
 }
 
 #[test]
-fn test_trap_updates_mepc_correctly() {
+fn a_trap_writes_the_trap_pc_to_mepc() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::Machine;
@@ -613,7 +613,7 @@ fn test_trap_updates_mepc_correctly() {
 }
 
 #[test]
-fn test_trap_updates_sepc_on_delegation() {
+fn a_delegated_trap_writes_the_trap_pc_to_sepc() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     state.hart.privilege = PrivilegeMode::User;

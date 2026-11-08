@@ -186,14 +186,14 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_pc_returns_no_dep() {
+    fn an_untrained_pc_predicts_no_dependence() {
         let p = test_predictor();
         assert_eq!(p.predict(0x1000), MemPrediction::NoDep);
         assert_eq!(p.predict(0x2000), MemPrediction::NoDep);
     }
 
     #[test]
-    fn test_train_creates_set_then_dep_on() {
+    fn a_trained_load_depends_on_its_sets_store_once_registered() {
         let mut p = test_predictor();
         let load_pc = 0x1000;
         let store_pc = 0x2000;
@@ -211,7 +211,7 @@ mod tests {
     }
 
     #[test]
-    fn test_store_store_chain() {
+    fn a_store_depends_on_the_previous_store_in_its_set() {
         let mut p = test_predictor();
         let store_pc = 0x2000;
         let load_pc = 0x1000;
@@ -236,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flush_clears_lfst_keeps_ssit() {
+    fn a_full_flush_clears_the_lfst_but_keeps_the_ssit() {
         let mut p = test_predictor();
         let load_pc = 0x1000;
         let store_pc = 0x2000;
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flush_after_partial() {
+    fn flush_after_clears_only_lfst_entries_newer_than_the_tag() {
         let mut p = test_predictor();
         // PCs chosen to produce distinct SSIT indices: (pc >> 2) % 64.
         let store_pc_a = 0x1004; // index 1
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_sets() {
+    fn a_load_trained_against_a_second_store_depends_on_it() {
         let mut p = test_predictor();
         let load_pc = 0x1000;
         let store_a = 0x2000;
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rebuild_lfst_entry() {
+    fn rebuilding_an_lfst_entry_keeps_the_newest_store() {
         let mut p = test_predictor();
         let store_pc = 0x2000;
         let load_pc = 0x1000;

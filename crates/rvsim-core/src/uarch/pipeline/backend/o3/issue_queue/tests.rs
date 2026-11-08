@@ -141,14 +141,14 @@ fn not_ready_operand_phys(phys: PhysReg) -> OperandState {
 }
 
 #[test]
-fn test_new_empty() {
+fn a_new_queue_is_empty_with_every_slot_free() {
     let iq = IssueQueue::new(16);
     assert!(iq.is_empty());
     assert_eq!(iq.available_slots(), 16);
 }
 
 #[test]
-fn test_dispatch_and_select_ready() {
+fn a_ready_entry_issues_with_its_operand_values() {
     let mut iq = IssueQueue::new(16);
 
     // Manually insert a ready entry
@@ -175,7 +175,7 @@ fn test_dispatch_and_select_ready() {
 }
 
 #[test]
-fn test_wakeup_phys_chain() {
+fn a_waiting_entry_issues_with_the_woken_value() {
     let mut iq = IssueQueue::new(16);
     let p5 = PhysReg::from_index(5);
 
@@ -209,7 +209,7 @@ fn test_wakeup_phys_chain() {
 }
 
 #[test]
-fn test_oldest_first_select() {
+fn select_issues_the_oldest_ready_entries_up_to_the_width() {
     let mut iq = IssueQueue::new(16);
 
     // Insert entries with tags 3, 1, 2 in random slot order
@@ -243,7 +243,7 @@ fn test_oldest_first_select() {
 }
 
 #[test]
-fn test_flush() {
+fn flush_empties_the_queue() {
     let mut iq = IssueQueue::new(16);
     iq.slots[0] = Some(IssueQueueEntry {
         entry: make_entry(1),
@@ -277,7 +277,7 @@ fn test_flush() {
 }
 
 #[test]
-fn test_flush_after() {
+fn flush_after_keeps_only_entries_up_to_the_tag() {
     let mut iq = IssueQueue::new(16);
     for (slot, tag) in [(0, 1u32), (1, 2), (2, 3), (3, 4)] {
         iq.slots[slot] = Some(IssueQueueEntry {
@@ -306,7 +306,7 @@ fn test_flush_after() {
 }
 
 #[test]
-fn test_queue_snapshot_sorted() {
+fn the_queue_snapshot_lists_entries_oldest_first() {
     let mut iq = IssueQueue::new(16);
     // Insert in reverse order
     for (slot, tag) in [(0, 5u32), (1, 3), (2, 1)] {
@@ -386,7 +386,7 @@ fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
 }
 
 #[test]
-fn test_port_limits() {
+fn select_issues_no_more_loads_and_stores_than_their_ports() {
     let mut iq = IssueQueue::new(16);
 
     // Insert 3 loads (tags 1, 2, 3) and 2 stores (tags 4, 5), all ready

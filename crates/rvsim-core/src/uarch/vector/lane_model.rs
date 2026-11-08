@@ -91,7 +91,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pipelined_basic() {
+    fn a_pipelined_op_adds_a_cycle_per_extra_group() {
         // 4 lanes, startup=1 (int ALU), VL=4 → 1 group → 1 + 1 - 1 = 1
         assert_eq!(compute_vec_latency(4, 4, 1, true), 1);
         // 4 lanes, startup=1, VL=8 → 2 groups → 1 + 2 - 1 = 2
@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn test_non_pipelined() {
+    fn a_non_pipelined_op_takes_startup_cycles_per_group() {
         // 4 lanes, per_element=20 (div), VL=8 → 2 groups → 2 * 20 = 40
         assert_eq!(compute_vec_latency(8, 4, 20, false), 40);
         // VL=1 → 1 group → 1 * 20 = 20
@@ -109,13 +109,13 @@ mod tests {
     }
 
     #[test]
-    fn test_vl_zero() {
+    fn an_op_with_zero_vl_takes_one_cycle() {
         assert_eq!(compute_vec_latency(0, 4, 5, true), 1);
         assert_eq!(compute_vec_latency(0, 4, 5, false), 1);
     }
 
     #[test]
-    fn test_partial_lanes() {
+    fn a_partly_filled_group_counts_as_a_whole_group() {
         // 4 lanes, startup=1, VL=5 → ceil(5/4)=2 groups → 1 + 2 - 1 = 2
         assert_eq!(compute_vec_latency(5, 4, 1, true), 2);
         // 4 lanes, startup=1, VL=3 → ceil(3/4)=1 group → 1 + 1 - 1 = 1
@@ -123,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reduction_unordered() {
+    fn an_unordered_reduction_adds_a_log2_lanes_tree_stage() {
         // 4 lanes, startup=1, VL=16 → intra=4, inter=2 → 1 + 4 + 2 = 7
         assert_eq!(compute_reduction_latency(16, 4, 1, false), 7);
         // 1 lane, startup=1, VL=8 → intra=8, inter=0 → 1 + 8 + 0 = 9
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reduction_ordered() {
+    fn an_ordered_reduction_takes_startup_cycles_per_element() {
         // Ordered: VL=8, startup=4 (FP add) → 8 * 4 = 32
         assert_eq!(compute_reduction_latency(8, 4, 4, true), 32);
         // VL=1 → 1 * 4 = 4
@@ -139,19 +139,19 @@ mod tests {
     }
 
     #[test]
-    fn test_reduction_vl_zero() {
+    fn a_reduction_with_zero_vl_takes_one_cycle() {
         assert_eq!(compute_reduction_latency(0, 4, 4, true), 1);
         assert_eq!(compute_reduction_latency(0, 4, 4, false), 1);
     }
 
     #[test]
-    fn test_first_group_ready() {
+    fn the_first_group_is_ready_startup_cycles_after_issue() {
         assert_eq!(first_group_ready(10, 4), 14);
         assert_eq!(first_group_ready(0, 1), 1);
     }
 
     #[test]
-    fn test_single_lane() {
+    fn a_single_lane_pipelined_op_takes_a_group_per_element() {
         // 1 lane, startup=3 (int mul), VL=8 → 8 groups → 3 + 8 - 1 = 10
         assert_eq!(compute_vec_latency(8, 1, 3, true), 10);
     }

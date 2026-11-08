@@ -10,21 +10,21 @@ use crate::common::PhysAddr;
 use crate::config::*;
 
 #[test]
-fn test_config_default() {
+fn the_minimal_config_starts_untraced_at_0x8000_0000() {
     let config = Config::minimal();
     assert!(!config.general.trace_instructions);
     assert_eq!(config.general.start_pc, 0x8000_0000);
 }
 
 #[test]
-fn test_general_config_defaults() {
+fn the_general_defaults_start_untraced_at_0x8000_0000() {
     let general = GeneralConfig::default();
     assert!(!general.trace_instructions);
     assert_eq!(general.start_pc, 0x8000_0000);
 }
 
 #[test]
-fn test_system_config_defaults() {
+fn the_default_system_config_has_the_standard_memory_map() {
     let system = SystemConfig::default();
     assert_eq!(system.uart_base, PhysAddr::new(0x1000_0000));
     assert_eq!(system.disk_base, PhysAddr::new(0x9000_0000));
@@ -40,7 +40,7 @@ fn test_system_config_defaults() {
 }
 
 #[test]
-fn test_memory_config_defaults() {
+fn the_default_memory_is_128_mib_behind_a_simple_controller() {
     let memory = MemoryConfig::default();
     assert_eq!(memory.ram_size, 128 * 1024 * 1024);
     assert_eq!(memory.controller, MemoryControllerKind::Simple);
@@ -52,7 +52,7 @@ fn test_memory_config_defaults() {
 }
 
 #[test]
-fn test_cache_config_defaults() {
+fn a_default_cache_is_disabled_direct_mapped_4_kib_lru() {
     let cache = CacheConfig::default();
     assert!(!cache.enabled);
     assert_eq!(cache.size_bytes, std::num::NonZero::new(4096).unwrap());
@@ -66,7 +66,7 @@ fn test_cache_config_defaults() {
 }
 
 #[test]
-fn test_cache_hierarchy_defaults() {
+fn every_cache_level_is_disabled_by_default() {
     let hierarchy = CacheHierarchyConfig::default();
     assert!(!hierarchy.l1_i.enabled);
     assert!(!hierarchy.l1_d.enabled);
@@ -75,7 +75,7 @@ fn test_cache_hierarchy_defaults() {
 }
 
 #[test]
-fn test_pipeline_config_defaults() {
+fn the_default_pipeline_is_one_wide_with_a_static_predictor() {
     let pipeline = PipelineConfig::default();
     assert_eq!(pipeline.width, 1);
     assert_eq!(pipeline.branch_predictor, BranchPredictorKind::Static);
@@ -84,7 +84,7 @@ fn test_pipeline_config_defaults() {
 }
 
 #[test]
-fn test_tage_config_defaults() {
+fn the_default_tage_config_has_eight_banks_of_2048_entries() {
     let tage = TageConfig::default();
     assert_eq!(tage.num_banks, 8);
     assert_eq!(tage.table_size, 2048);
@@ -94,14 +94,14 @@ fn test_tage_config_defaults() {
 }
 
 #[test]
-fn test_perceptron_config_defaults() {
+fn the_default_perceptron_has_32_history_and_10_table_bits() {
     let perceptron = PerceptronConfig::default();
     assert_eq!(perceptron.history_length, 32);
     assert_eq!(perceptron.table_bits, 10);
 }
 
 #[test]
-fn test_tournament_config_defaults() {
+fn the_default_tournament_has_12_global_and_10_local_bits() {
     let tournament = TournamentConfig::default();
     assert_eq!(tournament.global_size_bits, 12);
     assert_eq!(tournament.local_hist_bits, 10);
@@ -109,13 +109,13 @@ fn test_tournament_config_defaults() {
 }
 
 #[test]
-fn test_memory_controller_enum() {
+fn the_default_memory_controller_is_simple() {
     assert_eq!(MemoryControllerKind::default(), MemoryControllerKind::Simple);
     assert_ne!(MemoryControllerKind::Simple, MemoryControllerKind::Dram);
 }
 
 #[test]
-fn test_replacement_policy_enum() {
+fn the_default_replacement_policy_is_lru() {
     assert_eq!(ReplacementPolicyKind::default(), ReplacementPolicyKind::Lru);
     assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Fifo);
     assert_ne!(ReplacementPolicyKind::Lru, ReplacementPolicyKind::Random);
@@ -124,7 +124,7 @@ fn test_replacement_policy_enum() {
 }
 
 #[test]
-fn test_prefetcher_enum() {
+fn the_default_prefetcher_is_off() {
     assert_eq!(PrefetcherKind::default(), PrefetcherKind::Off);
     assert_ne!(PrefetcherKind::Off, PrefetcherKind::NextLine);
     assert_ne!(PrefetcherKind::Off, PrefetcherKind::Stride);
@@ -133,7 +133,7 @@ fn test_prefetcher_enum() {
 }
 
 #[test]
-fn test_branch_predictor_enum() {
+fn the_default_branch_predictor_is_static() {
     assert_eq!(BranchPredictorKind::default(), BranchPredictorKind::Static);
     assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::GShare);
     assert_ne!(BranchPredictorKind::Static, BranchPredictorKind::Perceptron);
@@ -142,7 +142,7 @@ fn test_branch_predictor_enum() {
 }
 
 #[test]
-fn test_json_deserialization_minimal() {
+fn a_complete_untraced_config_is_read_from_json() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
@@ -245,7 +245,7 @@ fn test_json_deserialization_minimal() {
 }
 
 #[test]
-fn test_json_deserialization_with_tracing() {
+fn tracing_cache_and_predictor_settings_are_read_from_json() {
     let json = r#"{
         "general": {
             "trace_instructions": true,
@@ -355,7 +355,7 @@ fn test_json_deserialization_with_tracing() {
 }
 
 #[test]
-fn test_json_dram_controller() {
+fn a_dram_controller_is_read_from_json() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
@@ -456,7 +456,7 @@ fn test_json_dram_controller() {
 }
 
 #[test]
-fn test_json_all_replacement_policies() {
+fn every_replacement_policy_is_read_from_json() {
     for policy in &["Lru", "Fifo", "Random", "Mru", "Plru"] {
         let json = format!(
             r#"{{
@@ -479,7 +479,7 @@ fn test_json_all_replacement_policies() {
 }
 
 #[test]
-fn test_json_all_prefetchers() {
+fn every_prefetcher_is_read_from_json() {
     for prefetcher in &["Off", "NextLine", "Stride", "Stream", "Tagged"] {
         let json = format!(
             r#"{{
@@ -502,7 +502,7 @@ fn test_json_all_prefetchers() {
 }
 
 #[test]
-fn test_json_all_branch_predictors() {
+fn every_branch_predictor_is_read_from_json() {
     for predictor in &["Static", "GShare", "Perceptron", "Tage", "Tournament"] {
         let json = format!(
             r#"{{
@@ -525,7 +525,7 @@ fn test_json_all_branch_predictors() {
 }
 
 #[test]
-fn test_isa_string_option() {
+fn an_isa_string_sets_misa_and_leaves_out_unnamed_extensions() {
     let json = r#"{
         "isa": { "string": "rv64imafdc_zba_zbb_zbs" },
         "general": {
@@ -751,7 +751,7 @@ fn a_captured_console_is_read_from_json() {
 }
 
 #[test]
-fn test_custom_cache_sizes() {
+fn custom_cache_sizes_ways_and_latencies_are_read_from_json() {
     let json = r#"{
         "general": {
             "trace_instructions": false,
@@ -863,7 +863,7 @@ fn test_custom_cache_sizes() {
 }
 
 #[test]
-fn test_custom_dram_timings() {
+fn custom_dram_timings_are_read_from_json() {
     let json = r#"{
         "general": {
             "trace_instructions": false,

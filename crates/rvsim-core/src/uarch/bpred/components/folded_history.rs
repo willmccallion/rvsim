@@ -115,7 +115,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_folded_history_update_matches_recompute() {
+    fn incremental_updates_match_a_recompute_of_a_44_bit_history() {
         let hist_length = 44;
         let fold_width = 11;
         let mut ghr = Ghr::with_len(hist_length);
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_folded_history_various_widths() {
+    fn incremental_updates_match_a_recompute_across_lengths_and_widths() {
         for &(hist_len, fold_w) in &[(5, 3), (15, 9), (44, 11), (130, 10), (712, 11)] {
             let mut ghr = Ghr::with_len(hist_len);
             let mut csr = FoldedHistory::new(fold_w, hist_len);
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fast_recompute_matches_reference() {
+    fn the_word_level_recompute_matches_a_bit_by_bit_replay() {
         // All TAGE and ITTAGE history length / fold width combos.
         let cases = [
             // TAGE-like: table_bits=11, tag_widths 9-10, hist lengths up to 712

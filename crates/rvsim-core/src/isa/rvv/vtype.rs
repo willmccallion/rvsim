@@ -499,7 +499,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sew_encoding_roundtrip() {
+    fn sew_encodings_round_trip_and_the_fifth_is_reserved() {
         for enc in 0..4u8 {
             let sew = Sew::from_encoding(enc).unwrap();
             assert_eq!(sew.to_encoding(), enc);
@@ -508,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sew_sizes() {
+    fn sew_reports_its_width_in_bits_and_bytes() {
         assert_eq!(Sew::E8.bits(), 8);
         assert_eq!(Sew::E8.bytes(), 1);
         assert_eq!(Sew::E64.bits(), 64);
@@ -516,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vlmul_encoding_roundtrip() {
+    fn vlmul_encodings_round_trip_and_0b100_is_reserved() {
         let cases = [
             (0b000, Vlmul::M1),
             (0b001, Vlmul::M2),
@@ -535,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vlmul_group_regs() {
+    fn a_vlmul_group_spans_lmul_registers_and_at_least_one() {
         assert_eq!(Vlmul::Mf8.group_regs().regs(), 1);
         assert_eq!(Vlmul::M1.group_regs().regs(), 1);
         assert_eq!(Vlmul::M2.group_regs().regs(), 2);
@@ -544,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tail_mask_policy() {
+    fn a_set_policy_bit_means_agnostic() {
         assert_eq!(TailPolicy::from_bit(false), TailPolicy::Undisturbed);
         assert_eq!(TailPolicy::from_bit(true), TailPolicy::Agnostic);
         assert_eq!(MaskPolicy::from_bit(false), MaskPolicy::Undisturbed);
@@ -552,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vxrm_roundtrip() {
+    fn vxrm_bits_round_trip() {
         for bits in 0..4u8 {
             let vxrm = Vxrm::from_bits(bits);
             assert_eq!(vxrm.to_bits(), bits);
@@ -560,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_vtype_basic() {
+    fn parse_vtype_decodes_m1_e32_with_undisturbed_policies() {
         // vlmul=M1 (000), vsew=E32 (010), vta=0, vma=0
         let vtype = 0b0001_0000_u64;
         let fields = parse_vtype(vtype);
@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_vtype_with_policies() {
+    fn parse_vtype_decodes_m2_e16_with_agnostic_policies() {
         // vlmul=M2 (001), vsew=E16 (001), vta=1, vma=1
         let vtype = 0b1100_1001_u64;
         let fields = parse_vtype(vtype);
@@ -584,28 +584,28 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_vtype_vill_set() {
+    fn a_vtype_with_vill_set_parses_as_illegal() {
         let vtype = 1u64 << 63;
         let fields = parse_vtype(vtype);
         assert!(fields.vill);
     }
 
     #[test]
-    fn test_parse_vtype_reserved_vlmul() {
+    fn a_reserved_vlmul_makes_vtype_illegal() {
         let vtype = 0b0000_0100_u64;
         let fields = parse_vtype(vtype);
         assert!(fields.vill);
     }
 
     #[test]
-    fn test_parse_vtype_reserved_vsew() {
+    fn a_reserved_vsew_makes_vtype_illegal() {
         let vtype = 0b0010_0000_u64;
         let fields = parse_vtype(vtype);
         assert!(fields.vill);
     }
 
     #[test]
-    fn test_parse_vtype_sew_too_large_for_lmul() {
+    fn a_sew_above_lmul_times_elen_makes_vtype_illegal() {
         // vlmul=Mf8 (101), vsew=E64 (011) → SEW=64, LMUL=1/8
         // SEW * den = 64 * 8 = 512 > ELEN * num = 64 * 1 → vill
         let vtype = 0b0001_1101_u64;
@@ -614,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_vtype_roundtrip() {
+    fn encoded_vtype_fields_parse_back_unchanged() {
         let fields = VtypeFields {
             vsew: Sew::E32,
             vlmul: Vlmul::M4,
@@ -628,7 +628,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encode_vtype_vill() {
+    fn an_illegal_vtype_encodes_as_only_the_vill_bit() {
         let fields = VtypeFields { vill: true, ..Default::default() };
         let encoded = encode_vtype(&fields);
         assert_eq!(encoded, 1u64 << 63);

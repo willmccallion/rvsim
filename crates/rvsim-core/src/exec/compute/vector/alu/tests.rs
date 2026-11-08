@@ -29,7 +29,7 @@ fn run(
 }
 
 #[test]
-fn test_vadd_e8() {
+fn vadd_adds_a_scalar_to_an_e8_element() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -43,7 +43,7 @@ fn test_vadd_e8() {
 /// vs2[0] = 0x80 (i8 = -128); rs1 = 0xfffffffffffffff8 (low 8 bits 0xf8 = u8 248).
 /// Product = 248 * -128 = -31744 → 0x8400 in u16.
 #[test]
-fn test_vwmaccus_vx_signed_vs2() {
+fn vwmaccus_multiplies_an_unsigned_scalar_by_a_signed_vs2() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -64,7 +64,7 @@ fn test_vwmaccus_vx_signed_vs2() {
 /// vwmaccsu.vv: vd[i] += signed(vs1[i]) * unsigned(vs2[i]).
 /// vs1[0] = 0x80 (i8 = -128), vs2[0] = 0x80 (u8 = 128). Product = -16384 = 0xc000.
 #[test]
-fn test_vwmaccsu_vv_signed_unsigned() {
+fn vwmaccsu_multiplies_a_signed_vs1_by_an_unsigned_vs2() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs1 = VRegIdx::new(2);
@@ -84,7 +84,7 @@ fn test_vwmaccsu_vv_signed_unsigned() {
 }
 
 #[test]
-fn test_vadd_e16() {
+fn vadd_adds_a_scalar_to_an_e16_element() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -95,7 +95,7 @@ fn test_vadd_e16() {
 }
 
 #[test]
-fn test_vadd_e32() {
+fn vadd_wraps_an_overflowing_e32_sum_to_zero() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -113,7 +113,7 @@ fn test_vadd_e32() {
 }
 
 #[test]
-fn test_vadd_e64() {
+fn vadd_wraps_an_overflowing_e64_sum() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -123,7 +123,7 @@ fn test_vadd_e64() {
 }
 
 #[test]
-fn test_vadd_vv_multiple_elements() {
+fn vadd_vv_adds_every_element_up_to_vl() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(3);
     let vs2 = VRegIdx::new(4);
@@ -141,7 +141,7 @@ fn test_vadd_vv_multiple_elements() {
 }
 
 #[test]
-fn test_vmslt_signed() {
+fn vmslt_compares_elements_as_signed() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -154,7 +154,7 @@ fn test_vmslt_signed() {
 }
 
 #[test]
-fn test_vmseq() {
+fn vmseq_sets_the_mask_bit_only_for_equal_elements() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -174,7 +174,7 @@ fn test_vmseq() {
 }
 
 #[test]
-fn test_vdivu_by_zero() {
+fn vdivu_by_zero_gives_all_ones() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -185,7 +185,7 @@ fn test_vdivu_by_zero() {
 }
 
 #[test]
-fn test_vdiv_by_zero() {
+fn vdiv_by_zero_gives_all_ones() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -195,7 +195,7 @@ fn test_vdiv_by_zero() {
 }
 
 #[test]
-fn test_vremu_by_zero() {
+fn vremu_by_zero_gives_the_dividend() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -206,7 +206,7 @@ fn test_vremu_by_zero() {
 }
 
 #[test]
-fn test_vdiv_signed_overflow() {
+fn vdiv_overflow_of_the_most_negative_gives_the_dividend() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -225,7 +225,7 @@ fn test_vdiv_signed_overflow() {
 }
 
 #[test]
-fn test_vwaddu() {
+fn vwaddu_carries_into_the_wider_element_without_vxsat() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(2);
     let vs2 = VRegIdx::new(4);
@@ -245,7 +245,7 @@ fn test_vwaddu() {
 }
 
 #[test]
-fn test_vwaddu_mf8_widen() {
+fn vwaddu_at_mf8_widens_and_leaves_the_tail_undisturbed() {
     // vwaddu.vv at SEW=E8, LMUL=mf8 with vl=2.
     // VLMAX = (128/8)*1/8 = 2 elements at E8. Widens to E16.
     // Source elements vs2[0]=5, vs2[1]=7. Scalar = 3.
@@ -278,7 +278,7 @@ fn test_vwaddu_mf8_widen() {
 }
 
 #[test]
-fn test_vwadd_signed() {
+fn vwadd_sign_extends_both_operands() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(2);
     let vs2 = VRegIdx::new(4);
@@ -299,7 +299,7 @@ fn test_vwadd_signed() {
 }
 
 #[test]
-fn test_vsaddu_saturation() {
+fn vsaddu_saturates_at_the_maximum_and_sets_vxsat() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -312,7 +312,7 @@ fn test_vsaddu_saturation() {
 }
 
 #[test]
-fn test_vsaddu_no_saturation() {
+fn vsaddu_below_the_maximum_leaves_vxsat_clear() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -324,7 +324,7 @@ fn test_vsaddu_no_saturation() {
 }
 
 #[test]
-fn test_masked_operation() {
+fn masked_off_elements_are_left_undisturbed() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -357,7 +357,7 @@ fn test_masked_operation() {
 }
 
 #[test]
-fn test_tail_agnostic() {
+fn agnostic_tail_elements_are_filled_with_ones() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -382,7 +382,7 @@ fn test_tail_agnostic() {
 }
 
 #[test]
-fn test_vmerge() {
+fn vmerge_selects_vs2_or_the_scalar_by_mask_bit() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(3);
     let vs2 = VRegIdx::new(4);
@@ -410,7 +410,7 @@ fn test_vmerge() {
 }
 
 #[test]
-fn test_vmacc() {
+fn vmacc_adds_the_product_to_vd() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -425,7 +425,7 @@ fn test_vmacc() {
 }
 
 #[test]
-fn test_vsext_vf2() {
+fn vsext_vf2_sign_extends_to_double_width() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -444,7 +444,7 @@ fn test_vsext_vf2() {
 }
 
 #[test]
-fn test_vzext_vf2() {
+fn vzext_vf2_zero_extends_to_double_width() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -462,7 +462,7 @@ fn test_vzext_vf2() {
 }
 
 #[test]
-fn test_vadc() {
+fn vadc_adds_the_carry_from_v0() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
@@ -485,7 +485,7 @@ fn test_vadc() {
 }
 
 #[test]
-fn test_vnsrl() {
+fn vnsrl_shifts_right_and_narrows_to_half_width() {
     let mut vpr = make_vpr();
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);

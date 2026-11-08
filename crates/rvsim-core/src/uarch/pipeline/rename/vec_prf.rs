@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn test_element_lifecycle() {
+    fn a_written_element_reads_back_without_touching_its_neighbour() {
         let mut prf = make_prf();
         let p5 = VecPhysReg::from_index(5);
 
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mask_bits() {
+    fn a_mask_bit_sets_and_clears_without_touching_its_neighbour() {
         let mut prf = make_prf();
         let p3 = VecPhysReg::from_index(3);
 
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ready_bits() {
+    fn mark_ready_sets_and_allocate_clears_the_ready_bit() {
         let mut prf = make_prf();
         let p10 = VecPhysReg::from_index(10);
 
@@ -302,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mark_arch_ready() {
+    fn mark_arch_ready_readies_exactly_the_first_n_registers() {
         let mut prf = make_prf();
         prf.mark_arch_ready(32);
         for i in 0..32 {
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn test_read_write_bytes() {
+    fn register_bytes_read_back_what_was_written() {
         let mut prf = make_prf();
         let p1 = VecPhysReg::from_index(1);
         let data: Vec<u8> = (0..16).collect();
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn test_copy_reg() {
+    fn copy_reg_duplicates_the_source_register() {
         let mut prf = make_prf();
         let p1 = VecPhysReg::from_index(1);
         let p2 = VecPhysReg::from_index(2);
@@ -331,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_prf_view() {
+    fn the_view_reads_and_writes_the_mapped_physical_registers() {
         let mut prf = make_prf();
         let p40 = VecPhysReg::from_index(40);
         let p41 = VecPhysReg::from_index(41);
@@ -368,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_prf_view_same_results_as_vpr() {
+    fn an_identity_mapped_view_reads_back_what_the_vpr_does() {
         use crate::arch::regs::vpr::Vpr;
 
         let vlen = Vlen::new_unchecked(128);

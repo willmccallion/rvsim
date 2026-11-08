@@ -39,7 +39,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fpr_default_and_new() {
+    fn default_and_new_both_zero_every_register() {
         let fpr1 = Fpr::default();
         let fpr2 = Fpr::new();
         for i in 0..32u8 {
@@ -49,7 +49,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fpr_read_write() {
+    fn a_written_register_reads_back_and_others_stay_zero() {
         let mut fpr = Fpr::new();
         let val = core::f64::consts::PI.to_bits();
         fpr.write(RegIdx::new(5), val);

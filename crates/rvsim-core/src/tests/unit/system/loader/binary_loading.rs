@@ -24,7 +24,7 @@ fn create_temp_binary(data: &[u8]) -> NamedTempFile {
 }
 
 #[test]
-fn test_load_binary_success() {
+fn load_binary_returns_the_file_bytes_unchanged() {
     let test_data = vec![0x13, 0x00, 0x00, 0x00]; // RISC-V NOP instruction
     let temp_file = create_temp_binary(&test_data);
     let path = temp_file.path().to_str().unwrap();
@@ -34,7 +34,7 @@ fn test_load_binary_success() {
 }
 
 #[test]
-fn test_load_binary_empty_file() {
+fn load_binary_of_an_empty_file_returns_no_bytes() {
     let temp_file = create_temp_binary(&[]);
     let path = temp_file.path().to_str().unwrap();
 
@@ -43,7 +43,7 @@ fn test_load_binary_empty_file() {
 }
 
 #[test]
-fn test_load_binary_large_file() {
+fn load_binary_reads_a_1_kib_file_whole() {
     let test_data: Vec<u8> = (0..1024).map(|i| (i % 256) as u8).collect();
     let temp_file = create_temp_binary(&test_data);
     let path = temp_file.path().to_str().unwrap();
@@ -53,14 +53,14 @@ fn test_load_binary_large_file() {
 }
 
 #[test]
-fn test_load_binary_missing_file() {
+fn a_missing_binary_is_an_error_naming_its_path() {
     let result = loader::load_binary("/nonexistent/path/that/cannot/exist.bin");
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("/nonexistent/path/that/cannot/exist.bin"));
 }
 
 #[test]
-fn test_setup_kernel_load_without_opensbi() {
+fn without_firmware_the_hart_enters_an_mret_trampoline_to_the_kernel() {
     let mut state = minimal_system();
     let config = Config::minimal();
 
@@ -83,7 +83,7 @@ fn test_setup_kernel_load_without_opensbi() {
 }
 
 #[test]
-fn test_setup_kernel_load_dtb_address() {
+fn without_firmware_a1_holds_the_device_tree_address() {
     let mut state = minimal_system();
     let config = Config::minimal();
 
@@ -95,7 +95,7 @@ fn test_setup_kernel_load_dtb_address() {
 }
 
 #[test]
-fn test_setup_kernel_load_with_dtb_file() {
+fn a_given_dtb_is_loaded_at_the_device_tree_offset() {
     let mut state = minimal_system();
     let config = Config::minimal();
 
@@ -165,7 +165,7 @@ fn a_missing_explicit_kernel_is_an_error() {
 }
 
 #[test]
-fn test_setup_kernel_load_register_a2_is_zero() {
+fn without_firmware_a2_is_zero() {
     let mut state = minimal_system();
     let config = Config::minimal();
 
@@ -176,7 +176,7 @@ fn test_setup_kernel_load_register_a2_is_zero() {
 }
 
 #[test]
-fn test_setup_kernel_load_preserves_config() {
+fn setting_up_a_kernel_load_leaves_the_config_unchanged() {
     let config = Config::minimal();
     let ram_base_before = config.system.ram_base;
     let kernel_offset_before = config.system.kernel_offset;
@@ -190,7 +190,7 @@ fn test_setup_kernel_load_preserves_config() {
 }
 
 #[test]
-fn test_setup_kernel_load_mret_instruction_at_ram_base() {
+fn without_firmware_an_mret_is_placed_at_ram_base() {
     let mut state = minimal_system();
     let config = Config::minimal();
 
@@ -202,7 +202,7 @@ fn test_setup_kernel_load_mret_instruction_at_ram_base() {
 }
 
 #[test]
-fn test_setup_kernel_load_multiple_calls() {
+fn setting_up_a_kernel_load_twice_gives_the_same_pc() {
     let mut state = minimal_system();
     let config = Config::minimal();
 
@@ -219,7 +219,7 @@ fn test_setup_kernel_load_multiple_calls() {
 }
 
 #[test]
-fn test_setup_kernel_load_different_ram_bases() {
+fn without_firmware_the_pc_follows_the_configured_ram_base() {
     // Test with different RAM base addresses
     let mut config1 = Config::minimal();
     config1.system.ram_base = PhysAddr::new(0x80000000);
@@ -239,7 +239,7 @@ fn test_setup_kernel_load_different_ram_bases() {
 }
 
 #[test]
-fn test_load_binary_content_integrity() {
+fn load_binary_returns_each_byte_in_order() {
     // Create a binary with specific pattern
     let test_data: Vec<u8> = (0..256).map(|i| i as u8).collect();
     let temp_file = create_temp_binary(&test_data);

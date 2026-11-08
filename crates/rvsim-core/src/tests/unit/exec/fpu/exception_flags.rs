@@ -14,7 +14,7 @@ fn to_register(value: f32) -> u64 {
 }
 
 #[test]
-fn test_exception_dz() {
+fn single_one_over_zero_is_infinity_raising_dz_not_nv() {
     // 1.0 / 0.0 should set DZ flag
     let one = to_register(1.0);
     let zero = to_register(0.0);
@@ -36,7 +36,7 @@ fn test_exception_dz() {
 }
 
 #[test]
-fn test_exception_nv() {
+fn single_sqrt_of_minus_one_raises_nv() {
     // sqrt(-1.0) should set NV flag
     let neg_one = to_register(-1.0);
     let (_result, flags) =
@@ -46,7 +46,7 @@ fn test_exception_nv() {
 }
 
 #[test]
-fn test_exception_of_nx() {
+fn single_overflow_to_infinity_raises_of_and_nx() {
     // Large value multiplication resulting in overflow to infinity
     let large = to_register(f32::MAX);
     let two = to_register(2.0);
@@ -65,7 +65,7 @@ fn test_exception_of_nx() {
 }
 
 #[test]
-fn test_exception_nv_zero_div_zero() {
+fn single_zero_over_zero_raises_nv_not_dz() {
     // 0.0 / 0.0 should set NV (invalid), not DZ
     let zero = to_register(0.0);
     let (_result, flags) = fpu::execute(
@@ -80,7 +80,7 @@ fn test_exception_nv_zero_div_zero() {
 }
 
 #[test]
-fn test_no_exception_normal_add() {
+fn an_exact_single_add_raises_no_flags() {
     let a = to_register(1.0);
     let b = to_register(2.0);
     let (_result, flags) =
@@ -90,7 +90,7 @@ fn test_no_exception_normal_add() {
 }
 
 #[test]
-fn test_exception_snan_input_sets_nv() {
+fn a_signalling_nan_operand_to_add_raises_nv() {
     // sNaN input to addition should set NV
     let snan_bits = 0x7f800001u32; // sNaN (quiet bit=0, payload!=0)
     let snan = to_register(f32::from_bits(snan_bits));
@@ -106,7 +106,7 @@ fn test_exception_snan_input_sets_nv() {
 }
 
 #[test]
-fn test_exception_dz_f64() {
+fn double_one_over_zero_is_infinity_raising_dz() {
     // f64: 1.0 / 0.0 should set DZ
     let one = f64::to_bits(1.0);
     let zero = f64::to_bits(0.0);
@@ -123,7 +123,7 @@ fn test_exception_dz_f64() {
 }
 
 #[test]
-fn test_exception_nv_sqrt_neg_f64() {
+fn double_sqrt_of_minus_one_raises_nv() {
     let neg_one = f64::to_bits(-1.0);
     let (_result, flags) =
         fpu::execute(FpOp::Sqrt, [neg_one, 0, 0], FpFormat::Double, RoundingMode::Rne);
@@ -131,7 +131,7 @@ fn test_exception_nv_sqrt_neg_f64() {
 }
 
 #[test]
-fn test_fpflags_bitor() {
+fn nv_or_dz_contains_both_but_not_of() {
     let combined = FpFlags::NV | FpFlags::DZ;
     assert!(combined.contains(FpFlags::NV));
     assert!(combined.contains(FpFlags::DZ));
@@ -139,7 +139,7 @@ fn test_fpflags_bitor() {
 }
 
 #[test]
-fn test_fpflags_bits() {
+fn the_flags_match_the_fflags_bit_layout() {
     assert_eq!(FpFlags::NV.bits(), 0b10000);
     assert_eq!(FpFlags::DZ.bits(), 0b01000);
     assert_eq!(FpFlags::OF.bits(), 0b00100);

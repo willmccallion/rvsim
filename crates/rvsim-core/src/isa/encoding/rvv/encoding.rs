@@ -101,43 +101,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_vm_bit() {
+    fn vm_is_set_by_bit_25() {
         assert!(vm(1 << 25));
         assert!(!vm(0));
     }
 
     #[test]
-    fn test_nf() {
+    fn nf_reads_bits_31_to_29() {
         let inst = 0b0110_0000_0000_0000_0000_0000_0000_0000_u32;
         assert_eq!(nf(inst), 3);
     }
 
     #[test]
-    fn test_funct6() {
+    fn funct6_reads_bits_31_to_26() {
         let inst = 0b1010_1000_0000_0000_0000_0000_0000_0000_u32;
         assert_eq!(funct6(inst), 0b101010);
     }
 
     #[test]
-    fn test_simm5_positive() {
+    fn simm5_keeps_a_positive_immediate() {
         let inst = 0b0000_0000_0000_0011_1000_0000_0000_0000_u32;
         assert_eq!(simm5(inst), 7);
     }
 
     #[test]
-    fn test_simm5_negative() {
+    fn simm5_sign_extends_all_ones_to_minus_one() {
         let inst = 0b0000_0000_0000_1111_1000_0000_0000_0000_u32;
         assert_eq!(simm5(inst), -1);
     }
 
     #[test]
-    fn test_simm5_min() {
+    fn simm5_sign_extends_the_top_bit_alone_to_minus_16() {
         let inst = 0b0000_0000_0000_1000_0000_0000_0000_0000_u32;
         assert_eq!(simm5(inst), -16);
     }
 
     #[test]
-    fn test_vd_vs1_vs2() {
+    fn vd_vs1_and_vs2_each_read_their_own_field() {
         let inst = (15u32 << 20) | (10u32 << 15) | (5u32 << 7);
         assert_eq!(vd(inst), 5);
         assert_eq!(vs1(inst), 10);
@@ -145,19 +145,19 @@ mod tests {
     }
 
     #[test]
-    fn test_zimm_vsetvli() {
+    fn zimm_vsetvli_reads_all_11_bits() {
         let inst = 0x7FF << 20;
         assert_eq!(zimm_vsetvli(inst), 0x7FF);
     }
 
     #[test]
-    fn test_zimm_vsetivli() {
+    fn zimm_vsetivli_reads_all_10_bits() {
         let inst = 0x3FF << 20;
         assert_eq!(zimm_vsetivli(inst), 0x3FF);
     }
 
     #[test]
-    fn test_uimm_vsetivli() {
+    fn uimm_vsetivli_reads_all_5_bits() {
         let inst = 0x1F << 15;
         assert_eq!(uimm_vsetivli(inst), 31);
     }

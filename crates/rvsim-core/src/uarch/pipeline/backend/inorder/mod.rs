@@ -588,7 +588,7 @@ mod tests {
     use crate::config::Config;
 
     #[test]
-    fn test_inorder_engine_new() {
+    fn a_new_engine_accepts_a_full_pipeline_width() {
         let config = Config::minimal();
         let engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
@@ -596,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inorder_engine_flush() {
+    fn flush_empties_the_memory_stage_latches() {
         let config = Config::minimal();
         let mut engine =
             InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));

@@ -74,7 +74,7 @@ mod tests {
     use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 
     #[test]
-    fn test_allocate_reclaim_roundtrip() {
+    fn reclaiming_an_allocated_register_restores_the_count() {
         let mut fl = FreeList::new((32..64).map(PhysReg::from_index));
         assert_eq!(fl.available(), 32); // 64-32 = 32 free
 
@@ -86,14 +86,14 @@ mod tests {
     }
 
     #[test]
-    fn test_underflow_returns_none() {
+    fn allocating_from_an_empty_list_gives_none() {
         let mut fl = FreeList::new((4..4).map(PhysReg::from_index)); // all in use
         assert_eq!(fl.available(), 0);
         assert!(fl.allocate().is_none());
     }
 
     #[test]
-    fn test_reclaim_zero_noop() {
+    fn reclaiming_the_scalar_zero_register_is_a_no_op() {
         let mut fl = FreeList::new((4..8).map(PhysReg::from_index));
         let initial = fl.available();
         fl.reclaim(PhysReg::ZERO); // x0 should not be reclaimed
@@ -138,7 +138,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_phys_reg_free_list() {
+    fn a_vector_free_list_allocates_in_order_and_reclaims() {
         let mut fl = FreeList::new((32..64).map(VecPhysReg::from_index));
         assert_eq!(fl.available(), 32);
 

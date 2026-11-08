@@ -81,7 +81,7 @@ mod tests {
 
     /// Verify that the trait methods on Vpr match the direct methods.
     #[test]
-    fn test_vpr_trait_impl() {
+    fn vpr_reads_writes_copies_and_reports_vlen_through_the_trait() {
         let mut vpr = Vpr::new(Vlen::new_unchecked(128));
         let v1 = VRegIdx::new(1);
 

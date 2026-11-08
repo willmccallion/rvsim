@@ -137,7 +137,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_vlmax_computation() {
+    fn vlmax_is_vlen_over_sew_times_lmul() {
         let vlen = Vlen::new_unchecked(128);
         assert_eq!(Vlmax::compute(vlen, Sew::E8, Vlmul::M1).as_usize(), 16);
         assert_eq!(Vlmax::compute(vlen, Sew::E32, Vlmul::M1).as_usize(), 4);
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vlen_validation() {
+    fn vlen_accepts_only_powers_of_two_from_128_to_2048() {
         assert!(Vlen::new(128).is_ok());
         assert!(Vlen::new(256).is_ok());
         assert!(Vlen::new(2048).is_ok());

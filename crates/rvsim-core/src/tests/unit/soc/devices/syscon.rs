@@ -20,13 +20,13 @@ fn create_test_syscon() -> (SysCon, ExitSignal) {
 }
 
 #[test]
-fn test_syscon_name() {
+fn the_syscon_is_named_syscon() {
     let (syscon, _) = create_test_syscon();
     assert_eq!(syscon.name(), "SysCon");
 }
 
 #[test]
-fn test_syscon_address_range() {
+fn the_syscon_region_is_4_kib_at_its_base() {
     let base_addr = 0x100000;
     let exit_signal = ExitSignal::new();
     let syscon = SysCon::new(PhysAddr::new(base_addr), exit_signal);
@@ -38,7 +38,7 @@ fn test_syscon_address_range() {
 }
 
 #[test]
-fn test_syscon_read_u8_returns_zero() {
+fn byte_reads_return_zero() {
     let (mut syscon, _) = create_test_syscon();
     assert_eq!(
         (crate::tests::support::probe::read(
@@ -59,7 +59,7 @@ fn test_syscon_read_u8_returns_zero() {
 }
 
 #[test]
-fn test_syscon_read_u16_returns_zero() {
+fn halfword_reads_return_zero() {
     let (mut syscon, _) = create_test_syscon();
     assert_eq!(
         (crate::tests::support::probe::read(
@@ -80,7 +80,7 @@ fn test_syscon_read_u16_returns_zero() {
 }
 
 #[test]
-fn test_syscon_read_u32_returns_zero() {
+fn word_reads_return_zero() {
     let (mut syscon, _) = create_test_syscon();
     assert_eq!(
         (crate::tests::support::probe::read(
@@ -101,7 +101,7 @@ fn test_syscon_read_u32_returns_zero() {
 }
 
 #[test]
-fn test_syscon_read_u64_returns_zero() {
+fn doubleword_reads_return_zero() {
     let (mut syscon, _) = create_test_syscon();
     assert_eq!(
         crate::tests::support::probe::read(
@@ -122,7 +122,7 @@ fn test_syscon_read_u64_returns_zero() {
 }
 
 #[test]
-fn test_syscon_write_u8_ignored() {
+fn a_byte_write_signals_no_exit() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     crate::tests::support::probe::write(
@@ -136,7 +136,7 @@ fn test_syscon_write_u8_ignored() {
 }
 
 #[test]
-fn test_syscon_write_u16_ignored() {
+fn a_halfword_poweroff_write_signals_no_exit() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     crate::tests::support::probe::write(
@@ -150,7 +150,7 @@ fn test_syscon_write_u16_ignored() {
 }
 
 #[test]
-fn test_syscon_poweroff_signal() {
+fn poweroff_exits_with_code_zero() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     // Write poweroff magic value (0x5555) to offset 0
@@ -166,7 +166,7 @@ fn test_syscon_poweroff_signal() {
 }
 
 #[test]
-fn test_syscon_reset_signal() {
+fn reset_exits_with_code_zero() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     // Write reset magic value (0x7777) to offset 0
@@ -182,7 +182,7 @@ fn test_syscon_reset_signal() {
 }
 
 #[test]
-fn test_syscon_failure_signal() {
+fn failure_exits_with_code_one() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     // Write failure magic value (0x3333) to offset 0
@@ -198,7 +198,7 @@ fn test_syscon_failure_signal() {
 }
 
 #[test]
-fn test_syscon_write_non_magic_value_ignored() {
+fn a_word_that_is_no_command_signals_no_exit() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     // Write non-magic value
@@ -214,7 +214,7 @@ fn test_syscon_write_non_magic_value_ignored() {
 }
 
 #[test]
-fn test_syscon_write_non_zero_offset_ignored() {
+fn a_command_past_offset_zero_signals_no_exit() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     // Write magic value to non-zero offset
@@ -230,7 +230,7 @@ fn test_syscon_write_non_zero_offset_ignored() {
 }
 
 #[test]
-fn test_syscon_write_u64_delegates_to_u32() {
+fn a_doubleword_write_acts_on_its_low_word() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     // Write poweroff signal as u64 (should delegate to u32)
@@ -246,7 +246,7 @@ fn test_syscon_write_u64_delegates_to_u32() {
 }
 
 #[test]
-fn test_syscon_multiple_commands() {
+fn a_later_command_signals_again_after_the_exit_is_taken() {
     let (mut syscon, exit_signal) = create_test_syscon();
 
     // First command: poweroff
@@ -271,7 +271,7 @@ fn test_syscon_multiple_commands() {
 }
 
 #[test]
-fn test_syscon_all_magic_values() {
+fn each_command_exits_with_its_code() {
     let base_addr = 0x100000;
 
     // Test poweroff

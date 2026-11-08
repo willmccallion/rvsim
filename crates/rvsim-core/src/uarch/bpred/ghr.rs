@@ -112,14 +112,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_ghr_with_len() {
+    fn with_len_records_the_length_and_starts_at_zero() {
         let ghr = Ghr::with_len(712);
         assert_eq!(ghr.len, 712);
         assert_eq!(ghr.val(), 0);
     }
 
     #[test]
-    fn test_ghr_push_and_bit() {
+    fn the_newest_push_is_bit_zero() {
         let mut ghr = Ghr::with_len(128);
         ghr.push(true);
         ghr.push(false);
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ghr_push_across_word_boundary() {
+    fn a_pushed_bit_shifts_across_the_word_boundary() {
         let mut ghr = Ghr::with_len(128);
         for i in 0..65 {
             ghr.push(i == 0); // only the first push is true, now at position 64
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ghr_push_masks_to_len() {
+    fn push_drops_bits_beyond_the_length() {
         let mut ghr = Ghr::with_len(5);
         for _ in 0..10 {
             ghr.push(true);
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ghr_default() {
+    fn the_default_ghr_is_empty_with_zero_length() {
         let ghr = Ghr::default();
         assert_eq!(ghr.len, 0);
         assert_eq!(ghr.val(), 0);
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ghr_copy_semantics() {
+    fn a_copied_snapshot_is_unaffected_by_later_pushes() {
         let mut ghr = Ghr::with_len(64);
         ghr.push(true);
         let snapshot = ghr; // Copy

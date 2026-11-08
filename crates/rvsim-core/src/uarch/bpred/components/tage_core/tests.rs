@@ -173,7 +173,7 @@ fn the_alternate_trains_while_the_provider_has_not_proved_useful() {
 }
 
 #[test]
-fn test_update_trains_predictor() {
+fn a_branch_trained_not_taken_is_predicted_not_taken() {
     let config = test_config();
     let mut tage = TageCore::new(&config);
     let pc = 0x8000_1000u64;

@@ -54,7 +54,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wakeup_timing() {
+    fn the_wakeup_is_due_from_first_group_ready_until_fired() {
         let mut pr = make_pending(10, 15);
         assert!(!pr.should_wakeup(9));
         assert!(pr.should_wakeup(10));
@@ -65,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_timing() {
+    fn a_result_is_complete_from_its_full_complete_cycle() {
         let pr = make_pending(10, 15);
         assert!(!pr.is_complete(14));
         assert!(pr.is_complete(15));
@@ -73,7 +73,7 @@ mod tests {
     }
 
     #[test]
-    fn test_no_chaining() {
+    fn without_chaining_wakeup_and_completion_share_a_cycle() {
         // When chaining disabled: first_group_ready == full_complete
         let pr = make_pending(15, 15);
         assert!(!pr.should_wakeup(14));
