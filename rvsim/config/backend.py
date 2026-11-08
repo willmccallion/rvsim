@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ._core_defaults import COMPONENTS, MACHINE
 
 # Fu() and each unit's defaults are the default machine's pool.
@@ -31,136 +33,124 @@ class Fu:
         ])
     """
 
+    @dataclass
     class IntAlu:
         """Integer ALU: add, sub, logic, shift, compare, set-less-than."""
 
-        def __init__(
-            self, count: int = _FU["num_int_alu"], latency: int = _FU["int_alu_latency"]
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_int_alu"]
+        latency: int = _FU["int_alu_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.IntAlu(count={self.count}, latency={self.latency})"
-
+    @dataclass
     class IntMul:
         """Integer multiplier: mul, mulh, mulhsu, mulhu."""
 
-        def __init__(
-            self, count: int = _FU["num_int_mul"], latency: int = _FU["int_mul_latency"]
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_int_mul"]
+        latency: int = _FU["int_mul_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.IntMul(count={self.count}, latency={self.latency})"
-
+    @dataclass
     class IntDiv:
         """Integer divider: div, divu, rem, remu. Non-pipelined."""
 
-        def __init__(
-            self, count: int = _FU["num_int_div"], latency: int = _FU["int_div_latency"]
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_int_div"]
+        latency: int = _FU["int_div_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.IntDiv(count={self.count}, latency={self.latency})"
-
+    @dataclass
     class FpAdd:
         """FP adder: fadd, fsub, fmin, fmax, fcmp, fcvt."""
 
-        def __init__(
-            self, count: int = _FU["num_fp_add"], latency: int = _FU["fp_add_latency"]
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_fp_add"]
+        latency: int = _FU["fp_add_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.FpAdd(count={self.count}, latency={self.latency})"
-
+    @dataclass
     class FpMul:
         """FP multiplier: fmul."""
 
-        def __init__(
-            self, count: int = _FU["num_fp_mul"], latency: int = _FU["fp_mul_latency"]
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_fp_mul"]
+        latency: int = _FU["fp_mul_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.FpMul(count={self.count}, latency={self.latency})"
-
+    @dataclass
     class FpFma:
         """FP fused multiply-add: fmadd, fmsub, fnmadd, fnmsub."""
 
-        def __init__(
-            self, count: int = _FU["num_fp_fma"], latency: int = _FU["fp_fma_latency"]
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_fp_fma"]
+        latency: int = _FU["fp_fma_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.FpFma(count={self.count}, latency={self.latency})"
-
+    @dataclass
     class FpDivSqrt:
         """FP divider/sqrt: fdiv, fsqrt. Non-pipelined."""
 
-        def __init__(
-            self,
-            count: int = _FU["num_fp_div_sqrt"],
-            latency: int = _FU["fp_div_sqrt_latency"],
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_fp_div_sqrt"]
+        latency: int = _FU["fp_div_sqrt_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.FpDivSqrt(count={self.count}, latency={self.latency})"
-
+    @dataclass
     class Branch:
         """Branch/jump unit: all conditional branches, jal, jalr."""
 
-        def __init__(
-            self, count: int = _FU["num_branch"], latency: int = _FU["branch_latency"]
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_branch"]
+        latency: int = _FU["branch_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.Branch(count={self.count}, latency={self.latency})"
-
+    @dataclass
     class Mem:
         """Memory address calculation for loads and stores."""
 
-        def __init__(
-            self, count: int = _FU["num_mem"], latency: int = _FU["mem_latency"]
-        ):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_mem"]
+        latency: int = _FU["mem_latency"]
 
-        def __repr__(self) -> str:
-            return f"Fu.Mem(count={self.count}, latency={self.latency})"
+    @dataclass
+    class VecIntAlu:
+        """Vector integer ALU."""
 
-    @staticmethod
-    def _make_vec_fu(name, doc, default_count, default_latency):
-        def init(self, count=default_count, latency=default_latency):
-            self.count = count
-            self.latency = latency
+        count: int = _FU["num_vec_int_alu"]
+        latency: int = _FU["vec_int_alu_latency"]
 
-        def repr_(self):
-            return f"Fu.{name}(count={self.count}, latency={self.latency})"
+    @dataclass
+    class VecIntMul:
+        """Vector integer multiplier."""
 
-        return type(
-            name,
-            (),
-            {
-                "__init__": init,
-                "__repr__": repr_,
-                "__doc__": doc,
-                "__module__": __name__,
-                "__qualname__": f"Fu.{name}",
-            },
-        )
+        count: int = _FU["num_vec_int_mul"]
+        latency: int = _FU["vec_int_mul_latency"]
+
+    @dataclass
+    class VecIntDiv:
+        """Vector integer divider."""
+
+        count: int = _FU["num_vec_int_div"]
+        latency: int = _FU["vec_int_div_latency"]
+
+    @dataclass
+    class VecFpAlu:
+        """Vector FP ALU."""
+
+        count: int = _FU["num_vec_fp_alu"]
+        latency: int = _FU["vec_fp_alu_latency"]
+
+    @dataclass
+    class VecFpFma:
+        """Vector FP FMA."""
+
+        count: int = _FU["num_vec_fp_fma"]
+        latency: int = _FU["vec_fp_fma_latency"]
+
+    @dataclass
+    class VecFpDivSqrt:
+        """Vector FP div/sqrt."""
+
+        count: int = _FU["num_vec_fp_div_sqrt"]
+        latency: int = _FU["vec_fp_div_sqrt_latency"]
+
+    @dataclass
+    class VecMem:
+        """Vector memory unit."""
+
+        count: int = _FU["num_vec_mem"]
+        latency: int = _FU["vec_mem_latency"]
+
+    @dataclass
+    class VecPermute:
+        """Vector permute unit."""
+
+        count: int = _FU["num_vec_permute"]
+        latency: int = _FU["vec_permute_latency"]
 
     # The default machine's pool.
     _DEFAULTS: list
@@ -171,24 +161,6 @@ class Fu:
     def __repr__(self) -> str:
         inner = ", ".join(repr(u) for u in self.units)
         return f"Fu([{inner}])"
-
-
-# Attach vector FU classes to Fu namespace
-for _name, _doc, _stem in [
-    ("VecIntAlu", "Vector integer ALU", "vec_int_alu"),
-    ("VecIntMul", "Vector integer multiplier", "vec_int_mul"),
-    ("VecIntDiv", "Vector integer divider", "vec_int_div"),
-    ("VecFpAlu", "Vector FP ALU", "vec_fp_alu"),
-    ("VecFpFma", "Vector FP FMA", "vec_fp_fma"),
-    ("VecFpDivSqrt", "Vector FP div/sqrt", "vec_fp_div_sqrt"),
-    ("VecMem", "Vector memory unit", "vec_mem"),
-    ("VecPermute", "Vector permute unit", "vec_permute"),
-]:
-    setattr(
-        Fu,
-        _name,
-        Fu._make_vec_fu(_name, _doc, _FU[f"num_{_stem}"], _FU[f"{_stem}_latency"]),
-    )
 
 
 # Each unit type and the stem of its count and latency in the core's pool:
