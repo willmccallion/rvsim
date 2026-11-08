@@ -123,15 +123,15 @@ pub const L2_TLB_WAYS: usize = 4;
 pub const L2_TLB_LATENCY: u64 = 4;
 
 /// Default cache size in bytes (4 KiB).
-pub const CACHE_SIZE: usize = 4096;
+pub const CACHE_SIZE: NonZeroUsize = non_zero(4096);
 
 /// Default cache line size in bytes (64 bytes).
 ///
 /// Matches typical modern processor cache line sizes and DRAM burst length.
-pub const CACHE_LINE: usize = 64;
+pub const CACHE_LINE: NonZeroUsize = non_zero(64);
 
 /// Default cache associativity (1 way = direct-mapped).
-pub const CACHE_WAYS: usize = 1;
+pub const CACHE_WAYS: NonZeroUsize = non_zero(1);
 
 /// Default cache access latency in cycles.
 pub const CACHE_LATENCY: u64 = 1;
@@ -143,7 +143,7 @@ pub const CACHE_RESPONSE_LATENCY: u64 = 1;
 pub const PREFETCH_TABLE_SIZE: usize = 64;
 
 /// Default prefetch degree (1 line per trigger).
-pub const PREFETCH_DEGREE: usize = 1;
+pub const PREFETCH_DEGREE: NonZeroUsize = non_zero(1);
 
 /// Default outstanding line fetches per cache level (gem5's classic
 /// caches use 4 for an L1 and 20 for an L2; 8 sits between).

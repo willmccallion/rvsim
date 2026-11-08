@@ -250,35 +250,32 @@ impl Cache {
     /// `downstream` and the inclusion relationship are configured by the
     /// system builder.
     pub fn new(id: CacheId, level: CacheLevel, config: &CacheConfig, stat_subject: &str) -> Self {
-        let safe_ways = if config.ways == 0 { 1 } else { config.ways };
-        let safe_line = if config.line_bytes == 0 { 64 } else { config.line_bytes };
-        let safe_size = if config.size_bytes == 0 { 4096 } else { config.size_bytes };
-
-        let num_lines = safe_size / safe_line;
-        let num_sets = (num_lines / safe_ways).max(1);
+        let (ways, line_bytes) = (config.ways.get(), config.line_bytes.get());
+        // Validation makes the size a whole, non-zero number of sets.
+        let num_sets = config.size_bytes.get() / line_bytes / ways;
 
         let policy: Box<dyn ReplacementPolicy> = match config.policy {
-            ReplacementPolicyKind::Fifo => Box::new(FifoPolicy::new(num_sets, safe_ways)),
-            ReplacementPolicyKind::Random => Box::new(RandomPolicy::new(safe_ways)),
-            ReplacementPolicyKind::Plru => Box::new(PlruPolicy::new(num_sets, safe_ways)),
-            ReplacementPolicyKind::Lru => Box::new(LruPolicy::new(num_sets, safe_ways)),
-            ReplacementPolicyKind::Mru => Box::new(MruPolicy::new(num_sets, safe_ways)),
+            ReplacementPolicyKind::Fifo => Box::new(FifoPolicy::new(num_sets, ways)),
+            ReplacementPolicyKind::Random => Box::new(RandomPolicy::new(ways)),
+            ReplacementPolicyKind::Plru => Box::new(PlruPolicy::new(num_sets, ways)),
+            ReplacementPolicyKind::Lru => Box::new(LruPolicy::new(num_sets, ways)),
+            ReplacementPolicyKind::Mru => Box::new(MruPolicy::new(num_sets, ways)),
         };
 
         let prefetcher: Option<Box<dyn Prefetcher>> = match config.prefetcher {
             PrefetcherKind::NextLine => {
-                Some(Box::new(NextLinePrefetcher::new(safe_line, config.prefetch_degree)))
+                Some(Box::new(NextLinePrefetcher::new(line_bytes, config.prefetch_degree)))
             }
             PrefetcherKind::Stride => Some(Box::new(StridePrefetcher::new(
-                safe_line,
+                line_bytes,
                 config.prefetch_table_size,
                 config.prefetch_degree,
             ))),
             PrefetcherKind::Stream => {
-                Some(Box::new(StreamPrefetcher::new(safe_line, config.prefetch_degree)))
+                Some(Box::new(StreamPrefetcher::new(line_bytes, config.prefetch_degree)))
             }
             PrefetcherKind::Tagged => {
-                Some(Box::new(TaggedPrefetcher::new(safe_line, config.prefetch_degree)))
+                Some(Box::new(TaggedPrefetcher::new(line_bytes, config.prefetch_degree)))
             }
             PrefetcherKind::Off => None,
         };
@@ -297,10 +294,10 @@ impl Cache {
             upstream_inclusion: InclusionPolicy::Nine,
             clean_victims_to_downstream: false,
             coherent: None,
-            lines: vec![CacheLine::default(); num_sets * safe_ways],
+            lines: vec![CacheLine::default(); num_sets * ways],
             num_sets,
-            ways: safe_ways,
-            line_bytes: safe_line,
+            ways,
+            line_bytes,
             policy,
             mshrs: MshrTable::new(config.mshr_count),
             targets_per_mshr: config.targets_per_mshr.get(),

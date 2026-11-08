@@ -11,6 +11,7 @@
 
 use super::Prefetcher;
 use crate::common::VirtAddr;
+use std::num::NonZeroUsize;
 
 /// Lines the filter remembers having prefetched.
 const FILTER_ENTRIES: usize = 64;
@@ -31,10 +32,10 @@ pub struct TaggedPrefetcher {
 
 impl TaggedPrefetcher {
     /// A tagged prefetcher fetching `degree` lines ahead.
-    pub fn new(line_bytes: usize, degree: usize) -> Self {
+    pub fn new(line_bytes: usize, degree: NonZeroUsize) -> Self {
         Self {
             line_bytes: line_bytes as u64,
-            degree: if degree == 0 { 1 } else { degree },
+            degree: degree.get(),
             prefetched_filter: vec![0; FILTER_ENTRIES],
             filter_mask: FILTER_ENTRIES - 1,
         }

@@ -42,13 +42,13 @@ fn cached(harts: usize, backend: BackendKind) -> Config {
     config.pipeline.backend = backend;
     for cache in [&mut config.cache.l1_i, &mut config.cache.l1_d] {
         cache.enabled = true;
-        cache.size_bytes = 4096;
-        cache.ways = 2;
+        cache.size_bytes = std::num::NonZero::new(4096).unwrap();
+        cache.ways = std::num::NonZero::new(2).unwrap();
         cache.latency = 1;
     }
     config.cache.l2.enabled = true;
-    config.cache.l2.size_bytes = 16384;
-    config.cache.l2.ways = 4;
+    config.cache.l2.size_bytes = std::num::NonZero::new(16384).unwrap();
+    config.cache.l2.ways = std::num::NonZero::new(4).unwrap();
     config.cache.l2.latency = 4;
     config
 }
@@ -252,8 +252,8 @@ fn l1_only_cores_stay_coherent_through_their_agent() {
 fn a_shared_llc_serves_the_home_agent() {
     let mut config = cached(4, BackendKind::OutOfOrder);
     config.cache.l3.enabled = true;
-    config.cache.l3.size_bytes = 65536;
-    config.cache.l3.ways = 8;
+    config.cache.l3.size_bytes = std::num::NonZero::new(65536).unwrap();
+    config.cache.l3.ways = std::num::NonZero::new(8).unwrap();
     config.cache.l3.latency = 12;
     check_all_programs(&config, "with llc");
 }

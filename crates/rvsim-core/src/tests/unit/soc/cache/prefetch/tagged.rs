@@ -13,7 +13,7 @@ use crate::soc::cache::prefetch::TaggedPrefetcher;
 /// A cache miss triggers prefetching of the next line(s).
 #[test]
 fn miss_triggers_prefetch() {
-    let mut pf = TaggedPrefetcher::new(64, 1);
+    let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     let addrs = pf.observe(0x1000, None, false); // miss
     assert_eq!(addrs.len(), 1);
     assert_eq!(addrs[0], 0x1040, "Next 64-byte line after 0x1000");
@@ -22,7 +22,7 @@ fn miss_triggers_prefetch() {
 /// Miss with degree=2 produces two sequential prefetches.
 #[test]
 fn miss_degree_2() {
-    let mut pf = TaggedPrefetcher::new(64, 2);
+    let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(2).unwrap());
     let addrs = pf.observe(0x1000, None, false);
     assert_eq!(addrs.len(), 2);
     assert_eq!(addrs[0], 0x1040);
@@ -32,7 +32,7 @@ fn miss_degree_2() {
 /// A cache hit to a line that was NOT prefetched should stay idle.
 #[test]
 fn standard_hit_no_prefetch() {
-    let mut pf = TaggedPrefetcher::new(64, 1);
+    let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     // Hit on a line we never prefetched — filter should not match.
     let addrs = pf.observe(0x2000, None, true);
     assert!(addrs.is_empty(), "Standard hit should not trigger prefetch");
@@ -42,7 +42,7 @@ fn standard_hit_no_prefetch() {
 /// should extend the stream by prefetching the next line(s).
 #[test]
 fn hit_to_prefetched_line_extends_stream() {
-    let mut pf = TaggedPrefetcher::new(64, 1);
+    let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
 
     // Miss at 0x1000 → prefetches 0x1040, marks it in filter.
     let pf1 = pf.observe(0x1000, None, false);
@@ -57,7 +57,7 @@ fn hit_to_prefetched_line_extends_stream() {
 /// Chained prefetch hits create a streaming effect.
 #[test]
 fn chained_prefetch_stream() {
-    let mut pf = TaggedPrefetcher::new(64, 1);
+    let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
 
     // Miss → prefetch chain starts.
     pf.observe(0x3000, None, false); // prefetches 0x3040
@@ -70,18 +70,10 @@ fn chained_prefetch_stream() {
 /// Mid-line miss still produces aligned prefetch targets.
 #[test]
 fn mid_line_miss_aligns() {
-    let mut pf = TaggedPrefetcher::new(64, 1);
+    let mut pf = TaggedPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     let addrs = pf.observe(0x1020, None, false); // miss at offset 32 within line
     // Aligned addr = 0x1000. Next line = 0x1040.
     assert_eq!(addrs[0], 0x1040);
-}
-
-/// Degree 0 is clamped to 1.
-#[test]
-fn degree_zero_defaults_to_one() {
-    let mut pf = TaggedPrefetcher::new(64, 0);
-    let addrs = pf.observe(0x1000, None, false);
-    assert_eq!(addrs.len(), 1);
 }
 
 /// The filter holds one prefetched line per entry whatever the line size,
@@ -89,7 +81,7 @@ fn degree_zero_defaults_to_one() {
 #[test]
 fn the_filter_remembers_a_line_per_entry_whatever_the_line_size() {
     const LINE: u64 = 128;
-    let mut pf = TaggedPrefetcher::new(LINE as usize, 1);
+    let mut pf = TaggedPrefetcher::new(LINE as usize, std::num::NonZero::new(1).unwrap());
     for miss in (0..60).step_by(2) {
         let _ = pf.observe(miss * LINE, None, false);
     }

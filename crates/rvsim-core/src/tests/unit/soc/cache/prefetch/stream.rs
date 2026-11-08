@@ -14,7 +14,7 @@ const LINE: u64 = 64;
 /// First access never prefetches.
 #[test]
 fn no_prefetch_on_first_access() {
-    let mut pf = StreamPrefetcher::new(64, 1);
+    let mut pf = StreamPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     let addrs = pf.observe(0x1000, None, false);
     assert!(addrs.is_empty());
 }
@@ -22,7 +22,7 @@ fn no_prefetch_on_first_access() {
 /// Two consecutive ascending accesses build confidence to 1, not yet 2.
 #[test]
 fn no_prefetch_at_confidence_1() {
-    let mut pf = StreamPrefetcher::new(64, 1);
+    let mut pf = StreamPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     pf.observe(0x1000, None, false);
     let addrs = pf.observe(0x1000 + LINE, None, false);
     // Direction detected (ascending), confidence = 1. Need >= 2.
@@ -32,7 +32,7 @@ fn no_prefetch_at_confidence_1() {
 /// Three consecutive ascending accesses → confidence reaches 2 → prefetch.
 #[test]
 fn ascending_stream_triggers_prefetch() {
-    let mut pf = StreamPrefetcher::new(64, 1);
+    let mut pf = StreamPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     pf.observe(0x1000, None, false); // last_addr = 0x1000
     pf.observe(0x1000 + LINE, None, false); // ascending, confidence = 1
     let addrs = pf.observe(0x1000 + 2 * LINE, None, false); // ascending, confidence = 2
@@ -45,7 +45,7 @@ fn ascending_stream_triggers_prefetch() {
 /// Degree-2 ascending stream emits two lines ahead.
 #[test]
 fn ascending_degree_2() {
-    let mut pf = StreamPrefetcher::new(64, 2);
+    let mut pf = StreamPrefetcher::new(64, std::num::NonZero::new(2).unwrap());
     pf.observe(0x2000, None, false);
     pf.observe(0x2000 + LINE, None, false);
     let addrs = pf.observe(0x2000 + 2 * LINE, None, false);
@@ -57,7 +57,7 @@ fn ascending_degree_2() {
 /// Descending sequential accesses trigger backward prefetching.
 #[test]
 fn descending_stream_triggers_prefetch() {
-    let mut pf = StreamPrefetcher::new(64, 1);
+    let mut pf = StreamPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     pf.observe(0x2000, None, false);
     pf.observe(0x2000 - LINE, None, false); // descending, confidence = 1
     let addrs = pf.observe(0x2000 - 2 * LINE, None, false); // confidence = 2
@@ -71,7 +71,7 @@ fn descending_stream_triggers_prefetch() {
 /// A non-sequential access after an ascending stream decays confidence.
 #[test]
 fn non_sequential_decays_confidence() {
-    let mut pf = StreamPrefetcher::new(64, 1);
+    let mut pf = StreamPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     pf.observe(0x1000, None, false);
     pf.observe(0x1000 + LINE, None, false); // asc, confidence = 1
     // Jump to a random address (non-sequential).
@@ -82,7 +82,7 @@ fn non_sequential_decays_confidence() {
 /// After a direction switch, old direction confidence must rebuild.
 #[test]
 fn direction_switch_resets_confidence() {
-    let mut pf = StreamPrefetcher::new(64, 1);
+    let mut pf = StreamPrefetcher::new(64, std::num::NonZero::new(1).unwrap());
     // Build ascending confidence.
     pf.observe(0x1000, None, false);
     pf.observe(0x1000 + LINE, None, false); // asc, conf=1

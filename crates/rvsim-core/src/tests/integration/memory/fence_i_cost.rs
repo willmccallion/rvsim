@@ -63,8 +63,8 @@ fn config(backend: BackendKind, with_l2: bool) -> Config {
     config.system.console = crate::config::Console::Quiet;
     let l1_d = &mut config.cache.l1_d;
     l1_d.enabled = true;
-    l1_d.size_bytes = 1024;
-    l1_d.ways = 1;
+    l1_d.size_bytes = std::num::NonZero::new(1024).unwrap();
+    l1_d.ways = std::num::NonZero::new(1).unwrap();
     l1_d.mshr_count = count(1);
     l1_d.write_buffers = count(1);
     config.cache.l2.enabled = with_l2;

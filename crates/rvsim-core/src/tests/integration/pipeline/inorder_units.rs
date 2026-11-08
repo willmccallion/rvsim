@@ -31,7 +31,7 @@ fn cycles_to_retire(program: &[u32], retired: u64) -> u64 {
     // Keep instruction supply off the critical path: the test times the backend.
     config.cache.l1_i.enabled = true;
     config.cache.l1_i.prefetcher = PrefetcherKind::NextLine;
-    config.cache.l1_i.prefetch_degree = 4;
+    config.cache.l1_i.prefetch_degree = std::num::NonZero::new(4).unwrap();
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     let mut cycles = 0;

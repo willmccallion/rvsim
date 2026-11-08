@@ -24,8 +24,8 @@ fn ddr5_system(backend: BackendKind, params: &str) -> Config {
         (&mut config.cache.l3, 16 * 1024, 8),
     ] {
         cache.enabled = true;
-        cache.size_bytes = bytes;
-        cache.ways = ways;
+        cache.size_bytes = std::num::NonZero::new(bytes).unwrap();
+        cache.ways = std::num::NonZero::new(ways).unwrap();
     }
     config.memory.controller = MemoryControllerKind::Ddr5;
     config.memory.ddr5 = serde_json::from_str(params).expect("DDR5 parameters");

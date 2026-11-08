@@ -43,7 +43,7 @@ fn warm_iteration_cycles(backend: BackendKind, program: &[u16]) -> u64 {
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.cache.l1_i.enabled = true;
-    config.cache.l1_i.line_bytes = LINE_BYTES;
+    config.cache.l1_i.line_bytes = std::num::NonZero::new(LINE_BYTES).unwrap();
     config.cache.l1_i.latency = I_CACHE_LATENCY;
     let mut tc = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (i, half) in program.iter().enumerate() {

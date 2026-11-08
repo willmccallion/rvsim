@@ -6,6 +6,7 @@
 
 use super::Prefetcher;
 use crate::common::VirtAddr;
+use std::num::NonZeroUsize;
 
 /// Next-Line Prefetcher state.
 #[derive(Debug)]
@@ -18,8 +19,8 @@ pub struct NextLinePrefetcher {
 
 impl NextLinePrefetcher {
     /// A next-line prefetcher fetching `degree` lines ahead.
-    pub const fn new(line_bytes: usize, degree: usize) -> Self {
-        Self { line_bytes: line_bytes as u64, degree: if degree == 0 { 1 } else { degree } }
+    pub const fn new(line_bytes: usize, degree: NonZeroUsize) -> Self {
+        Self { line_bytes: line_bytes as u64, degree: degree.get() }
     }
 }
 

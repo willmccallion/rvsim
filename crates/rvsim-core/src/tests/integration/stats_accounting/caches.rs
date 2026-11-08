@@ -22,8 +22,8 @@ const SETTLE: u64 = 3_000;
 
 fn sized(cache: &mut CacheConfig, bytes: usize, ways: usize) {
     cache.enabled = true;
-    cache.size_bytes = bytes;
-    cache.ways = ways;
+    cache.size_bytes = std::num::NonZero::new(bytes).unwrap();
+    cache.ways = std::num::NonZero::new(ways).unwrap();
 }
 
 /// Every level on: a 1 KiB direct-mapped L1D, 2 KiB two-way L1I, 4 KiB
