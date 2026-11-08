@@ -34,6 +34,16 @@ All notable changes to this project are documented here. The format is based on 
   and its 8-bit bank tagged by PC alone. The narrower fold is now shifted,
   as Seznec's TAGE forms its tags, so every TAGE-SC-L run's indirect
   predictions, and with them its cycle counts, move.
+- The package type-checks under `mypy --strict`, and its stub and
+  annotations say what the runtime does: `Fu.VecIntAlu` and the other
+  vector units are declared (they were attached at import time), a
+  `StatsTree` can be subtracted from another, and `Region.stats` is a
+  `StatsTree`. The `Fu` unit types are dataclasses, so two units with the
+  same count and latency compare equal.
+- `Config.coherence` is always a `Coherence`; it no longer takes `None`.
+- `load_config()` raises `TypeError` naming the file when its entry point
+  gives something other than a `Config`, which used to fail later, inside
+  the simulator.
 - `Config` takes keyword arguments only, and `Config.replace()` reports an
   unknown field as `Config.__init__()` does.
 - A run fails when a hart outside WFI retires no instruction for
