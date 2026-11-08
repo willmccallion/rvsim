@@ -41,7 +41,7 @@ impl CoreCtx<'_> {
     /// Handles a trap (exception or interrupt).
     pub fn trap(&mut self, cause: &Trap, epc: VirtAddr) {
         self.clear_reservation();
-        if self.uncore.processes.is_se() {
+        if self.uncore.host.processes.is_se() {
             self.end_program_on_trap(cause, epc);
             return;
         }
@@ -67,7 +67,7 @@ impl CoreCtx<'_> {
         }
 
         #[cfg(feature = "commit-log")]
-        if let Some(log) = self.uncore.commit_log.as_mut() {
+        if let Some(log) = self.uncore.host.commit_log.as_mut() {
             let _ =
                 write_trap(log, cause.mcause_code(), epc, cause.tval(), self.uncore.kernel.cycle);
         }

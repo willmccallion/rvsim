@@ -206,7 +206,7 @@ impl Simulator {
                 tracing::warn!(target: "rvsim::htif", tohost, fromhost = ?loaded.fromhost_addr,
                     "fromhost is not the word after tohost; HTIF syscalls will not complete");
             }
-            let exit_signal = self.state.uncore.exit_signal.clone();
+            let exit_signal = self.state.uncore.run.exit_signal.clone();
             self.state.uncore.add_htif(tohost, &exit_signal, args.argv.clone());
         }
         self.reset_bare_metal(loaded.entry);
@@ -267,7 +267,7 @@ impl Simulator {
     /// `None` for one still running. Empty outside SE mode.
     #[must_use]
     pub fn exit_codes(&self) -> Vec<Option<u64>> {
-        self.state.uncore.processes.exit_codes()
+        self.state.uncore.host.processes.exit_codes()
     }
 
     /// Loads `data` as a user process when it is linked as one (an
@@ -418,7 +418,7 @@ impl Simulator {
     /// [`SimError::FileRead`] when the file cannot be read.
     pub fn set_script_file(&mut self, path: &str) -> Result<(), SimError> {
         let script = loader::load_binary(path)?;
-        self.state.uncore.host_files.set_script(script);
+        self.state.uncore.host.host_files.set_script(script);
         Ok(())
     }
 
@@ -431,6 +431,7 @@ impl Simulator {
     pub fn set_output_dir(&mut self, path: &str) -> Result<(), SimError> {
         self.state
             .uncore
+            .host
             .host_files
             .set_output_dir(std::path::Path::new(path))
             .map_err(|source| SimError::OutputDir { path: path.to_owned(), source })
@@ -464,7 +465,7 @@ impl Simulator {
     /// Where the current stats window began.
     #[must_use]
     pub const fn stats_epoch(&self) -> StatsEpoch {
-        self.state.uncore.stats_epoch
+        self.state.uncore.run.stats_epoch
     }
 
     /// Zeroes every stat and starts a new window here.
@@ -476,7 +477,7 @@ impl Simulator {
     /// first.
     #[must_use]
     pub fn stats_dumps(&self) -> &[StatsDump] {
-        &self.state.uncore.stats_dumps
+        &self.state.uncore.run.stats_dumps
     }
 
     /// What the trace macros print.
@@ -560,9 +561,9 @@ impl Simulator {
     pub fn open_commit_log(&mut self, path: &str) -> Result<(), SimError> {
         self.state.uncore.open_commit_log(path)?;
         let ctx = self.state.core_ctx(0);
-        let Some(mut log) = ctx.uncore.commit_log.take() else { return Ok(()) };
+        let Some(mut log) = ctx.uncore.host.commit_log.take() else { return Ok(()) };
         let written = crate::uarch::pipeline::commit_log::write_reset(&mut log, &ctx);
-        ctx.uncore.commit_log = Some(log);
+        ctx.uncore.host.commit_log = Some(log);
         written.map_err(|source| SimError::FileRead { path: path.to_owned(), source })
     }
 
@@ -577,6 +578,7 @@ impl Simulator {
     pub fn take_console_output(&mut self) -> Vec<u8> {
         self.state
             .uncore
+            .host
             .terminal
             .lock()
             .map(|mut terminal| terminal.take_output())
@@ -585,7 +587,7 @@ impl Simulator {
 
     /// Types `bytes` into the console.
     pub fn send_console_input(&mut self, bytes: &[u8]) {
-        if let Ok(mut terminal) = self.state.uncore.terminal.lock() {
+        if let Ok(mut terminal) = self.state.uncore.host.terminal.lock() {
             terminal.type_input(bytes);
         }
     }
@@ -727,7 +729,7 @@ impl Simulator {
         keep_going: impl FnMut() -> bool,
     ) -> Result<StopReason, SimError> {
         let reason = self.run_to_unflushed(stop, keep_going)?;
-        if let Some(trace) = &mut self.state.uncore.pipeline_trace {
+        if let Some(trace) = &mut self.state.uncore.host.pipeline_trace {
             trace.flush()?;
         }
         Ok(reason)
@@ -747,7 +749,7 @@ impl Simulator {
         let trace: Box<dyn PipelineTrace> = match format {
             PipelineTraceFormat::Kanata => Box::new(KanataWriter::create(path)?),
         };
-        self.state.uncore.pipeline_trace = Some(trace);
+        self.state.uncore.host.pipeline_trace = Some(trace);
         Ok(())
     }
 
@@ -757,7 +759,7 @@ impl Simulator {
     ///
     /// The trace's write error.
     pub fn close_pipeline_trace(&mut self) -> Result<(), SimError> {
-        self.state.uncore.pipeline_trace.take().map_or(Ok(()), |mut trace| trace.flush())
+        self.state.uncore.host.pipeline_trace.take().map_or(Ok(()), |mut trace| trace.flush())
     }
 
     fn run_to_unflushed(
@@ -828,10 +830,10 @@ impl Simulator {
             && !state.uncore.trace.armed
             && !state.uncore.kernel.config.general.trace_instructions
             && state.uncore.peek_exit().is_none()
-            && state.uncore.panic_detected_at_cycle.is_none()
+            && state.uncore.run.panic_detected_at_cycle.is_none()
             && state.uncore.kernel.event_queue.is_empty()
             && state.uncore.coherence.as_ref().is_none_or(|fabric| fabric.is_quiet(now + 1))
-            && !(stop.guest_breaks && state.uncore.pending_break.is_some())
+            && !(stop.guest_breaks && state.uncore.run.pending_break.is_some())
             && !(stop.console_output && state.uncore.console_has_output())
             && !state.harts.iter().any(|hart| stop.pcs.contains(&hart.pc));
         if !settled || !(0..self.core_count()).all(|core| self.core_is_idle(core)) {
@@ -846,7 +848,7 @@ impl Simulator {
         let devices = state.uncore.bus.quiet_ticks();
         let stimecmp = timers.min().map(|ticks| ticks - 1);
         let futex_timeout =
-            state.uncore.processes.next_deadline().map(|at| at.saturating_sub(now + 1));
+            state.uncore.host.processes.next_deadline().map(|at| at.saturating_sub(now + 1));
         [devices, stimecmp, memory, futex_timeout].into_iter().flatten().min().unwrap_or(u64::MAX)
     }
 
@@ -882,7 +884,7 @@ impl Simulator {
             return Some(StopReason::Exited(code));
         }
         if stop.guest_breaks
-            && let Some(label) = self.state.uncore.pending_break.take()
+            && let Some(label) = self.state.uncore.run.pending_break.take()
         {
             return Some(StopReason::GuestBreak { label });
         }
@@ -918,7 +920,7 @@ impl Simulator {
     /// broke an invariant, and [`SimError::Stalled`] if a hart has retired
     /// nothing for [`Self::stall_limit`] cycles outside WFI.
     pub fn tick(&mut self) -> Result<(), SimError> {
-        self.state.uncore.exited_at = None;
+        self.state.uncore.run.exited_at = None;
         for (slot, hart) in self.prev_privileges.iter_mut().zip(&self.state.harts) {
             *slot = hart.privilege;
         }
@@ -967,11 +969,11 @@ impl Simulator {
             self.scoped_to_hart(core, |sim| sim.state.core_ctx(core).post_tick(prev));
         }
         self.leave_hart_scope();
-        for op in std::mem::take(&mut self.state.uncore.pending_sim_ops) {
+        for op in std::mem::take(&mut self.state.uncore.run.pending_sim_ops) {
             self.state.apply_sim_op(op);
         }
         let cycle = self.state.uncore.kernel.cycle;
-        self.state.uncore.processes.expire_waits(cycle);
+        self.state.uncore.host.processes.expire_waits(cycle);
         self.wake_threads();
         let progress = if run_cycle { self.check_progress() } else { Ok(()) };
         self.broken_invariant.take().map_or(progress, Err)
@@ -1001,7 +1003,7 @@ impl Simulator {
     /// this cycle: from the next cycle they fetch from the thread's PC with
     /// its registers.
     fn wake_threads(&mut self) {
-        for wakeup in self.state.uncore.processes.take_wakeups() {
+        for wakeup in self.state.uncore.host.processes.take_wakeups() {
             let Some(core) = self.state.uncore.topology.core_of_hart(wakeup.hart) else { continue };
             let (pipeline, mut ctx) = self.state.pipeline_ctx(core.as_index());
             process::loader::wake(&mut ctx, &wakeup);
@@ -1111,7 +1113,7 @@ impl Simulator {
     /// stay at the exit until the run is resumed.
     pub fn take_exit(&mut self) -> Option<u64> {
         let code = self.state.uncore.take_exit()?;
-        self.state.uncore.exited_at = Some(self.state.uncore.kernel.cycle);
+        self.state.uncore.run.exited_at = Some(self.state.uncore.kernel.cycle);
         self.complete_committed_writes();
         Some(code)
     }

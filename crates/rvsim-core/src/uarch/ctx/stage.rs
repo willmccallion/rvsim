@@ -73,7 +73,7 @@ impl ArchState for StageCtx<'_> {
     }
 
     fn serves_syscalls(&self) -> bool {
-        self.uncore.processes.is_se()
+        self.uncore.host.processes.is_se()
     }
 }
 

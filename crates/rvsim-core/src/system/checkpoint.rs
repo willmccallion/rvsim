@@ -186,7 +186,7 @@ impl Simulator {
     ///
     /// Returns [`CheckpointError`] when writing fails.
     pub fn save_checkpoint(&mut self, out: &mut impl Write) -> Result<(), CheckpointError> {
-        if self.state.uncore.processes.host_files_open() > 0 {
+        if self.state.uncore.host.processes.host_files_open() > 0 {
             return Err(CheckpointError::Unsupported("while the program has host files open"));
         }
         self.drain();
@@ -207,7 +207,7 @@ impl Simulator {
                 .map(|hart| HartState::of(hart, reservations.reserved(hart.hart_id)))
                 .collect(),
             devices: state.uncore.bus.checkpoint_devices(),
-            processes: state.uncore.processes.checkpoint(),
+            processes: state.uncore.host.processes.checkpoint(),
         };
         let header = serde_json::to_vec(&header)?;
         out.write_all(&(header.len() as u64).to_le_bytes())?;
@@ -275,8 +275,9 @@ impl Simulator {
             }
         }
         state.uncore.bus.restore_devices(&header.devices).map_err(CheckpointError::Device)?;
-        let terminal = state.uncore.terminal.clone();
-        state.uncore.processes = Processes::from_checkpoint(header.processes.clone(), &terminal);
+        let terminal = state.uncore.host.terminal.clone();
+        state.uncore.host.processes =
+            Processes::from_checkpoint(header.processes.clone(), &terminal);
         for core in &mut state.cores {
             let units = &mut core.units;
             units.l1_i_cache.invalidate_all(&mut state.uncore.kernel.stats);

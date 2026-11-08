@@ -76,7 +76,7 @@ fn is_the_loop(instructions: u64) -> bool {
 fn two_dumps_subtract_to_the_region_between_them_and_keep_the_whole_run() {
     let ctx = run(&marked_program(Before::Dump { label: 1 }));
 
-    let dumps = &ctx.sim.state.uncore.stats_dumps;
+    let dumps = &ctx.sim.state.uncore.run.stats_dumps;
     assert_eq!(dumps.iter().map(|d| d.label).collect::<Vec<_>>(), vec![1, 42]);
     let region = dumps[1].instructions_retired - dumps[0].instructions_retired;
     assert!(is_the_loop(region), "the region holds the loop: {region}");
@@ -91,7 +91,7 @@ fn two_dumps_subtract_to_the_region_between_them_and_keep_the_whole_run() {
 fn a_guest_reset_starts_the_dumped_window_at_the_region() {
     let ctx = run(&marked_program(Before::Reset));
 
-    let dumps = &ctx.sim.state.uncore.stats_dumps;
+    let dumps = &ctx.sim.state.uncore.run.stats_dumps;
     assert_eq!(dumps.len(), 1);
     assert_eq!(dumps[0].label, 42);
     assert!(is_the_loop(dumps[0].instructions_retired), "{}", dumps[0].instructions_retired);

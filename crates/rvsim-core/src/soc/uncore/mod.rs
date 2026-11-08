@@ -1,10 +1,16 @@
 //! Everything outside the cores that the pipelines share.
 //!
 //! The [`Uncore`] holds the bus and its devices, the memory controller,
-//! the shared LLC, the coherence fabric and RAM, together with the
-//! simulator's clock, event queue, stats and run control.
+//! the shared LLC and the coherence fabric, together with the simulation
+//! kernel they run against, the run's control and what the guest reaches
+//! on the host.
 
 pub mod debug;
+mod host;
+mod run;
+
+pub use host::HostSide;
+pub use run::{RunControl, SimOp, StatsDump, StatsEpoch};
 
 use crate::soc::exit::ExitSignal;
 
@@ -13,16 +19,15 @@ use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
 use crate::sim::kernel::SimKernel;
 use crate::sim::memory::write_log::Writer;
-use crate::sim::stats::Stats;
 use crate::sim::stats::paths::HartPaths;
 use crate::soc::bus::Bus;
 use crate::soc::cache::Cache;
 use crate::soc::coherence::CoherenceFabric;
 use crate::soc::devices::Htif;
 use crate::soc::memory::controller::MemoryController;
-use crate::soc::terminal::{InputReader, SharedTerminal};
+use crate::soc::terminal::InputReader;
 use crate::soc::topology::Topology;
-use crate::uarch::pipeline::trace::{Departure, PipelineTrace, Stage};
+use crate::uarch::pipeline::trace::{Departure, Stage};
 use debug::HartDebug;
 
 /// Cycles the guest keeps running after printing "kernel panic", so the
@@ -73,24 +78,6 @@ impl TraceControl {
     }
 }
 
-/// A request from the guest that the simulator carries out at the end
-/// of the cycle the pseudo-instruction asking for it retires.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SimOp {
-    /// Zero every stat and start counting from here.
-    ResetStats,
-    /// Keep a copy of the stats, labelled.
-    DumpStats {
-        /// The guest's label for this dump.
-        label: u64,
-    },
-    /// Stop the host's run here, so it can inspect, save or switch.
-    Break {
-        /// The guest's label for this point.
-        label: u64,
-    },
-}
-
 /// The uncore: everything shared by all cores.
 #[derive(Debug)]
 pub struct Uncore {
@@ -101,9 +88,11 @@ pub struct Uncore {
     /// The clock, event queue, stats, memory and config the components
     /// run against.
     pub kernel: SimKernel,
-    /// The cycle the guest's exit took effect at, while the run stays
-    /// ended; the clock runs past it finishing the committed stores.
-    pub exited_at: Option<u64>,
+    /// The run's exit, breaks, pending guest requests and stats windows.
+    pub run: RunControl,
+    /// What the guest reaches on the host: processes, files, the console
+    /// and the logs.
+    pub host: HostSide,
     /// IO interconnect; routes accesses to RAM and MMIO devices.
     pub bus: Bus,
     /// Main memory controller.
@@ -116,69 +105,15 @@ pub struct Uncore {
     /// Sim-side per-hart debug bookkeeping (hang detection, retire trace),
     /// indexed by `HartId`.
     pub per_hart_debug: Vec<HartDebug>,
-    /// Cycle at which a kernel panic was first observed; the simulator keeps
-    /// running for a short window so the panic message can flush.
-    pub panic_detected_at_cycle: Option<u64>,
-    /// Optional buffered writer for the commit log (enabled by the
-    /// `commit-log` feature).
-    #[cfg(feature = "commit-log")]
-    pub commit_log: Option<std::io::BufWriter<std::fs::File>>,
-    /// The run's exit code, which HTIF and `SysCon` signal into.
-    pub exit_signal: ExitSignal,
-    /// The processes SE mode is running and the harts their threads hold;
-    /// empty otherwise.
-    pub processes: crate::system::process::Processes,
-    /// The script file and output directory the guest reaches with the
-    /// readfile and writefile pseudo-operations.
-    pub host_files: crate::system::host_files::HostFiles,
-    /// The console every device and proxy prints to and reads from.
-    pub terminal: SharedTerminal,
-    /// Where the pipeline reports each instruction's progress, when a
-    /// trace is open.
-    pub pipeline_trace: Option<Box<dyn PipelineTrace>>,
-    /// Where the current stats window began.
-    pub stats_epoch: StatsEpoch,
-    /// Stats the guest dumped, oldest first.
-    pub stats_dumps: Vec<StatsDump>,
-    /// The label of a guest break the host has not yet stopped for.
-    pub pending_break: Option<u64>,
-    /// Requests retired pseudo-instructions made, applied at the end of
-    /// the cycle.
-    pub pending_sim_ops: Vec<SimOp>,
     /// Stat paths rooted at `hart<N>`, indexed by `HartId`.
     pub hart_stat_paths: Vec<HartPaths>,
-}
-
-/// The cycle and instructions retired when the stats were last reset.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct StatsEpoch {
-    /// The cycle of the reset.
-    pub cycle: u64,
-    /// Instructions all harts had retired by then.
-    pub instructions_retired: u64,
-}
-
-/// A copy of the stats a guest asked for. Two dumps with the same epoch
-/// subtract to the stats of the region between them.
-#[derive(Clone, Debug)]
-pub struct StatsDump {
-    /// The guest's label.
-    pub label: u64,
-    /// The reset the counts start from.
-    pub epoch: StatsEpoch,
-    /// The stats since the last reset.
-    pub stats: Stats,
-    /// Cycles since the last reset.
-    pub cycles: u64,
-    /// Instructions retired since the last reset.
-    pub instructions_retired: u64,
 }
 
 /// Whether `uncore` has a commit log open, so execute records what it logs.
 #[cfg(feature = "commit-log")]
 #[must_use]
 pub const fn commit_log_open(uncore: &Uncore) -> bool {
-    uncore.commit_log.is_some()
+    uncore.host.commit_log.is_some()
 }
 
 /// Whether `uncore` has a commit log open: never, without the `commit-log`
@@ -213,7 +148,7 @@ impl Uncore {
     /// that ended it.
     #[must_use]
     pub const fn reported_cycle(&self) -> u64 {
-        match self.exited_at {
+        match self.run.exited_at {
             Some(cycle) => cycle,
             None => self.kernel.cycle,
         }
@@ -221,59 +156,59 @@ impl Uncore {
 
     /// Atomically takes the exit code if a bus device has signalled termination.
     pub fn take_exit(&self) -> Option<u64> {
-        self.exit_signal.take()
+        self.run.exit_signal.take()
     }
 
     /// Returns the exit code if a device has requested shutdown without
     /// clearing the signal slot.
     pub fn peek_exit(&self) -> Option<u64> {
-        self.exit_signal.peek()
+        self.run.exit_signal.peek()
     }
 
     /// Manually signals exit (used by tests and the binding `step` loop).
     pub fn signal_exit(&self, code: u64) {
-        self.exit_signal.signal(code);
+        self.run.exit_signal.signal(code);
     }
 
     /// Registers an HTIF device at the given tohost address. `exit_signal`
     /// is cloned into the device so HTIF tohost writes propagate up to the
     /// harness.
     pub fn add_htif(&mut self, tohost_addr: u64, exit_signal: &ExitSignal, args: Vec<String>) {
-        let htif = Htif::new(tohost_addr, exit_signal.clone(), args, self.terminal.clone());
+        let htif = Htif::new(tohost_addr, exit_signal.clone(), args, self.host.terminal.clone());
         self.bus.add_device(Box::new(htif));
         self.read_console_through(InputReader::Proxy);
     }
 
     /// Queues a request a retired pseudo-instruction made.
     pub fn request(&mut self, op: SimOp) {
-        self.pending_sim_ops.push(op);
+        self.run.pending_sim_ops.push(op);
     }
 
     /// Tells the open pipeline trace, if any, that `seq` on `hart` was
     /// fetched from `pc`.
     pub fn trace_fetched(&mut self, hart: HartId, seq: InstSeq, pc: VirtAddr) {
-        if let Some(trace) = &mut self.pipeline_trace {
+        if let Some(trace) = &mut self.host.pipeline_trace {
             trace.fetched(self.kernel.cycle, hart, seq, pc.val());
         }
     }
 
     /// Tells the open pipeline trace, if any, `seq`'s encoding.
     pub fn trace_decoded(&mut self, hart: HartId, seq: InstSeq, inst: u32) {
-        if let Some(trace) = &mut self.pipeline_trace {
+        if let Some(trace) = &mut self.host.pipeline_trace {
             trace.decoded(self.kernel.cycle, hart, seq, inst);
         }
     }
 
     /// Tells the open pipeline trace, if any, that `seq` entered `stage`.
     pub fn trace_stage(&mut self, hart: HartId, seq: InstSeq, stage: Stage) {
-        if let Some(trace) = &mut self.pipeline_trace {
+        if let Some(trace) = &mut self.host.pipeline_trace {
             trace.entered(self.kernel.cycle, hart, seq, stage);
         }
     }
 
     /// Tells the open pipeline trace, if any, that `seq` left the pipeline.
     pub fn trace_left(&mut self, hart: HartId, seq: InstSeq, how: Departure) {
-        if let Some(trace) = &mut self.pipeline_trace {
+        if let Some(trace) = &mut self.host.pipeline_trace {
             trace.left(self.kernel.cycle, hart, seq, how);
         }
     }
@@ -281,7 +216,7 @@ impl Uncore {
     /// Hands the console's input to `reader`: the UART, or the proxy a
     /// program that talks to the host directly reads through.
     pub fn read_console_through(&self, reader: InputReader) {
-        if let Ok(mut terminal) = self.terminal.lock() {
+        if let Ok(mut terminal) = self.host.terminal.lock() {
             terminal.read_input_through(reader);
         }
     }
@@ -289,7 +224,7 @@ impl Uncore {
     /// Whether a captured console holds output the host has not taken.
     #[must_use]
     pub fn console_has_output(&self) -> bool {
-        self.terminal.lock().is_ok_and(|terminal| terminal.has_output())
+        self.host.terminal.lock().is_ok_and(|terminal| terminal.has_output())
     }
 
     /// Places `image` in RAM at `addr` before the system runs.
@@ -314,7 +249,7 @@ impl Uncore {
             path: path.to_owned(),
             source,
         })?;
-        self.commit_log = Some(BufWriter::with_capacity(COMMIT_LOG_BUFFER_BYTES, file));
+        self.host.commit_log = Some(BufWriter::with_capacity(COMMIT_LOG_BUFFER_BYTES, file));
         Ok(())
     }
 
@@ -332,7 +267,7 @@ impl Uncore {
         }
 
         if self.bus.check_kernel_panic() {
-            let detected_at = *self.panic_detected_at_cycle.get_or_insert(self.kernel.cycle);
+            let detected_at = *self.run.panic_detected_at_cycle.get_or_insert(self.kernel.cycle);
             if self.kernel.cycle.saturating_sub(detected_at) >= KERNEL_PANIC_GRACE_CYCLES {
                 return Err(SimError::KernelPanic { cycle: detected_at });
             }
