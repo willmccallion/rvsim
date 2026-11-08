@@ -1,7 +1,7 @@
 //! Request processing: walking a descriptor chain, the DMA it issues, and
 //! completing the request into the used ring.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, usize_of};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::HandleCtx;
 use crate::sim::memory::GlobalMemory;
@@ -249,7 +249,7 @@ impl VirtioBlock {
 
             let (s_addr, _, _) = descriptors[descriptors.len() - 1];
 
-            let sector_offset = (sector * SECTOR_SIZE) as usize;
+            let sector_offset = usize_of(sector * SECTOR_SIZE);
             let mut current_offset = 0;
 
             if is_flush {
@@ -263,7 +263,8 @@ impl VirtioBlock {
                         self.disk_image[current_disk_offset..current_disk_offset + data.len()]
                             .copy_from_slice(&data);
                         let first = current_disk_offset as u64 / SECTOR_SIZE;
-                        let last = (current_disk_offset + data.len()).div_ceil(SECTOR_SIZE as usize)
+                        let last = (current_disk_offset + data.len())
+                            .div_ceil(usize_of(SECTOR_SIZE))
                             as u64;
                         self.written.extend(first..last);
                     }

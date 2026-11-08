@@ -14,7 +14,7 @@
 //! this line since?" exactly: the reader's own later write to the line
 //! must not hide another hart's earlier one.
 
-use crate::common::{HartId, PhysAddr, PhysRange};
+use crate::common::{HartId, PhysAddr, PhysRange, usize_of};
 use std::ops::Range;
 
 /// Position in the global order of RAM writes. `WriteSeq::default()`
@@ -93,7 +93,7 @@ impl WriteLog {
     #[must_use]
     pub fn new(ram_base: u64, ram_size: u64, line_bytes: u64, hart_count: usize) -> Self {
         assert!(line_bytes.is_power_of_two(), "write log line size must be a power of two");
-        assert!(hart_count < WRITER_MASK as usize, "write log supports at most 254 harts");
+        assert!(hart_count < usize_of(WRITER_MASK), "write log supports at most 254 harts");
         let line_shift = line_bytes.trailing_zeros();
         let lines = usize::try_from(ram_size.div_ceil(line_bytes)).unwrap_or(usize::MAX);
         Self { ram_base, line_shift, next: 1, lines: vec![LineWrites::default(); lines] }

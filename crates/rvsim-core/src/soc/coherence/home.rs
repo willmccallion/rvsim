@@ -9,7 +9,7 @@
 
 use super::protocol::{CoreSet, Holders};
 use super::stats::HomeStatPaths;
-use crate::common::{CoreId, LineAddr};
+use crate::common::{CoreId, LineAddr, usize_of};
 use crate::sim::packet::MesiState;
 use crate::sim::stats::Stats;
 use std::num::NonZeroUsize;
@@ -141,7 +141,7 @@ impl SnoopFilter {
     }
 
     const fn set_index(&self, line: LineAddr) -> usize {
-        ((line.val() / self.line_bytes) as usize) % self.sets.len()
+        usize_of(line.val() / self.line_bytes) % self.sets.len()
     }
 
     fn find(&self, line: LineAddr) -> Option<(usize, usize)> {

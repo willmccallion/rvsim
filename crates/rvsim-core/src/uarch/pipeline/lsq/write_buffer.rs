@@ -17,7 +17,7 @@
 //! load from its old copy of the line while it fetches write permission.
 //! Barriers wait for the acknowledgements too.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, usize_of};
 use crate::sim::components::ReqId;
 use crate::uarch::pipeline::lsq::store_buffer::ForwardResult;
 
@@ -115,7 +115,7 @@ impl WriteCombiningBuffer {
             paddr.val() - base + bytes as u64 <= self.entry_bytes as u64,
             "store spans two WCB entries"
         );
-        let offset = (paddr.val() - base) as usize;
+        let offset = usize_of(paddr.val() - base);
         self.next_use += 1;
         let now = self.next_use;
         let index = self
@@ -179,7 +179,7 @@ impl WriteCombiningBuffer {
         let in_line = |line: &WcbLine| {
             let offset = addr.checked_sub(line.line_addr)?;
             (offset < self.entry_bytes as u64 && line.mask >> offset & 1 == 1)
-                .then(|| line.data[offset as usize])
+                .then(|| line.data[usize_of(offset)])
         };
         self.slots
             .iter()

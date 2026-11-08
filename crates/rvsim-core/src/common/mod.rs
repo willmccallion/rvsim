@@ -6,6 +6,8 @@ pub mod addr;
 
 pub mod error;
 
+pub mod host;
+
 pub mod ids;
 
 pub mod trace;
@@ -19,4 +21,5 @@ pub use addr::{
     VirtAddr, Vpn, crosses_cache_line,
 };
 pub use error::SimError;
+pub use host::usize_of;
 pub use ids::{CoreId, FetchSeq, HartId, InstSeq};

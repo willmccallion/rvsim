@@ -1,5 +1,6 @@
 //! Vector lengths: `VLEN`, `VLMAX`, and `vl`.
 
+use crate::common::usize_of;
 use crate::isa::rvv::{Sew, Vlmul};
 
 /// Vector length (vl CSR value). NOT interchangeable with `Vlmax` or element count.
@@ -22,7 +23,7 @@ impl Vl {
     /// Returns the value as `usize`.
     #[inline(always)]
     pub const fn as_usize(self) -> usize {
-        self.0 as usize
+        usize_of(self.0)
     }
 
     /// Returns true if the vector length is zero.

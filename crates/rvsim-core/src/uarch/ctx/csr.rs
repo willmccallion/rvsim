@@ -7,6 +7,7 @@ use crate::arch::csr::legalize_tvec;
 use crate::arch::csr::with_state_dirty;
 use crate::arch::pmp::{PmpCfgCsr, PmpIdx};
 use crate::arch::trigger;
+use crate::common::usize_of;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::fp::{FpFlags, Frm};
@@ -80,11 +81,11 @@ pub(super) fn read(hart: &Hart, uncore: &Uncore, addr: CsrAddr) -> u64 {
         // Sdtrig — trigger CSR reads
         csr::TSELECT => hart.csrs.tselect,
         csr::TDATA1 => {
-            let i = hart.csrs.tselect as usize;
+            let i = usize_of(hart.csrs.tselect);
             hart.csrs.tdata1[i]
         }
         csr::TDATA2 => {
-            let i = hart.csrs.tselect as usize;
+            let i = usize_of(hart.csrs.tselect);
             hart.csrs.tdata2[i]
         }
         csr::TINFO => csr::TINFO_MCONTROL,
@@ -248,11 +249,11 @@ impl CoreCtx<'_> {
                 self.hart.csrs.tselect = val.min(trigger::TRIGGER_COUNT as u64 - 1);
             }
             csr::TDATA1 => {
-                let i = self.hart.csrs.tselect as usize;
+                let i = usize_of(self.hart.csrs.tselect);
                 self.hart.csrs.tdata1[i] = trigger::tdata1_written(val);
             }
             csr::TDATA2 => {
-                let i = self.hart.csrs.tselect as usize;
+                let i = usize_of(self.hart.csrs.tselect);
                 self.hart.csrs.tdata2[i] = val;
             }
             csr::TCONTROL => self.hart.csrs.tcontrol = val & csr::TCONTROL_WRITABLE,

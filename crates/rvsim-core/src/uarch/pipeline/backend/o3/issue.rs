@@ -1,6 +1,7 @@
 //! Dispatch into the issue queue, and select and issue out of it.
 
 use super::O3Entry;
+use crate::common::usize_of;
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
 use crate::exec::compute::vector::mem::{check_vec_mem_emul, element_accesses, is_vec_store};
@@ -96,7 +97,7 @@ impl O3Engine {
             let latency = self.fu_pool.vector_op_latency(
                 fu_type,
                 &entry.inst.ctrl,
-                entry.vector_config.vl as usize,
+                usize_of(entry.vector_config.vl),
                 self.num_vec_lanes.as_usize(),
             );
             self.fu_pool.acquire_with_latency(unit, now, latency, entry.rob_tag)

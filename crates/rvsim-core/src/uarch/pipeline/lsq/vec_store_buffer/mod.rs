@@ -35,7 +35,7 @@
 //! order under the pipeline's FIFO memory path. This matches spike, ARM
 //! SVE, and AVX-512.
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, usize_of};
 use crate::config::VecStoreForwarding;
 use crate::isa::op::MemWidth;
 use crate::sim::components::ReqId;
@@ -284,7 +284,7 @@ impl VecStoreBuffer {
         data: u64,
         width: MemWidth,
     ) {
-        let bytes = width.bytes() as usize;
+        let bytes = usize_of(width.bytes());
         if bytes == 0 {
             return;
         }
@@ -300,7 +300,7 @@ impl VecStoreBuffer {
 
         while remaining > 0 {
             let line_addr = cur_addr & !(VSB_LINE_BYTES as u64 - 1);
-            let offset = (cur_addr - line_addr) as usize;
+            let offset = usize_of(cur_addr - line_addr);
             let take = remaining.min(VSB_LINE_BYTES - offset);
 
             let line_idx =
@@ -405,14 +405,14 @@ impl VecStoreBuffer {
         width: MemWidth,
         load_rob_tag: RobTag,
     ) -> ForwardResult {
-        let bytes = width.bytes() as usize;
+        let bytes = usize_of(width.bytes());
         if bytes == 0 {
             return ForwardResult::Miss;
         }
 
         let load_lo = paddr.val();
         let load_line = load_lo & !(VSB_LINE_BYTES as u64 - 1);
-        let load_offset = (load_lo - load_line) as usize;
+        let load_offset = usize_of(load_lo - load_line);
 
         // Cross-line loads never forward (matches real hardware penalties).
         if load_offset + bytes > VSB_LINE_BYTES {
@@ -444,7 +444,7 @@ impl VecStoreBuffer {
     #[must_use]
     pub fn forward_span(&self, paddr: PhysAddr, bytes: usize, load_rob_tag: RobTag) -> SpanForward {
         let line_addr = paddr.val() & !(VSB_LINE_BYTES as u64 - 1);
-        let offset = (paddr.val() - line_addr) as usize;
+        let offset = usize_of(paddr.val() - line_addr);
         let span_mask =
             if bytes >= VSB_LINE_BYTES { u64::MAX } else { ((1u64 << bytes) - 1) << offset };
         let older = self.entries().filter(|e| e.rob_tag.is_older_than(load_rob_tag));

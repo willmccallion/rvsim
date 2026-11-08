@@ -11,6 +11,7 @@
 //! the unit when it issues, and the unit reports when the result is ready.
 
 use crate::common::trace::Hex;
+use crate::common::usize_of;
 use crate::isa::op::VectorOp;
 use crate::isa::reg::ArchReg;
 use crate::trace_issue;
@@ -249,7 +250,7 @@ fn take_unit(
         let latency = fu_pool.vector_op_latency(
             fu_type,
             &entry.inst.ctrl,
-            state.hart().csrs.vl as usize,
+            usize_of(state.hart().csrs.vl),
             state.uncore().kernel.config.pipeline.vector_lanes(),
         );
         fu_pool.acquire_with_latency(unit, now, latency, entry.rob_tag)

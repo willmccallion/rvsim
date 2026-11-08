@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{PAGE_SHIFT, PhysAddr, VirtAddr, Vpn};
+use crate::common::{PAGE_SHIFT, PhysAddr, VirtAddr, Vpn, usize_of};
 use crate::isa::csr;
 use crate::isa::privileged::PagingMode;
 use crate::sim::memory::GlobalMemory;
@@ -106,7 +106,7 @@ impl FrameAllocator {
         }
         let frame = self.next;
         self.next = PhysAddr::new(frame.val() + PAGE_SIZE);
-        memory.load(frame, &[0u8; PAGE_SIZE as usize]);
+        memory.load(frame, &[0u8; usize_of(PAGE_SIZE)]);
         Ok(frame)
     }
 }
@@ -304,7 +304,7 @@ impl AddressSpace {
         let mut left = len;
         while left > 0 {
             let paddr = self.translate(cursor).ok_or(SpaceError::Unmapped(cursor))?;
-            let in_page = (PAGE_SIZE - cursor.page_offset()) as usize;
+            let in_page = usize_of(PAGE_SIZE - cursor.page_offset());
             let chunk = left.min(in_page);
             let bytes = memory.read_bytes(paddr, chunk).ok_or(SpaceError::Unmapped(cursor))?;
             out.extend_from_slice(&bytes);
@@ -355,7 +355,7 @@ impl AddressSpace {
         let mut rest = bytes;
         while !rest.is_empty() {
             let paddr = self.translate(cursor).ok_or(SpaceError::Unmapped(cursor))?;
-            let in_page = (PAGE_SIZE - cursor.page_offset()) as usize;
+            let in_page = usize_of(PAGE_SIZE - cursor.page_offset());
             let (chunk, tail) = rest.split_at(rest.len().min(in_page));
             memory.write_bytes(Writer::External, paddr, chunk);
             cursor = cursor.wrapping_add(chunk.len() as u64);

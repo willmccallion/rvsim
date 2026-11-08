@@ -1,6 +1,6 @@
 //! Binary Loader and System Initialization (ELF + kernel/OpenSBI/DTB).
 
-use crate::common::{PhysAddr, SimError, VirtAddr};
+use crate::common::{PhysAddr, SimError, VirtAddr, usize_of};
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::encoding::privileged as sys_ops;
@@ -221,11 +221,11 @@ pub(crate) fn try_load_elf(data: &[u8], memory: &mut GlobalMemory) -> Option<Elf
             let p_filesz = seg_data.len() as u64;
             if p_memsz > p_filesz {
                 let bss_start = paddr + p_filesz;
-                let bss_size = (p_memsz - p_filesz) as usize;
+                let bss_size = usize_of(p_memsz - p_filesz);
                 memory.load(PhysAddr::new(bss_start), &vec![0u8; bss_size]);
             }
         } else if p_memsz > 0 {
-            memory.load(PhysAddr::new(paddr), &vec![0u8; p_memsz as usize]);
+            memory.load(PhysAddr::new(paddr), &vec![0u8; usize_of(p_memsz)]);
         }
     }
 

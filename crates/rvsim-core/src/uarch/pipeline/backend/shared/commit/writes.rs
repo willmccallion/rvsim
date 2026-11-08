@@ -4,7 +4,7 @@
 use super::gate::older_stores_pending;
 use super::is_pure_ram;
 use crate::common::trace::Hex;
-use crate::common::{PhysAddr, crosses_cache_line};
+use crate::common::{PhysAddr, crosses_cache_line, usize_of};
 use crate::exec::cbo::CboEffect;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::MemWidth;
@@ -31,8 +31,8 @@ pub(super) fn try_drain_one_store(
 ) -> bool {
     let Some(write) = store_buffer.begin_write() else { return false };
     let bytes = match write.data {
-        StoreData::Bytes(_) => write.width.bytes() as usize,
-        StoreData::Block(_) => CBOZ_BLOCK_SIZE as usize,
+        StoreData::Bytes(_) => usize_of(write.width.bytes()),
+        StoreData::Block(_) => usize_of(CBOZ_BLOCK_SIZE),
     };
     if vec_store_buffer.has_unsent_older_line_to(write.paddr, bytes, write.rob_tag) {
         return false;
@@ -41,7 +41,7 @@ pub(super) fn try_drain_one_store(
         StoreData::Bytes(data) => send_data_store(state, common, write.paddr, data, write.width),
         StoreData::Block(effect) => {
             // A CBO follows the older stores the WCB holds for its block.
-            if state.core.wcb.request_send(write.paddr, CBOZ_BLOCK_SIZE as usize) {
+            if state.core.wcb.request_send(write.paddr, usize_of(CBOZ_BLOCK_SIZE)) {
                 return false;
             }
             vec![send_block_op(state, common, write.paddr, effect)]
@@ -77,7 +77,8 @@ pub(super) fn send_data_store(
         return emit_store_write_packet(state, common, paddr, data, width, store);
     }
     let span = state.core.wcb.entry_bytes();
-    for (part_paddr, part_data, part_bytes) in span_parts(paddr, data, width.bytes() as usize, span)
+    for (part_paddr, part_data, part_bytes) in
+        span_parts(paddr, data, usize_of(width.bytes()), span)
     {
         if state.core.wcb.holds_entry_for(part_paddr) {
             state.uncore.kernel.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
@@ -101,7 +102,7 @@ pub(super) fn send_block_op(
     let op = match effect {
         CboEffect::Zero => MemOp::Write {
             data: WriteData::Line {
-                bytes: vec![0; CBOZ_BLOCK_SIZE as usize].into(),
+                bytes: vec![0; usize_of(CBOZ_BLOCK_SIZE)].into(),
                 mask: u64::MAX,
             },
             origin: WriteOrigin::Hart(state.hart.hart_id),
@@ -293,7 +294,7 @@ pub(super) fn emit_store_write_packet(
     if width == MemWidth::Nop {
         return Vec::new();
     }
-    let width_bytes = width.bytes() as usize;
+    let width_bytes = usize_of(width.bytes());
     if !is_pure_ram(state, paddr, width) {
         let target = ComponentId::Bus;
         return vec![emit_store_write_packet_to(
@@ -354,7 +355,7 @@ pub(super) fn span_parts(
         return vec![(paddr, data, width_bytes)];
     }
     let second = (paddr.val() | (span - 1)) + 1;
-    let first_bytes = (second - paddr.val()) as usize;
+    let first_bytes = usize_of(second - paddr.val());
     vec![
         (paddr, data, first_bytes),
         (PhysAddr::new(second), data >> (8 * first_bytes), width_bytes - first_bytes),

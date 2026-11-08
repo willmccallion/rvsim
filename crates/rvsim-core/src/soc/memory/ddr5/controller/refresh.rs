@@ -1,5 +1,6 @@
 //! Refresh: arming due refreshes, precharging for them, and issuing them.
 
+use crate::common::usize_of;
 use crate::sim::components::{ChannelId, RankId, SubchannelId};
 use crate::sim::packet::DramCmdKind;
 use crate::soc::memory::ddr5::state::{BankState, RefreshPhase};
@@ -190,7 +191,7 @@ impl Ddr5Controller {
         self.pending_commands.push(EmittedCommand {
             channel: chan,
             rank,
-            bank: index_to_u8(set as usize % usize::from(self.config.banks_per_group.get())),
+            bank: index_to_u8(usize_of(set) % usize::from(self.config.banks_per_group.get())),
             row: 0,
             kind: DramCmdKind::Refresh,
             fire_at,
