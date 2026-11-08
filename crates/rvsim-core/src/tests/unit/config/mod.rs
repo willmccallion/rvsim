@@ -3,6 +3,7 @@
 //! Comprehensive tests for configuration structures, deserialization,
 //! defaults, and validation.
 
+pub mod serde_defaults;
 pub mod validation;
 
 use crate::config::*;
