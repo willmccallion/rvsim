@@ -4,16 +4,16 @@ through HTIF without the harts' output tearing, and hart 0's return value
 ends the run.
 """
 
-import os
 import unittest
+
+from _programs import bundled, needs
 
 from rvsim import Config, Simulator
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SPINLOCK = os.path.join(ROOT, "software", "bin", "multicore", "spinlock.elf")
+SPINLOCK = bundled("multicore", "spinlock")
 
 
-@unittest.skipUnless(os.path.exists(SPINLOCK), "spinlock.elf not built")
+@needs(SPINLOCK)
 class MulticorePrograms(unittest.TestCase):
     def test_spinlock_counts_on_every_hart(self):
         cpu = Simulator(Config(hart_count=4, console="Captured"), binary=SPINLOCK)

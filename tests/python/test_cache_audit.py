@@ -4,16 +4,16 @@ cache invariant intact ends as it would without it.
 Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
-import os
 import unittest
+
+from _programs import bundled, needs
 
 from rvsim import Config, Simulator
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
+FIB = bundled("programs", "fib")
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class CacheAudit(unittest.TestCase):
     def test_it_is_off_unless_switched_on(self):
         sim = Simulator(Config(console="Quiet"), binary=FIB)

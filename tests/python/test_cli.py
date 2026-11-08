@@ -10,15 +10,23 @@ import sys
 import tempfile
 import unittest
 
-from _programs import COUNT_THEN_EXIT, EXIT_WITH_ARGC, SCRIPT, file_exchange, user_elf
+from _programs import (
+    COUNT_THEN_EXIT,
+    EXIT_WITH_ARGC,
+    ROOT,
+    SCRIPT,
+    bundled,
+    file_exchange,
+    needs,
+    user_elf,
+)
 
 from rvsim.presets import PRESETS
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
+FIB = bundled("programs", "fib")
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class JsonExport(unittest.TestCase):
     def test_json_flag_writes_the_run_stats(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,7 +73,7 @@ class JsonExport(unittest.TestCase):
         self.assertEqual(stats["cycles"], limit)
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class ProgramOutput(unittest.TestCase):
     def test_every_preset_prints_all_the_output_before_the_exit(self):
         for preset in PRESETS:

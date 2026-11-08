@@ -3,16 +3,16 @@
 Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
-import os
 import unittest
+
+from _programs import bundled, needs
 
 from rvsim import Config, Simulator
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
+FIB = bundled("programs", "fib")
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class QueryResultIteration(unittest.TestCase):
     def test_iterating_yields_every_path_value_pair(self):
         sim = Simulator(Config(console="Quiet"), binary=FIB)

@@ -10,7 +10,8 @@ import subprocess
 import sys
 import unittest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from _programs import ROOT, needs
+
 SPIKE = os.path.join(ROOT, "tests", "builds", "spike-install", "bin", "spike")
 PROGRAMS = os.path.join(ROOT, "software", "bin-htif", "programs")
 MANDELBROT = os.path.join(PROGRAMS, "mandelbrot.elf")
@@ -37,8 +38,8 @@ def run_rvsim(elf: str) -> subprocess.CompletedProcess:
     )
 
 
-@unittest.skipUnless(os.path.exists(SPIKE), "spike not built")
-@unittest.skipUnless(os.path.exists(MANDELBROT), "HTIF programs not built")
+@needs(SPIKE)
+@needs(MANDELBROT)
 class HtifPrograms(unittest.TestCase):
     def assert_same_run(self, elf: str) -> None:
         expected = run_spike(elf)

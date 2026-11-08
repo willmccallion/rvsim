@@ -8,13 +8,14 @@ import sys
 import tempfile
 import unittest
 
+from _programs import bundled, needs
+
 from rvsim import Config, Simulator
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FIB = os.path.join(ROOT, "software", "bin", "programs", "fib.elf")
+FIB = bundled("programs", "fib")
 
 
-@unittest.skipUnless(os.path.exists(FIB), "fib.elf not built")
+@needs(FIB)
 class PipelineTrace(unittest.TestCase):
     def test_a_trace_covers_the_part_of_the_run_it_is_open_for(self):
         cpu = Simulator(Config(console="Quiet"), binary=FIB)

@@ -5,15 +5,15 @@ of a run, so each preset runs a bounded slice of qsort.
 Run with: .venv/bin/python -m unittest discover -s tests/python
 """
 
-import os
 import unittest
+
+from _programs import bundled, needs
 
 from rvsim import Prefetcher, Simulator, presets
 
 CYCLES = 300_000
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-QSORT = os.path.join(ROOT, "software", "bin", "programs", "qsort.elf")
+QSORT = bundled("programs", "qsort")
 
 
 def prefetch_counts(stats):
@@ -39,7 +39,7 @@ def prefetches(config):
     )
 
 
-@unittest.skipUnless(os.path.exists(QSORT), "qsort.elf not built")
+@needs(QSORT)
 class PrefetchAccounting(unittest.TestCase):
     def test_no_cache_resolves_more_prefetches_than_it_issued(self):
         for name, preset in presets.PRESETS.items():
