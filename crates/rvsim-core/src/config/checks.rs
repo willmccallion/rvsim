@@ -71,7 +71,7 @@ impl Config {
     /// No more harts than a sharer set holds, and several only with an
     /// inclusion policy coherence can keep.
     pub(super) fn check_harts(&self) -> Result<(), ConfigError> {
-        let harts = self.system.hart_count.max(1);
+        let harts = self.system.hart_count.get();
         if harts > MAX_HARTS {
             return Err(ConfigError::TooManyHarts(harts));
         }
@@ -144,15 +144,12 @@ const fn at_most(field: &'static str, value: usize, most: usize) -> Result<(), C
 }
 
 fn check_system(system: &SystemConfig, ram_size: u64) -> Result<(), ConfigError> {
-    at_least_one("system.hart_count", system.hart_count)?;
-    at_least_one("system.cpu_clock_mhz", system.cpu_clock_mhz)?;
-    at_least_one("system.timebase_hz", system.timebase_hz)?;
     if system.timer == Timer::RealTime
-        && !system.cpu_clock_hz().is_multiple_of(u64::from(system.timebase_hz))
+        && !system.cpu_clock_hz().get().is_multiple_of(u64::from(system.timebase_hz.get()))
     {
         return Err(ConfigError::TimebaseNotDivisor {
-            timebase_hz: system.timebase_hz,
-            cpu_clock_hz: system.cpu_clock_hz(),
+            timebase_hz: system.timebase_hz.get(),
+            cpu_clock_hz: system.cpu_clock_hz().get(),
         });
     }
     if !system.bus_width.is_power_of_two() {

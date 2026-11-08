@@ -26,7 +26,7 @@ fn every_check() -> impl Iterator<Item = &'static fn(&mut Recorder)> {
 /// DDR5 controller, on `harts` cores.
 fn every_component(harts: usize) -> Config {
     let mut config = Config::minimal();
-    config.system.hart_count = harts;
+    config.system.hart_count = std::num::NonZero::new(harts).unwrap();
     config.system.console = crate::config::Console::Quiet;
     for cache in
         [&mut config.cache.l1_i, &mut config.cache.l1_d, &mut config.cache.l2, &mut config.cache.l3]

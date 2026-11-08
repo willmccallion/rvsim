@@ -10,6 +10,8 @@
 //! * `0x4000 + 8·hart`: MTIMECMP (Machine Time Compare)
 //! * `0xBFF8`: MTIME (Machine Time)
 
+use std::num::NonZeroU64;
+
 use serde::{Deserialize, Serialize};
 
 use crate::common::{HartId, PhysAddr, PhysRange};
@@ -87,14 +89,14 @@ impl Clint {
     /// Creates a CLINT serving `hart_count` harts.
     ///
     /// `divider` is the ratio of CPU cycles to timer ticks (10 means `mtime`
-    /// increments every 10 cycles); zero is treated as one.
-    pub fn new(base_addr: PhysAddr, divider: u64, hart_count: usize) -> Self {
+    /// increments every 10 cycles).
+    pub fn new(base_addr: PhysAddr, divider: NonZeroU64, hart_count: usize) -> Self {
         Self {
             base_addr,
             mtime: 0,
             mtimecmp: vec![u64::MAX; hart_count],
             msip: vec![0; hart_count],
-            divider: if divider == 0 { 1 } else { divider },
+            divider: divider.get(),
             counter: 0,
         }
     }

@@ -12,7 +12,7 @@ const PLIC_BASE: u64 = 0x0c00_0000;
 /// Two harts spinning on a `jal 0` at the reset address, so the cycle loop keeps running.
 fn two_hart_sim() -> Simulator {
     let mut config = Config::minimal();
-    config.system.hart_count = 2;
+    config.system.hart_count = std::num::NonZero::new(2).unwrap();
     config.system.console = crate::config::Console::Quiet;
     let mut sim = build_simulator(&config);
     sim.probe_mem_store(config.system.ram_base, 0x0000_006F, 4);

@@ -50,7 +50,7 @@ fn bare_elf(code: &[u32]) -> Vec<u8> {
 #[test]
 fn every_hart_starts_at_the_entry_with_its_id_and_the_device_tree() {
     let mut config = Config::minimal();
-    config.system.hart_count = 3;
+    config.system.hart_count = std::num::NonZero::new(3).unwrap();
     config.system.console = Console::Quiet;
     let mut sim = build_simulator(&config);
 

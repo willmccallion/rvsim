@@ -2,6 +2,10 @@
 
 use super::defaults;
 use crate::common::{PhysAddr, PhysRange};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+
+/// Hertz in a megahertz.
+const HZ_PER_MHZ: NonZeroU64 = defaults::non_zero_u64(1_000_000);
 use crate::config::Console;
 use serde::{Deserialize, Serialize};
 
@@ -141,10 +145,10 @@ pub struct SystemConfig {
     pub timer: Timer,
 
     /// The timer frequency the device tree reports to the guest, in Hz.
-    pub timebase_hz: u32,
+    pub timebase_hz: NonZeroU32,
 
     /// Core clock in MHz.
-    pub cpu_clock_mhz: u64,
+    pub cpu_clock_mhz: NonZeroU64,
 
     /// Wall-clock time the RTC reports at cycle zero, in seconds since the
     /// Unix epoch.
@@ -167,7 +171,7 @@ pub struct SystemConfig {
     pub tohost_addr: Option<PhysAddr>,
 
     /// Number of harts in the simulated `SoC`. Default 1 (single-hart).
-    pub hart_count: usize,
+    pub hart_count: NonZeroUsize,
 }
 
 impl SystemConfig {
@@ -220,22 +224,29 @@ impl SystemConfig {
     /// The core clock in Hz, which SE mode's time and every device's
     /// latency are measured against.
     #[must_use]
-    pub const fn cpu_clock_hz(&self) -> u64 {
-        self.cpu_clock_mhz * 1_000_000
+    pub const fn cpu_clock_hz(&self) -> NonZeroU64 {
+        self.cpu_clock_mhz.saturating_mul(HZ_PER_MHZ)
     }
 
     /// Cycles between ticks of the CLINT's `mtime`.
     #[must_use]
-    pub const fn clint_divider(&self) -> u64 {
+    pub const fn clint_divider(&self) -> NonZeroU64 {
         match self.timer {
-            Timer::RealTime => self.cpu_clock_hz() / self.timebase_hz as u64,
-            Timer::EveryCycle => 1,
+            // Validation makes the timebase divide the clock, so the
+            // quotient is at least one.
+            Timer::RealTime => {
+                match NonZeroU64::new(self.cpu_clock_hz().get() / self.timebase_hz.get() as u64) {
+                    Some(divider) => divider,
+                    None => NonZeroU64::MIN,
+                }
+            }
+            Timer::EveryCycle => NonZeroU64::MIN,
         }
     }
 
     /// Core cycles in `ns` nanoseconds.
     const fn ns_to_cycles(&self, ns: u64) -> u64 {
-        ns * self.cpu_clock_mhz / 1000
+        ns * self.cpu_clock_mhz.get() / 1000
     }
 }
 
@@ -258,7 +269,7 @@ impl Default for SystemConfig {
             device_latency_ns: defaults::DEVICE_LATENCY_NS,
             device_latency_ns_overrides: std::collections::HashMap::new(),
             tohost_addr: None,
-            hart_count: 1,
+            hart_count: NonZeroUsize::MIN,
         }
     }
 }

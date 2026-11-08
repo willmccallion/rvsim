@@ -35,14 +35,17 @@ fn restored<D: Device>(device: &D, mut blank: D) -> D {
 
 #[test]
 fn a_clint_keeps_its_clock_timers_and_software_interrupts() {
-    let mut clint = Clint::new(PhysAddr::new(CLINT_BASE), 1, 2);
+    let mut clint = Clint::new(PhysAddr::new(CLINT_BASE), std::num::NonZero::new(1).unwrap(), 2);
     write(&mut clint, CLINT_BASE + 0x4008, 40, 8);
     write(&mut clint, CLINT_BASE, 1, 4);
     for _ in 0..50 {
         let _ = clint.tick();
     }
 
-    let clint = restored(&clint, Clint::new(PhysAddr::new(CLINT_BASE), 1, 2));
+    let clint = restored(
+        &clint,
+        Clint::new(PhysAddr::new(CLINT_BASE), std::num::NonZero::new(1).unwrap(), 2),
+    );
 
     assert_eq!(clint.mtime(), 50);
     assert!(clint.timer_pending(HartId::new(1)));
@@ -103,7 +106,7 @@ fn a_virtio_disk_keeps_its_queue_configuration() {
 #[test]
 fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
     let mut config = Config::minimal();
-    config.system.hart_count = 2;
+    config.system.hart_count = std::num::NonZero::new(2).unwrap();
     config.system.console = Console::Quiet;
     let mut sim = build_simulator(&config);
     sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 0x4008), 1234, 8);

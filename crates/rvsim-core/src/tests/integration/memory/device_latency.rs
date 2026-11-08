@@ -29,7 +29,7 @@ fn program() -> Vec<u32> {
 fn cycles_to_finish(configure: impl Fn(&mut Config)) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
-    config.system.cpu_clock_mhz = CLOCK_MHZ;
+    config.system.cpu_clock_mhz = std::num::NonZero::new(CLOCK_MHZ).unwrap();
     configure(&mut config);
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     ctx.run_until(5_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished")

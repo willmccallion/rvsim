@@ -37,7 +37,7 @@ const MHARTID: u32 = 0xF14;
 
 fn cached(harts: usize, backend: BackendKind) -> Config {
     let mut config = Config::minimal();
-    config.system.hart_count = harts;
+    config.system.hart_count = std::num::NonZero::new(harts).unwrap();
     config.system.console = crate::config::Console::Quiet;
     config.pipeline.backend = backend;
     for cache in [&mut config.cache.l1_i, &mut config.cache.l1_d] {
@@ -167,25 +167,27 @@ fn check_all_programs(config: &Config, label: &str) {
     let iterations = 60;
 
     let mut system =
-        MultiHart::with_config(config, &amo_counter::program(harts as i32, iterations));
+        MultiHart::with_config(config, &amo_counter::program(harts.get() as i32, iterations));
     let exit = run_audited(&mut system, 6_000_000);
-    assert_eq!(exit, Some(harts as u64 * iterations as u64), "{label}: amo counter");
+    assert_eq!(exit, Some(harts.get() as u64 * iterations as u64), "{label}: amo counter");
 
-    let mut system = MultiHart::with_config(config, &spinlock::program(harts as i32, iterations));
+    let mut system =
+        MultiHart::with_config(config, &spinlock::program(harts.get() as i32, iterations));
     let exit = run_audited(&mut system, 6_000_000);
-    assert_eq!(exit, Some(harts as u64 * iterations as u64), "{label}: spinlock");
+    assert_eq!(exit, Some(harts.get() as u64 * iterations as u64), "{label}: spinlock");
 
-    let mut system = MultiHart::with_config(config, &shared_line_stores(harts as i32, iterations));
+    let mut system =
+        MultiHart::with_config(config, &shared_line_stores(harts.get() as i32, iterations));
     let exit = run_audited(&mut system, 6_000_000);
-    assert_eq!(exit, Some(harts as u64 * iterations as u64), "{label}: shared line stores");
+    assert_eq!(exit, Some(harts.get() as u64 * iterations as u64), "{label}: shared line stores");
     assert!(
         fabric_stat(&system, "coherence.ha.snoops_sent") > 0,
         "{label}: the shared line was snooped"
     );
 
-    let mut system = MultiHart::with_config(config, &producer_consumer(harts as i32));
+    let mut system = MultiHart::with_config(config, &producer_consumer(harts.get() as i32));
     let exit = run_audited(&mut system, 6_000_000);
-    assert_eq!(exit, Some((harts as u64 - 1) * 36), "{label}: producer/consumer");
+    assert_eq!(exit, Some((harts.get() as u64 - 1) * 36), "{label}: producer/consumer");
     assert!(
         fabric_stat(&system, "coherence.ha.c2c_transfers") > 0,
         "{label}: the payload came from the producer's cache"
@@ -259,7 +261,7 @@ fn a_shared_llc_serves_the_home_agent() {
 #[test]
 fn cores_without_caches_take_no_part_in_coherence() {
     let mut config = Config::minimal();
-    config.system.hart_count = 2;
+    config.system.hart_count = std::num::NonZero::new(2).unwrap();
     config.system.console = crate::config::Console::Quiet;
     let mut system = MultiHart::with_config(&config, &shared_line_stores(2, 20));
     let exit = run_audited(&mut system, 2_000_000);

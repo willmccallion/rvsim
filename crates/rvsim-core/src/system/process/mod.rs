@@ -18,6 +18,7 @@ pub mod syscall;
 mod threads;
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU64;
 
 use serde::{Deserialize, Serialize};
 
@@ -46,7 +47,7 @@ pub struct Process {
     /// Where the next anonymous `mmap` without an address goes.
     mmap_next: VirtAddr,
     /// The core clock the time syscalls divide cycles by.
-    pub clock_hz: u64,
+    pub clock_hz: NonZeroU64,
     /// Deterministic state for `getrandom`.
     random: u64,
     /// `mmap`ed file ranges, so `munmap` can forget them: start to length.
@@ -66,7 +67,7 @@ pub struct ProcessState {
     brk_start: VirtAddr,
     brk: VirtAddr,
     mmap_next: VirtAddr,
-    clock_hz: u64,
+    clock_hz: NonZeroU64,
     random: u64,
     file_maps: BTreeMap<VirtAddr, u64>,
     syscall_counts: BTreeMap<u64, u64>,
@@ -99,7 +100,7 @@ impl Process {
     pub fn new(
         space: AddressSpace,
         brk_start: VirtAddr,
-        clock_hz: u64,
+        clock_hz: NonZeroU64,
         terminal: SharedTerminal,
     ) -> Self {
         let layout = Layout::for_space(&space);
@@ -154,13 +155,13 @@ impl Process {
     /// process's clock.
     #[must_use]
     pub fn nanoseconds_at(&self, cycle: u64) -> u128 {
-        u128::from(cycle) * u128::from(NANOS_PER_SECOND) / u128::from(self.clock_hz.max(1))
+        u128::from(cycle) * u128::from(NANOS_PER_SECOND) / u128::from(self.clock_hz.get())
     }
 
     /// The first cycle at which [`Self::nanoseconds_at`] reaches `ns`.
     #[must_use]
     pub fn cycle_at_nanoseconds(&self, ns: u128) -> u64 {
-        let cycles = (ns * u128::from(self.clock_hz.max(1))).div_ceil(u128::from(NANOS_PER_SECOND));
+        let cycles = (ns * u128::from(self.clock_hz.get())).div_ceil(u128::from(NANOS_PER_SECOND));
         u64::try_from(cycles).unwrap_or(u64::MAX)
     }
 

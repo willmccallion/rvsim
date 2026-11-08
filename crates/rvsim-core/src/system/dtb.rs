@@ -245,7 +245,7 @@ const fn mmu_type(paging: PagingMode) -> &'static str {
 ///   mode as `mmu-type`, and the block size Zicbom and Zicboz work on)
 ///   and a `cpu-map`
 pub fn generate_dtb(config: &Config) -> Vec<u8> {
-    let hart_count = u32::try_from(config.system.hart_count.max(1)).unwrap_or(u32::MAX);
+    let hart_count = u32::try_from(config.system.hart_count.get()).unwrap_or(u32::MAX);
     let phandles = Phandles { hart_count };
     let mut fdt = FdtBuilder::new();
     fdt.node("", |fdt| {
@@ -281,7 +281,7 @@ fn add_cpus(fdt: &mut FdtBuilder, config: &Config, phandles: &Phandles) {
     fdt.node("cpus", |fdt| {
         fdt.prop_u32("#address-cells", 1);
         fdt.prop_u32("#size-cells", 0);
-        fdt.prop_u32("timebase-frequency", config.system.timebase_hz);
+        fdt.prop_u32("timebase-frequency", config.system.timebase_hz.get());
         for hart in 0..phandles.hart_count {
             add_cpu(fdt, config, phandles, hart);
         }

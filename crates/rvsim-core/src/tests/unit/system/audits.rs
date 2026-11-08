@@ -22,7 +22,7 @@ const CORE_1: CoreId = CoreId::new(1);
 /// The desktop machine with `hart_count` cores and nothing cached yet.
 fn machine(hart_count: usize, inclusion_policy: InclusionPolicy) -> Simulator {
     let mut config = Config::default();
-    config.system.hart_count = hart_count;
+    config.system.hart_count = std::num::NonZero::new(hart_count).unwrap();
     config.system.console = Console::Quiet;
     config.cache.inclusion_policy = inclusion_policy;
     build_simulator(&config)

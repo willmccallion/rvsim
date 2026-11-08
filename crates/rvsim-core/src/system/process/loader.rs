@@ -14,6 +14,8 @@ use super::{
     AddressSpace, FrameAllocator, PAGE_SIZE, Permissions, Process, Processes, SpaceError, Wakeup,
     WakeupKind, syscall,
 };
+use std::num::NonZeroU64;
+
 use crate::arch::Hart;
 use crate::common::{CoreId, HartId, PhysAddr, SimError, VirtAddr};
 use crate::isa::csr;
@@ -91,7 +93,7 @@ pub fn load_processes(
     state: &mut SystemState,
     programs: &[ProgramImage<'_>],
     mode: PagingMode,
-    clock_hz: u64,
+    clock_hz: NonZeroU64,
 ) -> Result<(), SimError> {
     let harts = state.harts.len();
     if programs.is_empty() || programs.len() > harts {
@@ -144,7 +146,7 @@ fn place(
     image: &Image<'_>,
     args: &ProcessArgs,
     mode: PagingMode,
-    clock_hz: u64,
+    clock_hz: NonZeroU64,
     terminal: SharedTerminal,
     memory: &mut GlobalMemory,
     frames: &mut FrameAllocator,

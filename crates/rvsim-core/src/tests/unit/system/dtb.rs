@@ -85,7 +85,7 @@ fn parse(dtb: &[u8]) -> Node {
 
 fn tree_for(hart_count: usize) -> Node {
     let mut config = Config::minimal();
-    config.system.hart_count = hart_count;
+    config.system.hart_count = std::num::NonZero::new(hart_count).unwrap();
     parse(&generate_dtb(&config))
 }
 

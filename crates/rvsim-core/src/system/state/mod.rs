@@ -69,7 +69,11 @@ fn build_bus(
         disk_device.load(load_binary(path)?);
     }
     let rtc_epoch_ns = system.rtc_epoch_seconds.saturating_mul(NANOS_PER_SECOND);
-    bus.add_device(Box::new(Uart::new(system.uart_base, terminal.clone(), system.cpu_clock_mhz)));
+    bus.add_device(Box::new(Uart::new(
+        system.uart_base,
+        terminal.clone(),
+        system.cpu_clock_mhz.get(),
+    )));
     bus.add_device(Box::new(disk_device));
     bus.add_device(Box::new(Clint::new(system.clint_base, system.clint_divider(), hart_count)));
     bus.add_device(Box::new(Plic::new(crate::config::PLIC_BASE, hart_count)));
@@ -100,7 +104,7 @@ fn build_mem_controller(config: &Config) -> Box<dyn MemoryController> {
                 .unwrap_or(std::num::NonZeroU64::MAX);
             Box::new(SimpleController::new(
                 config.memory.simple_latency,
-                Bandwidth::new(bytes_per_second, config.system.cpu_clock_hz()),
+                Bandwidth::new(bytes_per_second, config.system.cpu_clock_hz().get()),
             ))
         }
         MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
@@ -108,7 +112,7 @@ fn build_mem_controller(config: &Config) -> Box<dyn MemoryController> {
             config.memory.ram_size,
             &config.memory.ddr5.to_config(),
             MemCtrlId::new(0),
-            config.system.cpu_clock_mhz,
+            config.system.cpu_clock_mhz.get(),
         )),
     }
 }
@@ -275,7 +279,7 @@ impl SystemState {
         disk: Option<&str>,
         exit_signal: ExitSignal,
     ) -> Result<Self, SimError> {
-        let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
+        let topology = Topology::single_threaded_cores(config.system.hart_count.get());
         let hart_count = topology.hart_count();
         let ram_size = config.memory.ram_size;
         let ram = Ram::new(config.system.ram_base, ram_size)
@@ -424,7 +428,7 @@ mod tests {
     #[test]
     fn every_core_gets_its_own_hart_and_caches() {
         let mut config = Config::minimal();
-        config.system.hart_count = 2;
+        config.system.hart_count = std::num::NonZero::new(2).unwrap();
         let sys = SystemState::build(&config);
         assert_eq!(sys.harts.len(), 2);
         assert_eq!(sys.cores.len(), 2);

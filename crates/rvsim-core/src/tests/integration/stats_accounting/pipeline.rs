@@ -441,7 +441,7 @@ fn a_wfi_counts_the_cycles_it_waited_with_or_without_idle_skipping(rec: &mut Rec
             run_to_pc(&mut ctx, end, &context);
 
             let wfi = rec.read(&ctx.sim, "core0.pipeline.cycles.wfi");
-            let due = WAKE_AT * ctx.sim.state.uncore.kernel.config.system.clint_divider();
+            let due = WAKE_AT * ctx.sim.state.uncore.kernel.config.system.clint_divider().get();
             assert!((due - 100..=due).contains(&wfi), "{context}: {wfi} cycles, due at {due}");
             let total = rec.read(&ctx.sim, "core0.pipeline.cycles.total");
             let by_width: u64 = ["zero", "one", "two", "three_plus"]

@@ -142,7 +142,7 @@ fn a_checkpoint_does_not_restore_into_a_system_with_other_harts() {
     let mut one = TestContext::new_with_config(&config(BackendKind::InOrder));
     let checkpoint = saved(&mut one);
     let mut two_harts = config(BackendKind::InOrder);
-    two_harts.system.hart_count = 2;
+    two_harts.system.hart_count = std::num::NonZero::new(2).unwrap();
     let mut two = TestContext::new_with_config(&two_harts);
 
     let result = two.sim.restore_checkpoint(&mut checkpoint.as_slice());
@@ -164,7 +164,7 @@ fn a_restore_leaves_the_snoop_filter_tracking_nothing() {
         i().jal(0, 0).build(),
     ];
     let mut two_harts = config(BackendKind::OutOfOrder);
-    two_harts.system.hart_count = 2;
+    two_harts.system.hart_count = std::num::NonZero::new(2).unwrap();
     two_harts.coherence.home_agent = HomeAgentConfig::SnoopFilter { capacity_factor: 1.5, ways: 8 };
     two_harts.cache.l1_d.enabled = true;
     two_harts.cache.l2.enabled = true;
