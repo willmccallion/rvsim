@@ -1,5 +1,6 @@
 use crate::Simulator;
 use crate::common::{PhysAddr, VirtAddr};
+use crate::config::defaults::RAM_BASE;
 use crate::config::{Config, MemoryControllerKind, ValidConfig};
 use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
 use crate::isa::reg::RegIdx;
@@ -7,6 +8,9 @@ use crate::soc::exit::ExitSignal;
 use crate::system::SystemState;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::mocks::memory::MockMemory;
+
+/// Where a test program loads: the start of RAM.
+pub const PROGRAM_BASE: u64 = RAM_BASE;
 
 /// A simulator for `config` with no disk.
 pub fn build_simulator(config: &Config) -> Simulator {

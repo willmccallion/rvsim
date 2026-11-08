@@ -6,6 +6,8 @@ use crate::isa::encoding::rv64i::opcodes::*;
 use crate::isa::reg::RegIdx;
 use crate::tests::support::regs::{A0, A1, ZERO};
 
+/// `jal x0, 0`: a loop of one instruction, where a test program ends.
+pub const JAL_SELF: u32 = 0x0000_006F;
 /// `fence iorw, iorw`.
 pub const FENCE_IORW: u32 = 0x0ff0_000f;
 /// `fence.i`.

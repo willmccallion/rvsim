@@ -2,22 +2,19 @@
 
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{
     CBO_CLEAN_IMM, CBO_FLUSH_IMM, CBO_INVAL_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE,
 };
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
+use crate::tests::support::builder::instruction::JAL_SELF;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::regs::{X0, X10, X11, X12};
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
 const NOP: u32 = 0x0000_0013;
-/// `jal x0, 0` — branch-to-self, used as the "park here" tail of test
-/// programs so PC doesn't run off into uninitialized memory and trap.
-const JAL_SELF: u32 = 0x0000_006F;
-
 /// Encode a CBO instruction. I-type with the variant-specific 12-bit imm,
 /// rd=x0, funct3=CBO, opcode=MISC-MEM.
 fn cbo(imm: i64, rs1: RegIdx) -> u32 {

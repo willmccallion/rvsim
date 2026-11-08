@@ -6,10 +6,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::harness::build_simulator;
-
-/// Where multi-hart test programs are loaded; every hart starts here.
-pub const PROGRAM_BASE: u64 = 0x8000_0000;
+use crate::tests::support::harness::{PROGRAM_BASE, build_simulator};
 
 /// Scratch data area the programs use, 1 KiB above the code.
 pub const DATA_BASE: u64 = PROGRAM_BASE + 0x400;

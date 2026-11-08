@@ -12,12 +12,11 @@ use crate::soc::coherence::CoherenceFabric;
 use crate::system::checkpoint::CheckpointError;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
 use crate::tests::support::pmp_entry;
 use crate::tests::support::regs::{X0, X5, X6, X7, X8, X9};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x1000;
 const SQUARES: u64 = 200;
 const DONE: RegIdx = RegIdx::new(31);

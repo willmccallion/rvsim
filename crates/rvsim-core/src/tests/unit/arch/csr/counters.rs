@@ -6,9 +6,8 @@
 
 use crate::isa::csr;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, X0};
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const NOPS: u64 = 5;
 const REAL_INSTRUCTIONS: u64 = 3;
 

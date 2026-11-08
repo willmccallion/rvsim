@@ -8,7 +8,7 @@ use super::{Recorder, accounting_checks};
 use crate::config::{BackendKind, Config};
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A1, T0, T1, T2, X0, after};
 
@@ -350,7 +350,7 @@ fn fetch_waits_longer_on_slower_memory(rec: &mut Recorder) {
 }
 
 /// Where the one page table lives.
-const PAGE_TABLE: u64 = super::program::PROGRAM_BASE + 0x3000;
+const PAGE_TABLE: u64 = PROGRAM_BASE + 0x3000;
 /// A valid, readable, writable, executable leaf with A and D set.
 const LEAF_RWXAD: u64 = 0xCF;
 
@@ -376,8 +376,8 @@ fn supervisor_loads(backend: BackendKind, paged: bool) -> (TestContext, u64) {
     let mut config = config(backend);
     config.pipeline.width = 2;
     let mut ctx = system_with(&config, &program, &[]);
-    let gigapage = super::program::PROGRAM_BASE >> 30;
-    let pte = ((super::program::PROGRAM_BASE >> 12) << 10) | LEAF_RWXAD;
+    let gigapage = PROGRAM_BASE >> 30;
+    let pte = ((PROGRAM_BASE >> 12) << 10) | LEAF_RWXAD;
     ctx.sim.probe_mem_store(
         crate::common::PhysAddr::new(PAGE_TABLE + 8 * gigapage),
         pte,

@@ -8,9 +8,8 @@ use std::collections::HashMap;
 use crate::common::VirtAddr;
 use crate::config::{BackendKind, Config};
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x1000;
 const HANDLER: u64 = PROGRAM_BASE + 0x50;
 const VALUE: u64 = 0x7f;

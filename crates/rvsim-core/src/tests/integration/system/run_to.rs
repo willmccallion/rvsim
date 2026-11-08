@@ -8,10 +8,9 @@ use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, A1, X0, X5, X6, X7, X28};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const ADDRESS: RegIdx = RegIdx::new(5);
 const VALUE: RegIdx = RegIdx::new(6);
 const COUNTER: RegIdx = RegIdx::new(7);

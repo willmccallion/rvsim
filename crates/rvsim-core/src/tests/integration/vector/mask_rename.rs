@@ -8,10 +8,9 @@ use crate::config::Config;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::X0;
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrder];

@@ -10,6 +10,7 @@
 
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::isa::privileged::cause::exception;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
@@ -19,7 +20,6 @@ use crate::tests::support::regs::{A0, T0, T1, X0, X5, X6};
 /// `jal x0, 0`: holds the program at its end instead of running into zeros.
 const SPIN: u32 = 0x0000_006f;
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 4096;
 
 /// A long-enough trailing pad of NOPs (`addi x0, x0, 0`) so the program

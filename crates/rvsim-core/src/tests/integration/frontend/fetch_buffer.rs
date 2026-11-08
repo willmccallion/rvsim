@@ -5,11 +5,11 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::regs::{X0, X29, X31};
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
 const LINE_BYTES: usize = 64;
 const LINES: usize = 8;

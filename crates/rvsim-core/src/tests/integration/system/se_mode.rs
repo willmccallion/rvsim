@@ -3,13 +3,14 @@
 
 use crate::Simulator;
 use crate::common::{SimError, VirtAddr};
+use crate::config::defaults::RAM_BASE;
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::reg::RegIdx;
 use crate::system::checkpoint::CheckpointError;
 use crate::system::process::loader::PIE_BASE;
 use crate::system::simulator::{ProcessArgs, ProgramImage, ProgramKind, StopAt, StopReason};
-use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
 use crate::tests::support::harness::build_simulator;
 use crate::tests::support::regs::{A0, A1, A2, A3, A4, A5, A7, S0, S1, S2, SP, T0, T1, X0};
 
@@ -26,7 +27,6 @@ const M5_FAIL: u32 = 0x22;
 const M5_DUMP_STATS: u32 = 0x41;
 const SYS_WRITE: i32 = 64;
 const AT_FDCWD: i32 = -100;
-const JAL_SELF: u32 = 0x0000_006f;
 /// `vsetvli x0, x0, e8`: a vector instruction with no effect on the test.
 const VSETVLI_ZERO: u32 = 0x0000_7057;
 const CYCLE: u32 = 0xC00;
@@ -35,7 +35,6 @@ const CODE_OFFSET: u64 = 0x80;
 const ET_EXEC: u16 = 2;
 const ET_DYN: u16 = 3;
 const EM_RISCV: u16 = 243;
-const RAM_BASE: u64 = 0x8000_0000;
 
 /// A static riscv64 executable holding `code` in one readable, writable
 /// and executable segment at `LOAD_ADDRESS`.

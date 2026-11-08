@@ -8,10 +8,9 @@ use crate::config::Config;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{X0, X5, X10, X11, X12};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
 const SC_RESULT: RegIdx = RegIdx::new(7);
 const DONE_REG: RegIdx = RegIdx::new(31);

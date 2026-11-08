@@ -7,10 +7,9 @@ use crate::config::Config;
 use crate::isa::reg::RegIdx;
 use crate::sim::packet::MesiState;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{X0, X10, X11};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
 const SATP: u32 = 0x180;
 const SFENCE_VMA_ALL: u32 = 0x1200_0073;

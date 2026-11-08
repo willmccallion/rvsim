@@ -7,10 +7,9 @@ use crate::isa::csr::MIE_MTIE;
 use crate::isa::encoding::privileged::WFI;
 use crate::system::simulator::StopAt;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::X0;
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 /// Fewer cycles than the first instruction takes to fetch from cold caches.
 const SHORTER_THAN_A_COLD_FETCH: u64 = 10;
 

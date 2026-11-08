@@ -4,6 +4,7 @@
 //! and more advanced VirtIO functionality.
 
 use crate::common::{HartId, PhysAddr};
+use crate::config::defaults::RAM_BASE;
 use crate::sim::memory::{GlobalMemory, Ram};
 use crate::soc::devices::virtio_disk::VirtioBlock;
 
@@ -817,7 +818,6 @@ fn virtio_device_features_lower_bits() {
     assert_eq!(features, 0);
 }
 
-const RAM_BASE: u64 = 0x8000_0000;
 const DESC_TABLE: u64 = RAM_BASE + 0x1000;
 const AVAIL_RING: u64 = RAM_BASE + 0x100;
 const USED_RING: u64 = RAM_BASE + 0x200;

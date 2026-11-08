@@ -8,10 +8,9 @@ use crate::common::{InstSeq, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::{BranchPredictorKind, Config};
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, T1, T2, T3, X0};
 use crate::uarch::bpred::ControlInst;
-const PROGRAM_BASE: u64 = 0x8000_0000;
 /// The indirect jump only the wrong path reaches.
 const WRONG_PATH_JALR: u64 = PROGRAM_BASE + 0x14;
 

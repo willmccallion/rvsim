@@ -9,6 +9,7 @@ use crate::common::VirtAddr;
 use crate::config::{BackendKind, LoadPrefetcherConfig, MemDepPredictorKind, PageBoundary};
 use crate::tests::integration::translation::load_prefetch_paging::{Data, Mode, run_system};
 use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::harness::PROGRAM_BASE;
 use crate::tests::support::regs::{A1, T0, T1, T2, X0};
 
 const LOOPS: i32 = 5;
@@ -155,7 +156,7 @@ fn predictor_counts_start_again_after_a_stats_reset(rec: &mut Recorder) {
     let mut after: Vec<u32> = (0..2).map(|n| i().ld(T0, A1, 64 + 8 * n).build()).collect();
     after.extend(exit_sequence());
     let mut ctx = system(BackendKind::OutOfOrder, &program, &[]);
-    let continuation = super::program::PROGRAM_BASE + 0x100;
+    let continuation = PROGRAM_BASE + 0x100;
     super::program::store_words(&mut ctx, continuation, &after);
     run_to_pc(&mut ctx, end, context);
 
@@ -277,7 +278,7 @@ fn prefetching(backend: BackendKind, page_boundary: PageBoundary) -> crate::conf
 }
 
 fn a_stride_stream_is_prefetched_into_each_level_and_dropped_where_it_must_be(rec: &mut Recorder) {
-    let ram_end = super::program::PROGRAM_BASE + RAM_SIZE;
+    let ram_end = PROGRAM_BASE + RAM_SIZE;
     for backend in BACKENDS {
         let context = format!("{backend:?}");
         let mut inside =

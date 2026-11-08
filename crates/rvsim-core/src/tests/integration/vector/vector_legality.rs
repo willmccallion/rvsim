@@ -5,10 +5,9 @@ use crate::config::{BackendKind, Config, Console};
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, A1, A2, A3, A4, T0, X0};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x200;
 const DATA: u64 = PROGRAM_BASE + 0x400;
 const MCAUSE: u32 = 0x342;

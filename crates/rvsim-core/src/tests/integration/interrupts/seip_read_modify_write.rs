@@ -7,10 +7,9 @@ use crate::config::Config;
 use crate::isa::csr::{MIP, MIP_SEIP, MIP_STIP};
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, T1, X0};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;
 const UART_IER: u64 = 0x1000_0001;
 const UART_SOURCE: u64 = 10;

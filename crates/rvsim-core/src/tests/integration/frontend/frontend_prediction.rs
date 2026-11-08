@@ -9,9 +9,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::harness::TestContext;
-
-const PROGRAM_BASE: u64 = 0x8000_0000;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 
 /// `jal ra, f` sixteen times, `j .`, then `f: ret` (assembled, `.option norvc`).
 const CALLS: [u16; 36] = [

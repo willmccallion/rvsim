@@ -8,11 +8,9 @@ use std::sync::{Arc, Mutex};
 use crate::common::{HartId, InstSeq, SimError};
 use crate::config::{BackendKind, Config, Console};
 use crate::tests::support::builder::instruction::{InstructionBuilder, exit_with_a0};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::uarch::pipeline::trace::kanata::KanataWriter;
 use crate::uarch::pipeline::trace::{Departure, PipelineTrace, Stage};
-
-const PROGRAM_BASE: u64 = 0x8000_0000;
 
 /// What the trace was told about one instruction.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

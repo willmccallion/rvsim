@@ -6,14 +6,15 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
+use crate::tests::support::builder::instruction::JAL_SELF;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::A1;
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
 const ROOT_PPN: u64 = 0x8_0100;
 const CODE_L1_PPN: u64 = 0x8_0101;
@@ -25,7 +26,6 @@ const PTE_V: u64 = 1;
 const PTE_LEAF_RWX_AD: u64 = 0b1100_1111;
 /// `addi a1, zero, 42` split across the page boundary, then a jump to self.
 const ADDI_A1_42: u32 = 0x02A0_0593;
-const JAL_SELF: u32 = 0x0000_006F;
 /// `jal zero, 14`.
 const JAL_PLUS_14: u32 = 0x00E0_006F;
 

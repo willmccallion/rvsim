@@ -6,6 +6,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
@@ -13,7 +14,6 @@ use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A0, A1};
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x40_0000;
 const ROOT_PPN: u64 = 0x8_0100;
 const NEXT_PPN: u64 = 0x8_0101;

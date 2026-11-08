@@ -5,10 +5,9 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, X0, after};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const ADDS_PER_ITERATION: usize = 32;
 const ITERATIONS: usize = 50;
 const COUNTER: RegIdx = RegIdx::new(28);
