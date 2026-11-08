@@ -271,10 +271,6 @@ impl Device for Clint {
         self.counter = total % self.divider;
     }
 
-    fn as_clint(&self) -> Option<&Clint> {
-        Some(self)
-    }
-
     fn checkpoint(&self) -> Option<serde_json::Value> {
         serde_json::to_value(self.state()).ok()
     }
@@ -283,9 +279,5 @@ impl Device for Clint {
         let state: ClintState = parse_state(DeviceKind::Clint, state)?;
         self.set_state(&state);
         Ok(())
-    }
-
-    fn as_clint_mut(&mut self) -> Option<&mut Clint> {
-        Some(self)
     }
 }

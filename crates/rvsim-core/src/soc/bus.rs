@@ -6,6 +6,7 @@
 
 use super::devices::Device;
 use super::devices::clint::Clint;
+use super::devices::plic::Plic;
 use super::devices::uart::Uart;
 use crate::common::{HartId, PhysAddr};
 use crate::config::DeviceKind;
@@ -14,6 +15,7 @@ use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{MemOp, Packet, WriteData};
 use crate::soc::traits::{RestoreError, mmio_response};
+use std::any::Any;
 use std::collections::HashMap;
 
 /// Interrupt lines presented to one hart, sampled by [`Bus::tick`] each cycle.
@@ -268,7 +270,7 @@ impl Bus {
     /// The CLINT's `mtime`, which the `time` CSR reads; zero without a CLINT.
     #[must_use]
     pub fn mtime(&self) -> u64 {
-        self.clint_idx.and_then(|i| self.devices[i].as_clint()).map_or(0, Clint::mtime)
+        device_as::<Clint>(&self.devices, self.clint_idx).map_or(0, Clint::mtime)
     }
 
     /// Ticks the whole bus can skip; see [`Device::quiet_ticks`]. `None`
@@ -287,7 +289,7 @@ impl Bus {
     /// Ticks until the CLINT's `mtime` reaches `value`, or `None` if it
     /// already has or there is no CLINT.
     pub fn ticks_until_mtime(&self, value: u64) -> Option<u64> {
-        self.clint_idx.and_then(|i| self.devices[i].as_clint())?.ticks_until_mtime(value)
+        device_as::<Clint>(&self.devices, self.clint_idx)?.ticks_until_mtime(value)
     }
 
     /// The interrupt lines currently asserted towards `hart`.
@@ -314,7 +316,7 @@ impl Bus {
             *lines = HartIrqs::default();
         }
 
-        if let Some(clint) = clint_idx.and_then(|idx| devices[idx].as_clint_mut()) {
+        if let Some(clint) = device_as::<Clint>(devices, *clint_idx) {
             for (index, lines) in hart_irqs.iter_mut().enumerate() {
                 let hart = HartId::new(u32::try_from(index).unwrap_or(u32::MAX));
                 lines.mtip = clint.timer_pending(hart);
@@ -322,7 +324,7 @@ impl Bus {
             }
         }
 
-        if let Some(plic) = plic_idx.and_then(|idx| devices[idx].as_plic_mut()) {
+        if let Some(plic) = device_as_mut::<Plic>(devices, *plic_idx) {
             plic.update_irqs(active_irqs);
             plic.check_interrupts();
             for (index, lines) in hart_irqs.iter_mut().enumerate() {
@@ -336,7 +338,7 @@ impl Bus {
 
     /// The console UART.
     pub fn uart_mut(&mut self) -> Option<&mut Uart> {
-        self.devices.get_mut(self.uart_idx?)?.as_uart_mut()
+        device_as_mut::<Uart>(&mut self.devices, self.uart_idx)
     }
 
     /// Returns whether the UART device has detected a kernel panic pattern.
@@ -393,6 +395,21 @@ const fn response_bytes(packet: &Packet) -> usize {
         Packet::MemReq { size, .. } => size.bytes(),
         _ => COMMAND_BYTES,
     }
+}
+
+/// The device at `index` in `devices` as a `D`, when it is one.
+fn device_as<D: Device>(devices: &[Box<dyn Device>], index: Option<usize>) -> Option<&D> {
+    let device: &dyn Any = devices.get(index?)?.as_ref();
+    device.downcast_ref()
+}
+
+/// The device at `index` in `devices` as a mutable `D`, when it is one.
+fn device_as_mut<D: Device>(
+    devices: &mut [Box<dyn Device>],
+    index: Option<usize>,
+) -> Option<&mut D> {
+    let device: &mut dyn Any = devices.get_mut(index?)?.as_mut();
+    device.downcast_mut()
 }
 
 impl Handle for Bus {

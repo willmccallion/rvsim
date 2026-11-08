@@ -390,8 +390,4 @@ impl Device for Plic {
         self.set_state(&state);
         Ok(())
     }
-
-    fn as_plic_mut(&mut self) -> Option<&mut Plic> {
-        Some(self)
-    }
 }
