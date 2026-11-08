@@ -30,7 +30,7 @@ ORACLE_DIR = os.path.join(ROOT, "tests", "builds", "spike-oracle")
 
 # Shared pipeline matrix.
 sys.path.insert(0, ROOT)
-from tests.conformance.common import SPIKE, compare_traces, parse_log
+from tests.conformance.common import SPIKE, compare_traces, parse_log, select_pipelines
 from tests.conformance.configs.pipelines import PIPELINES
 
 # ── Test suites ──────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ def format_divergence(div_info, test_name):
     )
 
 
-def main():
+def parse_args():
     ap = argparse.ArgumentParser(
         description="Compare rvsim commit traces against spike oracle"
     )
@@ -181,129 +181,106 @@ def main():
         action="store_true",
         help="Stop at first divergence within each pipeline",
     )
-    args = ap.parse_args()
+    return ap.parse_args()
 
-    os.chdir(ROOT)
-    tests = find_tests()
-    if not tests:
-        print(f"No tests found in {ISA_DIR}", file=sys.stderr)
-        return 1
 
-    if args.test:
-        tests = [t for t in tests if args.test in os.path.basename(t)]
-        if not tests:
-            print(f"No tests matching '{args.test}'", file=sys.stderr)
-            return 1
+def with_oracle(tests):
+    """The `tests` that have a spike oracle log, naming those that do not."""
+    available = [
+        path
+        for path in tests
+        if os.path.exists(os.path.join(ORACLE_DIR, f"{os.path.basename(path)}.log"))
+    ]
+    missing = [os.path.basename(path) for path in tests if path not in available]
+    if missing:
+        print(
+            f"[compare] Skipping {len(missing)} tests without spike oracle: {missing}"
+        )
+    return available
 
-    # ── Phase 1: Oracle ──────────────────────────────────────────────────────
-    if not args.skip_oracle:
-        spike_failures = generate_spike_oracle(tests)
-        if spike_failures:
-            # Remove tests that spike itself can't handle
-            spike_fail_set = set(spike_failures)
-            tests = [t for t in tests if os.path.basename(t) not in spike_fail_set]
 
-    if args.oracle_only:
-        return 0
-
-    # Filter out tests without an oracle (spike may have failed on them)
-    available_tests = []
-    skipped = []
+def compare_pipeline(tests, spike_traces, cfg, stop_on_fail):
+    """The (test, divergence) of each of `tests` whose rvsim trace on `cfg`
+    leaves spike's, and how many matched."""
+    matched, failures = 0, []
     for path in tests:
         name = os.path.basename(path)
-        if os.path.exists(os.path.join(ORACLE_DIR, f"{name}.log")):
-            available_tests.append(path)
-        else:
-            skipped.append(name)
-    if skipped:
-        print(
-            f"[compare] Skipping {len(skipped)} tests without spike oracle: {skipped}"
+        _, divergence = compare_traces(spike_traces[name], run_rvsim_trace(path, cfg))
+        if divergence is None:
+            matched += 1
+            continue
+        failures.append((name, divergence))
+        if stop_on_fail:
+            break
+    return matched, failures
+
+
+def compare_all(tests, pipelines, stop_on_fail):
+    """Compares every test on every pipeline, printing each pipeline's
+    result as it finishes; returns (matched, [(label, test, divergence)])."""
+    spike_traces = {
+        os.path.basename(p): load_spike_trace(os.path.basename(p)) for p in tests
+    }
+    tests = [p for p in tests if spike_traces[os.path.basename(p)] is not None]
+    total_match, failures = 0, []
+    for pi, (label, cfg) in enumerate(pipelines, 1):
+        matched, pipe_failures = compare_pipeline(
+            tests, spike_traces, cfg, stop_on_fail
         )
-    tests = available_tests
+        total_match += matched
+        failures += [(label, name, div) for name, div in pipe_failures]
+        status = "PASS" if not pipe_failures else f"{len(pipe_failures)} DIVERGED"
+        print(
+            f"  [{pi:2d}/{len(pipelines)}] {label:30s}  "
+            f"{matched}/{len(tests)} match  ({status})  "
+            f"[total: {len(failures)} failures / {total_match + len(failures)} run]"
+        )
+        for name, div in pipe_failures:
+            print(format_divergence(div, name))
+    return total_match, failures
+
+
+def print_summary(total_match, failures):
+    print(f"\n{'=' * 72}")
+    print(
+        f"SPIKE COMPARISON: {total_match} matched, {len(failures)} diverged "
+        f"out of {total_match + len(failures)}"
+    )
+    print(f"{'=' * 72}")
+    if failures:
+        print(f"\n=== {len(failures)} Divergences ===")
+        for label, name, div in failures:
+            print(f"  [{label}] {format_divergence(div, name).strip()}")
+    else:
+        print("\nZERO DIVERGENCE — all traces match spike exactly.")
+
+
+def main():
+    args = parse_args()
+    os.chdir(ROOT)
+    tests = [
+        t for t in find_tests() if not args.test or args.test in os.path.basename(t)
+    ]
+    if not tests:
+        print(f"No tests in {ISA_DIR} match '{args.test or ''}'", file=sys.stderr)
+        return 1
+    if not args.skip_oracle:
+        spike_failures = set(generate_spike_oracle(tests))
+        tests = [t for t in tests if os.path.basename(t) not in spike_failures]
+    if args.oracle_only:
+        return 0
+    tests = with_oracle(tests)
     if not tests:
         print("No tests with spike oracle available.", file=sys.stderr)
         return 1
-
-    # ── Phase 2: Compare ─────────────────────────────────────────────────────
-    pipelines = PIPELINES
-    if args.pipelines:
-        selected = {s.strip() for s in args.pipelines.split(",")}
-        pipelines = [(label, c) for label, c in PIPELINES if label in selected]
-        if not pipelines:
-            print(f"No matching pipelines for: {args.pipelines}", file=sys.stderr)
-            return 1
-
+    pipelines = select_pipelines(PIPELINES, args.pipelines)
     print(
         f"\n[compare] {len(tests)} tests x {len(pipelines)} pipelines "
         f"= {len(tests) * len(pipelines):,} comparisons\n"
     )
-
-    # Pre-load all spike traces into memory (they're small)
-    spike_traces = {}
-    for path in tests:
-        name = os.path.basename(path)
-        spike_traces[name] = load_spike_trace(name)
-
-    overall_failures = []
-    total_match = 0
-    total_fail = 0
-
-    for pi, (label, cfg) in enumerate(pipelines, 1):
-        pipe_match = 0
-        pipe_fail = 0
-        pipe_failures = []
-
-        for path in tests:
-            name = os.path.basename(path)
-            spike_trace = spike_traces[name]
-            if spike_trace is None:
-                continue
-
-            rvsim_trace = run_rvsim_trace(path, cfg)
-            _, div_info = compare_traces(spike_trace, rvsim_trace)
-
-            if div_info is None:
-                pipe_match += 1
-            else:
-                pipe_fail += 1
-                pipe_failures.append((name, div_info))
-                if args.stop_on_fail:
-                    break
-
-        total_match += pipe_match
-        total_fail += pipe_fail
-        for name, div in pipe_failures:
-            overall_failures.append((label, name, div))
-
-        status = "PASS" if pipe_fail == 0 else f"{pipe_fail} DIVERGED"
-        done = total_match + total_fail
-        total = len(tests) * len(pipelines)
-        print(
-            f"  [{pi:2d}/{len(pipelines)}] {label:30s}  "
-            f"{pipe_match}/{len(tests)} match  ({status})  "
-            f"[total: {total_fail} failures / {done} run]"
-        )
-
-        # Print per-test failures inline if any
-        for name, div in pipe_failures:
-            print(format_divergence(div, name))
-
-    # ── Summary ──────────────────────────────────────────────────────────────
-    total = total_match + total_fail
-    print(f"\n{'=' * 72}")
-    print(
-        f"SPIKE COMPARISON: {total_match} matched, {total_fail} diverged out of {total}"
-    )
-    print(f"{'=' * 72}")
-
-    if overall_failures:
-        print(f"\n=== {total_fail} Divergences ===")
-        for label, name, div in overall_failures:
-            print(f"  [{label}] {format_divergence(div, name).strip()}")
-        return 1
-
-    print("\nZERO DIVERGENCE — all traces match spike exactly.")
-    return 0
+    total_match, failures = compare_all(tests, pipelines, args.stop_on_fail)
+    print_summary(total_match, failures)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
