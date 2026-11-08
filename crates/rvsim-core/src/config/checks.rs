@@ -3,12 +3,14 @@
 //! powers of two are powers of two, nothing is too large to allocate, and
 //! the address map has no overlaps.
 
+use super::pipeline::MAX_VECTOR_MEM_WIDTH;
 use super::{
     BackendKind, CacheConfig, CacheHierarchyConfig, CoherenceConfig, Config, ConfigError,
-    HomeAgentConfig, InterconnectConfig, LoadPrefetcherConfig, MemoryConfig, MemoryControllerKind,
-    PipelineConfig, PrefetcherKind, ReplacementPolicyKind, StorePrefetcherConfig, SystemConfig,
-    Timer,
+    CsrSquash, HomeAgentConfig, InclusionPolicy, InterconnectConfig, LoadPrefetcherConfig,
+    MemoryConfig, MemoryControllerKind, PipelineConfig, PrefetcherKind, ReplacementPolicyKind,
+    StorePrefetcherConfig, SystemConfig, Timer,
 };
+use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::misa::Misa;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::{MAX_GROUP_REGS, VRegIdx};
@@ -43,17 +45,85 @@ const MAX_LOOP_FIELD_BITS: usize = 16;
 const MAX_LOOP_COUNTER_BITS: usize = 8;
 /// The granule RAM is sized in.
 const PAGE_BYTES: usize = 4096;
+/// The most harts: coherence tracks sharers in a 64-bit `CoreSet`.
+const MAX_HARTS: usize = 64;
 
 impl Config {
+    /// The ISA string agrees with the vector unit's VLEN, and a V it names
+    /// is the full extension.
+    pub(super) fn check_isa(&self) -> Result<(), ConfigError> {
+        if let Some(parsed) = self.parsed_isa().map_err(ConfigError::IsaString)?
+            && let Some(named) = parsed.vlen
+            && named != self.pipeline.vlen.bits()
+        {
+            return Err(ConfigError::VlenMismatch { named, configured: self.pipeline.vlen.bits() });
+        }
+        if self.misa().has_v() && !self.implements_full_v() {
+            return Err(ConfigError::VWithoutFullVector {
+                vlen: self.pipeline.vlen.bits(),
+                elen: self.isa.vector.elen,
+            });
+        }
+        Ok(())
+    }
+
+    /// No more harts than a sharer set holds, and several only with an
+    /// inclusion policy coherence can keep.
+    pub(super) fn check_harts(&self) -> Result<(), ConfigError> {
+        let harts = self.system.hart_count.max(1);
+        if harts > MAX_HARTS {
+            return Err(ConfigError::TooManyHarts(harts));
+        }
+        if harts > 1 && self.cache.inclusion_policy == InclusionPolicy::Exclusive {
+            return Err(ConfigError::ExclusiveWithCoherence);
+        }
+        Ok(())
+    }
+
     /// Checks the machine's structures, sizes and address map.
     pub(super) fn check_machine(&self) -> Result<(), ConfigError> {
         check_system(&self.system, self.memory.ram_size)?;
         check_memory(&self.memory)?;
         check_caches(&self.cache)?;
         check_pipeline(&self.pipeline, self.misa())?;
+        check_backend(&self.pipeline)?;
         check_predictors(&self.pipeline)?;
         check_coherence(&self.coherence)
     }
+}
+
+/// Stage latencies the backend can keep, a BTB of whole sets, a vector
+/// memory port it can split lines into, and a squash policy the in-order
+/// backend has.
+fn check_backend(pipeline: &PipelineConfig) -> Result<(), ConfigError> {
+    let ways = pipeline.btb_ways.max(1);
+    let sets = (pipeline.btb_size / ways).max(1);
+    if !sets.is_power_of_two() {
+        return Err(ConfigError::BtbSets { size: pipeline.btb_size, ways, sets });
+    }
+    if pipeline.fetch_decode_latency == 0 {
+        return Err(ConfigError::StageLatency { field: "fetch_decode_latency", least: 1 });
+    }
+    let least_rename_issue = match pipeline.backend {
+        BackendKind::InOrder => 1,
+        BackendKind::OutOfOrder => 2,
+    };
+    if pipeline.rename_issue_latency < least_rename_issue {
+        return Err(ConfigError::StageLatency {
+            field: "rename_issue_latency",
+            least: least_rename_issue,
+        });
+    }
+    if pipeline.backend == BackendKind::InOrder && pipeline.csr_squash == Some(CsrSquash::Never) {
+        return Err(ConfigError::InOrderNeverSquashes);
+    }
+    let vector_mem_width = pipeline.vector_mem_width_bytes();
+    if !vector_mem_width.is_power_of_two()
+        || !(8..=MAX_VECTOR_MEM_WIDTH).contains(&vector_mem_width)
+    {
+        return Err(ConfigError::VectorMemWidth(vector_mem_width));
+    }
+    Ok(())
 }
 
 /// Refuses a zero `value` for `field`.
@@ -111,6 +181,9 @@ fn check_address_map(system: &SystemConfig, ram_size: usize) -> Result<(), Confi
 }
 
 fn check_memory(memory: &MemoryConfig) -> Result<(), ConfigError> {
+    if memory.simple_bandwidth_bytes_per_second().is_none() {
+        return Err(ConfigError::SimpleBandwidth);
+    }
     at_least_one("memory.tlb_size", memory.tlb_size)?;
     check_tlb("memory.tlb", memory.tlb_size, memory.tlb_ways)?;
     if memory.l2_tlb_size > 0 {
@@ -174,6 +247,9 @@ fn check_cache_level(level: &'static str, cache: &CacheConfig) -> Result<(), Con
             field: "cache line_bytes",
             value: cache.line_bytes,
         });
+    }
+    if (cache.line_bytes as u64) < CBOZ_BLOCK_SIZE {
+        return Err(ConfigError::LineSmallerThanCacheBlock { level, line_bytes: cache.line_bytes });
     }
     let set_bytes = cache.line_bytes.saturating_mul(cache.ways);
     let whole_sets = cache.ways > 0
@@ -287,9 +363,9 @@ fn check_units(pipeline: &PipelineConfig, misa: Misa) -> Result<(), ConfigError>
 }
 
 fn check_predictors(pipeline: &PipelineConfig) -> Result<(), ConfigError> {
-    let tage = &pipeline.tage;
-    check_bank_list("tage", "history_lengths", tage.history_lengths.len(), tage.num_banks)?;
-    check_bank_list("tage", "tag_widths", tage.tag_widths.len(), tage.num_banks)?;
+    pipeline.tage.validate()?;
+    pipeline.sc.validate()?;
+    pipeline.bht.validate()?;
     let ittage = &pipeline.ittage;
     at_most("ittage num_banks", ittage.num_banks, super::MAX_TAGE_BANKS)?;
     power_of_two("ittage table_size", ittage.table_size)?;
@@ -325,7 +401,7 @@ fn check_predictors(pipeline: &PipelineConfig) -> Result<(), ConfigError> {
     at_most("store_set lfst_size", store_set.lfst_size, MAX_STORE_SETS)
 }
 
-const fn check_bank_list(
+pub(in crate::config) const fn check_bank_list(
     predictor: &'static str,
     field: &'static str,
     len: usize,
