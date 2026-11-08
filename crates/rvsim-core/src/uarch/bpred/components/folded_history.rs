@@ -19,12 +19,20 @@ pub struct FoldedHistory {
     fold_width: usize,
     /// History length for this bank (how many GHR bits contribute).
     hist_length: usize,
+    /// The low `fold_width` bits.
+    mask: u64,
+    /// Where the bit leaving the history lands: `hist_length % fold_width`.
+    outpoint: usize,
 }
 
 impl FoldedHistory {
     /// Creates a new CSR that folds `hist_length` GHR bits into `fold_width` bits.
     pub const fn new(fold_width: usize, hist_length: usize) -> Self {
-        Self { val: 0, fold_width, hist_length }
+        if fold_width == 0 {
+            return Self { val: 0, fold_width, hist_length, mask: 0, outpoint: 0 };
+        }
+        let mask = (1u64 << fold_width) - 1;
+        Self { val: 0, fold_width, hist_length, mask, outpoint: hist_length % fold_width }
     }
 
     /// Incrementally updates the CSR when a new bit is pushed into the GHR.
@@ -35,16 +43,14 @@ impl FoldedHistory {
     /// Formula: `CSR = rotate_left(CSR, 1, fold_width) ^ new_bit ^ (old_bit << (hist_length % fold_width))`
     #[inline]
     pub const fn update(&mut self, new_bit: bool, old_bit: bool) {
-        let w = self.fold_width;
-        if w == 0 {
+        if self.fold_width == 0 {
             return;
         }
-        let mask = (1u64 << w) - 1;
-        let msb = (self.val >> (w - 1)) & 1;
-        self.val = ((self.val << 1) | msb) & mask;
+        let msb = (self.val >> (self.fold_width - 1)) & 1;
+        self.val = ((self.val << 1) | msb) & self.mask;
         self.val ^= new_bit as u64;
-        self.val ^= (old_bit as u64) << (self.hist_length % w);
-        self.val &= mask;
+        self.val ^= (old_bit as u64) << self.outpoint;
+        self.val &= self.mask;
     }
 
     /// Recomputes the CSR from scratch using word-level XOR-folding.
@@ -61,7 +67,7 @@ impl FoldedHistory {
             self.val = 0;
             return;
         }
-        let mask = (1u64 << w) - 1;
+        let mask = self.mask;
         let mut result = 0u64;
         let num_words = self.hist_length.div_ceil(64);
 
@@ -100,7 +106,7 @@ impl FoldedHistory {
             self.val = 0;
             return;
         }
-        let mask = (1u64 << w) - 1;
+        let mask = self.mask;
         self.val = 0;
         for i in (0..self.hist_length).rev() {
             let msb = (self.val >> (w - 1)) & 1;
