@@ -8,7 +8,7 @@ import os
 import tempfile
 import unittest
 
-from test_se_mode import CODE_OFFSET, EXIT_WITH_ARGC, LOAD_ADDRESS, user_elf
+from _programs import CODE_OFFSET, EXIT_WITH_ARGC, LOAD_ADDRESS, user_elf
 
 from rvsim import Config, Program, Simulator
 

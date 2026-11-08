@@ -9,7 +9,7 @@ import subprocess
 import sys
 import unittest
 
-from test_se_mode import CODE_OFFSET, LOAD_ADDRESS, user_elf
+from _programs import CODE_OFFSET, LOAD_ADDRESS, user_elf
 
 from rvsim import Config, Simulator
 
@@ -70,7 +70,7 @@ class Run(unittest.TestCase):
     def test_a_run_prints_nothing_of_its_own(self):
         script = (
             "from rvsim import Config, Simulator\n"
-            "from test_se_mode import user_elf\n"
+            "from _programs import user_elf\n"
             f"Simulator(Config(), elf_data=user_elf([{JAL_SELF}])).run(limit=1_000)\n"
         )
 

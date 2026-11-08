@@ -9,14 +9,15 @@ import threading
 import time
 import unittest
 
-from rvsim import Config, Simulator
-from tests.python.test_se_mode import (
+from _programs import (
     CODE_OFFSET,
     COUNT_THEN_EXIT,
     EXIT_WITH_ARGC,
     LOAD_ADDRESS,
     user_elf,
 )
+
+from rvsim import Config, Simulator
 
 ENTRY = LOAD_ADDRESS + CODE_OFFSET
 # The `addi a0, zero, 9` after COUNT_THEN_EXIT's loop.
