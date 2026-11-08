@@ -128,6 +128,10 @@ pub(crate) fn setup_kernel_load(
         state.uncore.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
 
         load_kernel(state, boot, PhysAddr::new(kernel_addr))?;
+        let next_arg = match firmware {
+            Firmware::Jump(_) => 0,
+            Firmware::Dynamic(_) => write_fw_dynamic_info(state, kernel_addr, dtb_addr),
+        };
 
         // Every hart starts in OpenSBI with its own id in a0; the firmware's
         // boot lottery picks the cold-boot hart and parks the rest.
@@ -136,36 +140,7 @@ pub(crate) fn setup_kernel_load(
             hart.privilege = PrivilegeMode::Machine;
             hart.regs.write(reg::REG_A0, u64::from(hart.hart_id.val()));
             hart.regs.write(reg::REG_A1, dtb_addr);
-        }
-
-        if matches!(firmware, Firmware::Dynamic(_)) {
-            // fw_dynamic_info struct: magic, version, next_addr, next_mode,
-            // options, boot_hart, next_arg1 (each u64 on rv64).
-            const FW_DYNAMIC_INFO_MAGIC: u64 = 0x4942534f;
-            const FW_DYNAMIC_INFO_VERSION: u64 = 2;
-            const NEXT_MODE_S: u64 = 1;
-            let info_addr = dtb_addr - FW_DYNAMIC_INFO_GAP;
-            let fields: [u64; 7] = [
-                FW_DYNAMIC_INFO_MAGIC,
-                FW_DYNAMIC_INFO_VERSION,
-                kernel_addr,
-                NEXT_MODE_S,
-                0,
-                u64::MAX,
-                dtb_addr,
-            ];
-            let mut info_bytes = Vec::with_capacity(56);
-            for field in &fields {
-                info_bytes.extend_from_slice(&field.to_le_bytes());
-            }
-            state.uncore.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
-            for hart in &mut state.harts {
-                hart.regs.write(reg::REG_A2, info_addr);
-            }
-        } else {
-            for hart in &mut state.harts {
-                hart.regs.write(reg::REG_A2, 0);
-            }
+            hart.regs.write(reg::REG_A2, next_arg);
         }
     } else {
         state.uncore.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
@@ -181,6 +156,31 @@ pub(crate) fn setup_kernel_load(
     }
 
     Ok(())
+}
+
+/// Writes `fw_dynamic`'s info block below the device tree, telling the
+/// firmware to enter the kernel at `kernel_addr` in S-mode with the tree at
+/// `dtb_addr`, and returns its address for `a2`.
+fn write_fw_dynamic_info(state: &mut SystemState, kernel_addr: u64, dtb_addr: u64) -> u64 {
+    const FW_DYNAMIC_INFO_MAGIC: u64 = 0x4942534f;
+    const FW_DYNAMIC_INFO_VERSION: u64 = 2;
+    const NEXT_MODE_S: u64 = 1;
+    /// Any hart may cold-boot.
+    const BOOT_HART_ANY: u64 = u64::MAX;
+    let info_addr = dtb_addr - FW_DYNAMIC_INFO_GAP;
+    // magic, version, next_addr, next_mode, options, boot_hart, next_arg1
+    let fields = [
+        FW_DYNAMIC_INFO_MAGIC,
+        FW_DYNAMIC_INFO_VERSION,
+        kernel_addr,
+        NEXT_MODE_S,
+        0,
+        BOOT_HART_ANY,
+        dtb_addr,
+    ];
+    let info: Vec<u8> = fields.iter().flat_map(|field| field.to_le_bytes()).collect();
+    state.uncore.load_binary_at(&info, PhysAddr::new(info_addr));
+    info_addr
 }
 
 /// Result of loading an ELF file.
@@ -275,6 +275,22 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("/nonexistent/path/that/cannot/exist.bin"));
+    }
+
+    #[test]
+    fn the_fw_dynamic_info_block_enters_the_kernel_in_s_mode_with_the_tree() {
+        let config = Config::minimal();
+        let mut state = SystemState::build(&config);
+        let dtb_addr = config.system.ram_base + DTB_OFFSET;
+
+        let info_addr = write_fw_dynamic_info(&mut state, 0x8020_0000, dtb_addr);
+
+        let memory = &state.uncore.kernel.memory;
+        let fields: Vec<_> = (0..7)
+            .map(|i| memory.read(PhysAddr::new(info_addr + 8 * i), 8).expect("the block is in RAM"))
+            .collect();
+        assert_eq!(info_addr, dtb_addr - FW_DYNAMIC_INFO_GAP);
+        assert_eq!(fields, [0x4942_534f, 2, 0x8020_0000, 1, 0, u64::MAX, dtb_addr]);
     }
 
     #[test]
