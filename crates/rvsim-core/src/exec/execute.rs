@@ -502,12 +502,20 @@ fn int_to_float(
             },
             || Exact::of_integer(i128::from(a as i64)),
         ),
+        // `0u64 as f64` gives -0 under the host's round-down mode (LLVM's
+        // fallback when CVTUSI2SD_q is unavailable), so zero is explicit.
         (IntWidth::Double, Signedness::Unsigned) => convert_rounded(
             rm,
             format,
             || {
                 let v = black_box(a);
-                if single { box_f32(v as f32) } else { (v as f64).to_bits() }
+                if single {
+                    box_f32(v as f32)
+                } else if v == 0 {
+                    0
+                } else {
+                    (v as f64).to_bits()
+                }
             },
             || Exact::of_unsigned(u128::from(a)),
         ),
@@ -517,6 +525,17 @@ fn int_to_float(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unsigned_zero_converts_to_positive_zero_double_in_every_rounding_mode() {
+        let unsigned_long = AluOp::Fp(FpOp::FromInt(IntWidth::Double, Signedness::Unsigned));
+        for rm in [RoundingMode::Rne, RoundingMode::Rtz, RoundingMode::Rdn, RoundingMode::Rup] {
+            let (res, flags) =
+                compute_alu(unsigned_long, 0, 0, 0, OperandFormat::Fp(FpFormat::Double), Some(rm));
+            assert_eq!(res, 0, "{rm:?}");
+            assert_eq!(flags, FpFlags::NONE, "{rm:?}");
+        }
+    }
 
     #[test]
     fn int_to_float_conversions_are_exact_for_small_values() {
