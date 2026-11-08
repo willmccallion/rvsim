@@ -273,7 +273,6 @@ impl PipelineConfig {
         }
     }
 
-    /// Returns the default number of load ports.
     /// Vector execution lanes: `num_vec_lanes`, or one per 64 bits of VLEN.
     #[must_use]
     pub fn vector_lanes(&self) -> usize {
