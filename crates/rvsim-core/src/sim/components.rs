@@ -51,6 +51,14 @@ pub struct RowId(u32);
 pub struct ReqId(u64);
 
 impl ReqId {
+    /// The host's own access, whose response it takes from a queue of its
+    /// own. It lies above every originator's namespace.
+    pub const HOST_PROBE: Self = Self(u64::MAX);
+
+    /// A request whose response nobody matches: a prefetch passed down to
+    /// the next level, or a DRAM scrub read.
+    pub const UNTRACKED: Self = Self(u64::MAX - 1);
+
     /// A correlator for a request a cache originates itself (a line fetch
     /// or a writeback). The top bit marks the cache namespace so it can
     /// never collide with a pipeline's `(PipelineId << 48) | seq` ids.

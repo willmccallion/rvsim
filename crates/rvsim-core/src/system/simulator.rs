@@ -1183,7 +1183,7 @@ impl Simulator {
             4 => AccessSize::B4,
             _ => AccessSize::B8,
         };
-        let req_id = ReqId::new(u64::MAX);
+        let req_id = ReqId::HOST_PROBE;
         let mut local_queue = EventQueue::new();
         let mut local_stats = Stats::new();
         let uncore = &mut self.state.uncore;

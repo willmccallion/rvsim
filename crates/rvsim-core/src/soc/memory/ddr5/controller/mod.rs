@@ -361,7 +361,7 @@ impl Ddr5Controller {
         let paddr = PhysAddr::new(self.base.val() + scrubber.cursor * CACHE_LINE_BYTES);
         scrubber.cursor = (scrubber.cursor + 1) % scrubber.line_count;
         let source = ComponentId::MemCtrl(self.self_id);
-        self.enqueue(ReqId::new(u64::MAX), paddr, AccessSize::Line, MemOp::Read, source, now);
+        self.enqueue(ReqId::UNTRACKED, paddr, AccessSize::Line, MemOp::Read, source, now);
     }
 
     fn tick_dram_cycle(&mut self, now: u64, memory: &GlobalMemory) {
