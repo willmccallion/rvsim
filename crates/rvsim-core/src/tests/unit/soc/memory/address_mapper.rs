@@ -88,3 +88,63 @@ fn same_row_stays_when_striding_within_row() {
         );
     }
 }
+
+/// The DRAM field that takes the address bit `bit`, if any.
+fn field_of_bit(mapper: &AddressMapper, bit: u32) -> &'static str {
+    let loc = mapper.decompose(PhysAddr::new(1 << bit));
+    let fields = [
+        ("channel", u64::from(loc.channel.val())),
+        ("subchannel", loc.subchannel.as_index() as u64),
+        ("rank", u64::from(loc.rank.val())),
+        ("bank_group", u64::from(loc.bank_group.val())),
+        ("bank", u64::from(loc.bank)),
+        ("row", u64::from(loc.row.val())),
+        ("column", u64::from(loc.column)),
+    ];
+    fields.iter().find(|(_, value)| *value != 0).map_or("offset", |(name, _)| *name)
+}
+
+/// Each field's width, low to high, from the bit above the line offset.
+fn layout(kind: AddressMappingKind) -> Vec<(&'static str, u32)> {
+    let mapper = make(kind);
+    let mut runs: Vec<(&'static str, u32)> = Vec::new();
+    for bit in u32::from(CACHE_LINE_OFFSET_BITS)..u32::from(CACHE_LINE_OFFSET_BITS) + 32 {
+        match runs.last_mut() {
+            Some((name, width)) if *name == field_of_bit(&mapper, bit) => *width += 1,
+            _ => runs.push((field_of_bit(&mapper, bit), 1)),
+        }
+    }
+    runs
+}
+
+#[test]
+fn each_mapping_places_its_fields_low_to_high_above_the_line_offset() {
+    let common_top = [("bank", 2), ("bank_group", 2), ("rank", 1)];
+    assert_eq!(
+        layout(AddressMappingKind::RoRaBaChCo),
+        [
+            [("column", 10), ("subchannel", 1), ("channel", 1)].as_slice(),
+            &common_top,
+            &[("row", 15)]
+        ]
+        .concat()
+    );
+    assert_eq!(
+        layout(AddressMappingKind::RoRaBaCoCh),
+        [
+            [("channel", 1), ("subchannel", 1), ("column", 10)].as_slice(),
+            &common_top,
+            &[("row", 15)]
+        ]
+        .concat()
+    );
+    assert_eq!(
+        layout(AddressMappingKind::RoCoRaBaCh),
+        [
+            [("channel", 1), ("subchannel", 1)].as_slice(),
+            &common_top,
+            &[("column", 10), ("row", 15)]
+        ]
+        .concat()
+    );
+}
