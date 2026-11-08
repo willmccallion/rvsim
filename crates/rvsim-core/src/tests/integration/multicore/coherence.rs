@@ -152,7 +152,7 @@ fn run_audited(system: &mut MultiHart, max_cycles: u64) -> Option<u64> {
         if let Err(broken) = system.sim.tick() {
             panic!("{broken}");
         }
-        if let Some(code) = system.sim.state.check_exit() {
+        if let Some(code) = system.sim.state.peek_exit() {
             return Some(code);
         }
     }

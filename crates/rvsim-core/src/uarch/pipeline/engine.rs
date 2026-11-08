@@ -719,7 +719,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
             None => false,
         };
 
-        if !fetch_squashing && state.check_exit().is_none() && !state.hart.wfi_waiting {
+        if !fetch_squashing && state.peek_exit().is_none() && !state.hart.wfi_waiting {
             self.frontend.tick(&mut state.stage(), &mut self.engine, &mut self.rename_output);
         }
         self.count_control_stall(state);

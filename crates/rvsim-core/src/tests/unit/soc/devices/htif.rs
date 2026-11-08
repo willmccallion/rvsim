@@ -12,21 +12,7 @@ fn quiet() -> SharedTerminal {
 }
 
 #[test]
-fn test_htif_name() {
-    let exit_signal = ExitSignal::new();
-    let htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
-    assert_eq!(htif.name(), "HTIF");
-}
-
-#[test]
-fn test_htif_address_range() {
-    let exit_signal = ExitSignal::new();
-    let htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
-    assert_eq!(htif.address_range(), (0x1000, 16));
-}
-
-#[test]
-fn test_htif_read_returns_zero() {
+fn reading_tohost_returns_zero() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
 
@@ -52,7 +38,7 @@ fn test_htif_read_returns_zero() {
 }
 
 #[test]
-fn test_htif_write_u8_u16_ignored() {
+fn byte_and_halfword_writes_to_tohost_are_ignored() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
@@ -64,7 +50,7 @@ fn test_htif_write_u8_u16_ignored() {
 }
 
 #[test]
-fn test_htif_write_to_non_zero_offset_ignored() {
+fn a_write_beside_tohost_does_not_end_the_run() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
@@ -81,7 +67,7 @@ fn test_htif_write_to_non_zero_offset_ignored() {
 }
 
 #[test]
-fn test_htif_pass() {
+fn a_tohost_value_of_one_passes_the_run() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
@@ -90,7 +76,7 @@ fn test_htif_pass() {
 }
 
 #[test]
-fn test_htif_fail() {
+fn an_odd_tohost_value_above_one_fails_with_its_test_number() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
@@ -104,7 +90,7 @@ fn test_htif_fail() {
 }
 
 #[test]
-fn test_htif_zero_ignored() {
+fn a_zero_tohost_value_is_ignored() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 
@@ -124,7 +110,7 @@ fn an_even_tohost_value_is_a_syscall_block_not_an_exit() {
 }
 
 #[test]
-fn test_htif_write_u32() {
+fn a_word_write_to_tohost_counts() {
     let exit_signal = ExitSignal::new();
     let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
 

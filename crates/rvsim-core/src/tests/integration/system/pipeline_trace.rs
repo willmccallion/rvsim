@@ -124,7 +124,7 @@ fn traced_run(backend: BackendKind, program: &[u32]) -> Recording {
     let recording = Recording::default();
     ctx.sim.state.uncore.pipeline_trace = Some(Box::new(recording.clone()));
     ctx.run(20_000);
-    assert_eq!(ctx.sim.state.check_exit(), Some(0), "{backend:?}: the program exits");
+    assert_eq!(ctx.sim.state.peek_exit(), Some(0), "{backend:?}: the program exits");
     recording
 }
 

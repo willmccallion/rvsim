@@ -179,7 +179,7 @@ fn complete_walk<E: ExecutionEngine>(
     data: &MemRespData,
 ) {
     let raw_pte = PartRead::of(data).value;
-    let bus_transit = state.bus.calculate_transit_time(8);
+    let bus_transit = state.bus.transit_cycles(8);
     let walked_page = walk.state.vaddr.val() >> PAGE_SHIFT;
     let outcome = state.translate_continue(walk.state, raw_pte, bus_transit, walk.access_size);
     match outcome {

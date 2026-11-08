@@ -826,7 +826,7 @@ impl Simulator {
         let settled = self.skip_idle_cores
             && !state.trace.armed
             && !state.config.general.trace_instructions
-            && state.check_exit().is_none()
+            && state.peek_exit().is_none()
             && state.panic_detected_at_cycle.is_none()
             && state.event_queue.is_empty()
             && state.coherence.as_ref().is_none_or(|fabric| fabric.is_quiet(now + 1))

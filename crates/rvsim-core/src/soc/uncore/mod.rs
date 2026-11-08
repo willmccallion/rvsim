@@ -236,7 +236,7 @@ impl Uncore {
 
     /// Returns the exit code if a device has requested shutdown without
     /// clearing the signal slot.
-    pub fn check_exit(&self) -> Option<u64> {
+    pub fn peek_exit(&self) -> Option<u64> {
         self.exit_signal.peek()
     }
 
@@ -337,7 +337,7 @@ impl Uncore {
     ///
     /// Returns [`SimError::KernelPanic`] when the bus panic sentinel fires.
     pub fn pre_cycle(&mut self) -> Result<bool, SimError> {
-        if self.check_exit().is_some() {
+        if self.peek_exit().is_some() {
             return Ok(false);
         }
 

@@ -173,7 +173,7 @@ impl Bus {
     }
 
     /// Returns cycles = base latency plus ceiling(bytes / `width_bytes`) transfers.
-    pub const fn calculate_transit_time(&self, bytes: usize) -> u64 {
+    pub const fn transit_cycles(&self, bytes: usize) -> u64 {
         self.latency_cycles + self.transfer_cycles(bytes)
     }
 
@@ -187,7 +187,7 @@ impl Bus {
     const fn send_request(&mut self, now: u64, bytes: usize) -> u64 {
         let start = if now > self.request_busy_until { now } else { self.request_busy_until };
         self.request_busy_until = start + self.transfer_cycles(bytes);
-        start + self.calculate_transit_time(bytes)
+        start + self.transit_cycles(bytes)
     }
 
     /// Claims the response channel from `now`, returning when the response
@@ -195,7 +195,7 @@ impl Bus {
     const fn send_response(&mut self, now: u64, bytes: usize) -> u64 {
         let start = if now > self.response_busy_until { now } else { self.response_busy_until };
         self.response_busy_until = start + self.transfer_cycles(bytes);
-        start + self.calculate_transit_time(bytes)
+        start + self.transit_cycles(bytes)
     }
 
     /// Returns whether the given physical address is backed by any device or RAM.

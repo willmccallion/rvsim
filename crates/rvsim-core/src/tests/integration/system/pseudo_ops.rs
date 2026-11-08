@@ -62,7 +62,7 @@ fn run(program: &[u32]) -> TestContext {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     ctx.run(20_000);
-    assert_eq!(ctx.sim.state.check_exit(), Some(5), "the guest ended the run with its code");
+    assert_eq!(ctx.sim.state.peek_exit(), Some(5), "the guest ended the run with its code");
     ctx
 }
 
@@ -105,7 +105,7 @@ fn exit_code_on(backend: crate::config::BackendKind, program: &[u32]) -> Option<
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     ctx.run(20_000);
-    ctx.sim.state.check_exit()
+    ctx.sim.state.peek_exit()
 }
 
 /// `m5_sum` adds its six arguments into `a0`, and a value-returning
