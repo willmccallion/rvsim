@@ -1,5 +1,6 @@
 //! Writebacks to the next level and cache-maintenance operations.
 
+use super::request::Response;
 use super::writeback_buffer::{Writeback, WritebackCause};
 use crate::common::LineAddr;
 use crate::sim::components::ComponentId;
@@ -23,14 +24,16 @@ impl Cache {
         let addr = req.paddr.val();
         let hit_level = self.hit_level();
         self.respond(
+            Response {
+                target: req.source,
+                req_id: req.req_id,
+                paddr: req.paddr,
+                at: ctx.cycle + self.latency,
+                hit_level,
+                state: MesiState::Invalid,
+                data: MemRespData::Small(0),
+            },
             ctx,
-            req.source,
-            req.req_id,
-            req.paddr,
-            ctx.cycle + self.latency,
-            hit_level,
-            MesiState::Invalid,
-            MemRespData::Small(0),
         );
         let line = self.line_of(addr);
         // A clean writeback is an eviction notice. A dirty one may also be
@@ -154,14 +157,16 @@ impl Cache {
             let level = self.hit_level();
             let ack = MemRespData::Small(0);
             self.respond(
+                Response {
+                    target: req.source,
+                    req_id: req.req_id,
+                    paddr: req.paddr,
+                    at,
+                    hit_level: level,
+                    state: MesiState::Invalid,
+                    data: ack,
+                },
                 ctx,
-                req.source,
-                req.req_id,
-                req.paddr,
-                at,
-                level,
-                MesiState::Invalid,
-                ack,
             );
             return;
         };

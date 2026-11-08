@@ -8,6 +8,7 @@ use crate::sim::packet::coherence::{CoherenceMsg, ReqKind, SnoopKind};
 use crate::sim::packet::{HitLevel, MemOp, MemRespData, MesiState, Packet, ProbeKind};
 
 use super::Cache;
+use super::request::Response;
 use super::writeback_buffer::WritebackCause;
 use super::{AfterProbe, BlockedRequest, Forwarded, PendingProbe, ProbeOrigin};
 
@@ -26,14 +27,16 @@ impl Cache {
             MemOp::Writeback { dirty } => {
                 let dirty = *dirty;
                 self.respond(
+                    Response {
+                        target: req.source,
+                        req_id: req.req_id,
+                        paddr: req.paddr,
+                        at: ctx.cycle + self.latency,
+                        hit_level: self.hit_level(),
+                        state: MesiState::Invalid,
+                        data: MemRespData::Small(0),
+                    },
                     ctx,
-                    req.source,
-                    req.req_id,
-                    req.paddr,
-                    ctx.cycle + self.latency,
-                    self.hit_level(),
-                    MesiState::Invalid,
-                    MemRespData::Small(0),
                 );
                 if self.pending_probes.iter().any(|p| p.line == line) {
                     self.note_probe_writeback(line, dirty, ctx);

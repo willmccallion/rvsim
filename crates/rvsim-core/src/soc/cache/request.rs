@@ -34,30 +34,44 @@ impl Cache {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn respond(
-        &self,
-        ctx: &mut HandleCtx<'_>,
-        target: ComponentId,
-        req_id: ReqId,
-        paddr: PhysAddr,
-        at: u64,
-        hit_level: HitLevel,
-        state: MesiState,
-        data: MemRespData,
-    ) {
+    pub(super) fn respond(&self, response: Response, ctx: &mut HandleCtx<'_>) {
         ctx.scheduler.schedule(
-            at,
-            target,
+            response.at,
+            response.target,
             ctx.self_id,
             Packet::MemResp {
-                req_id,
-                line_addr: self.line_of(paddr.val()),
-                data,
-                hit_level,
-                state,
+                req_id: response.req_id,
+                line_addr: self.line_of(response.paddr.val()),
+                data: response.data,
+                hit_level: response.hit_level,
+                state: response.state,
             },
         );
+    }
+
+    /// Serves each of `targets` and answers it after the response latency,
+    /// granting `state`.
+    fn answer_targets(
+        &self,
+        targets: &[MshrTarget],
+        hit_level: HitLevel,
+        state: MesiState,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        let at = ctx.cycle + self.response_latency;
+        for target in targets {
+            let data = Self::serve(target.paddr, target.size, &target.op, ctx);
+            let response = Response {
+                target: target.source,
+                req_id: target.req_id,
+                paddr: target.paddr,
+                at,
+                hit_level,
+                state,
+                data,
+            };
+            self.respond(response, ctx);
+        }
     }
 
     /// Makes a hart's access take effect as this cache serves it and returns
@@ -103,13 +117,12 @@ impl Cache {
         }
         let Some(req) = self.probe_before_fetch(req, ctx) else { return };
 
-        let addr = req.paddr.val();
         // An atomic is performed in the cache: it needs the line writable
         // and leaves it modified, like a store.
         let is_write =
             matches!(req.op, MemOp::Write { .. } | MemOp::ReadOwn | MemOp::Atomic { .. });
-        let set_index = self.set_index(addr);
-        let present = self.find_way(addr);
+        let set_index = self.set_index(req.paddr.val());
+        let present = self.find_way(req.paddr.val());
         if let Some(way) = present {
             self.note_request_for(self.slot(set_index, way), ctx.stats);
         }
@@ -117,41 +130,63 @@ impl Cache {
             && present.is_some_and(|way| {
                 self.lines[self.slot(set_index, way)].state == MesiState::Shared
             });
-        if let Some(way) = present.filter(|_| !needs_permission) {
-            self.policy.update(set_index, way);
-            let index = self.slot(set_index, way);
-            if is_write {
-                self.lines[index].state = MesiState::Modified;
-            }
-            ctx.stats.counter(self.stat_paths.hits).inc();
-            let hit_level = self.hit_level();
-            let granted = self.lines[index].state;
-            let data = Self::serve(req.paddr, req.size, &req.op, ctx);
-            // A fetch held for its probes found the line in the tag lookup
-            // before them, and is answered as the probed data arrives.
-            let latency = if req.probed_above { self.response_latency } else { self.latency };
-            self.respond(
-                ctx,
-                req.source,
-                req.req_id,
-                req.paddr,
-                ctx.cycle + latency,
-                hit_level,
-                granted,
-                data,
-            );
-            self.note_upper_copy(index, req.source);
-            if self.upstream_inclusion == InclusionPolicy::Exclusive
-                && matches!(req.source, ComponentId::Cache(_))
-            {
-                // The upper level now owns the line.
-                self.drop_line(self.slot(set_index, way), ctx.stats);
-                let _ = self.handed_up.insert(self.line_of(addr));
-            }
-            self.observe_prefetcher(addr, req.pc, true, ctx);
-            return;
+        match present.filter(|_| !needs_permission) {
+            Some(way) => self.serve_hit(&req, set_index, way, is_write, ctx),
+            None => self.join_or_start_fetch(req, is_write, ctx),
         }
+    }
 
+    /// Answers `req` from way `way` of set `set_index`, where the line is
+    /// held with the rights it needs.
+    fn serve_hit(
+        &mut self,
+        req: &BlockedRequest,
+        set_index: usize,
+        way: usize,
+        is_write: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        let addr = req.paddr.val();
+        self.policy.update(set_index, way);
+        let index = self.slot(set_index, way);
+        if is_write {
+            self.lines[index].state = MesiState::Modified;
+        }
+        ctx.stats.counter(self.stat_paths.hits).inc();
+        let data = Self::serve(req.paddr, req.size, &req.op, ctx);
+        // A fetch held for its probes found the line in the tag lookup
+        // before them, and is answered as the probed data arrives.
+        let latency = if req.probed_above { self.response_latency } else { self.latency };
+        let response = Response {
+            target: req.source,
+            req_id: req.req_id,
+            paddr: req.paddr,
+            at: ctx.cycle + latency,
+            hit_level: self.hit_level(),
+            state: self.lines[index].state,
+            data,
+        };
+        self.respond(response, ctx);
+        self.note_upper_copy(index, req.source);
+        if self.upstream_inclusion == InclusionPolicy::Exclusive
+            && matches!(req.source, ComponentId::Cache(_))
+        {
+            // The upper level now owns the line.
+            self.drop_line(index, ctx.stats);
+            let _ = self.handed_up.insert(self.line_of(addr));
+        }
+        self.observe_prefetcher(addr, req.pc, true, ctx);
+    }
+
+    /// Joins `req` to the MSHR already fetching its line, or starts the
+    /// fetch.
+    fn join_or_start_fetch(
+        &mut self,
+        req: BlockedRequest,
+        is_write: bool,
+        ctx: &mut HandleCtx<'_>,
+    ) {
+        let addr = req.paddr.val();
         ctx.stats.counter(self.stat_paths.misses).inc();
         let line = self.line_of(addr);
         let target = MshrTarget {
@@ -410,20 +445,7 @@ impl Cache {
         }
         // The line is forwarded to its requests as it is written into the
         // array, without a second array access.
-        let answered_at = ctx.cycle + self.response_latency;
-        for target in &mshr.targets {
-            let data = Self::serve(target.paddr, target.size, &target.op, ctx);
-            self.respond(
-                ctx,
-                target.source,
-                target.req_id,
-                target.paddr,
-                answered_at,
-                hit_level,
-                installed,
-                data,
-            );
-        }
+        self.answer_targets(&mshr.targets, hit_level, installed, ctx);
         self.serve_deferred(mshr.line, mshr.deferred, installed, hit_level, ctx);
         self.serve_after_fill(mshr.line, ctx);
         self.retry_blocked(ctx);
@@ -529,21 +551,10 @@ impl Cache {
         };
         let index = self.slot(self.set_index(line.val()), way);
         self.lines[index].state = MesiState::Modified;
-        let answered_at = ctx.cycle + self.response_latency;
         for target in &deferred {
             self.note_upper_copy(index, target.source);
-            let data = Self::serve(target.paddr, target.size, &target.op, ctx);
-            self.respond(
-                ctx,
-                target.source,
-                target.req_id,
-                target.paddr,
-                answered_at,
-                hit_level,
-                MesiState::Modified,
-                data,
-            );
         }
+        self.answer_targets(&deferred, hit_level, MesiState::Modified, ctx);
     }
 
     /// Installs a fetched line in the state the next level granted (a
@@ -640,4 +651,22 @@ const fn next_level(level: CacheLevel) -> Option<CacheLevel> {
         CacheLevel::L2 => Some(CacheLevel::L3),
         CacheLevel::L3 => None,
     }
+}
+
+/// What a cache answers a request with.
+pub(super) struct Response {
+    /// Who asked.
+    pub target: ComponentId,
+    /// The asker's correlator.
+    pub req_id: ReqId,
+    /// The address asked for.
+    pub paddr: PhysAddr,
+    /// When the answer arrives.
+    pub at: u64,
+    /// The level the line was found at.
+    pub hit_level: HitLevel,
+    /// The rights granted with the line.
+    pub state: MesiState,
+    /// What the access read.
+    pub data: MemRespData,
 }
