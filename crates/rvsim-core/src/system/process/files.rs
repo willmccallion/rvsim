@@ -3,8 +3,10 @@
 
 use super::errno::Errno;
 use crate::soc::terminal::SharedTerminal;
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
@@ -217,7 +219,7 @@ impl FileTable {
     /// working directory when relative; `dirfd` other than `AT_FDCWD`
     /// resolves against that descriptor's path.
     pub fn resolve(&mut self, dirfd: Fd, path: &[u8]) -> Result<PathBuf, Errno> {
-        let path = Path::new(std::str::from_utf8(path).map_err(|_| Errno::EINVAL)?);
+        let path = Path::new(OsStr::from_bytes(path));
         if path.is_absolute() || dirfd == AT_FDCWD {
             return Ok(path.to_path_buf());
         }
@@ -382,11 +384,26 @@ fn copy_from(contents: &[u8], offset: u64, buffer: &mut [u8]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{AT_FDCWD, Fd};
+    use super::{AT_FDCWD, Fd, FileTable};
+    use crate::config::Console;
+    use crate::soc::terminal::Terminal;
+    use std::os::unix::ffi::OsStrExt;
 
     #[test]
     fn a_descriptor_argument_is_read_as_an_int() {
         assert_eq!(Fd::from_arg((-100_i64).cast_unsigned()), AT_FDCWD);
         assert_eq!(Fd::from_arg(1 << 32 | 1), Fd::from_arg(1));
+    }
+
+    #[test]
+    fn a_path_need_not_be_utf_8() {
+        let mut files = FileTable::new(Terminal::shared(Console::Quiet));
+
+        let path = files.resolve(AT_FDCWD, b"/data/\xff.bin");
+
+        assert_eq!(
+            path.map(|path| path.as_os_str().as_bytes().to_vec()),
+            Ok(b"/data/\xff.bin".to_vec())
+        );
     }
 }
