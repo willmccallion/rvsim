@@ -131,8 +131,8 @@ pub struct DramController {
     row_shift: u32,
     /// Cycle of the last bank activation (for tRRD enforcement).
     last_activate_cycle: Option<u64>,
-    /// Next cycle at which an auto-refresh fires.
-    next_refresh_cycle: u64,
+    /// Next cycle at which an auto-refresh fires; `None` without refresh.
+    next_refresh_cycle: Option<u64>,
 }
 
 impl DramController {
@@ -164,7 +164,7 @@ impl DramController {
             row_mask,
             row_shift,
             last_activate_cycle: None,
-            next_refresh_cycle: if cfg.t_refi > 0 { cfg.t_refi } else { u64::MAX },
+            next_refresh_cycle: first_refresh(cfg.t_refi, 0),
         }
     }
 
@@ -185,15 +185,15 @@ impl DramController {
 
         let mut effective_cycle = current_cycle;
 
-        while effective_cycle >= self.next_refresh_cycle {
-            let refresh_end = self.next_refresh_cycle + self.t_rfc;
+        while let Some(due) = self.next_refresh_cycle.filter(|&due| effective_cycle >= due) {
+            let refresh_end = due + self.t_rfc;
             for bank in &mut self.banks {
                 if bank.busy_until < refresh_end {
                     bank.busy_until = refresh_end;
                 }
                 bank.open_row = None;
             }
-            self.next_refresh_cycle += self.t_refi;
+            self.next_refresh_cycle = Some(due + self.t_refi);
             if effective_cycle < refresh_end {
                 effective_cycle = refresh_end;
             }
@@ -314,8 +314,14 @@ impl MemoryController for DramController {
             *bank = BankState { open_row: None, busy_until: 0 };
         }
         self.last_activate_cycle = None;
-        self.next_refresh_cycle = if self.t_refi > 0 { cycle + self.t_refi } else { u64::MAX };
+        self.next_refresh_cycle = first_refresh(self.t_refi, cycle);
     }
+}
+
+/// When the first refresh after `cycle` fires, every `t_refi` cycles; a
+/// zero interval means the DRAM is never refreshed.
+const fn first_refresh(t_refi: u64, cycle: u64) -> Option<u64> {
+    if t_refi > 0 { Some(cycle + t_refi) } else { None }
 }
 
 /// Serves a request at the controller: a hart's access takes effect in
