@@ -619,7 +619,7 @@ impl PySimulator {
             let trace = self.inner.pc_trace(0);
             let kept = usize::try_from(retired).map_or(trace.len(), |n| n.min(trace.len()));
             let (pc, inst) = trace[trace.len() - kept];
-            let asm = rvsim_core::isa::disasm::disassemble(inst);
+            let asm = rvsim_core::disasm::disassemble(inst);
             let cycles = self.inner.cycle() - start_cycle;
             return Ok(Some(PyInstruction { pc: pc.val(), raw: inst, asm, cycles }));
         }

@@ -40,6 +40,9 @@ pub mod system;
 /// stats keyed by path.
 pub use crate::sim::stats;
 
+/// Disassembly of instruction words, as the simulator decodes them.
+pub use crate::exec::disasm;
+
 #[cfg(test)]
 #[allow(
     clippy::missing_panics_doc,

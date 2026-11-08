@@ -18,7 +18,7 @@ pub fn version() -> String {
 #[pyfunction]
 #[must_use]
 pub fn disassemble(inst: u32) -> String {
-    rvsim_core::isa::disasm::disassemble(inst)
+    rvsim_core::disasm::disassemble(inst)
 }
 
 /// The ISA string the configuration implements, as the device tree
