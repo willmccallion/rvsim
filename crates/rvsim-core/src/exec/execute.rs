@@ -426,7 +426,7 @@ pub fn compute_alu(
 /// Executes the floating-point `op` in `format`: conversions into single
 /// and double precision and register moves here, the rest in the FPU.
 fn execute_fp(op: FpOp, [a, b, c]: [u64; 3], format: FpFormat, rm: RoundingMode) -> (u64, FpFlags) {
-    use crate::exec::compute::fpu::half::{box_f16, f16_to_f32, unbox_f16};
+    use crate::exec::compute::fpu::half::{box_f16, f16_to_f32, is_snan_f16, unbox_f16};
     use crate::exec::compute::fpu::nan_handling::{
         box_f32_canon, canonicalize_f64_bits, unbox_f32,
     };
@@ -445,8 +445,12 @@ fn execute_fp(op: FpOp, [a, b, c]: [u64; 3], format: FpFormat, rm: RoundingMode)
         (FpOp::FromFloat(FpFormat::Single), FpFormat::Double) => {
             on_host_fpu(rm, || canonicalize_f64_bits(f64::from(black_box(unbox_f32(a)))))
         }
+        // f16_to_f32 works on the bits, so the host raises nothing for a
+        // signaling NaN.
         (FpOp::FromFloat(FpFormat::Half), FpFormat::Single) => {
-            on_host_fpu(rm, || box_f32_canon(f16_to_f32(unbox_f16(a))))
+            let half = unbox_f16(a);
+            let invalid = if is_snan_f16(half) { FpFlags::NV } else { FpFlags::NONE };
+            (box_f32_canon(f16_to_f32(half)), invalid)
         }
         (FpOp::FromFloat(FpFormat::Half), FpFormat::Double) => on_host_fpu(rm, || {
             canonicalize_f64_bits(f64::from(black_box(f16_to_f32(unbox_f16(a)))))
@@ -534,6 +538,23 @@ mod tests {
                 compute_alu(unsigned_long, 0, 0, 0, OperandFormat::Fp(FpFormat::Double), Some(rm));
             assert_eq!(res, 0, "{rm:?}");
             assert_eq!(flags, FpFlags::NONE, "{rm:?}");
+        }
+    }
+
+    #[test]
+    fn widening_a_signaling_nan_half_raises_invalid_in_both_formats() {
+        let boxed_signaling_half = 0xFFFF_FFFF_FFFF_7C01;
+        let from_half = AluOp::Fp(FpOp::FromFloat(FpFormat::Half));
+        for target in [FpFormat::Single, FpFormat::Double] {
+            let (_, flags) = compute_alu(
+                from_half,
+                boxed_signaling_half,
+                0,
+                0,
+                OperandFormat::Fp(target),
+                Some(RoundingMode::Rne),
+            );
+            assert_eq!(flags, FpFlags::NV, "{target:?}");
         }
     }
 
