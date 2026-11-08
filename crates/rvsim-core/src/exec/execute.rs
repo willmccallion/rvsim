@@ -337,7 +337,7 @@ pub fn evaluate(state: &impl ArchState, inst: &Inst, op_a: u64, op_b: u64) -> (u
         Some(Rounding::Dynamic) => frm_mode(state.hart()),
         None => None,
     };
-    compute_alu(inst.ctrl.alu, op_a, op_b, inst.rv3, inst.ctrl.format, fp_rm)
+    execute_alu_op(inst.ctrl.alu, [op_a, op_b, inst.rv3], inst.ctrl.format, fp_rm)
 }
 
 /// Checks a taken branch or jump target's alignment: four bytes without
@@ -363,21 +363,20 @@ pub fn jump_target(inst: &Inst) -> VirtAddr {
     }
 }
 
-/// Computes the ALU/FPU result and returns `(result, fp_flags)`; the flags
-/// are empty for everything but floating-point arithmetic.
-pub fn compute_alu(
-    alu_op: AluOp,
-    op_a: u64,
-    op_b: u64,
-    op_c: u64,
+/// Executes `op` on its unit with the operands `[a, b, c]`: the integer
+/// ALU at the format's width, or the FPU in its format under `fp_rm`.
+/// Returns the result and the flags, empty for an integer operation.
+pub fn execute_alu_op(
+    op: AluOp,
+    [a, b, c]: [u64; 3],
     format: OperandFormat,
     fp_rm: Option<RoundingMode>,
 ) -> (u64, FpFlags) {
-    match alu_op {
-        AluOp::Int(op) => (alu::execute(op, op_a, op_b, format.int_width()), FpFlags::NONE),
+    match op {
+        AluOp::Int(op) => (alu::execute(op, a, b, format.int_width()), FpFlags::NONE),
         AluOp::Fp(op) => {
             let rm = fp_rm.unwrap_or(RoundingMode::Rne);
-            fpu::execute(op, [op_a, op_b, op_c], format.fp_format(), rm)
+            fpu::execute(op, [a, b, c], format.fp_format(), rm)
         }
     }
 }
@@ -392,8 +391,12 @@ mod tests {
     fn an_unsigned_zero_converts_to_positive_zero_double_in_every_rounding_mode() {
         let unsigned_long = AluOp::Fp(FpOp::FromInt(IntWidth::Double, Signedness::Unsigned));
         for rm in [RoundingMode::Rne, RoundingMode::Rtz, RoundingMode::Rdn, RoundingMode::Rup] {
-            let (res, flags) =
-                compute_alu(unsigned_long, 0, 0, 0, OperandFormat::Fp(FpFormat::Double), Some(rm));
+            let (res, flags) = execute_alu_op(
+                unsigned_long,
+                [0, 0, 0],
+                OperandFormat::Fp(FpFormat::Double),
+                Some(rm),
+            );
             assert_eq!(res, 0, "{rm:?}");
             assert_eq!(flags, FpFlags::NONE, "{rm:?}");
         }
@@ -403,8 +406,12 @@ mod tests {
     fn an_unsigned_zero_converts_to_positive_zero_half_in_every_rounding_mode() {
         let unsigned_long = AluOp::Fp(FpOp::FromInt(IntWidth::Double, Signedness::Unsigned));
         for rm in [RoundingMode::Rne, RoundingMode::Rtz, RoundingMode::Rdn, RoundingMode::Rup] {
-            let (res, flags) =
-                compute_alu(unsigned_long, 0, 0, 0, OperandFormat::Fp(FpFormat::Half), Some(rm));
+            let (res, flags) = execute_alu_op(
+                unsigned_long,
+                [0, 0, 0],
+                OperandFormat::Fp(FpFormat::Half),
+                Some(rm),
+            );
             assert_eq!(res, 0xFFFF_FFFF_FFFF_0000, "{rm:?}");
             assert_eq!(flags, FpFlags::NONE, "{rm:?}");
         }
@@ -415,11 +422,9 @@ mod tests {
         let boxed_signaling_half = 0xFFFF_FFFF_FFFF_7C01;
         let from_half = AluOp::Fp(FpOp::FromFloat(FpFormat::Half));
         for target in [FpFormat::Single, FpFormat::Double] {
-            let (_, flags) = compute_alu(
+            let (_, flags) = execute_alu_op(
                 from_half,
-                boxed_signaling_half,
-                0,
-                0,
+                [boxed_signaling_half, 0, 0],
                 OperandFormat::Fp(target),
                 Some(RoundingMode::Rne),
             );
@@ -431,22 +436,18 @@ mod tests {
     fn int_to_float_conversions_are_exact_for_small_values() {
         let rne = Some(RoundingMode::Rne);
 
-        let (res, flags) = compute_alu(
+        let (res, flags) = execute_alu_op(
             AluOp::Fp(FpOp::FromInt(IntWidth::Word, Signedness::Signed)),
-            1,
-            0,
-            0,
+            [1, 0, 0],
             OperandFormat::Fp(FpFormat::Double),
             rne,
         );
         assert_eq!(res, (1.0f64).to_bits());
         assert_eq!(flags, FpFlags::NONE);
 
-        let (res, flags) = compute_alu(
+        let (res, flags) = execute_alu_op(
             AluOp::Fp(FpOp::FromInt(IntWidth::Word, Signedness::Signed)),
-            1,
-            0,
-            0,
+            [1, 0, 0],
             OperandFormat::Fp(FpFormat::Single),
             rne,
         );
@@ -456,11 +457,9 @@ mod tests {
 
     #[test]
     fn move_to_float_passes_the_bits_through() {
-        let (res, flags) = compute_alu(
+        let (res, flags) = execute_alu_op(
             AluOp::Fp(FpOp::MoveFromInt),
-            42,
-            0,
-            0,
+            [42, 0, 0],
             OperandFormat::Fp(FpFormat::Double),
             Some(RoundingMode::Rne),
         );
@@ -471,11 +470,9 @@ mod tests {
 
     #[test]
     fn inexact_conversion_raises_the_inexact_flag() {
-        let (_, flags) = compute_alu(
+        let (_, flags) = execute_alu_op(
             AluOp::Fp(FpOp::FromInt(IntWidth::Double, Signedness::Signed)),
-            (1u64 << 60) + 1,
-            0,
-            0,
+            [(1u64 << 60) + 1, 0, 0],
             OperandFormat::Fp(FpFormat::Single),
             Some(RoundingMode::Rne),
         );
