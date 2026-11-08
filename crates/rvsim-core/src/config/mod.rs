@@ -39,8 +39,9 @@ pub use pipeline::{
 };
 pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};
 pub use system::{
-    CLINT_REGION_BYTES, DeviceRegion, PLIC_BASE, PLIC_REGION_BYTES, RTC_BASE, RTC_REGION_BYTES,
-    SYSCON_REGION_BYTES, SystemConfig, Timer, UART_REGION_BYTES, VIRTIO_REGION_BYTES,
+    CLINT_REGION_BYTES, DeviceKind, DeviceRegion, PLIC_BASE, PLIC_REGION_BYTES, RTC_BASE,
+    RTC_REGION_BYTES, SYSCON_REGION_BYTES, SystemConfig, Timer, UART_REGION_BYTES,
+    VIRTIO_REGION_BYTES,
 };
 
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
@@ -323,9 +324,6 @@ pub enum ConfigError {
         /// The other.
         second: &'static str,
     },
-    /// A device latency override for a device the system does not have.
-    #[error("device_latency_ns_overrides names no device: {0:?}")]
-    UnknownDevice(String),
     /// A TLB whose entries do not fill a power-of-two number of sets.
     #[error("{tlb}: {entries} entries do not fill a power-of-two number of {ways}-way sets")]
     TlbGeometry {

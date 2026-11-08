@@ -6,6 +6,7 @@
 //! tick, and type-specific upcasts that the bus uses for IRQ aggregation.
 
 use crate::common::{IrqId, LineAddr, PhysAddr};
+use crate::config::DeviceKind;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
@@ -34,7 +35,7 @@ pub fn serve_mmio<D: MmioRegisters>(
 ) {
     let Packet::MemReq { req_id, paddr, size, op, .. } = packet else { return };
     let value = device.access(paddr.val().saturating_sub(device.address_range().0), size, op, ctx);
-    let answered_at = ctx.cycle + ctx.config.system.device_access_cycles(device.name());
+    let answered_at = ctx.cycle + ctx.config.system.device_access_cycles(device.kind());
     ctx.scheduler.schedule(answered_at, source, ctx.self_id, mmio_response(req_id, paddr, value));
 }
 
@@ -54,10 +55,10 @@ pub const fn mmio_response(req_id: ReqId, paddr: PhysAddr, value: u64) -> Packet
 #[derive(Debug, thiserror::Error)]
 pub enum RestoreError {
     /// The state is not in the device's checkpoint format.
-    #[error("{device} state: {source}")]
+    #[error("{} state: {source}", .device.name())]
     Malformed {
         /// The device.
-        device: &'static str,
+        device: DeviceKind,
         /// What the state lacked or got wrong.
         source: serde_json::Error,
     },
@@ -87,7 +88,7 @@ pub enum RestoreError {
 ///
 /// [`RestoreError::Malformed`] when it is not in that format.
 pub fn parse_state<T: DeserializeOwned>(
-    device: &'static str,
+    device: DeviceKind,
     state: &serde_json::Value,
 ) -> Result<T, RestoreError> {
     T::deserialize(state).map_err(|source| RestoreError::Malformed { device, source })
@@ -99,8 +100,13 @@ pub fn parse_state<T: DeserializeOwned>(
 /// describes layout (name + address range), per-cycle lifecycle (`tick`), and
 /// device-class upcasts the bus uses for routing IRQs and panic detection.
 pub trait Device: Handle + Send + Sync {
-    /// Returns a short name for this device (e.g., `"UART0"`, `"CLINT"`).
-    fn name(&self) -> &str;
+    /// Which device this is.
+    fn kind(&self) -> DeviceKind;
+
+    /// Its name, as configs, checkpoints and statistics spell it.
+    fn name(&self) -> &'static str {
+        self.kind().name()
+    }
     /// Returns (`base_address`, `size_in_bytes`) for this device's MMIO region.
     fn address_range(&self) -> (u64, u64);
 

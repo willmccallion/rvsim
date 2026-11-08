@@ -4,6 +4,65 @@ use super::defaults;
 use crate::config::Console;
 use serde::{Deserialize, Serialize};
 
+/// A kind of MMIO device, named as configs, checkpoints and statistics
+/// spell it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DeviceKind {
+    /// The 16550 UART.
+    #[serde(rename = "UART0")]
+    Uart,
+    /// The `VirtIO` block device.
+    #[serde(rename = "VirtIO-Blk")]
+    VirtioBlk,
+    /// The core-local interruptor.
+    #[serde(rename = "CLINT")]
+    Clint,
+    /// The platform-level interrupt controller.
+    #[serde(rename = "PLIC")]
+    Plic,
+    /// The power and reset controller.
+    #[serde(rename = "SysCon")]
+    SysCon,
+    /// The Goldfish real-time clock.
+    #[serde(rename = "GoldfishRTC")]
+    GoldfishRtc,
+    /// The host-target interface.
+    #[serde(rename = "HTIF")]
+    Htif,
+    /// A test's stand-in device.
+    #[cfg(test)]
+    Mock,
+}
+
+impl DeviceKind {
+    /// Every kind.
+    pub const ALL: [Self; 7] = [
+        Self::Uart,
+        Self::VirtioBlk,
+        Self::Clint,
+        Self::Plic,
+        Self::SysCon,
+        Self::GoldfishRtc,
+        Self::Htif,
+    ];
+
+    /// The name configs, checkpoints and statistics use.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Uart => "UART0",
+            Self::VirtioBlk => "VirtIO-Blk",
+            Self::Clint => "CLINT",
+            Self::Plic => "PLIC",
+            Self::SysCon => "SysCon",
+            Self::GoldfishRtc => "GoldfishRTC",
+            Self::Htif => "HTIF",
+            #[cfg(test)]
+            Self::Mock => "Mock",
+        }
+    }
+}
+
 /// A device's register window in the physical address map.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeviceRegion {
@@ -130,7 +189,7 @@ pub struct SystemConfig {
     /// `CLINT`, `PLIC`, `VirtIO-Blk`, `SysCon`, `GoldfishRTC`, `HTIF`),
     /// overriding `device_latency_ns`.
     #[serde(default)]
-    pub device_latency_ns_overrides: std::collections::HashMap<String, u64>,
+    pub device_latency_ns_overrides: std::collections::HashMap<DeviceKind, u64>,
 
     /// HTIF tohost address (0 = disabled). When non-zero, an HTIF device is
     /// registered at this address to intercept riscv-tests pass/fail writes.
@@ -150,12 +209,36 @@ impl SystemConfig {
     #[must_use]
     pub const fn device_regions(&self) -> [DeviceRegion; 6] {
         [
-            DeviceRegion { name: "UART0", base: self.uart_base, size: UART_REGION_BYTES },
-            DeviceRegion { name: "VirtIO-Blk", base: self.disk_base, size: VIRTIO_REGION_BYTES },
-            DeviceRegion { name: "CLINT", base: self.clint_base, size: CLINT_REGION_BYTES },
-            DeviceRegion { name: "PLIC", base: PLIC_BASE, size: PLIC_REGION_BYTES },
-            DeviceRegion { name: "SysCon", base: self.syscon_base, size: SYSCON_REGION_BYTES },
-            DeviceRegion { name: "GoldfishRTC", base: RTC_BASE, size: RTC_REGION_BYTES },
+            DeviceRegion {
+                name: DeviceKind::Uart.name(),
+                base: self.uart_base,
+                size: UART_REGION_BYTES,
+            },
+            DeviceRegion {
+                name: DeviceKind::VirtioBlk.name(),
+                base: self.disk_base,
+                size: VIRTIO_REGION_BYTES,
+            },
+            DeviceRegion {
+                name: DeviceKind::Clint.name(),
+                base: self.clint_base,
+                size: CLINT_REGION_BYTES,
+            },
+            DeviceRegion {
+                name: DeviceKind::Plic.name(),
+                base: PLIC_BASE,
+                size: PLIC_REGION_BYTES,
+            },
+            DeviceRegion {
+                name: DeviceKind::SysCon.name(),
+                base: self.syscon_base,
+                size: SYSCON_REGION_BYTES,
+            },
+            DeviceRegion {
+                name: DeviceKind::GoldfishRtc.name(),
+                base: RTC_BASE,
+                size: RTC_REGION_BYTES,
+            },
         ]
     }
 
@@ -217,11 +300,11 @@ impl SystemConfig {
         self.ns_to_cycles(self.device_latency_ns)
     }
 
-    /// Cycles the device named `name` takes to answer a register access.
+    /// Cycles a device of `kind` takes to answer a register access.
     #[must_use]
-    pub fn device_access_cycles(&self, name: &str) -> u64 {
+    pub fn device_access_cycles(&self, kind: DeviceKind) -> u64 {
         self.device_latency_ns_overrides
-            .get(name)
+            .get(&kind)
             .map_or_else(|| self.default_device_access_cycles(), |&ns| self.ns_to_cycles(ns))
     }
 

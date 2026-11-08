@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::HartId;
+use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
@@ -236,8 +237,8 @@ impl MmioRegisters for Clint {
 }
 
 impl Device for Clint {
-    fn name(&self) -> &'static str {
-        "CLINT"
+    fn kind(&self) -> DeviceKind {
+        DeviceKind::Clint
     }
 
     fn address_range(&self) -> (u64, u64) {
@@ -279,7 +280,7 @@ impl Device for Clint {
     }
 
     fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
-        let state: ClintState = parse_state("CLINT", state)?;
+        let state: ClintState = parse_state(DeviceKind::Clint, state)?;
         self.set_state(&state);
         Ok(())
     }

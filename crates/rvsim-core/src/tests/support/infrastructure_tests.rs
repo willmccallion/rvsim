@@ -353,5 +353,5 @@ fn mock_memory_name() {
     use crate::soc::devices::Device;
 
     let mem = MockMemory::new(64, 0);
-    assert_eq!(mem.name(), "MockMemory");
+    assert_eq!(mem.name(), "Mock");
 }

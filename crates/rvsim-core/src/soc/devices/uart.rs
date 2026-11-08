@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::common::IrqId;
+use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::AccessSize;
@@ -416,8 +417,8 @@ impl MmioRegisters for Uart {
 }
 
 impl Device for Uart {
-    fn name(&self) -> &'static str {
-        "UART0"
+    fn kind(&self) -> DeviceKind {
+        DeviceKind::Uart
     }
     fn address_range(&self) -> (u64, u64) {
         (self.base_addr, crate::config::UART_REGION_BYTES)
@@ -462,7 +463,7 @@ impl Device for Uart {
     }
 
     fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
-        let state: UartState = parse_state("UART", state)?;
+        let state: UartState = parse_state(DeviceKind::Uart, state)?;
         self.set_state(&state);
         Ok(())
     }

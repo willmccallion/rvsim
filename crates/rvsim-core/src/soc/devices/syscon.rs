@@ -11,6 +11,7 @@
 //!   * `0x7777`: Reset
 //!   * `0x3333`: Failure/Panic
 
+use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::AccessSize;
@@ -91,8 +92,8 @@ impl MmioRegisters for SysCon {
 }
 
 impl Device for SysCon {
-    fn name(&self) -> &'static str {
-        "SysCon"
+    fn kind(&self) -> DeviceKind {
+        DeviceKind::SysCon
     }
 
     fn address_range(&self) -> (u64, u64) {

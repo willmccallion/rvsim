@@ -94,14 +94,6 @@ fn check_system(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigErro
         return Err(ConfigError::KernelOffset { offset: system.kernel_offset, ram_size });
     }
     check_address_map(system, ram_size)?;
-    let names = system.device_regions().map(|region| region.name);
-    if let Some(unknown) = system
-        .device_latency_ns_overrides
-        .keys()
-        .find(|name| !names.contains(&name.as_str()) && name.as_str() != "HTIF")
-    {
-        return Err(ConfigError::UnknownDevice(unknown.clone()));
-    }
     Ok(())
 }
 

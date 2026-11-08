@@ -8,6 +8,7 @@ use super::devices::Device;
 use super::devices::clint::Clint;
 use super::devices::uart::Uart;
 use crate::common::{HartId, PhysAddr};
+use crate::config::DeviceKind;
 use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
@@ -136,14 +137,19 @@ impl Bus {
     pub fn add_device(&mut self, dev: Box<dyn Device>) {
         self.devices.push(dev);
         self.devices.sort_by_key(|d| d.address_range().0);
-        self.uart_idx = self.devices.iter().position(|d| d.name() == "UART0");
-        self.clint_idx = self.devices.iter().position(|d| d.name() == "CLINT");
-        self.plic_idx = self.devices.iter().position(|d| d.name() == "PLIC");
+        self.uart_idx = self.position_of(DeviceKind::Uart);
+        self.clint_idx = self.position_of(DeviceKind::Clint);
+        self.plic_idx = self.position_of(DeviceKind::Plic);
         self.refresh_htif_range();
     }
 
+    /// Where the device of `kind` is in the bus's order, if it has one.
+    fn position_of(&self, kind: DeviceKind) -> Option<usize> {
+        self.devices.iter().position(|d| d.kind() == kind)
+    }
+
     fn refresh_htif_range(&mut self) {
-        self.htif_range = self.devices.iter().find(|d| d.name() == "HTIF").map(|d| {
+        self.htif_range = self.devices.iter().find(|d| d.kind() == DeviceKind::Htif).map(|d| {
             let (start, size) = d.address_range();
             (start, start + size)
         });
@@ -345,7 +351,7 @@ impl Bus {
             && raw >= start
             && raw < end
         {
-            return self.devices.iter().position(|d| d.name() == "HTIF");
+            return self.position_of(DeviceKind::Htif);
         }
         self.devices.iter().position(|dev| {
             let (start, size) = dev.address_range();

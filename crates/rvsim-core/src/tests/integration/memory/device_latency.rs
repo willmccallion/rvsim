@@ -3,6 +3,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::DeviceKind;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -47,10 +48,10 @@ fn a_device_read_takes_the_device_access_latency() {
 fn a_per_device_latency_overrides_the_default() {
     let default = cycles_to_finish(|_| {});
     let faster_clint = cycles_to_finish(|c| {
-        c.system.device_latency_ns_overrides.insert("CLINT".to_string(), 50);
+        c.system.device_latency_ns_overrides.insert(DeviceKind::Clint, 50);
     });
     let faster_uart_only = cycles_to_finish(|c| {
-        c.system.device_latency_ns_overrides.insert("UART0".to_string(), 50);
+        c.system.device_latency_ns_overrides.insert(DeviceKind::Uart, 50);
     });
 
     assert_eq!(default - faster_clint, 50 * CLOCK_MHZ / 1000);

@@ -16,6 +16,7 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 
 use crate::common::HartId;
+use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::packet::{AccessSize, MemOp, Packet, WriteData};
@@ -362,8 +363,8 @@ impl MmioRegisters for Plic {
 }
 
 impl Device for Plic {
-    fn name(&self) -> &'static str {
-        "PLIC"
+    fn kind(&self) -> DeviceKind {
+        DeviceKind::Plic
     }
     fn address_range(&self) -> (u64, u64) {
         (self.base_addr, crate::config::PLIC_REGION_BYTES)
@@ -385,7 +386,7 @@ impl Device for Plic {
     }
 
     fn restore(&mut self, state: &serde_json::Value) -> Result<(), RestoreError> {
-        let state: PlicState = parse_state("PLIC", state)?;
+        let state: PlicState = parse_state(DeviceKind::Plic, state)?;
         self.set_state(&state);
         Ok(())
     }
