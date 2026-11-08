@@ -6,8 +6,7 @@
 
 pub mod debug;
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use crate::soc::exit::ExitSignal;
 
 use crate::common::{HartId, InstSeq, PhysAddr, SimError, VirtAddr};
 use crate::config::Config;
@@ -130,9 +129,8 @@ pub struct Uncore {
     /// `commit-log` feature).
     #[cfg(feature = "commit-log")]
     pub commit_log: Option<std::io::BufWriter<std::fs::File>>,
-    /// Atomic slot bus-resident devices (HTIF, `SysCon`) write the harness
-    /// termination value into. `u64::MAX` means "no exit pending".
-    pub exit_signal: Arc<AtomicU64>,
+    /// The run's exit code, which HTIF and `SysCon` signal into.
+    pub exit_signal: ExitSignal,
     /// The processes SE mode is running and the harts their threads hold;
     /// empty otherwise.
     pub processes: crate::system::process::Processes,
@@ -233,26 +231,24 @@ impl Uncore {
 
     /// Atomically takes the exit code if a bus device has signalled termination.
     pub fn take_exit(&self) -> Option<u64> {
-        let val = self.exit_signal.swap(u64::MAX, Ordering::Relaxed);
-        if val == u64::MAX { None } else { Some(val) }
+        self.exit_signal.take()
     }
 
     /// Returns the exit code if a device has requested shutdown without
     /// clearing the signal slot.
     pub fn check_exit(&self) -> Option<u64> {
-        let val = self.exit_signal.load(Ordering::Relaxed);
-        if val == u64::MAX { None } else { Some(val) }
+        self.exit_signal.peek()
     }
 
     /// Manually signals exit (used by tests and the binding `step` loop).
     pub fn signal_exit(&self, code: u64) {
-        self.exit_signal.store(code, Ordering::Relaxed);
+        self.exit_signal.signal(code);
     }
 
     /// Registers an HTIF device at the given tohost address. `exit_signal`
     /// is cloned into the device so HTIF tohost writes propagate up to the
     /// harness.
-    pub fn add_htif(&mut self, tohost_addr: u64, exit_signal: &Arc<AtomicU64>, args: Vec<String>) {
+    pub fn add_htif(&mut self, tohost_addr: u64, exit_signal: &ExitSignal, args: Vec<String>) {
         let htif = Htif::new(tohost_addr, exit_signal.clone(), args, self.terminal.clone());
         self.bus.add_device(Box::new(htif));
         self.read_console_through(InputReader::Proxy);

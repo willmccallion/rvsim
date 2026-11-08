@@ -6,13 +6,12 @@
 
 use crate::soc::devices::Device;
 use crate::soc::devices::syscon::SysCon;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use crate::soc::exit::ExitSignal;
 
 /// Helper function to create a test SysCon device.
-fn create_test_syscon() -> (SysCon, Arc<AtomicU64>) {
+fn create_test_syscon() -> (SysCon, ExitSignal) {
     let base_addr = 0x100000;
-    let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+    let exit_signal = ExitSignal::new();
     let syscon = SysCon::new(base_addr, exit_signal.clone());
     (syscon, exit_signal)
 }
@@ -26,7 +25,7 @@ fn test_syscon_name() {
 #[test]
 fn test_syscon_address_range() {
     let base_addr = 0x100000;
-    let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+    let exit_signal = ExitSignal::new();
     let syscon = SysCon::new(base_addr, exit_signal);
 
     let (base, size) = syscon.address_range();
@@ -116,7 +115,7 @@ fn test_syscon_write_u8_ignored() {
         1,
     );
     // Exit signal should remain unchanged
-    assert_eq!(exit_signal.load(Ordering::Relaxed), u64::MAX);
+    assert_eq!(exit_signal.peek(), None);
 }
 
 #[test]
@@ -130,7 +129,7 @@ fn test_syscon_write_u16_ignored() {
         2,
     );
     // Exit signal should remain unchanged
-    assert_eq!(exit_signal.load(Ordering::Relaxed), u64::MAX);
+    assert_eq!(exit_signal.peek(), None);
 }
 
 #[test]
@@ -146,7 +145,7 @@ fn test_syscon_poweroff_signal() {
     );
 
     // Exit signal should be set to 0
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 0);
+    assert_eq!(exit_signal.peek(), Some(0));
 }
 
 #[test]
@@ -162,7 +161,7 @@ fn test_syscon_reset_signal() {
     );
 
     // Exit signal should be set to 0 (simulated as exit)
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 0);
+    assert_eq!(exit_signal.peek(), Some(0));
 }
 
 #[test]
@@ -178,7 +177,7 @@ fn test_syscon_failure_signal() {
     );
 
     // Exit signal should be set to 1 (failure)
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 1);
+    assert_eq!(exit_signal.peek(), Some(1));
 }
 
 #[test]
@@ -194,7 +193,7 @@ fn test_syscon_write_non_magic_value_ignored() {
     );
 
     // Exit signal should remain unchanged
-    assert_eq!(exit_signal.load(Ordering::Relaxed), u64::MAX);
+    assert_eq!(exit_signal.peek(), None);
 }
 
 #[test]
@@ -210,7 +209,7 @@ fn test_syscon_write_non_zero_offset_ignored() {
     );
 
     // Exit signal should remain unchanged
-    assert_eq!(exit_signal.load(Ordering::Relaxed), u64::MAX);
+    assert_eq!(exit_signal.peek(), None);
 }
 
 #[test]
@@ -226,7 +225,7 @@ fn test_syscon_write_u64_delegates_to_u32() {
     );
 
     // Exit signal should be set to 0 (lower 32 bits = 0x5555)
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 0);
+    assert_eq!(exit_signal.peek(), Some(0));
 }
 
 #[test]
@@ -240,10 +239,9 @@ fn test_syscon_multiple_commands() {
         0x5555_u64,
         4,
     );
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 0);
+    assert_eq!(exit_signal.peek(), Some(0));
 
-    // Reset exit signal
-    exit_signal.store(u64::MAX, Ordering::Relaxed);
+    let _ = exit_signal.take();
 
     // Second command: failure
     crate::tests::support::probe::write(
@@ -252,7 +250,7 @@ fn test_syscon_multiple_commands() {
         0x3333_u64,
         4,
     );
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 1);
+    assert_eq!(exit_signal.peek(), Some(1));
 }
 
 #[test]
@@ -260,7 +258,7 @@ fn test_syscon_all_magic_values() {
     let base_addr = 0x100000;
 
     // Test poweroff
-    let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+    let exit_signal = ExitSignal::new();
     let mut syscon = SysCon::new(base_addr, exit_signal.clone());
     crate::tests::support::probe::write(
         &mut syscon,
@@ -268,10 +266,10 @@ fn test_syscon_all_magic_values() {
         0x5555_u64,
         4,
     );
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 0);
+    assert_eq!(exit_signal.peek(), Some(0));
 
     // Test reset
-    let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+    let exit_signal = ExitSignal::new();
     let mut syscon = SysCon::new(base_addr, exit_signal.clone());
     crate::tests::support::probe::write(
         &mut syscon,
@@ -279,10 +277,10 @@ fn test_syscon_all_magic_values() {
         0x7777_u64,
         4,
     );
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 0);
+    assert_eq!(exit_signal.peek(), Some(0));
 
     // Test failure
-    let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+    let exit_signal = ExitSignal::new();
     let mut syscon = SysCon::new(base_addr, exit_signal.clone());
     crate::tests::support::probe::write(
         &mut syscon,
@@ -290,5 +288,5 @@ fn test_syscon_all_magic_values() {
         0x3333_u64,
         4,
     );
-    assert_eq!(exit_signal.load(Ordering::Relaxed), 1);
+    assert_eq!(exit_signal.peek(), Some(1));
 }

@@ -6,12 +6,11 @@ use crate::Simulator;
 use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, Console, MemoryControllerKind};
 use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
+use crate::soc::exit::ExitSignal;
 use crate::system::SystemState;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::harness::valid;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
@@ -66,7 +65,7 @@ fn context(backend: BackendKind, latency: u64) -> TestContext {
     config.memory.controller = MemoryControllerKind::Simple;
     config.memory.simple_latency = latency;
     config.system.bus_latency = 0;
-    let mut state = SystemState::new(&valid(&config), None, Arc::new(AtomicU64::new(u64::MAX)))
+    let mut state = SystemState::new(&valid(&config), None, ExitSignal::new())
         .expect("the test machine builds");
     for hart in &mut state.harts {
         hart.csrs.mstatus |= MSTATUS_FS_INIT | MSTATUS_VS_INIT;

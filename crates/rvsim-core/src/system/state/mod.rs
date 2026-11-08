@@ -23,6 +23,7 @@ use crate::soc::bus::Bus;
 use crate::soc::cache::Cache;
 use crate::soc::coherence::{self, CoherenceFabric, FabricGeometry};
 use crate::soc::devices::{Clint, GoldfishRtc, Htif, Plic, SysCon, Uart, VirtioBlock};
+use crate::soc::exit::ExitSignal;
 use crate::soc::memory::controller::{
     Bandwidth, DramConfig, DramController, MemoryController, SimpleController,
 };
@@ -38,8 +39,6 @@ use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::{Core, CoreUnits};
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 
 /// The whole system: harts, cores, and the uncore.
 #[derive(Debug)]
@@ -143,7 +142,7 @@ impl SystemState {
     /// signal `Arc` with other components before construction.
     pub fn build(config: &Config) -> Self {
         let config = ValidConfig::try_from(config.clone()).expect("the test config is valid");
-        let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+        let exit_signal = ExitSignal::new();
         Self::new(&config, None, exit_signal).expect("the test machine builds")
     }
 
@@ -159,7 +158,7 @@ impl SystemState {
     pub fn new(
         config: &ValidConfig,
         disk: Option<&str>,
-        exit_signal: Arc<AtomicU64>,
+        exit_signal: ExitSignal,
     ) -> Result<Self, SimError> {
         use crate::isa::csr::MSTATUS_DEFAULT_RV64;
 

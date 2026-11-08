@@ -3,10 +3,9 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{Config, MemoryControllerKind, ValidConfig};
 use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
 use crate::isa::reg::RegIdx;
+use crate::soc::exit::ExitSignal;
 use crate::system::SystemState;
 use crate::tests::support::mocks::memory::MockMemory;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 
 /// A simulator for `config` with no disk.
 pub fn build_simulator(config: &Config) -> Simulator {
@@ -50,7 +49,7 @@ impl TestContext {
         config.memory.simple_latency = 1;
         config.system.bus_latency = 0;
 
-        let exit_signal = Arc::new(AtomicU64::new(u64::MAX));
+        let exit_signal = ExitSignal::new();
         let mut state =
             SystemState::new(&valid(&config), None, exit_signal).expect("the test machine builds");
         // What a bare-metal program's start-up does before main: switch the
