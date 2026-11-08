@@ -89,7 +89,7 @@ fn context(backend: BackendKind, harts: usize) -> TestContext {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
-    config.system.hart_count = harts;
+    config.system.hart_count = std::num::NonZero::new(harts).unwrap();
     TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program())
 }
 

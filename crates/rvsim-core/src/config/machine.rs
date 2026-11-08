@@ -3,7 +3,7 @@
 //! default makes up, which tests start from to isolate one mechanism.
 
 use super::ddr5::{Ddr5Params, Ddr5SpeedBinName};
-use super::defaults::non_zero;
+use super::defaults::{non_zero, non_zero_u64};
 use super::{
     BackendKind, BranchPredictorKind, CacheConfig, CacheHierarchyConfig, CoherenceConfig, Config,
     FuConfig, GeneralConfig, LoadPrefetcherConfig, MemoryConfig, MemoryControllerKind,
@@ -12,9 +12,10 @@ use super::{
 };
 use crate::isa::config::IsaConfig;
 use crate::isa::rvv::Vlen;
+use std::num::NonZeroU64;
 
 /// The default machine's clock.
-const CLOCK_MHZ: u64 = 4000;
+const CLOCK_MHZ: NonZeroU64 = non_zero_u64(4000);
 
 /// The default machine's vector registers.
 const VLEN: Vlen = match Vlen::new(256) {

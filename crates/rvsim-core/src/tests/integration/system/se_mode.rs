@@ -568,7 +568,7 @@ fn simulator_with_programs_in(
     programs: &[&[u32]],
     hart_count: usize,
 ) -> Simulator {
-    config.system.hart_count = hart_count;
+    config.system.hart_count = std::num::NonZero::new(hart_count).unwrap();
     let mut sim = build_simulator(&config);
     let args = ProcessArgs { argv: vec!["prog".to_string()], envp: vec![] };
     let images: Vec<Vec<u8>> = programs.iter().map(|code| user_elf(code, ET_EXEC)).collect();

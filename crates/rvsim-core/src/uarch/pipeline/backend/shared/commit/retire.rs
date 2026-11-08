@@ -136,7 +136,8 @@ pub(super) fn perform_pseudo_result(state: &mut CoreCtx<'_>, entry: &mut RobEntr
 fn simulated_nanoseconds(state: &CoreCtx<'_>) -> u64 {
     let clock_hz = state.uncore.kernel.config.system.cpu_clock_hz();
     u64::try_from(
-        u128::from(state.uncore.kernel.cycle) * u128::from(NANOS_PER_SECOND) / u128::from(clock_hz),
+        u128::from(state.uncore.kernel.cycle) * u128::from(NANOS_PER_SECOND)
+            / u128::from(clock_hz.get()),
     )
     .unwrap_or(u64::MAX)
 }

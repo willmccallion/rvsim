@@ -3,7 +3,7 @@
 //! These values define the baseline hardware configuration when not
 //! explicitly overridden in TOML configuration files.
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 
 /// Base address of main system RAM (2 GiB).
 ///
@@ -47,7 +47,7 @@ pub const BUS_LATENCY: u64 = 4;
 
 /// The timer frequency the device tree reports: 10 MHz, as on QEMU's
 /// `virt` machine.
-pub const TIMEBASE_HZ: u32 = 10_000_000;
+pub const TIMEBASE_HZ: NonZeroU32 = non_zero_u32(10_000_000);
 
 /// Wall-clock time the RTC reports at cycle zero: 2026-01-01T00:00:00Z,
 /// so every run reads the same clock.
@@ -56,7 +56,7 @@ pub const RTC_EPOCH_SECONDS: u64 = 1_767_225_600;
 /// Core clock in MHz. Fixes the ratio between simulator cycles and
 /// wall-clock time: SE mode's time, device latencies, the DDR5 command
 /// clock and, in real time, the CLINT's tick.
-pub const CPU_CLOCK_MHZ: u64 = 2400;
+pub const CPU_CLOCK_MHZ: NonZeroU64 = non_zero_u64(2400);
 
 /// Time a device takes to answer a register access, in nanoseconds:
 /// gem5's `BasicPioDevice.pio_latency`.
@@ -159,6 +159,22 @@ pub(super) const fn non_zero(count: usize) -> NonZeroUsize {
     match NonZeroUsize::new(count) {
         Some(count) => count,
         None => panic!("a default count must be non-zero"),
+    }
+}
+
+/// `value` as a non-zero default, checked when the constant is evaluated.
+pub(super) const fn non_zero_u32(value: u32) -> NonZeroU32 {
+    match NonZeroU32::new(value) {
+        Some(value) => value,
+        None => panic!("a default must be non-zero"),
+    }
+}
+
+/// `value` as a non-zero default, checked when the constant is evaluated.
+pub(super) const fn non_zero_u64(value: u64) -> NonZeroU64 {
+    match NonZeroU64::new(value) {
+        Some(value) => value,
+        None => panic!("a default must be non-zero"),
     }
 }
 

@@ -22,7 +22,7 @@ impl MultiHart {
     /// loaded at [`PROGRAM_BASE`] and every hart's PC pointing at it.
     pub fn new(hart_count: usize, backend: BackendKind, program: &[u32]) -> Self {
         let mut config = Config::minimal();
-        config.system.hart_count = hart_count;
+        config.system.hart_count = std::num::NonZero::new(hart_count).unwrap();
         config.system.console = crate::config::Console::Quiet;
         config.pipeline.backend = backend;
         let mut sim = build_simulator(&config);

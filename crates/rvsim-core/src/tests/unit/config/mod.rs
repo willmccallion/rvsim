@@ -35,7 +35,7 @@ fn test_system_config_defaults() {
     assert_eq!(system.bus_width, 8);
     assert_eq!(system.bus_latency, 4);
     assert_eq!(system.timer, crate::config::Timer::RealTime);
-    assert_eq!(system.timebase_hz, 10_000_000);
+    assert_eq!(system.timebase_hz, std::num::NonZero::new(10_000_000).unwrap());
     assert_eq!(system.console, crate::config::Console::Stdout);
 }
 

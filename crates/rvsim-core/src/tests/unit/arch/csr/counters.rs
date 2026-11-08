@@ -121,7 +121,7 @@ fn the_time_csr_reads_the_clint_counter() {
     let mut ctx = context();
     let one_tick = ctx.sim.state.uncore.kernel.config.system.clint_divider();
 
-    ctx.run(one_tick + 1);
+    ctx.run(one_tick.get() + 1);
 
     let time = ctx.sim.state.core_ctx(0).csr_read(csr::TIME);
     assert_eq!(time, ctx.sim.state.uncore.bus.mtime());

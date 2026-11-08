@@ -79,10 +79,13 @@ fn program() -> Vec<u32> {
 
 fn config() -> Config {
     let mut config = Config::minimal();
-    config.system.hart_count = 2;
+    config.system.hart_count = std::num::NonZero::new(2).unwrap();
     config.system.console = Console::Quiet;
-    config.system.timebase_hz = u32::try_from(config.system.cpu_clock_hz() / CLINT_DIVIDER)
-        .expect("the timebase fits the device tree's 32 bits");
+    config.system.timebase_hz = std::num::NonZero::new(
+        u32::try_from(config.system.cpu_clock_hz().get() / CLINT_DIVIDER)
+            .expect("the timebase fits the device tree's 32 bits"),
+    )
+    .unwrap();
     config.memory.controller = MemoryControllerKind::Ddr5;
     config.memory.ddr5 = serde_json::from_str(
         r#"{"power_down_idle_ns": 50, "ecc": "SecDed", "patrol_scrub_ns": 5000}"#,

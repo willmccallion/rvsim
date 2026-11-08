@@ -9,6 +9,8 @@
 //! * `0x00`: Time (Low 32 bits)
 //! * `0x04`: Time (High 32 bits)
 
+use std::num::NonZeroU64;
+
 use crate::common::{IrqId, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
@@ -25,7 +27,7 @@ pub struct GoldfishRtc {
     /// Wall-clock time at cycle zero, in nanoseconds since the Unix epoch.
     epoch_ns: u64,
     /// Core clock, to convert cycles to nanoseconds.
-    cpu_clock_mhz: u64,
+    cpu_clock_mhz: NonZeroU64,
 }
 
 impl GoldfishRtc {
@@ -33,17 +35,13 @@ impl GoldfishRtc {
     pub const IRQ: IrqId = IrqId::new(11);
 
     /// Creates a new Goldfish RTC device reading `epoch_ns` at cycle zero.
-    pub const fn new(base_addr: PhysAddr, epoch_ns: u64, cpu_clock_mhz: u64) -> Self {
-        Self {
-            base_addr,
-            epoch_ns,
-            cpu_clock_mhz: if cpu_clock_mhz == 0 { 1 } else { cpu_clock_mhz },
-        }
+    pub const fn new(base_addr: PhysAddr, epoch_ns: u64, cpu_clock_mhz: NonZeroU64) -> Self {
+        Self { base_addr, epoch_ns, cpu_clock_mhz }
     }
 
     /// Wall-clock time at `cycle`, in nanoseconds.
     pub const fn time_ns(&self, cycle: u64) -> u64 {
-        let elapsed = (cycle as u128 * 1000) / self.cpu_clock_mhz as u128;
+        let elapsed = (cycle as u128 * 1000) / self.cpu_clock_mhz.get() as u128;
         self.epoch_ns.wrapping_add(elapsed as u64)
     }
 }

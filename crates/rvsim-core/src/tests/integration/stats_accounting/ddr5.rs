@@ -156,7 +156,7 @@ fn every_dram_clock_is_counted_and_refreshed_on_time(rec: &mut Recorder) {
         let context = format!("{backend:?}");
         let config = ddr5_system(backend, "{}");
         let ddr5 = config.memory.ddr5.to_config();
-        let clock = ClockRatio::new(config.system.cpu_clock_mhz, ddr5.timing.data_rate_mts);
+        let clock = ClockRatio::new(config.system.cpu_clock_mhz.get(), ddr5.timing.data_rate_mts);
 
         let ctx = run_settled(&config, read_modify_write_lines(64), &context);
 

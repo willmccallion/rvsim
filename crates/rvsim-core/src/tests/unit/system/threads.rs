@@ -21,13 +21,18 @@ const ETIMEDOUT: u64 = 110;
 /// thread runs on hart 0.
 fn table(harts: usize) -> (SystemState, Processes, ThreadRef) {
     let mut config = Config::minimal();
-    config.system.hart_count = harts;
+    config.system.hart_count = std::num::NonZero::new(harts).unwrap();
     let mut sys = SystemState::build(&config);
     let split = PhysAddr::new(RAM_BASE + (1 << 20));
     let mut frames = FrameAllocator::new(PhysAddr::new(RAM_BASE), split);
     let space = AddressSpace::new(PagingMode::Sv39, &mut sys.uncore.kernel.memory, &mut frames)
         .expect("the address space builds");
-    let process = Process::new(space, VirtAddr::new(0x2_0000), 1, Terminal::shared(Console::Quiet));
+    let process = Process::new(
+        space,
+        VirtAddr::new(0x2_0000),
+        std::num::NonZero::new(1).unwrap(),
+        Terminal::shared(Console::Quiet),
+    );
     let mut processes =
         Processes::new(harts, FrameAllocator::new(split, PhysAddr::new(RAM_BASE + (2 << 20))));
     let tgid = processes.add_program(process, HartId::new(0));
