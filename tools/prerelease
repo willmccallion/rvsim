@@ -272,7 +272,7 @@ else
 fi
 
 info "mkdocs build --strict"
-if logged docs "$PY" -m mkdocs build --strict --site-dir "$LOG_DIR/site"; then
+if logged docs make docs-site SITE_DIR="$LOG_DIR/site"; then
     pass "docs build"
 else
     fail "docs build (mkdocs --strict)"

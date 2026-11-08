@@ -31,7 +31,7 @@ else
 endif
 
 .PHONY: help software examples linux python python-wheel
-.PHONY: check test test-python test-coverage clippy doc fmt fmt-check ruff mypy
+.PHONY: check test test-python test-coverage clippy doc docs-site fmt fmt-check ruff mypy
 .PHONY: lint lint-rust lint-python ci prerelease
 .PHONY: compare-gem5
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
@@ -57,6 +57,7 @@ help:
 	@printf "    %-$(HELP_W)s  Run Rust tests with coverage (llvm-cov)\n" "make test-coverage"
 	@printf "    %-$(HELP_W)s  Run clippy linter\n" "make clippy"
 	@printf "    %-$(HELP_W)s  Build the Rust docs, warnings denied\n" "make doc"
+	@printf "    %-$(HELP_W)s  Build the docs site, warnings denied (SITE_DIR, default site)\n" "make docs-site"
 	@printf "    %-$(HELP_W)s  Format Rust and Python code\n" "make fmt"
 	@printf "    %-$(HELP_W)s  Check formatting without modifying\n" "make fmt-check"
 	@printf "    %-$(HELP_W)s  Lint Python with ruff\n" "make ruff"
@@ -117,6 +118,14 @@ $(VENV_STAMP): requirements-dev.txt
 	$(VENV)/bin/pip install --quiet -r requirements-dev.txt
 	@touch $@
 
+# The docs build's tools join the venv only when the docs are built: their
+# pins need Python 3.11, and the package supports 3.10.
+DOCS_STAMP := $(VENV)/.requirements-docs
+
+$(DOCS_STAMP): docs/requirements.txt | $(VENV_STAMP)
+	$(VENV)/bin/pip install --quiet -r docs/requirements.txt
+	@touch $@
+
 # Install Python bindings in editable/dev mode via maturin
 python: $(VENV_STAMP)
 	@printf "$(GREEN)Installing Python bindings (editable)…$(RESET)\n"
@@ -168,6 +177,12 @@ clippy:
 doc:
 	@printf "$(GREEN)Building the Rust docs…$(RESET)\n"
 	RUSTDOCFLAGS="-D warnings" $(CARGO) doc --workspace --no-deps
+
+SITE_DIR ?= site
+
+docs-site: $(DOCS_STAMP) python
+	@printf "$(GREEN)Building the docs site into $(SITE_DIR)…$(RESET)\n"
+	$(PYTHON) -m mkdocs build --strict --site-dir $(SITE_DIR)
 
 PYTHON_SOURCES := rvsim tests examples tools docs
 
