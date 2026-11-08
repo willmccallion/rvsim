@@ -219,7 +219,10 @@ fn a_broadcast_home_keeps_four_harts_coherent() {
 #[test]
 fn a_tiny_snoop_filter_recalls_lines_and_stays_exact() {
     let mut config = cached(4, BackendKind::InOrder);
-    config.coherence.home_agent = HomeAgentConfig::SnoopFilter { capacity_factor: 0.001, ways: 2 };
+    config.coherence.home_agent = HomeAgentConfig::SnoopFilter {
+        capacity_factor: 0.001,
+        ways: std::num::NonZero::new(2).unwrap(),
+    };
     check_all_programs(&config, "tiny filter");
     let mut system = MultiHart::with_config(&config, &shared_line_stores(4, 60));
     run_audited(&mut system, 6_000_000).expect("exit");
@@ -229,10 +232,34 @@ fn a_tiny_snoop_filter_recalls_lines_and_stays_exact() {
 #[test]
 fn every_interconnect_keeps_four_harts_coherent() {
     let fabrics = [
-        ("ring", InterconnectConfig::Ring { hop_latency: 2, bytes_per_cycle: 32 }),
-        ("mesh", InterconnectConfig::Mesh { hop_latency: 2, bytes_per_cycle: 32 }),
-        ("torus", InterconnectConfig::Torus { hop_latency: 2, bytes_per_cycle: 32 }),
-        ("hypercube", InterconnectConfig::Hypercube { hop_latency: 2, bytes_per_cycle: 32 }),
+        (
+            "ring",
+            InterconnectConfig::Ring {
+                hop_latency: 2,
+                bytes_per_cycle: std::num::NonZero::new(32).unwrap(),
+            },
+        ),
+        (
+            "mesh",
+            InterconnectConfig::Mesh {
+                hop_latency: 2,
+                bytes_per_cycle: std::num::NonZero::new(32).unwrap(),
+            },
+        ),
+        (
+            "torus",
+            InterconnectConfig::Torus {
+                hop_latency: 2,
+                bytes_per_cycle: std::num::NonZero::new(32).unwrap(),
+            },
+        ),
+        (
+            "hypercube",
+            InterconnectConfig::Hypercube {
+                hop_latency: 2,
+                bytes_per_cycle: std::num::NonZero::new(32).unwrap(),
+            },
+        ),
     ];
     for (label, interconnect) in fabrics {
         let mut config = cached(4, BackendKind::InOrder);
@@ -403,7 +430,8 @@ fn prefetching(harts: usize, backend: BackendKind) -> Config {
         l2_lines: 8,
         page_boundary: PageBoundary::CrossWithTlb,
     };
-    config.cache.store_prefetcher = StorePrefetcherConfig::Stream { streams: 4, l2_lines: 4 };
+    config.cache.store_prefetcher =
+        StorePrefetcherConfig::Stream { streams: std::num::NonZero::new(4).unwrap(), l2_lines: 4 };
     config
 }
 

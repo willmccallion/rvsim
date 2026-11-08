@@ -11,6 +11,7 @@
 //! invariants hold.
 
 use std::collections::VecDeque;
+use std::num::NonZeroUsize;
 
 use super::home::{HomeAgent, Room};
 use super::interconnect::Interconnect;
@@ -107,7 +108,7 @@ pub struct FabricLayout {
     /// Cache line size.
     pub line_bytes: usize,
     /// Transactions the home can have live at once.
-    pub txn_capacity: usize,
+    pub txn_capacity: NonZeroUsize,
 }
 
 /// Home agent plus interconnect.
@@ -163,7 +164,7 @@ impl CoherenceFabric {
             agents: layout.agents,
             line_bytes: layout.line_bytes,
             txns: Vec::new(),
-            txn_capacity: layout.txn_capacity.max(1),
+            txn_capacity: layout.txn_capacity.get(),
             waiting: VecDeque::new(),
             parked_requests: Vec::new(),
             parked_responses: Vec::new(),

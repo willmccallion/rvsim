@@ -209,8 +209,10 @@ fn the_interconnect_moves_a_header_or_a_header_and_a_line(rec: &mut Recorder) {
         let program = per_hart(&ping_pong(20, 0, 8), &hart1);
         let per_cycle = 16;
         let mut config = two_cached_harts(backend);
-        config.coherence.interconnect =
-            InterconnectConfig::Crossbar { hop_latency: 1, bytes_per_cycle: per_cycle };
+        config.coherence.interconnect = InterconnectConfig::Crossbar {
+            hop_latency: 1,
+            bytes_per_cycle: std::num::NonZero::new(per_cycle).unwrap(),
+        };
 
         let system = run_settled(&config, program, &context);
 
@@ -243,10 +245,12 @@ fn the_home_counts_maintenance_recalls_and_waits(rec: &mut Recorder) {
         let hart0 = [i().addi(T1, 0, 5).build(), i().sd(T2, T1, 0).build(), flush];
         let program = per_hart(&hart0, &ping_pong(20, 8, 0));
         let mut tiny = two_cached_harts(backend);
-        tiny.coherence.home_agent =
-            HomeAgentConfig::SnoopFilter { capacity_factor: 0.001, ways: 2 };
+        tiny.coherence.home_agent = HomeAgentConfig::SnoopFilter {
+            capacity_factor: 0.001,
+            ways: std::num::NonZero::new(2).unwrap(),
+        };
         let mut one_txn = two_cached_harts(backend);
-        one_txn.coherence.txn_entries = 1;
+        one_txn.coherence.txn_entries = std::num::NonZero::new(1).unwrap();
 
         let plain = run_settled(&two_cached_harts(backend), program.clone(), &context);
         let tiny = run_settled(&tiny, program.clone(), &context);
@@ -341,8 +345,10 @@ fn an_upgrade_a_snoop_overtook_is_retried_for_data(rec: &mut Recorder) {
         // Hops long enough that the first upgrade's snoop is still on its
         // way when the second hart asks.
         let mut config = two_cached_harts(backend);
-        config.coherence.interconnect =
-            InterconnectConfig::Crossbar { hop_latency: 40, bytes_per_cycle: 16 };
+        config.coherence.interconnect = InterconnectConfig::Crossbar {
+            hop_latency: 40,
+            bytes_per_cycle: std::num::NonZero::new(16).unwrap(),
+        };
         let clint = config.system.clint_base;
         let program = per_hart(&read_meet_write(clint.val()), &read_meet_write(clint.val()));
 

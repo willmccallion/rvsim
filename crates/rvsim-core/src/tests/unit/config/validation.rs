@@ -4,8 +4,8 @@ use crate::common::PhysAddr;
 use crate::config::DeviceKind;
 use crate::config::{
     BackendKind, BhtConfigError, CacheConfig, Config, ConfigError, CsrSquash, HomeAgentConfig,
-    InterconnectConfig, LoadPrefetcherConfig, MAX_ITTAGE_HISTORY, MemoryControllerKind,
-    PageBoundary, PrefetcherKind, ReplacementPolicyKind, StorePrefetcherConfig,
+    LoadPrefetcherConfig, MAX_ITTAGE_HISTORY, MemoryControllerKind, PageBoundary, PrefetcherKind,
+    ReplacementPolicyKind,
 };
 use std::collections::HashMap;
 
@@ -133,7 +133,7 @@ fn the_default_machine_validates() {
 #[test]
 fn a_structure_that_must_hold_something_refuses_zero() {
     type Change = fn(&mut Config);
-    let cases: [(&str, Change); 21] = [
+    let cases: [(&str, Change); 17] = [
         ("pipeline.width", |c| c.pipeline.width = 0),
         ("pipeline.fetch_width", |c| c.pipeline.fetch_width = Some(0)),
         ("pipeline.issue_width", |c| c.pipeline.issue_width = Some(0)),
@@ -148,22 +148,11 @@ fn a_structure_that_must_hold_something_refuses_zero() {
         ("pipeline.vec_store_buffer_size", |c| c.pipeline.vec_store_buffer_size = 0),
         ("pipeline.num_vec_lanes", |c| c.pipeline.num_vec_lanes = Some(0)),
         ("memory.tlb_size", |c| c.memory.tlb_size = 0),
-        ("coherence.txn_entries", |c| c.coherence.txn_entries = 0),
         ("store_set ssit_size", |c| c.pipeline.store_set.ssit_size = 0),
         ("store_set lfst_size", |c| c.pipeline.store_set.lfst_size = 0),
-        ("cache.store_prefetcher.streams", |c| {
-            c.cache.store_prefetcher = StorePrefetcherConfig::Stream { streams: 0, l2_lines: 8 };
-        }),
         ("memory.num_banks", |c| {
             c.memory.controller = MemoryControllerKind::Dram;
             c.memory.num_banks = 0;
-        }),
-        ("coherence.home_agent.ways", |c| {
-            c.coherence.home_agent = HomeAgentConfig::SnoopFilter { capacity_factor: 1.5, ways: 0 };
-        }),
-        ("coherence.interconnect.bytes_per_cycle", |c| {
-            c.coherence.interconnect =
-                InterconnectConfig::Mesh { hop_latency: 1, bytes_per_cycle: 0 };
         }),
     ];
     for (field, change) in cases {
@@ -489,7 +478,10 @@ fn a_dram_row_is_a_power_of_two_bytes() {
 fn a_snoop_filter_has_a_positive_capacity() {
     for capacity_factor in [0.0, -1.0, f64::NAN] {
         let err = refused(Config::minimal(), |c| {
-            c.coherence.home_agent = HomeAgentConfig::SnoopFilter { capacity_factor, ways: 8 };
+            c.coherence.home_agent = HomeAgentConfig::SnoopFilter {
+                capacity_factor,
+                ways: std::num::NonZero::new(8).unwrap(),
+            };
         });
 
         assert_eq!(err, ConfigError::SnoopFilterCapacity, "{capacity_factor}");

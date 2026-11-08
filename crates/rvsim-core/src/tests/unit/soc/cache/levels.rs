@@ -920,7 +920,11 @@ fn a_run_of_store_misses_sends_exclusive_prefetches_to_the_l2() {
     let mut config = test_config();
     config.mshr_count = count(8);
     let mut cache = cache_with(&config);
-    cache.set_store_prefetcher(crate::soc::cache::prefetch::StoreStreamPrefetcher::new(64, 4, 2));
+    cache.set_store_prefetcher(crate::soc::cache::prefetch::StoreStreamPrefetcher::new(
+        64,
+        std::num::NonZero::new(4).unwrap(),
+        2,
+    ));
     let mut bench = Bench::new(cache);
 
     for (id, addr) in [(1, 0x1000), (2, 0x1040), (3, 0x1080)] {

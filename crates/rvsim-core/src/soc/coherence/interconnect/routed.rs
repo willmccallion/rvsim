@@ -7,6 +7,7 @@ use crate::soc::coherence::Interconnect;
 use crate::soc::coherence::stats::InterconnectStatPaths;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
+use std::num::NonZeroUsize;
 
 /// A message travelling a routed network.
 #[derive(Clone, Copy, Debug)]
@@ -48,7 +49,7 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
         cores: usize,
         line_bytes: usize,
         hop_latency: u64,
-        bytes_per_cycle: usize,
+        bytes_per_cycle: NonZeroUsize,
         stat_paths: InterconnectStatPaths,
     ) -> Self {
         let nodes = topology.node_count();
@@ -67,7 +68,7 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
             cores,
             line_bytes,
             hop_latency,
-            bytes_per_cycle: bytes_per_cycle.max(1),
+            bytes_per_cycle: bytes_per_cycle.get(),
             queues,
             link_free_at,
             in_flight: BinaryHeap::new(),
@@ -224,8 +225,14 @@ mod routed_tests {
     #[test]
     fn a_message_pays_hop_latency_per_hop() {
         // 4 cores + home on a 6-stop ring: core 0 at node 0, home at node 4.
-        let mut net =
-            RoutedNetwork::new(Ring::new(6), 4, 64, 2, 8, InterconnectStatPaths::under("t"));
+        let mut net = RoutedNetwork::new(
+            Ring::new(6),
+            4,
+            64,
+            2,
+            std::num::NonZero::new(8).unwrap(),
+            InterconnectStatPaths::under("t"),
+        );
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         let delivered = deliver_all(&mut net, 0, 40);
         // Two hops backwards (0 -> 5 -> 4), each 2 + 1 cycles.
@@ -235,8 +242,14 @@ mod routed_tests {
 
     #[test]
     fn a_busy_link_serialises_same_class_messages() {
-        let mut net =
-            RoutedNetwork::new(Ring::new(3), 2, 64, 1, 8, InterconnectStatPaths::under("t"));
+        let mut net = RoutedNetwork::new(
+            Ring::new(3),
+            2,
+            64,
+            1,
+            std::num::NonZero::new(8).unwrap(),
+            InterconnectStatPaths::under("t"),
+        );
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         net.send(0, Node::Core(CoreId::new(0)), req(0));
         let delivered = deliver_all(&mut net, 0, 20);

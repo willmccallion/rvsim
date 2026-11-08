@@ -57,9 +57,19 @@ struct Bench {
 impl Bench {
     fn new(tracking: Box<dyn HomeAgent>) -> Self {
         let stat_paths = CoherenceStatPaths::new();
-        let interconnect = Box::new(Crossbar::new(2, 64, HOP, 64, stat_paths.interconnect));
-        let layout =
-            FabricLayout { llc: LLC, agents: AGENTS.to_vec(), line_bytes: 64, txn_capacity: 8 };
+        let interconnect = Box::new(Crossbar::new(
+            2,
+            64,
+            HOP,
+            std::num::NonZero::new(64).unwrap(),
+            stat_paths.interconnect,
+        ));
+        let layout = FabricLayout {
+            llc: LLC,
+            agents: AGENTS.to_vec(),
+            line_bytes: 64,
+            txn_capacity: std::num::NonZero::new(8).unwrap(),
+        };
         let fabric =
             CoherenceFabric::new(Box::new(Mesi), tracking, interconnect, layout, stat_paths);
         Self {
@@ -79,7 +89,7 @@ impl Bench {
     }
 
     fn precise() -> Self {
-        Self::new(Box::new(SnoopFilter::new(64, 4, 64)))
+        Self::new(Box::new(SnoopFilter::new(64, std::num::NonZero::new(4).unwrap(), 64)))
     }
 
     fn handle(&mut self, packet: Packet, source: ComponentId) {
@@ -386,7 +396,8 @@ impl Bench {
 #[test]
 fn a_full_filter_set_recalls_its_least_recently_used_line() {
     // Two entries in one set: every line maps to it.
-    let mut bench = Bench::new(Box::new(SnoopFilter::new(2, 2, 64)));
+    let mut bench =
+        Bench::new(Box::new(SnoopFilter::new(2, std::num::NonZero::new(2).unwrap(), 64)));
     bench.request(0, 0x0000, ReqKind::ReadShared);
     bench.run_until_idle();
     bench.request(0, 0x0040, ReqKind::ReadShared);

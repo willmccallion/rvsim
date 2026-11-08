@@ -53,7 +53,7 @@ pub fn build(
         HomeAgentConfig::SnoopFilter { capacity_factor, ways } => {
             let entries =
                 (geometry.private_l2_lines as f64 * capacity_factor.max(0.0)).ceil() as usize;
-            Box::new(SnoopFilter::new(entries.max(ways), ways, geometry.line_bytes as u64))
+            Box::new(SnoopFilter::new(entries.max(ways.get()), ways, geometry.line_bytes as u64))
         }
     };
     let paths = stat_paths.interconnect;

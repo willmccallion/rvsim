@@ -91,8 +91,10 @@ fn config() -> Config {
         r#"{"power_down_idle_ns": 50, "ecc": "SecDed", "patrol_scrub_ns": 5000}"#,
     )
     .expect("DDR5 parameters");
-    config.coherence.interconnect =
-        InterconnectConfig::Crossbar { hop_latency: 2, bytes_per_cycle: 8 };
+    config.coherence.interconnect = InterconnectConfig::Crossbar {
+        hop_latency: 2,
+        bytes_per_cycle: std::num::NonZero::new(8).unwrap(),
+    };
     config
 }
 

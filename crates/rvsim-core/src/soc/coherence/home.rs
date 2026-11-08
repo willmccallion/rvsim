@@ -12,6 +12,7 @@ use super::stats::HomeStatPaths;
 use crate::common::{CoreId, LineAddr};
 use crate::sim::packet::MesiState;
 use crate::sim::stats::Stats;
+use std::num::NonZeroUsize;
 
 /// Whether a line can be tracked right now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,8 +120,8 @@ pub struct SnoopFilter {
 impl SnoopFilter {
     /// A filter tracking `entries` lines, `ways` per set.
     #[must_use]
-    pub fn new(entries: usize, ways: usize, line_bytes: u64) -> Self {
-        let ways = ways.max(1);
+    pub fn new(entries: usize, ways: NonZeroUsize, line_bytes: u64) -> Self {
+        let ways = ways.get();
         let num_sets = (entries / ways).max(1);
         Self { sets: (0..num_sets).map(|_| vec![None; ways]).collect(), line_bytes }
     }
@@ -281,7 +282,7 @@ mod tests {
 
     #[test]
     fn the_filter_tracks_sharers_and_the_owner_exactly() {
-        let mut filter = SnoopFilter::new(8, 2, 64);
+        let mut filter = SnoopFilter::new(8, std::num::NonZero::new(2).unwrap(), 64);
         let mut stats = Stats::new();
         assert_eq!(filter.holders(line(0x1000), &mut stats, &paths()), Some(Holders::default()));
 
@@ -303,7 +304,7 @@ mod tests {
 
     #[test]
     fn a_full_set_names_its_lru_line_for_recall_unless_busy() {
-        let mut filter = SnoopFilter::new(2, 2, 64);
+        let mut filter = SnoopFilter::new(2, std::num::NonZero::new(2).unwrap(), 64);
         // Two sets? entries/ways = 1 set of 2 ways.
         filter.on_grant(line(0x0000), C0, MesiState::Shared, 5);
         filter.on_grant(line(0x0040), C1, MesiState::Shared, 9);
@@ -315,7 +316,7 @@ mod tests {
 
     #[test]
     fn an_untracked_line_in_flight_claims_a_way() {
-        let mut filter = SnoopFilter::new(2, 2, 64);
+        let mut filter = SnoopFilter::new(2, std::num::NonZero::new(2).unwrap(), 64);
         filter.on_grant(line(0x0000), C0, MesiState::Shared, 5);
         assert_eq!(filter.room_for(line(0x0080), &[]), Room::Available);
         assert_eq!(filter.room_for(line(0x0080), &[line(0x0040)]), Room::Recall(line(0x0000)));
