@@ -6,18 +6,12 @@
 //! hierarchy through a `Simulator`.
 
 use crate::common::{AccessType, VirtAddr};
-use crate::config::Config;
-use crate::system::SystemState;
+use crate::tests::support::harness::minimal_system;
 use crate::uarch::mmu::TranslateOutcome;
-
-fn create_test_cpu() -> SystemState {
-    let config = Config::minimal();
-    SystemState::build(&config)
-}
 
 #[test]
 fn test_translate_bare_valid_address() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let vaddr = VirtAddr::new(0x8000_0000);
@@ -31,7 +25,7 @@ fn test_translate_bare_valid_address() {
 
 #[test]
 fn test_translate_bare_different_addresses() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let test_addrs = vec![0x8000_0000u64, 0x8000_1000u64, 0x8000_2000u64];
@@ -47,7 +41,7 @@ fn test_translate_bare_different_addresses() {
 
 #[test]
 fn test_translate_bare_fetch_access() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let vaddr = VirtAddr::new(0x8000_0000);
@@ -59,7 +53,7 @@ fn test_translate_bare_fetch_access() {
 
 #[test]
 fn test_translate_bare_write_access() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let vaddr = VirtAddr::new(0x8000_0000);
@@ -71,7 +65,7 @@ fn test_translate_bare_write_access() {
 
 #[test]
 fn test_translate_preserves_translation_cost() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let vaddr = VirtAddr::new(0x8000_0000);
@@ -83,7 +77,7 @@ fn test_translate_preserves_translation_cost() {
 
 #[test]
 fn test_translate_multiple_calls() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     for _ in 0..5 {
@@ -97,7 +91,7 @@ fn test_translate_multiple_calls() {
 
 #[test]
 fn test_translate_invalid_address_fetch() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
@@ -109,7 +103,7 @@ fn test_translate_invalid_address_fetch() {
 
 #[test]
 fn test_translate_invalid_address_read() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
@@ -121,7 +115,7 @@ fn test_translate_invalid_address_read() {
 
 #[test]
 fn test_translate_invalid_address_write() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let vaddr = VirtAddr::new(0xFFFF_FFFF_FFFF_FFFF);
@@ -133,7 +127,7 @@ fn test_translate_invalid_address_write() {
 
 #[test]
 fn test_translate_with_paging_off() {
-    let mut sys = create_test_cpu();
+    let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
     let vaddr = VirtAddr::new(0x8000_0000);
