@@ -71,13 +71,16 @@ fn every_character_printed_before_the_exit_reaches_the_console() {
 fn the_run_ends_on_the_cycle_of_the_exit() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = system(backend);
-        let exited_at = ctx.run_until(20_000, |ctx| ctx.sim.state.peek_exit().is_some());
+        let exited_at = ctx.run_until(20_000, |ctx| ctx.sim.state.uncore.peek_exit().is_some());
 
         let code = ctx.sim.take_exit();
 
         assert_eq!(code, Some(EXIT_CODE as u64), "{backend:?}");
         let exited_at = exited_at.expect("the guest exits");
-        assert!(ctx.sim.state.cycle > exited_at, "{backend:?}: finishing the stores takes cycles");
+        assert!(
+            ctx.sim.state.uncore.cycle > exited_at,
+            "{backend:?}: finishing the stores takes cycles"
+        );
         assert_eq!(ctx.sim.cycle(), exited_at, "{backend:?}");
         assert_eq!(ctx.sim.stats_window().0, exited_at, "{backend:?}");
     }
@@ -86,10 +89,10 @@ fn the_run_ends_on_the_cycle_of_the_exit() {
 #[test]
 fn a_run_resumed_after_the_exit_counts_the_cycles_since() {
     let mut ctx = system(BackendKind::InOrder);
-    ctx.run_until(20_000, |ctx| ctx.sim.state.peek_exit().is_some());
+    ctx.run_until(20_000, |ctx| ctx.sim.state.uncore.peek_exit().is_some());
     ctx.sim.take_exit();
 
     ctx.sim.tick().expect("the run ticks");
 
-    assert_eq!(ctx.sim.cycle(), ctx.sim.state.cycle);
+    assert_eq!(ctx.sim.cycle(), ctx.sim.state.uncore.cycle);
 }

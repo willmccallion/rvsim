@@ -41,7 +41,7 @@ impl MultiHart {
     pub fn run_until_exit(&mut self, max_cycles: u64) -> Option<u64> {
         for _ in 0..max_cycles {
             self.sim.tick().expect("tick");
-            if let Some(code) = self.sim.state.peek_exit() {
+            if let Some(code) = self.sim.state.uncore.peek_exit() {
                 return Some(code);
             }
         }

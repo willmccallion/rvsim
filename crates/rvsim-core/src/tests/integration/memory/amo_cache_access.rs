@@ -40,7 +40,7 @@ fn check_one_access_per_amo(backend: BackendKind) {
     ctx.run(400);
 
     let paths = &ctx.sim.state.cores[0].units.l1_d_cache.stat_paths;
-    let stats = &ctx.sim.state.stats;
+    let stats = &ctx.sim.state.uncore.stats;
     let accesses = stats.get(paths.hits).unwrap_or(0.0) + stats.get(paths.misses).unwrap_or(0.0);
     assert_eq!(
         ctx.get_reg(A1 as usize),

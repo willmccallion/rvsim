@@ -186,28 +186,28 @@ impl Simulator {
     ///
     /// Returns [`CheckpointError`] when writing fails.
     pub fn save_checkpoint(&mut self, out: &mut impl Write) -> Result<(), CheckpointError> {
-        if self.state.processes.host_files_open() > 0 {
+        if self.state.uncore.processes.host_files_open() > 0 {
             return Err(CheckpointError::Unsupported("while the program has host files open"));
         }
         self.drain();
         let state = &self.state;
-        let ram = state.memory.ram();
-        let reservations = state.memory.reservations();
+        let ram = state.uncore.memory.ram();
+        let reservations = state.uncore.memory.reservations();
         let header = Header {
             magic: MAGIC.into(),
             version: VERSION,
-            cycle: state.cycle,
-            trace: state.trace.armed,
+            cycle: state.uncore.cycle,
+            trace: state.uncore.trace.armed,
             ram_base: ram.map_or(0, Ram::base),
             ram_size: ram.map_or(0, Ram::size),
-            vlen_bits: state.config.pipeline.vlen.bits() as u64,
+            vlen_bits: state.uncore.config.pipeline.vlen.bits() as u64,
             harts: state
                 .harts
                 .iter()
                 .map(|hart| HartState::of(hart, reservations.reserved(hart.hart_id)))
                 .collect(),
-            devices: state.bus.checkpoint_devices(),
-            processes: state.processes.checkpoint(),
+            devices: state.uncore.bus.checkpoint_devices(),
+            processes: state.uncore.processes.checkpoint(),
         };
         let header = serde_json::to_vec(&header)?;
         out.write_all(&(header.len() as u64).to_le_bytes())?;
@@ -238,15 +238,19 @@ impl Simulator {
         if header.version != VERSION {
             return Err(CheckpointError::Version { found: header.version });
         }
-        let ram = self.state.memory.ram();
+        let ram = self.state.uncore.memory.ram();
         mismatch("harts", header.harts.len() as u64, self.state.harts.len() as u64)?;
         mismatch("RAM bytes", header.ram_size, ram.map_or(0, Ram::size))?;
         mismatch("RAM base", header.ram_base, ram.map_or(0, Ram::base))?;
-        mismatch("VLEN", header.vlen_bits, self.state.config.pipeline.vlen.bits() as u64)?;
-        self.state.bus.check_device_states(&header.devices).map_err(CheckpointError::Device)?;
+        mismatch("VLEN", header.vlen_bits, self.state.uncore.config.pipeline.vlen.bits() as u64)?;
+        self.state
+            .uncore
+            .bus
+            .check_device_states(&header.devices)
+            .map_err(CheckpointError::Device)?;
 
         self.drain();
-        if let Some(ram) = self.state.memory.ram_mut() {
+        if let Some(ram) = self.state.uncore.memory.ram_mut() {
             read_pages(input, ram.bytes_mut())?;
         }
         self.apply_header(&header)
@@ -254,8 +258,8 @@ impl Simulator {
 
     fn apply_header(&mut self, header: &Header) -> Result<(), CheckpointError> {
         let state = &mut self.state;
-        state.cycle = header.cycle;
-        state.trace.armed = header.trace;
+        state.uncore.cycle = header.cycle;
+        state.uncore.trace.armed = header.trace;
         for (hart, saved) in state.harts.iter_mut().zip(&header.harts) {
             saved.apply(hart);
         }
@@ -279,7 +283,7 @@ impl Simulator {
             units.mmu.l2_tlb.flush();
         }
         state.uncore.l3_cache.invalidate_all(&mut state.uncore.stats);
-        state.mem_controller.resume_at(header.cycle);
+        state.uncore.mem_controller.resume_at(header.cycle);
         if let Some(coherence) = &mut state.uncore.coherence {
             coherence.forget_cached_lines();
         }

@@ -111,8 +111,8 @@ pub fn load_processes(
     let images =
         programs.iter().map(|program| Image::parse(program.data)).collect::<Result<Vec<_>, _>>()?;
 
-    let ram_base = state.config.system.ram_base;
-    let ram_end = ram_base + state.config.memory.ram_size as u64;
+    let ram_base = state.uncore.config.system.ram_base;
+    let ram_end = ram_base + state.uncore.config.memory.ram_size as u64;
     let mut frames = FrameAllocator::new(PhysAddr::new(ram_base), PhysAddr::new(ram_end));
     let mut loaded = Vec::with_capacity(programs.len());
     for (program, image) in programs.iter().zip(&images) {
@@ -180,7 +180,8 @@ fn place(
 
 /// Points `hart_id` at `entry` in user mode with `sp` and `satp`.
 fn start_hart(state: &mut SystemState, hart_id: HartId, entry: VirtAddr, sp: VirtAddr, satp: u64) {
-    let core = state.topology.core_of_hart(hart_id).map_or(hart_id.as_index(), CoreId::as_index);
+    let core =
+        state.uncore.topology.core_of_hart(hart_id).map_or(hart_id.as_index(), CoreId::as_index);
     let mut ctx = state.core_ctx(core);
     enter_user_mode(&mut ctx, entry, satp);
     ctx.hart.regs.write(reg::REG_SP, sp.val());

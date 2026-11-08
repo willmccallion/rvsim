@@ -23,12 +23,12 @@ fn test_tick_returns_ok() {
 #[test]
 fn test_tick_increments_cycles() {
     let mut sim = create_test_sim();
-    let initial_cycles = sim.state.cycle;
+    let initial_cycles = sim.state.uncore.cycle;
 
     sim.tick().unwrap();
 
     // Cycles should increase
-    assert!(sim.state.cycle >= initial_cycles);
+    assert!(sim.state.uncore.cycle >= initial_cycles);
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn test_multiple_ticks() {
 #[test]
 fn test_exit_code_none_initially() {
     let sim = create_test_sim();
-    assert_eq!(sim.state.peek_exit(), None);
+    assert_eq!(sim.state.uncore.peek_exit(), None);
 }
 
 #[test]
@@ -61,12 +61,12 @@ fn test_last_pc_updates() {
 fn test_same_pc_counter() {
     let mut sim = create_test_sim();
     let idx = sim.state.harts[0].hart_id.as_index();
-    let initial_count = sim.state.per_hart_debug[idx].same_pc_count;
-    sim.state.per_hart_debug[idx].same_pc_count = 0;
+    let initial_count = sim.state.uncore.per_hart_debug[idx].same_pc_count;
+    sim.state.uncore.per_hart_debug[idx].same_pc_count = 0;
 
     sim.tick().unwrap();
 
-    let count = sim.state.per_hart_debug[idx].same_pc_count;
+    let count = sim.state.uncore.per_hart_debug[idx].same_pc_count;
     assert!(count != initial_count || count == 0);
 }
 

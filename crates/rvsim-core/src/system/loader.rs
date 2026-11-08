@@ -82,7 +82,7 @@ fn load_kernel(state: &mut SystemState, boot: &KernelBoot, addr: PhysAddr) -> Re
             return Ok(());
         }
     };
-    state.load_binary_at(&load_binary(path)?, addr);
+    state.uncore.load_binary_at(&load_binary(path)?, addr);
     Ok(())
 }
 
@@ -111,15 +111,15 @@ pub(crate) fn setup_kernel_load(
 
     if let Some(path) = &boot.dtb {
         let dtb_data = load_binary(path)?;
-        state.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
+        state.uncore.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     } else {
         let dtb_data = crate::system::dtb::generate_dtb(config);
-        state.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
+        state.uncore.load_binary_at(&dtb_data, PhysAddr::new(dtb_addr));
     }
 
     if let Some(firmware) = Firmware::find(boot) {
         let sbi_data = load_binary(firmware.path())?;
-        state.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
+        state.uncore.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
 
         load_kernel(state, boot, PhysAddr::new(kernel_addr))?;
 
@@ -152,7 +152,7 @@ pub(crate) fn setup_kernel_load(
             for field in &fields {
                 info_bytes.extend_from_slice(&field.to_le_bytes());
             }
-            state.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
+            state.uncore.load_binary_at(&info_bytes, PhysAddr::new(info_addr));
             for hart in &mut state.harts {
                 hart.regs.write(reg::REG_A2, info_addr);
             }
@@ -162,7 +162,7 @@ pub(crate) fn setup_kernel_load(
             }
         }
     } else {
-        state.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
+        state.uncore.load_binary_at(&sys_ops::MRET.to_le_bytes(), PhysAddr::new(ram_base));
         for core in 0..state.cores.len() {
             let mut ctx = state.core_ctx(core);
             ctx.hart.pc = VirtAddr::new(ram_base);

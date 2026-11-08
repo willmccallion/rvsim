@@ -349,7 +349,7 @@ fn a_pseudo_op_dumps_the_stats_with_its_label() {
         let stop = run_for(&mut sim, 50_000);
 
         assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
-        let labels: Vec<u64> = sim.state.stats_dumps.iter().map(|dump| dump.label).collect();
+        let labels: Vec<u64> = sim.state.uncore.stats_dumps.iter().map(|dump| dump.label).collect();
         assert_eq!(labels, vec![3], "{backend:?}");
     }
 }

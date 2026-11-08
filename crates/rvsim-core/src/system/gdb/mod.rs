@@ -318,7 +318,7 @@ impl Session<'_> {
 
     fn core_of(&self, hart: usize) -> Option<usize> {
         let hart_id = self.sim.state.harts.get(hart)?.hart_id;
-        self.sim.state.topology.core_of_hart(hart_id).map(CoreId::as_index)
+        self.sim.state.uncore.topology.core_of_hart(hart_id).map(CoreId::as_index)
     }
 
     /// `Z`/`z` `type,addr,kind`: breakpoints (types 0 and 1) and write,

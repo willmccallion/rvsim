@@ -67,5 +67,5 @@ fn a_store_whose_data_comes_late_writes_that_data() {
 fn the_data_half_issues_after_the_address_half() {
     let tc = run(MemDepPredictorKind::Blind);
     let paths = &tc.sim.state.cores[0].units.stat_paths.lsq;
-    assert_eq!(tc.sim.state.stats.get(paths.split_stores), Some(1.0));
+    assert_eq!(tc.sim.state.uncore.stats.get(paths.split_stores), Some(1.0));
 }

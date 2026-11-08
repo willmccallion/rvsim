@@ -80,8 +80,15 @@ fn run(backend: BackendKind, first: RobTag) -> Outcome {
     let finished = ctx.run_until(50_000, |ctx| ctx.get_reg(S2 as usize) == 1);
 
     let cycle = finished.unwrap_or_else(|| panic!("{backend:?}: the loop did not finish"));
-    let stats =
-        ctx.sim.state.stats.query("**").iter().map(|(path, v)| (path.to_string(), v)).collect();
+    let stats = ctx
+        .sim
+        .state
+        .uncore
+        .stats
+        .query("**")
+        .iter()
+        .map(|(path, v)| (path.to_string(), v))
+        .collect();
     Outcome { sum: ctx.get_reg(S1 as usize), cycle, stats }
 }
 

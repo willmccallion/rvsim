@@ -74,7 +74,7 @@ impl TestContext {
 
     pub fn with_memory(mut self, size: usize, base: u64) -> Self {
         let mem = MockMemory::new(size, base);
-        self.sim.state.bus.add_device(Box::new(mem));
+        self.sim.state.uncore.bus.add_device(Box::new(mem));
         self
     }
 
@@ -103,7 +103,7 @@ impl TestContext {
     pub fn run_until(&mut self, max_cycles: u64, done: impl Fn(&Self) -> bool) -> Option<u64> {
         for _ in 0..max_cycles {
             if done(self) {
-                return Some(self.sim.state.cycle);
+                return Some(self.sim.state.uncore.cycle);
             }
             self.tick();
         }
@@ -114,7 +114,7 @@ impl TestContext {
     pub fn run(&mut self, cycles: u64) {
         for _ in 0..cycles {
             self.tick();
-            if self.sim.state.peek_exit().is_some() {
+            if self.sim.state.uncore.peek_exit().is_some() {
                 break;
             }
         }
@@ -123,7 +123,7 @@ impl TestContext {
     /// Advances one cycle, failing the test at the cycle a simulator error occurs.
     fn tick(&mut self) {
         if let Err(e) = self.sim.tick() {
-            panic!("tick failed at cycle {}: {e}", self.sim.state.cycle);
+            panic!("tick failed at cycle {}: {e}", self.sim.state.uncore.cycle);
         }
     }
 }
