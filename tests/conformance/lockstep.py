@@ -38,7 +38,8 @@ DRIVER = os.path.join(ROOT, "tests", "builds", "lockstep", "spike_lockstep")
 PYTHON = os.path.join(ROOT, ".venv", "bin", "python3")
 if not os.path.isfile(PYTHON):
     PYTHON = sys.executable
-SOFTWARE_BIN = os.path.join(ROOT, "software", "bin")
+# The bare-metal builds: spike runs no kernel to serve an SE program.
+SOFTWARE_BIN = os.path.join(ROOT, "software", "bin-htif")
 VECTOR_BUILD = os.path.join(ROOT, "tests", "builds", "vector")
 VECTOR_SMOKE_BUILD = os.path.join(ROOT, "tests", "builds", "vector-smoke")
 RESULTS_DIR = os.path.join(ROOT, "tests", "builds", "results")
