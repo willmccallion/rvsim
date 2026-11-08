@@ -17,6 +17,11 @@ pub fn build_simulator(config: &Config) -> Simulator {
     Simulator::build(&valid(config), None).expect("the test machine builds")
 }
 
+/// The minimal machine's system, built without a simulator around it.
+pub fn minimal_system() -> SystemState {
+    SystemState::build(&Config::minimal())
+}
+
 /// `config`, which the test expects [`Config::validate`] to accept.
 pub fn valid(config: &Config) -> ValidConfig {
     ValidConfig::try_from(config.clone()).expect("the test config is valid")
