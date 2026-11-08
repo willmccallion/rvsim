@@ -356,7 +356,7 @@ impl Stats {
     ) -> Self {
         let mut s = Self::new();
         for hart in harts {
-            register_hart(&mut s, hart);
+            hart.register(&mut s);
         }
         for (core, first_hart) in cores {
             register_core(&mut s, core, &harts[first_hart.as_index()]);
@@ -571,107 +571,33 @@ impl Stats {
     }
 }
 
-/// Registers a hart's counters.
-fn register_hart(s: &mut Stats, h: &HartPaths) {
-    s.register(h.retired_insts, Unit::Events);
-    s.register(h.traps, Unit::Events);
-    s.register(h.cycles_user, Unit::Cycles);
-    s.register(h.cycles_kernel, Unit::Cycles);
-    s.register(h.cycles_machine, Unit::Cycles);
-}
-
 /// Registers a core's counters and its derived rates (BP accuracies,
 /// IPC/CPI against `first_hart`'s retired instructions).
-fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
-    let commit = &c.commit;
-    s.register(commit.op_load, Unit::Events);
-    s.register(commit.op_store, Unit::Events);
-    s.register(commit.op_branch, Unit::Events);
-    s.register(commit.op_alu, Unit::Events);
-    s.register(commit.op_system, Unit::Events);
-    s.register(commit.op_atomic, Unit::Events);
-    s.register(commit.fp_load, Unit::Events);
-    s.register(commit.fp_store, Unit::Events);
-    s.register(commit.fp_arith, Unit::Events);
-    s.register(commit.fp_fma, Unit::Events);
-    s.register(commit.fp_div_sqrt, Unit::Events);
-    s.register(commit.vec_int, Unit::Events);
-    s.register(commit.vec_fp, Unit::Events);
-    s.register(commit.vec_load, Unit::Events);
-    s.register(commit.vec_store, Unit::Events);
-    s.register(commit.vec_misc, Unit::Events);
-    s.register(commit.vec_crypto, Unit::Events);
-    s.register(commit.retire_hist_zero, Unit::Cycles);
-    s.register(commit.retire_hist_one, Unit::Cycles);
-    s.register(commit.retire_hist_two, Unit::Cycles);
-    s.register(commit.retire_hist_three_plus, Unit::Cycles);
-
-    let pipe = &c.pipeline;
-    s.register(pipe.cycles_total, Unit::Cycles);
-    s.register(pipe.cycles_wfi, Unit::Cycles);
-    s.register(pipe.cycles_rob_empty, Unit::Cycles);
-    s.register(pipe.stalls_control, Unit::Cycles);
-    s.register(pipe.stalls_fetch_wait, Unit::Cycles);
-    s.register(pipe.stalls_data, Unit::Cycles);
-    s.register(pipe.stalls_ordering, Unit::Cycles);
-    s.register(pipe.stalls_fu_structural, Unit::Cycles);
-    s.register(pipe.stalls_backpressure, Unit::Cycles);
-    s.register(pipe.stalls_dispatch, Unit::Cycles);
-    s.register(pipe.stalls_checkpoint, Unit::Cycles);
-    s.register(pipe.stalls_serialize, Unit::Cycles);
-    s.register(pipe.stalls_squash, Unit::Cycles);
-    s.register(pipe.flushes_total, Unit::Events);
-    s.register(pipe.flushes_branch, Unit::Events);
-    s.register(pipe.flushes_system, Unit::Events);
-    s.register(pipe.flushes_mem_violations, Unit::Events);
-    s.register(pipe.flushes_coherence, Unit::Events);
-    s.register(pipe.flushes_trap, Unit::Events);
-    s.register(pipe.flushes_squashed_insns, Unit::Events);
-
-    let bp = &c.bp;
-    s.register(bp.committed_hits, Unit::Events);
-    s.register(bp.committed_mispredicts, Unit::Events);
-    s.register(bp.spec_hits, Unit::Events);
-    s.register(bp.spec_mispredicts, Unit::Events);
-    s.register(bp.decode_redirects, Unit::Events);
-
-    let mdp = &c.mdp;
-    s.register(mdp.predictions_bypass, Unit::Events);
-    s.register(mdp.predictions_wait_all, Unit::Events);
-    s.register(mdp.predictions_wait_for, Unit::Events);
-    s.register(mdp.violations, Unit::Events);
-
-    let lsq = &c.lsq;
-    s.register(lsq.rescheduled_mem_ops, Unit::Events);
-    s.register(lsq.split_stores, Unit::Events);
-    s.register(lsq.coherence_replays, Unit::Events);
-    s.register(lsq.coherence_violations, Unit::Events);
-
-    s.register(c.wcb.coalesces, Unit::Events);
-    s.register(c.wcb.drains, Unit::Events);
-    let pf = &c.load_prefetch;
-    s.register(pf.l1, Unit::Events);
-    s.register(pf.l2, Unit::Events);
-    s.register(pf.page_boundary, Unit::Events);
-    s.register(pf.tlb_miss, Unit::Events);
-    s.register(pf.denied, Unit::Events);
-    s.register(pf.not_ram, Unit::Events);
-    for path in c.fu.all {
-        s.register(path, Unit::Cycles);
+fn register_core(stats: &mut Stats, core: &CorePaths, first_hart: &HartPaths) {
+    core.commit.register(stats);
+    core.pipeline.register(stats);
+    core.bp.register(stats);
+    core.mdp.register(stats);
+    core.lsq.register(stats);
+    core.wcb.register(stats);
+    core.load_prefetch.register(stats);
+    for path in core.fu.all {
+        stats.register(path, Unit::Cycles);
     }
-
-    s.derive(
+    let bp = &core.bp;
+    let pipe = &core.pipeline;
+    stats.derive(
         bp.committed_accuracy,
         Formula::Ratio { numerator: bp.committed_hits, other: bp.committed_mispredicts },
         Unit::Ratio,
     );
-    s.derive(
+    stats.derive(
         bp.spec_accuracy,
         Formula::Ratio { numerator: bp.spec_hits, other: bp.spec_mispredicts },
         Unit::Ratio,
     );
-    s.derive(c.ipc, Formula::Div(first_hart.retired_insts, pipe.cycles_total), Unit::Ratio);
-    s.derive(c.cpi, Formula::Div(pipe.cycles_total, first_hart.retired_insts), Unit::Ratio);
+    stats.derive(core.ipc, Formula::Div(first_hart.retired_insts, pipe.cycles_total), Unit::Ratio);
+    stats.derive(core.cpi, Formula::Div(pipe.cycles_total, first_hart.retired_insts), Unit::Ratio);
 }
 
 /// Registers the `system.*` sums over every hart.

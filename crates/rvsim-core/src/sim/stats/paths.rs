@@ -11,19 +11,35 @@
 
 use crate::common::{CoreId, HartId};
 
-use super::StatId;
+use super::{StatId, Stats, Unit};
 
 macro_rules! stat_paths {
-    ($(#[$meta:meta])* $name:ident { $( $(#[$fmeta:meta])* $field:ident: $tail:literal ),* $(,)? }) => {
+    (
+        $(#[$meta:meta])* $name:ident {
+            $( $(#[$fmeta:meta])* $field:ident: $tail:literal => $unit:ident ),* $(,)?
+        }
+        $( derived {
+            $( $(#[$dmeta:meta])* $dfield:ident: $dtail:literal ),* $(,)?
+        } )?
+    ) => {
         $(#[$meta])*
         #[derive(Clone, Copy, Debug)]
         pub struct $name {
             $( $(#[$fmeta])* pub $field: StatId, )*
+            $( $( $(#[$dmeta])* pub $dfield: StatId, )* )?
         }
 
         impl $name {
             fn under(subject: &str) -> Self {
-                Self { $( $field: StatId::of(&format!("{subject}.{}", $tail)), )* }
+                Self {
+                    $( $field: StatId::of(&format!("{subject}.{}", $tail)), )*
+                    $( $( $dfield: StatId::of(&format!("{subject}.{}", $dtail)), )* )?
+                }
+            }
+
+            /// Registers every counter in its unit.
+            pub(super) fn register(&self, stats: &mut Stats) {
+                $( stats.register(self.$field, Unit::$unit); )*
             }
         }
     };
@@ -33,15 +49,15 @@ stat_paths! {
     /// Architectural, per-hart counters (retired insts, traps, mode-cycle mix).
     HartPaths {
         /// Instructions retired (mirrors `Hart::instructions_retired`).
-        retired_insts: "retired_insts",
+        retired_insts: "retired_insts" => Events,
         /// Trap-taken events.
-        traps: "traps",
+        traps: "traps" => Events,
         /// Cycles spent in user (U) privilege.
-        cycles_user: "cycles.user",
+        cycles_user: "cycles.user" => Cycles,
         /// Cycles spent in supervisor (S) privilege.
-        cycles_kernel: "cycles.kernel",
+        cycles_kernel: "cycles.kernel" => Cycles,
         /// Cycles spent in machine (M) privilege.
-        cycles_machine: "cycles.machine",
+        cycles_machine: "cycles.machine" => Cycles,
     }
 }
 
@@ -57,47 +73,47 @@ stat_paths! {
     /// Commit-stage counters — instruction-mix breakdown at retirement.
     CommitPaths {
         /// Integer load retired.
-        op_load: "commit.op.load",
+        op_load: "commit.op.load" => Events,
         /// Integer store retired.
-        op_store: "commit.op.store",
+        op_store: "commit.op.store" => Events,
         /// Branch/jump retired.
-        op_branch: "commit.op.branch",
+        op_branch: "commit.op.branch" => Events,
         /// Integer ALU retired.
-        op_alu: "commit.op.alu",
+        op_alu: "commit.op.alu" => Events,
         /// System / CSR / ECALL retired.
-        op_system: "commit.op.system",
+        op_system: "commit.op.system" => Events,
         /// LR, SC or AMO retired.
-        op_atomic: "commit.op.atomic",
+        op_atomic: "commit.op.atomic" => Events,
         /// FP load retired.
-        fp_load: "commit.fp.load",
+        fp_load: "commit.fp.load" => Events,
         /// FP store retired.
-        fp_store: "commit.fp.store",
+        fp_store: "commit.fp.store" => Events,
         /// FP arithmetic retired.
-        fp_arith: "commit.fp.arith",
+        fp_arith: "commit.fp.arith" => Events,
         /// FP fused multiply-add retired.
-        fp_fma: "commit.fp.fma",
+        fp_fma: "commit.fp.fma" => Events,
         /// FP divide/sqrt retired.
-        fp_div_sqrt: "commit.fp.div_sqrt",
+        fp_div_sqrt: "commit.fp.div_sqrt" => Events,
         /// Vector integer op retired.
-        vec_int: "commit.vec.int",
+        vec_int: "commit.vec.int" => Events,
         /// Vector FP op retired.
-        vec_fp: "commit.vec.fp",
+        vec_fp: "commit.vec.fp" => Events,
         /// Vector load retired.
-        vec_load: "commit.vec.load",
+        vec_load: "commit.vec.load" => Events,
         /// Vector store retired.
-        vec_store: "commit.vec.store",
+        vec_store: "commit.vec.store" => Events,
         /// Vector misc (permute/mask/config) retired.
-        vec_misc: "commit.vec.misc",
+        vec_misc: "commit.vec.misc" => Events,
         /// Vector crypto (Zvk*) retired.
-        vec_crypto: "commit.vec.crypto",
+        vec_crypto: "commit.vec.crypto" => Events,
         /// Retire histogram: cycles where 0 insts retired.
-        retire_hist_zero: "commit.retire_histogram.zero",
+        retire_hist_zero: "commit.retire_histogram.zero" => Cycles,
         /// Retire histogram: cycles where exactly 1 inst retired.
-        retire_hist_one: "commit.retire_histogram.one",
+        retire_hist_one: "commit.retire_histogram.one" => Cycles,
         /// Retire histogram: cycles where exactly 2 insts retired.
-        retire_hist_two: "commit.retire_histogram.two",
+        retire_hist_two: "commit.retire_histogram.two" => Cycles,
         /// Retire histogram: cycles where 3 or more insts retired.
-        retire_hist_three_plus: "commit.retire_histogram.three_plus",
+        retire_hist_three_plus: "commit.retire_histogram.three_plus" => Cycles,
     }
 }
 
@@ -105,47 +121,47 @@ stat_paths! {
     /// Cross-stage pipeline counters (cycle categories, stalls, flushes).
     PipelinePaths {
         /// Cycles the core has been ticked.
-        cycles_total: "pipeline.cycles.total",
+        cycles_total: "pipeline.cycles.total" => Cycles,
         /// Cycles the core spent in WFI (waiting for interrupt).
-        cycles_wfi: "pipeline.cycles.wfi",
+        cycles_wfi: "pipeline.cycles.wfi" => Cycles,
         /// Cycles the ROB was empty.
-        cycles_rob_empty: "pipeline.cycles.rob_empty",
+        cycles_rob_empty: "pipeline.cycles.rob_empty" => Cycles,
         /// Cycles from a backend redirect (squash, trap, re-execution) until
         /// rename hands on the first instruction from the new path.
-        stalls_control: "pipeline.stalls.control",
+        stalls_control: "pipeline.stalls.control" => Cycles,
         /// Fetch1 idle because an earlier fetch group is still waiting on
         /// the I-cache response or an instruction-fetch page walk.
-        stalls_fetch_wait: "pipeline.stalls.fetch_wait",
+        stalls_fetch_wait: "pipeline.stalls.fetch_wait" => Cycles,
         /// Issue stalled on data hazard (source not ready).
-        stalls_data: "pipeline.stalls.data",
+        stalls_data: "pipeline.stalls.data" => Cycles,
         /// Issue stalled on FU structural hazard.
-        stalls_fu_structural: "pipeline.stalls.fu_structural",
+        stalls_fu_structural: "pipeline.stalls.fu_structural" => Cycles,
         /// Issue held queued work for program order.
-        stalls_ordering: "pipeline.stalls.ordering",
+        stalls_ordering: "pipeline.stalls.ordering" => Cycles,
         /// Downstream backpressure stalls.
-        stalls_backpressure: "pipeline.stalls.backpressure",
+        stalls_backpressure: "pipeline.stalls.backpressure" => Cycles,
         /// Dispatch stall (rename → issue queue).
-        stalls_dispatch: "pipeline.stalls.dispatch",
+        stalls_dispatch: "pipeline.stalls.dispatch" => Cycles,
         /// Checkpoint allocation stalls.
-        stalls_checkpoint: "pipeline.stalls.checkpoint",
+        stalls_checkpoint: "pipeline.stalls.checkpoint" => Cycles,
         /// Rename held behind a serializing instruction until the ROB drains.
-        stalls_serialize: "pipeline.stalls.serialize",
+        stalls_serialize: "pipeline.stalls.serialize" => Cycles,
         /// Squash-recovery cycles.
-        stalls_squash: "pipeline.stalls.squash",
+        stalls_squash: "pipeline.stalls.squash" => Cycles,
         /// Total pipeline flushes.
-        flushes_total: "pipeline.flushes.total",
+        flushes_total: "pipeline.flushes.total" => Events,
         /// Flushes caused by branch mispredict.
-        flushes_branch: "pipeline.flushes.branch",
+        flushes_branch: "pipeline.flushes.branch" => Events,
         /// Flushes caused by system-instruction serialization.
-        flushes_system: "pipeline.flushes.system",
+        flushes_system: "pipeline.flushes.system" => Events,
         /// Flushes caused by memory-ordering violations.
-        flushes_mem_violations: "pipeline.flushes.mem_violations",
+        flushes_mem_violations: "pipeline.flushes.mem_violations" => Events,
         /// Flushes for a value another hart overwrote.
-        flushes_coherence: "pipeline.flushes.coherence",
+        flushes_coherence: "pipeline.flushes.coherence" => Events,
         /// Flushes for an exception or interrupt taken at commit.
-        flushes_trap: "pipeline.flushes.trap",
+        flushes_trap: "pipeline.flushes.trap" => Events,
         /// Instructions squashed by flush events (misprediction penalty).
-        flushes_squashed_insns: "pipeline.flushes.squashed_insns",
+        flushes_squashed_insns: "pipeline.flushes.squashed_insns" => Events,
     }
 }
 
@@ -153,16 +169,18 @@ stat_paths! {
     /// Branch-prediction counters.
     BpPaths {
         /// Committed branches whose prediction was correct.
-        committed_hits: "bp.committed.hits",
+        committed_hits: "bp.committed.hits" => Events,
         /// Committed branches whose prediction was wrong.
-        committed_mispredicts: "bp.committed.mispredicts",
+        committed_mispredicts: "bp.committed.mispredicts" => Events,
         /// Speculative branches whose prediction was correct (before commit).
-        spec_hits: "bp.spec.hits",
+        spec_hits: "bp.spec.hits" => Events,
         /// Speculative branches whose prediction was wrong.
-        spec_mispredicts: "bp.spec.mispredicts",
+        spec_mispredicts: "bp.spec.mispredicts" => Events,
         /// Times decode redirected fetch: a control instruction the BTB
         /// missed, a stale BTB target, or a BTB entry for a non-branch.
-        decode_redirects: "bp.decode_redirects",
+        decode_redirects: "bp.decode_redirects" => Events,
+    }
+    derived {
         /// Derived: committed prediction accuracy (hits / (hits+mispredicts)).
         committed_accuracy: "bp.committed.accuracy",
         /// Derived: speculative prediction accuracy.
@@ -174,13 +192,13 @@ stat_paths! {
     /// Memory-dependence predictor counters.
     MdpPaths {
         /// Loads predicted to bypass all older stores.
-        predictions_bypass: "mdp.predictions.bypass",
+        predictions_bypass: "mdp.predictions.bypass" => Events,
         /// Loads predicted to wait for all older stores.
-        predictions_wait_all: "mdp.predictions.wait_all",
+        predictions_wait_all: "mdp.predictions.wait_all" => Events,
         /// Loads predicted to wait for a specific older store.
-        predictions_wait_for: "mdp.predictions.wait_for",
+        predictions_wait_for: "mdp.predictions.wait_for" => Events,
         /// Load-after-store ordering violations observed at commit.
-        violations: "mdp.violations",
+        violations: "mdp.violations" => Events,
     }
 }
 
@@ -190,15 +208,15 @@ stat_paths! {
         /// Memory ops memory1 sent back for replay: loads partially
         /// overlapping an older store still in the store buffer, and LR/AMO
         /// ops behind an older store to the same address.
-        rescheduled_mem_ops: "lsq.rescheduled_mem_ops",
+        rescheduled_mem_ops: "lsq.rescheduled_mem_ops" => Events,
         /// Stores whose data issued after their address.
-        split_stores: "lsq.split_stores",
+        split_stores: "lsq.split_stores" => Events,
         /// LR / AMO instructions re-executed at commit because another
         /// hart wrote their line after they read it.
-        coherence_replays: "lsq.coherence_replays",
+        coherence_replays: "lsq.coherence_replays" => Events,
         /// Younger loads squashed because another hart wrote their line
         /// before an older load to it read the new value.
-        coherence_violations: "lsq.coherence_violations",
+        coherence_violations: "lsq.coherence_violations" => Events,
     }
 }
 
@@ -206,9 +224,9 @@ stat_paths! {
     /// Write-combining buffer counters.
     WcbPaths {
         /// Store operations coalesced into an existing WCB line.
-        coalesces: "wcb.coalesces",
+        coalesces: "wcb.coalesces" => Events,
         /// WCB lines drained to the memory hierarchy.
-        drains: "wcb.drains",
+        drains: "wcb.drains" => Events,
     }
 }
 
@@ -216,17 +234,17 @@ stat_paths! {
     /// The load/store unit's load prefetcher.
     LoadPrefetchPaths {
         /// Prefetches sent to fill the L1D.
-        l1: "prefetch.loads.l1",
+        l1: "prefetch.loads.l1" => Events,
         /// Prefetches sent to fill the L2 alone, further ahead.
-        l2: "prefetch.loads.l2",
+        l2: "prefetch.loads.l2" => Events,
         /// Prefetches not sent: past the trained page under `PageBoundary::Stop`.
-        page_boundary: "prefetch.loads.dropped.page_boundary",
+        page_boundary: "prefetch.loads.dropped.page_boundary" => Events,
         /// Prefetches not sent: the next page's translation missed the DTLB.
-        tlb_miss: "prefetch.loads.dropped.tlb_miss",
+        tlb_miss: "prefetch.loads.dropped.tlb_miss" => Events,
         /// Prefetches not sent: a page or region the load may not read.
-        denied: "prefetch.loads.dropped.denied",
+        denied: "prefetch.loads.dropped.denied" => Events,
         /// Prefetches not sent: the line is not RAM.
-        not_ram: "prefetch.loads.dropped.not_ram",
+        not_ram: "prefetch.loads.dropped.not_ram" => Events,
     }
 }
 
