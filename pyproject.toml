@@ -4,7 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "rvsim"
-version = "2.1.0"
+# maturin takes the version from the workspace Cargo.toml.
+dynamic = ["version"]
 description = "Cycle-level RISC-V system simulator"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +15,6 @@ license-files = ["LICENSE-APACHE", "LICENSE-MIT"]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
     "License :: OSI Approved :: MIT License",
     "License :: OSI Approved :: Apache Software License",
     "Topic :: Scientific/Engineering",

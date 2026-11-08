@@ -5,7 +5,7 @@
 #
 # Checks, cheapest first so a forgotten step fails in seconds:
 #   1. Clean working tree, everything pushed, release tag not yet taken
-#   2. Every version string matches (manifests, Cargo.lock, issue form)
+#   2. Every version string matches (path dependencies, Cargo.lock, issue form)
 #   3. Changelog: Unreleased is empty and this version has its own page
 #   4. Version is strictly ahead of PyPI and crates.io
 #   5. Rebuild: the extension (reporting this version) and guest programs
@@ -59,8 +59,8 @@ extract_toml_version() {
     grep '^version' "$1" | head -1 | sed 's/.*= *"\(.*\)"/\1/'
 }
 
-PY_VER=$(extract_toml_version "$ROOT/pyproject.toml")
-# Crates use workspace inheritance — read the single source of truth.
+# The crates inherit the workspace version and maturin gives it to the
+# Python package, so Cargo.toml is the one source.
 CARGO_VER=$(extract_toml_version "$ROOT/Cargo.toml")
 TAG="v$CARGO_VER"
 
@@ -100,14 +100,7 @@ fi
 # ── 2. Version alignment ───────────────────────────────────────────────────
 section "Version alignment"
 
-printf "    %-30s %s\n" "pyproject.toml"  "$PY_VER"
 printf "    %-30s %s\n" "Cargo.toml (workspace)" "$CARGO_VER"
-
-if [[ "$PY_VER" == "$CARGO_VER" ]]; then
-    pass "pyproject.toml and Cargo.toml match ($PY_VER)"
-else
-    fail "version mismatch — pyproject.toml=$PY_VER, Cargo.toml workspace=$CARGO_VER"
-fi
 
 # Check that path dependencies in bindings have the correct version pinned.
 # crates.io requires explicit versions on path deps.
@@ -209,11 +202,11 @@ info "Checking PyPI (rvsim)"
 PYPI_VER=$(curl -sf "https://pypi.org/pypi/rvsim/json" \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['info']['version'])" \
     2>/dev/null || echo "0.0.0")
-printf "    %-30s local=%-12s published=%s\n" "PyPI" "$PY_VER" "$PYPI_VER"
-if version_gt "$PY_VER" "$PYPI_VER"; then
-    pass "pypi: $PY_VER > $PYPI_VER"
+printf "    %-30s local=%-12s published=%s\n" "PyPI" "$CARGO_VER" "$PYPI_VER"
+if version_gt "$CARGO_VER" "$PYPI_VER"; then
+    pass "pypi: $CARGO_VER > $PYPI_VER"
 else
-    fail "pypi: $PY_VER is not ahead of published $PYPI_VER"
+    fail "pypi: $CARGO_VER is not ahead of published $PYPI_VER"
 fi
 
 check_crate() {
