@@ -15,7 +15,7 @@ pub const RAM_BASE: u64 = 0x8000_0000;
 ///
 /// Defines the physical memory limit. Accesses beyond `RAM_BASE + RAM_SIZE`
 /// will trigger a bus fault.
-pub const RAM_SIZE: usize = 128 * 1024 * 1024;
+pub const RAM_SIZE: u64 = 128 * 1024 * 1024;
 
 /// Offset from RAM base where kernel images are loaded (2 MiB).
 ///

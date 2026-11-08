@@ -83,7 +83,7 @@ fn build_bus(
         let htif = Htif::new(tohost, exit_signal.clone(), Vec::new(), terminal.clone());
         bus.add_device(Box::new(htif));
     }
-    bus.attach_ram(MemCtrlId::new(0), system.ram_base, config.memory.ram_size as u64);
+    bus.attach_ram(MemCtrlId::new(0), system.ram_base, config.memory.ram_size);
     Ok(bus)
 }
 
@@ -105,7 +105,7 @@ fn build_mem_controller(config: &Config) -> Box<dyn MemoryController> {
         }
         MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
             config.system.ram_base,
-            config.memory.ram_size as u64,
+            config.memory.ram_size,
             &config.memory.ddr5.to_config(),
             MemCtrlId::new(0),
             config.system.cpu_clock_mhz,
@@ -278,7 +278,7 @@ impl SystemState {
         let topology = Topology::single_threaded_cores(config.system.hart_count.max(1));
         let hart_count = topology.hart_count();
         let ram_size = config.memory.ram_size;
-        let ram = Ram::new(config.system.ram_base.val(), ram_size)
+        let ram = Ram::new(config.system.ram_base, ram_size)
             .map_err(|source| SimError::RamAllocation { bytes: ram_size, source })?;
         let terminal = Terminal::shared(config.system.console);
         let bus = build_bus(config, hart_count, &terminal, &exit_signal, disk)?;

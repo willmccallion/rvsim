@@ -307,14 +307,14 @@ pub enum ConfigError {
     BusWidth(u64),
     /// RAM that is empty or ends partway through a page.
     #[error("memory.ram_size {0} must be a non-zero multiple of 4 KiB")]
-    RamSize(usize),
+    RamSize(u64),
     /// A kernel load offset outside RAM.
     #[error("system.kernel_offset {offset:#x} lies past the {ram_size}-byte RAM")]
     KernelOffset {
         /// The configured offset.
         offset: u64,
         /// The RAM's size.
-        ram_size: usize,
+        ram_size: u64,
     },
     /// Two regions of the address map share an address.
     #[error("{first} and {second} overlap in the address map")]

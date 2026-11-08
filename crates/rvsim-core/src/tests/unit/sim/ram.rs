@@ -8,16 +8,16 @@ const BASE: u64 = 0x8000_0000;
 
 #[test]
 fn a_new_image_is_zeroed_and_sized() {
-    let ram = Ram::new(BASE, 256).expect("test RAM maps");
+    let ram = Ram::new(PhysAddr::new(BASE), 256).expect("test RAM maps");
 
-    assert_eq!(ram.base(), BASE);
+    assert_eq!(ram.base(), PhysAddr::new(BASE));
     assert_eq!(ram.size(), 256);
     assert!(ram.bytes().iter().all(|&byte| byte == 0));
 }
 
 #[test]
 fn a_slice_inside_the_image_is_returned_at_its_address() {
-    let mut ram = Ram::new(BASE, 256).expect("test RAM maps");
+    let mut ram = Ram::new(PhysAddr::new(BASE), 256).expect("test RAM maps");
 
     ram.get_mut(PhysAddr::new(BASE + 10), 4).expect("inside").copy_from_slice(&[1, 2, 3, 4]);
 
@@ -27,7 +27,7 @@ fn a_slice_inside_the_image_is_returned_at_its_address() {
 
 #[test]
 fn a_slice_that_leaves_the_image_is_refused() {
-    let mut ram = Ram::new(BASE, 256).expect("test RAM maps");
+    let mut ram = Ram::new(PhysAddr::new(BASE), 256).expect("test RAM maps");
 
     assert!(ram.get(PhysAddr::new(BASE - 1), 1).is_none(), "before the base");
     assert!(ram.get(PhysAddr::new(BASE + 255), 2).is_none(), "past the end");
@@ -37,7 +37,7 @@ fn a_slice_that_leaves_the_image_is_refused() {
 
 #[test]
 fn contains_covers_exactly_the_image() {
-    let ram = Ram::new(BASE, 64).expect("test RAM maps");
+    let ram = Ram::new(PhysAddr::new(BASE), 64).expect("test RAM maps");
 
     assert!(ram.contains(PhysAddr::new(BASE), 64));
     assert!(ram.contains(PhysAddr::new(BASE + 63), 1));
@@ -47,7 +47,7 @@ fn contains_covers_exactly_the_image() {
 
 #[test]
 fn the_whole_image_can_be_overwritten() {
-    let mut ram = Ram::new(BASE, 64).expect("test RAM maps");
+    let mut ram = Ram::new(PhysAddr::new(BASE), 64).expect("test RAM maps");
 
     ram.bytes_mut().fill(0x5a);
 
@@ -57,17 +57,17 @@ fn the_whole_image_can_be_overwritten() {
 #[test]
 fn a_large_image_is_usable_at_its_last_byte() {
     let size = 64 << 20;
-    let mut ram = Ram::new(0, size).expect("test RAM maps");
+    let mut ram = Ram::new(PhysAddr::new(0), size).expect("test RAM maps");
 
-    ram.get_mut(PhysAddr::new(size as u64 - 1), 1).expect("last byte")[0] = 0xff;
+    ram.get_mut(PhysAddr::new(size - 1), 1).expect("last byte")[0] = 0xff;
 
-    assert_eq!(ram.size(), size as u64);
-    assert_eq!(ram.get(PhysAddr::new(size as u64 - 1), 1), Some(&[0xff][..]));
+    assert_eq!(ram.size(), size);
+    assert_eq!(ram.get(PhysAddr::new(size - 1), 1), Some(&[0xff][..]));
 }
 
 #[test]
 fn an_empty_image_contains_nothing() {
-    let ram = Ram::new(BASE, 0).expect("test RAM maps");
+    let ram = Ram::new(PhysAddr::new(BASE), 0).expect("test RAM maps");
 
     assert_eq!(ram.size(), 0);
     assert!(ram.bytes().is_empty());
@@ -76,5 +76,5 @@ fn an_empty_image_contains_nothing() {
 
 #[test]
 fn a_size_the_host_cannot_map_is_an_error() {
-    assert!(Ram::new(BASE, usize::MAX).is_err());
+    assert!(Ram::new(PhysAddr::new(BASE), u64::MAX).is_err());
 }

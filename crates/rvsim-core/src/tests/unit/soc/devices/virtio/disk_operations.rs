@@ -15,7 +15,11 @@ fn make_virtio() -> VirtioBlock {
 fn make_virtio_with_ram() -> (VirtioBlock, GlobalMemory) {
     (
         make_virtio(),
-        GlobalMemory::new(Some(Ram::new(RAM_BASE, 0x10000).expect("test RAM maps")), 1, 64),
+        GlobalMemory::new(
+            Some(Ram::new(PhysAddr::new(RAM_BASE), 0x10000).expect("test RAM maps")),
+            1,
+            64,
+        ),
     )
 }
 
@@ -875,8 +879,11 @@ fn a_sector_read_lands_in_the_guest_buffer() {
 #[test]
 fn every_dma_write_of_a_request_is_logged_for_the_harts() {
     let mut vio = make_virtio();
-    let mut memory =
-        GlobalMemory::new(Some(Ram::new(RAM_BASE, 0x10000).expect("test RAM maps")), 2, 64);
+    let mut memory = GlobalMemory::new(
+        Some(Ram::new(PhysAddr::new(RAM_BASE), 0x10000).expect("test RAM maps")),
+        2,
+        64,
+    );
     vio.load(vec![0x42; SECTOR]);
     let reader = HartId::new(0);
     let stamp = memory.write_log().expect("two harts share a write log").now();

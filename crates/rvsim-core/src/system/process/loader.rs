@@ -112,7 +112,7 @@ pub fn load_processes(
         programs.iter().map(|program| Image::parse(program.data)).collect::<Result<Vec<_>, _>>()?;
 
     let ram_base = state.uncore.kernel.config.system.ram_base;
-    let ram_end = ram_base.val() + state.uncore.kernel.config.memory.ram_size as u64;
+    let ram_end = ram_base.val() + state.uncore.kernel.config.memory.ram_size;
     let mut frames = FrameAllocator::new(ram_base, PhysAddr::new(ram_end));
     let mut loaded = Vec::with_capacity(programs.len());
     for (program, image) in programs.iter().zip(&images) {

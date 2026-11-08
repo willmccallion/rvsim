@@ -33,9 +33,9 @@ fn every_device_sits_at_its_configured_region() {
 #[test]
 fn a_ram_the_host_cannot_map_fails_the_build() {
     /// More than any host's user address space, and clear of every device.
-    const HUGE: usize = 1 << 62;
+    const HUGE: u64 = 1 << 62;
     let mut config = Config::minimal();
-    config.system.ram_base = PhysAddr::new(HUGE as u64);
+    config.system.ram_base = PhysAddr::new(HUGE);
     config.memory.ram_size = HUGE;
 
     let built = crate::Simulator::build(&valid(&config), None);

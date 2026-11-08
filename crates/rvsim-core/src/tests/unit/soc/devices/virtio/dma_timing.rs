@@ -30,7 +30,11 @@ const WRITE: u16 = 2;
 
 /// The system's memory: 64 KiB of RAM at `RAM_BASE`.
 pub(super) fn memory() -> GlobalMemory {
-    GlobalMemory::new(Some(Ram::new(RAM_BASE, 0x10000).expect("test RAM maps")), 1, 64)
+    GlobalMemory::new(
+        Some(Ram::new(PhysAddr::new(RAM_BASE), 0x10000).expect("test RAM maps")),
+        1,
+        64,
+    )
 }
 
 /// Places `bytes` in RAM at `RAM_BASE + offset`.

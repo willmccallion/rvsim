@@ -13,7 +13,7 @@ use crate::common::PhysAddr;
 #[derive(Debug)]
 pub struct Ram {
     bytes: ZeroedBytes,
-    base: u64,
+    base: PhysAddr,
 }
 
 impl Ram {
@@ -21,14 +21,17 @@ impl Ram {
     ///
     /// # Errors
     ///
-    /// Returns the host's error when it cannot map `size` bytes.
-    pub fn new(base: u64, size: usize) -> io::Result<Self> {
-        Ok(Self { bytes: ZeroedBytes::new(size)?, base })
+    /// Returns the host's error when it cannot map `size` bytes, or one
+    /// saying so when `size` is more than the host can address.
+    pub fn new(base: PhysAddr, size: u64) -> io::Result<Self> {
+        let len = usize::try_from(size)
+            .map_err(|_| io::Error::other("RAM larger than the host's address space"))?;
+        Ok(Self { bytes: ZeroedBytes::new(len)?, base })
     }
 
     /// The first physical address of the image.
     #[must_use]
-    pub const fn base(&self) -> u64 {
+    pub const fn base(&self) -> PhysAddr {
         self.base
     }
 
@@ -42,7 +45,8 @@ impl Ram {
     #[must_use]
     pub const fn contains(&self, addr: PhysAddr, len: u64) -> bool {
         let addr = addr.val();
-        addr >= self.base && addr.saturating_add(len) <= self.base.saturating_add(self.size())
+        let base = self.base.val();
+        addr >= base && addr.saturating_add(len) <= base.saturating_add(self.size())
     }
 
     /// Every byte of the image, in address order.
@@ -72,7 +76,7 @@ impl Ram {
     }
 
     fn offset(&self, addr: PhysAddr, len: usize) -> Option<usize> {
-        self.contains(addr, len as u64).then(|| (addr.val() - self.base) as usize)
+        self.contains(addr, len as u64).then(|| (addr.val() - self.base.val()) as usize)
     }
 }
 

@@ -328,7 +328,7 @@ fn add_memory(fdt: &mut FdtBuilder, config: &Config) {
     let ram_base = config.system.ram_base.val();
     fdt.node(&format!("memory@{ram_base:x}"), |fdt| {
         fdt.prop_string("device_type", "memory");
-        fdt.prop_reg_2_2(ram_base, config.memory.ram_size as u64);
+        fdt.prop_reg_2_2(ram_base, config.memory.ram_size);
     });
 }
 

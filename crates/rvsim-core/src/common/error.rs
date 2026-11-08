@@ -55,7 +55,7 @@ pub enum SimError {
     #[error("could not map {bytes} bytes of RAM: {source}")]
     RamAllocation {
         /// The RAM size asked for.
-        bytes: usize,
+        bytes: u64,
         /// The host's error.
         source: std::io::Error,
     },

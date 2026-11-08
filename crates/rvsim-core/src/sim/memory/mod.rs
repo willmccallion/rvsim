@@ -33,7 +33,7 @@ impl GlobalMemory {
         let write_log = ram
             .as_ref()
             .filter(|_| hart_count > 1)
-            .map(|ram| WriteLog::new(ram.base(), ram.size(), line_bytes, hart_count));
+            .map(|ram| WriteLog::new(ram.base().val(), ram.size(), line_bytes, hart_count));
         Self { ram, reservations: ReservationSet::new(hart_count), write_log }
     }
 
