@@ -20,7 +20,9 @@
 //! element order, and `vec` for a vector instruction. A faulting
 //! instruction has no effects. A trap is `core   0: trap 0x<cause> 0x<epc>
 //! 0x<tval> cycle <n>`, with the interrupt bit in `cause` and `<n>` the
-//! cycle it was taken in.
+//! cycle it was taken in. Memory something other than a hart wrote (a
+//! device's DMA, HTIF, the SE-mode host) is `core   0: host write
+//! 0x<paddr> 0x<bytes>`, the bytes in address order, before the next line.
 
 use std::io::{self, Write};
 
@@ -33,6 +35,7 @@ use crate::isa::op::{AtomicOp, MemWidth};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvv::{ElemIdx, VRegIdx};
+use crate::sim::memory::HostWrite;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::vec_mem::mem_width_from_eew_bytes;
 use crate::uarch::pipeline::latches::Mem1Mem2Entry;
@@ -439,6 +442,22 @@ pub fn write_trap(
     cycle: u64,
 ) -> io::Result<()> {
     writeln!(out, "core   0: trap 0x{cause:016x} 0x{epc:016x} 0x{tval:016x} cycle {cycle}")
+}
+
+/// Writes a `host write` line for each of `writes`.
+///
+/// # Errors
+///
+/// Returns the error writing to `out` raised.
+pub fn write_host_writes(out: &mut impl Write, writes: &[HostWrite]) -> io::Result<()> {
+    for write in writes {
+        write!(out, "core   0: host write 0x{:016x} 0x", write.paddr.val())?;
+        for byte in &write.bytes {
+            write!(out, "{byte:02x}")?;
+        }
+        writeln!(out)?;
+    }
+    Ok(())
 }
 
 fn write_header(

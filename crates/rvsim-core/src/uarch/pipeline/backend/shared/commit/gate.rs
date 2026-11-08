@@ -200,7 +200,9 @@ fn take_fault(
     let entry = rob.commit_head()?;
     let the_trap = entry.trap()?;
     #[cfg(feature = "commit-log")]
-    if let Some(ref mut log) = state.uncore.host.commit_log {
+    let (privilege, cycle) = (state.hart.privilege, state.uncore.kernel.cycle);
+    #[cfg(feature = "commit-log")]
+    if let Some(log) = state.uncore.commit_log() {
         // A fetch fault has no instruction to log, as in spike's log.
         let fetch_fault = matches!(
             the_trap,
@@ -209,13 +211,7 @@ fn take_fault(
                 | Trap::InstructionAddressMisaligned(_)
         );
         if !fetch_fault {
-            let _ = write_faulted(
-                log,
-                entry.pc,
-                entry.bits,
-                state.hart.privilege,
-                state.uncore.kernel.cycle,
-            );
+            let _ = write_faulted(log, entry.pc, entry.bits, privilege, cycle);
         }
     }
     trace_trap!(state.uncore.trace_trap_enabled(the_trap);

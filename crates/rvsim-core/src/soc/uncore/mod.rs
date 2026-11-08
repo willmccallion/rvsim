@@ -255,7 +255,20 @@ impl Uncore {
             source,
         })?;
         self.host.commit_log = Some(BufWriter::with_capacity(COMMIT_LOG_BUFFER_BYTES, file));
+        self.kernel.memory.record_host_writes();
         Ok(())
+    }
+
+    /// The commit log, once the memory written from outside the harts
+    /// since its last line is logged.
+    #[cfg(feature = "commit-log")]
+    pub fn commit_log(&mut self) -> Option<&mut std::io::BufWriter<std::fs::File>> {
+        let log = self.host.commit_log.as_mut()?;
+        let _ = crate::uarch::pipeline::commit_log::write_host_writes(
+            log,
+            &self.kernel.memory.take_host_writes(),
+        );
+        Some(log)
     }
 
     /// Uncore work at the top of a cycle: exit and kernel-panic checks, then

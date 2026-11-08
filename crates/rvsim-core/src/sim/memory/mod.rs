@@ -10,6 +10,8 @@ pub mod write_log;
 
 pub use ram::Ram;
 
+#[cfg(feature = "commit-log")]
+use crate::common::usize_of;
 use crate::common::{PhysAddr, PhysRange};
 use crate::exec::compute::amo;
 use crate::isa::op::{AtomicOp, MemWidth};
@@ -17,12 +19,25 @@ use crate::sim::packet::{AccessSize, MemOp, MemRespData, WriteData, WriteOrigin}
 use reservations::ReservationSet;
 use write_log::{WriteLog, Writer};
 
+/// RAM something other than a hart wrote: a device's DMA, HTIF or the
+/// SE-mode host. A commit log records it, since no instruction did.
+#[cfg(feature = "commit-log")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostWrite {
+    /// Where the write began.
+    pub paddr: PhysAddr,
+    /// What it wrote, in address order.
+    pub bytes: Vec<u8>,
+}
+
 /// RAM with the reservations and write log that go with it.
 #[derive(Debug)]
 pub struct GlobalMemory {
     ram: Option<Ram>,
     reservations: ReservationSet,
     write_log: Option<WriteLog>,
+    #[cfg(feature = "commit-log")]
+    host_writes: Option<Vec<HostWrite>>,
 }
 
 impl GlobalMemory {
@@ -34,7 +49,13 @@ impl GlobalMemory {
             .as_ref()
             .filter(|_| hart_count > 1)
             .map(|ram| WriteLog::new(ram.base().val(), ram.size(), line_bytes, hart_count));
-        Self { ram, reservations: ReservationSet::new(hart_count), write_log }
+        Self {
+            ram,
+            reservations: ReservationSet::new(hart_count),
+            write_log,
+            #[cfg(feature = "commit-log")]
+            host_writes: None,
+        }
     }
 
     /// The RAM image; `None` in a system without RAM.
@@ -57,6 +78,20 @@ impl GlobalMemory {
     /// The LR/SC reservations, for setting and clearing.
     pub const fn reservations_mut(&mut self) -> &mut ReservationSet {
         &mut self.reservations
+    }
+
+    /// Keeps every write from outside the harts from now on, for
+    /// [`Self::take_host_writes`].
+    #[cfg(feature = "commit-log")]
+    pub fn record_host_writes(&mut self) {
+        let _ = self.host_writes.get_or_insert_with(Vec::new);
+    }
+
+    /// The writes from outside the harts since the last call; none unless
+    /// [`Self::record_host_writes`] was called.
+    #[cfg(feature = "commit-log")]
+    pub fn take_host_writes(&mut self) -> Vec<HostWrite> {
+        self.host_writes.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
     /// The write log; `None` with a single hart.
@@ -191,6 +226,14 @@ impl GlobalMemory {
     /// Breaks the reservations and logs the write `writer` made of the bytes
     /// `written`.
     fn note_write(&mut self, writer: Writer, written: PhysRange) {
+        #[cfg(feature = "commit-log")]
+        if writer == Writer::External
+            && let Some(journal) = self.host_writes.as_mut()
+            && let Some(bytes) =
+                self.ram.as_ref().and_then(|ram| ram.get(written.base, usize_of(written.size)))
+        {
+            journal.push(HostWrite { paddr: written.base, bytes: bytes.to_vec() });
+        }
         self.reservations.break_on_write(writer, written);
         if let Some(log) = self.write_log.as_mut() {
             log.record(written, writer);
