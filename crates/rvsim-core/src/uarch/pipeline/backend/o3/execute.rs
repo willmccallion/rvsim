@@ -131,226 +131,81 @@ fn execute_system_o3(
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
-    use crate::common::VirtAddr;
+    use crate::common::{InstSeq, VirtAddr};
     use crate::config::Config;
     use crate::exec::inst::Inst;
-    use crate::exec::signals::{BranchCond, JumpKind};
-    use crate::exec::signals::{ControlFlow, ControlSignals, OpBSrc};
-    use crate::isa::instruction::InstSize;
+    use crate::exec::signals::{BranchCond, ControlFlow, ControlSignals, JumpKind, OpBSrc};
+    use crate::isa::csr::MSTATUS_FS;
+    use crate::isa::encoding::rv64i::opcodes::OP_JALR;
     use crate::isa::reg::RegIdx;
-    use crate::uarch::pipeline::backend::o3::RenamedRegisters;
+    use crate::system::SystemState;
     use crate::uarch::pipeline::latches::RenameIssueEntry;
+    use crate::uarch::pipeline::rob::RenamedDst;
+
+    const PC: u64 = 0x1000;
+
+    /// An instruction at `PC` writing x1 under `ctrl`.
+    fn inst(ctrl: ControlSignals) -> Inst {
+        Inst { pc: VirtAddr::new(PC), rd: RegIdx::new(1), ctrl, ..Inst::default() }
+    }
+
+    /// `inst` allocated in `rob`, as issue hands it to execute.
+    fn issued(rob: &mut Rob, inst: Inst) -> O3Entry {
+        let rob_tag = rob.allocate(&inst, InstSeq::default(), RenamedDst::NONE).unwrap();
+        RenameIssueEntry { rob_tag, inst, ..RenameIssueEntry::default() }
+    }
 
     #[test]
     fn a_plain_alu_op_yields_its_result_without_a_redirect() {
-        let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&Config::minimal());
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
-
-        let tag = rob
-            .allocate(
-                &crate::exec::inst::Inst {
-                    pc: VirtAddr::new(0x1000),
-                    bits: 0,
-                    size: InstSize::Standard,
-                    rd: RegIdx::new(1),
-                    ctrl: ControlSignals::default(),
-                    ..Default::default()
-                },
-                crate::common::InstSeq::default(),
-                crate::uarch::pipeline::rob::RenamedDst::NONE,
-            )
-            .unwrap();
-
-        let issue = RenameIssueEntry {
-            inst: Inst {
-                pc: VirtAddr::new(0x1000),
-                bits: 0,
-                size: InstSize::Standard,
-                rs1: RegIdx::new(0),
-                rs2: RegIdx::new(0),
-                rs3: RegIdx::new(0),
-                rd: RegIdx::new(1),
-                imm: 0,
-                rv1: 10,
-                rv2: 20,
-                rv3: 0,
-                ctrl: ControlSignals::default(),
-            },
-            rob_tag: tag,
-            trap: None,
-            predicted_target: None,
-            seq: crate::common::InstSeq::default(),
-            vector_config: crate::isa::rvv::VectorConfig::default(),
-            vector_rounding: crate::isa::rvv::VectorRounding::default(),
-            regs: RenamedRegisters::default(),
-        };
+        let issue = issued(&mut rob, Inst { rv1: 10, rv2: 20, ..inst(ControlSignals::default()) });
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
+
         assert!(redirect.is_none());
-        assert_eq!(result.op.alu, 10); // rv1 (10) + 0
-        assert_eq!(result.op.rob_tag, tag);
+        assert_eq!((result.op.alu, result.op.rob_tag), (10, issue.rob_tag), "rv1 + imm 0");
     }
 
     #[test]
     fn propagated_trap_travels_with_the_result() {
-        let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&Config::minimal());
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
-
-        let tag = rob
-            .allocate(
-                &crate::exec::inst::Inst {
-                    pc: VirtAddr::new(0x1000),
-                    bits: 0,
-                    size: InstSize::Standard,
-                    rd: RegIdx::new(1),
-                    ctrl: ControlSignals::default(),
-                    ..Default::default()
-                },
-                crate::common::InstSeq::default(),
-                crate::uarch::pipeline::rob::RenamedDst::NONE,
-            )
-            .unwrap();
-
-        let issue = RenameIssueEntry {
-            inst: Inst {
-                pc: VirtAddr::new(0x1000),
-                bits: 0,
-                size: InstSize::Standard,
-                rs1: RegIdx::new(0),
-                rs2: RegIdx::new(0),
-                rs3: RegIdx::new(0),
-                rd: RegIdx::new(1),
-                imm: 0,
-                rv1: 0,
-                rv2: 0,
-                rv3: 0,
-                ctrl: ControlSignals::default(),
-            },
-            rob_tag: tag,
+        let issue = O3Entry {
             trap: Some(Trap::IllegalInstruction(0)),
-            predicted_target: None,
-            seq: crate::common::InstSeq::default(),
-            vector_config: crate::isa::rvv::VectorConfig::default(),
-            vector_rounding: crate::isa::rvv::VectorRounding::default(),
-            regs: RenamedRegisters::default(),
+            ..issued(&mut rob, inst(ControlSignals::default()))
         };
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
 
         assert!(redirect.is_none());
         assert!(result.op.trap.is_some());
-        let entry = rob.find_entry(tag).unwrap();
-        assert!(!entry.state.is_faulted());
+        assert!(!rob.find_entry(issue.rob_tag).unwrap().state.is_faulted());
     }
 
     #[test]
     fn fence_i_redirects_to_the_next_instruction() {
-        let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&Config::minimal());
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
-
-        let tag = rob
-            .allocate(
-                &crate::exec::inst::Inst {
-                    pc: VirtAddr::new(0x1000),
-                    bits: 0,
-                    size: InstSize::Standard,
-                    rd: RegIdx::new(1),
-                    ctrl: ControlSignals::default(),
-                    ..Default::default()
-                },
-                crate::common::InstSeq::default(),
-                crate::uarch::pipeline::rob::RenamedDst::NONE,
-            )
-            .unwrap();
-
-        let ctrl = ControlSignals { system_op: SystemOp::FenceI, ..Default::default() };
-
-        let issue = RenameIssueEntry {
-            inst: Inst {
-                pc: VirtAddr::new(0x1000),
-                bits: 0,
-                size: InstSize::Standard,
-                rs1: RegIdx::new(0),
-                rs2: RegIdx::new(0),
-                rs3: RegIdx::new(0),
-                rd: RegIdx::new(0),
-                imm: 0,
-                rv1: 0,
-                rv2: 0,
-                rv3: 0,
-                ctrl,
-            },
-            rob_tag: tag,
-            trap: None,
-            predicted_target: None,
-            seq: crate::common::InstSeq::default(),
-            vector_config: crate::isa::rvv::VectorConfig::default(),
-            vector_rounding: crate::isa::rvv::VectorRounding::default(),
-            regs: RenamedRegisters::default(),
-        };
+        let fence_i = ControlSignals { system_op: SystemOp::FenceI, ..Default::default() };
+        let issue = issued(&mut rob, Inst { rd: RegIdx::new(0), ..inst(fence_i) });
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
-        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(0x1004)));
+
+        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(PC + 4)));
     }
 
     #[test]
     fn fp_op_with_fs_off_carries_an_illegal_instruction_trap() {
-        let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&Config::minimal());
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
-
-        state.hart.csrs.mstatus &= !crate::isa::csr::MSTATUS_FS; // Clear FS bits
-
-        let tag = rob
-            .allocate(
-                &crate::exec::inst::Inst {
-                    pc: VirtAddr::new(0x1000),
-                    bits: 0,
-                    size: InstSize::Standard,
-                    rd: RegIdx::new(1),
-                    ctrl: ControlSignals::default(),
-                    ..Default::default()
-                },
-                crate::common::InstSeq::default(),
-                crate::uarch::pipeline::rob::RenamedDst::NONE,
-            )
-            .unwrap();
-
-        let ctrl = ControlSignals {
-            fp_reg_write: true, // Make it an FP instruction
-            ..Default::default()
-        };
-
-        let issue = RenameIssueEntry {
-            inst: Inst {
-                pc: VirtAddr::new(0x1000),
-                bits: 0,
-                size: InstSize::Standard,
-                rs1: RegIdx::new(0),
-                rs2: RegIdx::new(0),
-                rs3: RegIdx::new(0),
-                rd: RegIdx::new(1),
-                imm: 0,
-                rv1: 0,
-                rv2: 0,
-                rv3: 0,
-                ctrl,
-            },
-            rob_tag: tag,
-            trap: None,
-            predicted_target: None,
-            seq: crate::common::InstSeq::default(),
-            vector_config: crate::isa::rvv::VectorConfig::default(),
-            vector_rounding: crate::isa::rvv::VectorRounding::default(),
-            regs: RenamedRegisters::default(),
-        };
+        state.hart.csrs.mstatus &= !MSTATUS_FS;
+        let fp_write = ControlSignals { fp_reg_write: true, ..Default::default() };
+        let issue = issued(&mut rob, inst(fp_write));
 
         let (result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
 
@@ -360,121 +215,42 @@ mod tests {
 
     #[test]
     fn a_mispredicted_taken_branch_redirects_and_records_the_misprediction() {
-        let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&Config::minimal());
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
-
-        let tag = rob
-            .allocate(
-                &crate::exec::inst::Inst {
-                    pc: VirtAddr::new(0x1000),
-                    bits: 0,
-                    size: InstSize::Standard,
-                    rd: RegIdx::new(1),
-                    ctrl: ControlSignals::default(),
-                    ..Default::default()
-                },
-                crate::common::InstSeq::default(),
-                crate::uarch::pipeline::rob::RenamedDst::NONE,
-            )
-            .unwrap();
-
-        let ctrl = ControlSignals {
+        let beq = ControlSignals {
             control_flow: ControlFlow::Branch(BranchCond::Eq),
             b_src: OpBSrc::Reg2,
             ..Default::default()
         };
-
-        let issue = RenameIssueEntry {
-            // BEQ with rv1 == rv2, so taken.
-            inst: Inst {
-                pc: VirtAddr::new(0x1000),
-                bits: 0,
-                size: InstSize::Standard,
-                rs1: RegIdx::new(0),
-                rs2: RegIdx::new(0),
-                rs3: RegIdx::new(0),
-                rd: RegIdx::new(0),
-                imm: 8,
-                rv1: 10,
-                rv2: 10,
-                rv3: 0,
-                ctrl,
-            },
-            rob_tag: tag,
-            trap: None,
-            predicted_target: None,
-            // Predicted NOT taken
-            seq: crate::common::InstSeq::default(),
-            vector_config: crate::isa::rvv::VectorConfig::default(),
-            vector_rounding: crate::isa::rvv::VectorRounding::default(),
-            regs: RenamedRegisters::default(),
-        };
+        // Equal operands, so taken; predicted not taken.
+        let issue =
+            issued(&mut rob, Inst { rd: RegIdx::new(0), imm: 8, rv1: 10, rv2: 10, ..inst(beq) });
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
-        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(0x1008)));
+
+        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(PC + 8)));
         assert!(redirect.is_some_and(|r| r.repair.is_some_and(|repair| repair.taken)));
-        let entry = rob.find_entry(tag).unwrap();
+        let entry = rob.find_entry(issue.rob_tag).unwrap();
         assert!(entry.control.is_some_and(|control| control.outcome.mispredicted));
     }
 
     #[test]
     fn a_mispredicted_jalr_redirects_to_its_target_with_bit_zero_cleared() {
-        let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&Config::minimal());
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
-
-        let tag = rob
-            .allocate(
-                &crate::exec::inst::Inst {
-                    pc: VirtAddr::new(0x1000),
-                    bits: 0,
-                    size: InstSize::Standard,
-                    rd: RegIdx::new(1),
-                    ctrl: ControlSignals::default(),
-                    ..Default::default()
-                },
-                crate::common::InstSeq::default(),
-                crate::uarch::pipeline::rob::RenamedDst::NONE,
-            )
-            .unwrap();
-
-        let ctrl = ControlSignals {
+        let jalr = ControlSignals {
             control_flow: ControlFlow::Jump(JumpKind::Jalr),
             ..Default::default()
         };
-
-        let issue = RenameIssueEntry {
-            inst: Inst {
-                pc: VirtAddr::new(0x1000),
-                bits: crate::isa::encoding::rv64i::opcodes::OP_JALR,
-                size: InstSize::Standard,
-                rs1: RegIdx::new(0),
-                rs2: RegIdx::new(0),
-                rs3: RegIdx::new(0),
-                rd: RegIdx::new(1),
-                imm: 0x15,
-                rv1: 0x2000,
-                rv2: 0,
-                rv3: 0,
-                ctrl,
-            },
-            rob_tag: tag,
-            trap: None,
+        let issue = O3Entry {
             predicted_target: Some(VirtAddr::new(0)),
-            // Predicted incorrectly
-            seq: crate::common::InstSeq::default(),
-            vector_config: crate::isa::rvv::VectorConfig::default(),
-            vector_rounding: crate::isa::rvv::VectorRounding::default(),
-            regs: RenamedRegisters::default(),
+            ..issued(&mut rob, Inst { bits: OP_JALR, imm: 0x15, rv1: 0x2000, ..inst(jalr) })
         };
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
-        assert!(redirect.is_some());
 
-        let expected_target = (0x2000 + 0x15) & !1;
-        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(expected_target)));
+        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new((0x2000 + 0x15) & !1)));
     }
 }
