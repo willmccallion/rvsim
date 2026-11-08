@@ -45,7 +45,7 @@ pub(super) fn trap_or_interrupt(
     }
 
     if !state.hart.wfi_waiting
-        && let Some(notice) = state.uncore.processes.take_notice(state.hart.hart_id)
+        && let Some(notice) = state.uncore.host.processes.take_notice(state.hart.hart_id)
     {
         state.uncore.kernel.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
         return CommitFlow::Stop(Some(take_thread_notice(state, notice)));
@@ -200,7 +200,7 @@ fn take_fault(
     let entry = rob.commit_head()?;
     let the_trap = entry.trap()?;
     #[cfg(feature = "commit-log")]
-    if let Some(ref mut log) = state.uncore.commit_log {
+    if let Some(ref mut log) = state.uncore.host.commit_log {
         // A fetch fault has no instruction to log, as in spike's log.
         let fetch_fault = matches!(
             the_trap,

@@ -65,7 +65,7 @@ impl CoreCtx<'_> {
     pub fn end_process_by_signal(&mut self, signal: u8) {
         let status = SIGNAL_EXIT_BASE + u64::from(signal);
         let hart = self.hart.hart_id;
-        let processes = &mut self.uncore.processes;
+        let processes = &mut self.uncore.host.processes;
         let run_exit = if let Some(thread) = processes.thread_on(hart) {
             processes.exit_process(thread.tgid, status, Some(thread.tid))
         } else {

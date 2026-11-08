@@ -116,7 +116,7 @@ pub fn load_processes(
     let mut frames = FrameAllocator::new(PhysAddr::new(ram_base), PhysAddr::new(ram_end));
     let mut loaded = Vec::with_capacity(programs.len());
     for (program, image) in programs.iter().zip(&images) {
-        let terminal = state.uncore.terminal.clone();
+        let terminal = state.uncore.host.terminal.clone();
         let memory = &mut state.uncore.kernel.memory;
         let (process, sp) =
             place(image, program.args, mode, clock_hz, terminal, memory, &mut frames)?;
@@ -133,7 +133,7 @@ pub fn load_processes(
     for hart in state.harts.iter_mut().skip(programs.len()) {
         park(hart);
     }
-    state.uncore.processes = processes;
+    state.uncore.host.processes = processes;
     state.uncore.read_console_through(InputReader::Proxy);
     Ok(())
 }

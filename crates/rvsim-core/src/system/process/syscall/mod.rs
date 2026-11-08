@@ -191,13 +191,13 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
     let args =
         SyscallArgs::new(std::array::from_fn(|i| state.hart.regs.read(RegIdx::new(10 + i as u8))));
     let hart = state.hart.hart_id;
-    let Some(caller) = state.uncore.processes.thread_on(hart) else {
-        state.uncore.processes.release_stopping(hart);
+    let Some(caller) = state.uncore.host.processes.thread_on(hart) else {
+        state.uncore.host.processes.release_stopping(hart);
         return Outcome::Ended { run_exit: None };
     };
-    state.uncore.processes.count_syscall(caller.tgid, number);
+    state.uncore.host.processes.count_syscall(caller.tgid, number);
     let mut call = ThreadCall {
-        processes: &mut state.uncore.processes,
+        processes: &mut state.uncore.host.processes,
         memory: &mut state.uncore.kernel.memory,
         caller,
         hart: state.hart,
@@ -234,9 +234,9 @@ fn process_call(
     let isa = state.core.isa;
     let misaligned_traps = state.uncore.kernel.config.memory.misaligned_access_trap;
     let uncore = &mut *state.uncore;
-    let threads_alive = uncore.processes.live_threads() as u64;
-    let hart_count = uncore.processes.hart_count();
-    let Some((process, frames)) = uncore.processes.process_and_frames(caller.tgid) else {
+    let threads_alive = uncore.host.processes.live_threads() as u64;
+    let hart_count = uncore.host.processes.hart_count();
+    let Some((process, frames)) = uncore.host.processes.process_and_frames(caller.tgid) else {
         return Err(Errno::ESRCH);
     };
     let revocations = process.space.revocations();
@@ -253,7 +253,7 @@ fn process_call(
     };
     let result = sys.dispatch(number, args);
     if sys.process.space.revocations() != revocations {
-        uncore.processes.mark_translations_stale(caller);
+        uncore.host.processes.mark_translations_stale(caller);
     }
     result
 }

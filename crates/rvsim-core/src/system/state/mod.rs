@@ -32,10 +32,10 @@ use crate::soc::memory::ddr5::Ddr5Controller;
 use crate::soc::terminal::Terminal;
 use crate::soc::topology::Topology;
 use crate::soc::uncore::debug::HartDebug;
-use crate::soc::uncore::{SimOp, StatsDump, StatsEpoch, TraceControl, Uncore};
-use crate::system::host_files::HostFiles;
+use crate::soc::uncore::{
+    HostSide, RunControl, SimOp, StatsDump, StatsEpoch, TraceControl, Uncore,
+};
 use crate::system::loader::load_binary;
-use crate::system::process::Processes;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::PipelineDispatch;
 use crate::uarch::{Core, CoreUnits};
@@ -88,7 +88,7 @@ impl SystemState {
     /// Cycles and instructions retired since the stats were last reset.
     #[must_use]
     pub fn stats_window(&self) -> (u64, u64) {
-        let epoch = self.uncore.stats_epoch;
+        let epoch = self.uncore.run.stats_epoch;
         let cycles = self.uncore.reported_cycle() - epoch.cycle;
         (cycles, self.instructions_retired() - epoch.instructions_retired)
     }
@@ -96,7 +96,7 @@ impl SystemState {
     /// Zeroes every stat and starts a new window here.
     pub fn reset_stats(&mut self) {
         self.uncore.kernel.stats.reset();
-        self.uncore.stats_epoch = StatsEpoch {
+        self.uncore.run.stats_epoch = StatsEpoch {
             cycle: self.uncore.reported_cycle(),
             instructions_retired: self.instructions_retired(),
         };
@@ -109,8 +109,8 @@ impl SystemState {
             SimOp::DumpStats { label } => {
                 let (cycles, instructions_retired) = self.stats_window();
                 let stats = self.uncore.kernel.stats.clone();
-                let epoch = self.uncore.stats_epoch;
-                self.uncore.stats_dumps.push(StatsDump {
+                let epoch = self.uncore.run.stats_epoch;
+                self.uncore.run.stats_dumps.push(StatsDump {
                     label,
                     epoch,
                     stats,
@@ -118,7 +118,7 @@ impl SystemState {
                     instructions_retired,
                 });
             }
-            SimOp::Break { label } => self.uncore.pending_break = Some(label),
+            SimOp::Break { label } => self.uncore.run.pending_break = Some(label),
         }
     }
 
@@ -330,24 +330,13 @@ impl SystemState {
                     memory: GlobalMemory::new(Some(ram), hart_count, write_log_line_bytes),
                     config: Config::clone(config),
                 },
-                exited_at: None,
                 bus,
                 mem_controller,
                 l3_cache,
                 coherence,
                 per_hart_debug: (0..hart_count).map(|_| HartDebug::default()).collect(),
-                panic_detected_at_cycle: None,
-                #[cfg(feature = "commit-log")]
-                commit_log: None,
-                exit_signal,
-                processes: Processes::default(),
-                host_files: HostFiles::default(),
-                terminal,
-                pipeline_trace: None,
-                stats_epoch: StatsEpoch::default(),
-                stats_dumps: Vec::new(),
-                pending_break: None,
-                pending_sim_ops: Vec::new(),
+                run: RunControl::new(exit_signal),
+                host: HostSide::new(terminal),
                 hart_stat_paths,
             },
         })

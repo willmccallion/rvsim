@@ -61,7 +61,7 @@ pub(super) fn retire_entry(
     let privilege = state.hart.privilege;
     let flow = apply_retirement(state, targets, entry, syscall);
     #[cfg(feature = "commit-log")]
-    if state.commit_log.is_some() {
+    if state.host.commit_log.is_some() {
         let store = targets.store_buffer.committed_write(entry.tag);
         let retired =
             Retired::capture(entry, privilege, state.kernel.cycle, store, state.hart.regs.vpr());
@@ -75,7 +75,7 @@ pub(super) fn retire_entry(
 fn log_retired(state: &mut CoreCtx<'_>, retired: &Retired) {
     let csr_value = retired.csr().map(|addr| state.csr_read(addr));
     let fflags = retired.raised_fp_flags().then(|| state.csr_read(csr::FFLAGS));
-    if let Some(log) = state.commit_log.as_mut() {
+    if let Some(log) = state.host.commit_log.as_mut() {
         let _ = retired.write(log, csr_value, fflags);
     }
 }
@@ -93,7 +93,7 @@ pub(super) fn perform_deferred_csr(state: &mut CoreCtx<'_>, entry: &mut RobEntry
 /// that every older instruction has retired and every older store has
 /// been written; the result becomes the entry's, destined for `a0`.
 pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> Option<Outcome> {
-    if entry.ctrl.system_op != SystemOp::Ecall || !state.uncore.processes.is_se() {
+    if entry.ctrl.system_op != SystemOp::Ecall || !state.uncore.host.processes.is_se() {
         return None;
     }
     let outcome = syscall::serve_ecall(state, entry.pc);
