@@ -3,6 +3,8 @@
 //! Verifies register identification (magic, version, device ID),
 //! status register, queue configuration, and interrupt status.
 
+use crate::system::simulator::ProbeWidth;
+
 use crate::common::{IrqId, PhysAddr};
 use crate::soc::devices::Device;
 use crate::soc::devices::virtio_disk::VirtioBlock;
@@ -15,8 +17,11 @@ fn make_virtio() -> VirtioBlock {
 fn virtio_magic_value() {
     let mut vio = make_virtio();
     assert_eq!(
-        (crate::tests::support::probe::read(&mut vio, crate::common::PhysAddr::new(0x1000_1000), 4)
-            as u32),
+        (crate::tests::support::probe::read(
+            &mut vio,
+            crate::common::PhysAddr::new(0x1000_1000),
+            ProbeWidth::B4
+        ) as u32),
         0x7472_6976,
         "Magic should be 'virt'"
     );
@@ -29,7 +34,7 @@ fn virtio_version() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x04),
-            4
+            ProbeWidth::B4
         ) as u32),
         2,
         "Version should be 2"
@@ -43,7 +48,7 @@ fn virtio_device_id() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x08),
-            4
+            ProbeWidth::B4
         ) as u32),
         2,
         "Device ID should be 2 (block)"
@@ -57,7 +62,7 @@ fn virtio_vendor_id() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x0C),
-            4
+            ProbeWidth::B4
         ) as u32),
         0x554d_4551,
         "Vendor ID should be QEMU"
@@ -86,7 +91,7 @@ fn virtio_status_initial_zero() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x70),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -99,13 +104,13 @@ fn virtio_status_write_and_read() {
         &mut vio,
         crate::common::PhysAddr::new(0x1000_1000 + 0x70),
         0x0F_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x70),
-            4
+            ProbeWidth::B4
         ) as u32),
         0x0F
     );
@@ -118,7 +123,7 @@ fn virtio_queue_num_max() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x34),
-            4
+            ProbeWidth::B4
         ) as u32),
         16,
         "Queue max should be 16"
@@ -132,19 +137,19 @@ fn virtio_queue_num_write_and_read() {
         &mut vio,
         crate::common::PhysAddr::new(0x1000_1000 + 0x38),
         8_u64,
-        4,
+        ProbeWidth::B4,
     );
     crate::tests::support::probe::write(
         &mut vio,
         crate::common::PhysAddr::new(0x1000_1000 + 0x44),
         1_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x44),
-            4
+            ProbeWidth::B4
         ) as u32),
         1
     );
@@ -157,13 +162,13 @@ fn virtio_queue_ready() {
         &mut vio,
         crate::common::PhysAddr::new(0x1000_1000 + 0x44),
         1_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x44),
-            4
+            ProbeWidth::B4
         ) as u32),
         1
     );
@@ -171,13 +176,13 @@ fn virtio_queue_ready() {
         &mut vio,
         crate::common::PhysAddr::new(0x1000_1000 + 0x44),
         0_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x44),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -190,7 +195,7 @@ fn virtio_interrupt_status_initial_zero() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x60),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -203,13 +208,13 @@ fn virtio_interrupt_ack_clears_bits() {
         &mut vio,
         crate::common::PhysAddr::new(0x1000_1000 + 0x64),
         0x1_u64,
-        4,
+        ProbeWidth::B4,
     ); // Ack bit 0
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x60),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -223,7 +228,7 @@ fn virtio_capacity_empty_disk() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x100),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -231,7 +236,7 @@ fn virtio_capacity_empty_disk() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x104),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -246,7 +251,7 @@ fn virtio_capacity_with_disk() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x100),
-            4
+            ProbeWidth::B4
         ) as u32),
         4
     );
@@ -254,7 +259,7 @@ fn virtio_capacity_with_disk() {
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x104),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -279,13 +284,13 @@ fn virtio_device_features_sel_0() {
         &mut vio,
         crate::common::PhysAddr::new(0x1000_1000 + 0x14),
         0_u64,
-        4,
+        ProbeWidth::B4,
     ); // features_sel = 0
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x10),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -298,13 +303,13 @@ fn virtio_device_features_sel_1() {
         &mut vio,
         crate::common::PhysAddr::new(0x1000_1000 + 0x14),
         1_u64,
-        4,
+        ProbeWidth::B4,
     ); // features_sel = 1
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut vio,
             crate::common::PhysAddr::new(0x1000_1000 + 0x10),
-            4
+            ProbeWidth::B4
         ) as u32),
         1,
         "Feature bit 32 should be set"

@@ -4,6 +4,8 @@
 //! which provides power management and reset functionality through memory-mapped
 //! registers.
 
+use crate::system::simulator::ProbeWidth;
+
 use crate::common::PhysAddr;
 use crate::soc::devices::Device;
 use crate::soc::devices::syscon::SysCon;
@@ -39,15 +41,18 @@ fn test_syscon_address_range() {
 fn test_syscon_read_u8_returns_zero() {
     let (mut syscon, _) = create_test_syscon();
     assert_eq!(
-        (crate::tests::support::probe::read(&mut syscon, crate::common::PhysAddr::new(0x100000), 1)
-            as u8),
+        (crate::tests::support::probe::read(
+            &mut syscon,
+            crate::common::PhysAddr::new(0x100000),
+            ProbeWidth::B1
+        ) as u8),
         0
     );
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut syscon,
             crate::common::PhysAddr::new(0x100000 + 0x100),
-            1
+            ProbeWidth::B1
         ) as u8),
         0
     );
@@ -57,15 +62,18 @@ fn test_syscon_read_u8_returns_zero() {
 fn test_syscon_read_u16_returns_zero() {
     let (mut syscon, _) = create_test_syscon();
     assert_eq!(
-        (crate::tests::support::probe::read(&mut syscon, crate::common::PhysAddr::new(0x100000), 2)
-            as u16),
+        (crate::tests::support::probe::read(
+            &mut syscon,
+            crate::common::PhysAddr::new(0x100000),
+            ProbeWidth::B2
+        ) as u16),
         0
     );
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut syscon,
             crate::common::PhysAddr::new(0x100000 + 0x100),
-            2
+            ProbeWidth::B2
         ) as u16),
         0
     );
@@ -75,15 +83,18 @@ fn test_syscon_read_u16_returns_zero() {
 fn test_syscon_read_u32_returns_zero() {
     let (mut syscon, _) = create_test_syscon();
     assert_eq!(
-        (crate::tests::support::probe::read(&mut syscon, crate::common::PhysAddr::new(0x100000), 4)
-            as u32),
+        (crate::tests::support::probe::read(
+            &mut syscon,
+            crate::common::PhysAddr::new(0x100000),
+            ProbeWidth::B4
+        ) as u32),
         0
     );
     assert_eq!(
         (crate::tests::support::probe::read(
             &mut syscon,
             crate::common::PhysAddr::new(0x100000 + 0x100),
-            4
+            ProbeWidth::B4
         ) as u32),
         0
     );
@@ -93,14 +104,18 @@ fn test_syscon_read_u32_returns_zero() {
 fn test_syscon_read_u64_returns_zero() {
     let (mut syscon, _) = create_test_syscon();
     assert_eq!(
-        crate::tests::support::probe::read(&mut syscon, crate::common::PhysAddr::new(0x100000), 8),
+        crate::tests::support::probe::read(
+            &mut syscon,
+            crate::common::PhysAddr::new(0x100000),
+            ProbeWidth::B8
+        ),
         0
     );
     assert_eq!(
         crate::tests::support::probe::read(
             &mut syscon,
             crate::common::PhysAddr::new(0x100000 + 0x100),
-            8
+            ProbeWidth::B8
         ),
         0
     );
@@ -114,7 +129,7 @@ fn test_syscon_write_u8_ignored() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x55_u64,
-        1,
+        ProbeWidth::B1,
     );
     // Exit signal should remain unchanged
     assert_eq!(exit_signal.peek(), None);
@@ -128,7 +143,7 @@ fn test_syscon_write_u16_ignored() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x5555_u64,
-        2,
+        ProbeWidth::B2,
     );
     // Exit signal should remain unchanged
     assert_eq!(exit_signal.peek(), None);
@@ -143,7 +158,7 @@ fn test_syscon_poweroff_signal() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x5555_u64,
-        4,
+        ProbeWidth::B4,
     );
 
     // Exit signal should be set to 0
@@ -159,7 +174,7 @@ fn test_syscon_reset_signal() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x7777_u64,
-        4,
+        ProbeWidth::B4,
     );
 
     // Exit signal should be set to 0 (simulated as exit)
@@ -175,7 +190,7 @@ fn test_syscon_failure_signal() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x3333_u64,
-        4,
+        ProbeWidth::B4,
     );
 
     // Exit signal should be set to 1 (failure)
@@ -191,7 +206,7 @@ fn test_syscon_write_non_magic_value_ignored() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x1234_u64,
-        4,
+        ProbeWidth::B4,
     );
 
     // Exit signal should remain unchanged
@@ -207,7 +222,7 @@ fn test_syscon_write_non_zero_offset_ignored() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000 + 4),
         0x5555_u64,
-        4,
+        ProbeWidth::B4,
     );
 
     // Exit signal should remain unchanged
@@ -223,7 +238,7 @@ fn test_syscon_write_u64_delegates_to_u32() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0xDEADBEEF_00005555,
-        8,
+        ProbeWidth::B8,
     );
 
     // Exit signal should be set to 0 (lower 32 bits = 0x5555)
@@ -239,7 +254,7 @@ fn test_syscon_multiple_commands() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x5555_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(exit_signal.peek(), Some(0));
 
@@ -250,7 +265,7 @@ fn test_syscon_multiple_commands() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x3333_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(exit_signal.peek(), Some(1));
 }
@@ -266,7 +281,7 @@ fn test_syscon_all_magic_values() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x5555_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(exit_signal.peek(), Some(0));
 
@@ -277,7 +292,7 @@ fn test_syscon_all_magic_values() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x7777_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(exit_signal.peek(), Some(0));
 
@@ -288,7 +303,7 @@ fn test_syscon_all_magic_values() {
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
         0x3333_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(exit_signal.peek(), Some(1));
 }

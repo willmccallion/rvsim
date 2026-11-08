@@ -1,5 +1,7 @@
 //! PLIC claim/complete flow tests.
 
+use crate::system::simulator::ProbeWidth;
+
 use crate::common::{HartId, PhysAddr};
 use crate::soc::devices::plic::Plic;
 use crate::tests::support::probe::{read, write};
@@ -19,14 +21,16 @@ fn plic_claim_with_no_pending_returns_zero() {
         &mut plic,
         crate::common::PhysAddr::new(0x200000),
         0_u64,
-        4,
+        ProbeWidth::B4,
     ); // threshold 0
     plic.update_irqs(0);
     settle(&mut plic);
 
-    let claim =
-        crate::tests::support::probe::read(&mut plic, crate::common::PhysAddr::new(0x200004), 4)
-            as u32;
+    let claim = crate::tests::support::probe::read(
+        &mut plic,
+        crate::common::PhysAddr::new(0x200004),
+        ProbeWidth::B4,
+    ) as u32;
     assert_eq!(claim, 0);
 }
 
@@ -34,20 +38,25 @@ fn plic_claim_with_no_pending_returns_zero() {
 fn plic_supervisor_context() {
     let mut plic = Plic::new(PhysAddr::new(0), 1);
     // Source 3, priority 4
-    crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(12), 4_u64, 4);
+    crate::tests::support::probe::write(
+        &mut plic,
+        crate::common::PhysAddr::new(12),
+        4_u64,
+        ProbeWidth::B4,
+    );
     // Enable source 3 for context 1 (supervisor)
     crate::tests::support::probe::write(
         &mut plic,
         crate::common::PhysAddr::new(0x2000 + 0x80),
         (1 << 3) as u64,
-        4,
+        ProbeWidth::B4,
     );
     // Threshold for ctx 1 = 0
     crate::tests::support::probe::write(
         &mut plic,
         crate::common::PhysAddr::new(0x200000 + 0x1000),
         0_u64,
-        4,
+        ProbeWidth::B4,
     );
 
     plic.update_irqs(1 << 3);
@@ -61,18 +70,23 @@ fn plic_supervisor_context() {
 #[test]
 fn plic_lines_follow_check_interrupts() {
     let mut plic = Plic::new(PhysAddr::new(0), 1);
-    crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
+    crate::tests::support::probe::write(
+        &mut plic,
+        crate::common::PhysAddr::new(4),
+        3_u64,
+        ProbeWidth::B4,
+    );
     crate::tests::support::probe::write(
         &mut plic,
         crate::common::PhysAddr::new(0x2000),
         (1 << 1) as u64,
-        4,
+        ProbeWidth::B4,
     );
     crate::tests::support::probe::write(
         &mut plic,
         crate::common::PhysAddr::new(0x200000),
         0_u64,
-        4,
+        ProbeWidth::B4,
     );
     plic.update_irqs(1 << 1);
     settle(&mut plic);
@@ -87,26 +101,31 @@ fn plic_lines_follow_check_interrupts() {
 fn plic_contexts_of_second_hart_are_independent() {
     let mut plic = Plic::new(PhysAddr::new(0), 2);
     // Source 5, priority 2.
-    crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(5 * 4), 2, 4);
+    crate::tests::support::probe::write(
+        &mut plic,
+        crate::common::PhysAddr::new(5 * 4),
+        2,
+        ProbeWidth::B4,
+    );
     // Enable source 5 for hart 1's M-mode context (context 2) only.
     crate::tests::support::probe::write(
         &mut plic,
         crate::common::PhysAddr::new(0x2000 + 2 * 0x80),
         1 << 5,
-        4,
+        ProbeWidth::B4,
     );
     // Hart 1's S-mode context (context 3) enables source 5 but its threshold blocks it.
     crate::tests::support::probe::write(
         &mut plic,
         crate::common::PhysAddr::new(0x2000 + 3 * 0x80),
         1 << 5,
-        4,
+        ProbeWidth::B4,
     );
     crate::tests::support::probe::write(
         &mut plic,
         crate::common::PhysAddr::new(0x200000 + 3 * 0x1000),
         2,
-        4,
+        ProbeWidth::B4,
     );
 
     plic.update_irqs(1 << 5);
@@ -121,7 +140,7 @@ fn plic_contexts_of_second_hart_are_independent() {
     let claim = crate::tests::support::probe::read(
         &mut plic,
         crate::common::PhysAddr::new(0x200000 + 2 * 0x1000 + 4),
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(claim, 5);
     settle(&mut plic);
@@ -139,8 +158,18 @@ fn plic_lines_of_absent_hart_are_clear() {
 #[test]
 fn plic_lines_change_three_cycles_after_the_source() {
     let mut plic = Plic::new(PhysAddr::new(0), 1);
-    crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(4), 3_u64, 4);
-    crate::tests::support::probe::write(&mut plic, crate::common::PhysAddr::new(0x2000), 1 << 1, 4);
+    crate::tests::support::probe::write(
+        &mut plic,
+        crate::common::PhysAddr::new(4),
+        3_u64,
+        ProbeWidth::B4,
+    );
+    crate::tests::support::probe::write(
+        &mut plic,
+        crate::common::PhysAddr::new(0x2000),
+        1 << 1,
+        ProbeWidth::B4,
+    );
     plic.update_irqs(1 << 1);
 
     for cycle in 0..3 {
@@ -172,9 +201,9 @@ const HART1_M_CLAIM: u64 = 0x20_2004;
 /// Two harts' M contexts with `SOURCE` enabled at priority 1, its line high.
 fn two_harts_sharing_a_raised_source() -> Plic {
     let mut plic = Plic::new(PhysAddr::new(0), 2);
-    write(&mut plic, PhysAddr::new(4 * u64::from(SOURCE)), 1, 4);
-    write(&mut plic, PhysAddr::new(0x2000), 1 << SOURCE, 4);
-    write(&mut plic, PhysAddr::new(0x2000 + 2 * 0x80), 1 << SOURCE, 4);
+    write(&mut plic, PhysAddr::new(4 * u64::from(SOURCE)), 1, ProbeWidth::B4);
+    write(&mut plic, PhysAddr::new(0x2000), 1 << SOURCE, ProbeWidth::B4);
+    write(&mut plic, PhysAddr::new(0x2000 + 2 * 0x80), 1 << SOURCE, ProbeWidth::B4);
     hold_line_high(&mut plic, SOURCE);
     plic
 }
@@ -182,10 +211,10 @@ fn two_harts_sharing_a_raised_source() -> Plic {
 #[test]
 fn a_claimed_level_triggered_source_cannot_be_claimed_again_before_completion() {
     let mut plic = two_harts_sharing_a_raised_source();
-    let first = read(&mut plic, PhysAddr::new(HART0_M_CLAIM), 4);
+    let first = read(&mut plic, PhysAddr::new(HART0_M_CLAIM), ProbeWidth::B4);
 
     hold_line_high(&mut plic, SOURCE);
-    let second = read(&mut plic, PhysAddr::new(HART1_M_CLAIM), 4);
+    let second = read(&mut plic, PhysAddr::new(HART1_M_CLAIM), ProbeWidth::B4);
 
     assert_eq!((first, second), (u64::from(SOURCE), 0), "(hart 0 claim, hart 1 claim)");
 }
@@ -193,11 +222,11 @@ fn a_claimed_level_triggered_source_cannot_be_claimed_again_before_completion() 
 #[test]
 fn a_source_still_raised_after_completion_can_be_claimed_again() {
     let mut plic = two_harts_sharing_a_raised_source();
-    let claimed = read(&mut plic, PhysAddr::new(HART0_M_CLAIM), 4);
-    write(&mut plic, PhysAddr::new(HART0_M_CLAIM), claimed, 4);
+    let claimed = read(&mut plic, PhysAddr::new(HART0_M_CLAIM), ProbeWidth::B4);
+    write(&mut plic, PhysAddr::new(HART0_M_CLAIM), claimed, ProbeWidth::B4);
 
     hold_line_high(&mut plic, SOURCE);
-    let again = read(&mut plic, PhysAddr::new(HART1_M_CLAIM), 4);
+    let again = read(&mut plic, PhysAddr::new(HART1_M_CLAIM), ProbeWidth::B4);
 
     assert_eq!(again, u64::from(SOURCE));
 }

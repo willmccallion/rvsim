@@ -3,6 +3,8 @@
 //! Verifies timer operation, MSIP/MTIME/MTIMECMP register read/write,
 //! divider-based tick counting, and interrupt generation.
 
+use crate::system::simulator::ProbeWidth;
+
 use crate::common::{HartId, PhysAddr};
 use crate::soc::devices::Device;
 use crate::soc::devices::clint::Clint;
@@ -29,7 +31,11 @@ fn clint_address_range() {
 fn clint_initial_mtime_zero() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 1);
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0xBFF8), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0xBFF8),
+            ProbeWidth::B8
+        ),
         0
     );
 }
@@ -38,7 +44,11 @@ fn clint_initial_mtime_zero() {
 fn clint_initial_mtimecmp_max() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 1);
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0x4000), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0x4000),
+            ProbeWidth::B8
+        ),
         u64::MAX
     );
 }
@@ -49,12 +59,20 @@ fn clint_tick_increments_mtime() {
     // Divider = 1, so every tick increments mtime
     clint.tick();
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0xBFF8), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0xBFF8),
+            ProbeWidth::B8
+        ),
         1
     );
     clint.tick();
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0xBFF8), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0xBFF8),
+            ProbeWidth::B8
+        ),
         2
     );
 }
@@ -67,12 +85,20 @@ fn clint_tick_divider() {
         clint.tick();
     }
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0xBFF8), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0xBFF8),
+            ProbeWidth::B8
+        ),
         0
     );
     clint.tick(); // 10th tick
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0xBFF8), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0xBFF8),
+            ProbeWidth::B8
+        ),
         1
     );
 }
@@ -80,7 +106,12 @@ fn clint_tick_divider() {
 #[test]
 fn clint_timer_interrupt_fires_when_mtime_ge_mtimecmp() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 1);
-    crate::tests::support::probe::write(&mut clint, crate::common::PhysAddr::new(0x4000), 5, 8); // mtimecmp = 5
+    crate::tests::support::probe::write(
+        &mut clint,
+        crate::common::PhysAddr::new(0x4000),
+        5,
+        ProbeWidth::B8,
+    ); // mtimecmp = 5
     for _ in 0..4 {
         clint.tick();
         assert!(!clint.timer_pending(HART0), "No interrupt before mtime reaches mtimecmp");
@@ -93,16 +124,32 @@ fn clint_timer_interrupt_fires_when_mtime_ge_mtimecmp() {
 #[test]
 fn clint_msip_write_and_read() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 1);
-    crate::tests::support::probe::write(&mut clint, crate::common::PhysAddr::new(0x0000), 1_u64, 4);
+    crate::tests::support::probe::write(
+        &mut clint,
+        crate::common::PhysAddr::new(0x0000),
+        1_u64,
+        ProbeWidth::B4,
+    );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0x0000), 4)
-            as u32),
+        (crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0x0000),
+            ProbeWidth::B4
+        ) as u32),
         1
     );
-    crate::tests::support::probe::write(&mut clint, crate::common::PhysAddr::new(0x0000), 0_u64, 4);
+    crate::tests::support::probe::write(
+        &mut clint,
+        crate::common::PhysAddr::new(0x0000),
+        0_u64,
+        ProbeWidth::B4,
+    );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0x0000), 4)
-            as u32),
+        (crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0x0000),
+            ProbeWidth::B4
+        ) as u32),
         0
     );
 }
@@ -114,11 +161,14 @@ fn clint_msip_only_bit_0() {
         &mut clint,
         crate::common::PhysAddr::new(0x0000),
         0xFF_u64,
-        4,
+        ProbeWidth::B4,
     );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0x0000), 4)
-            as u32),
+        (crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0x0000),
+            ProbeWidth::B4
+        ) as u32),
         1,
         "Only bit 0 should be written"
     );
@@ -127,7 +177,12 @@ fn clint_msip_only_bit_0() {
 #[test]
 fn clint_msip_triggers_interrupt() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 1);
-    crate::tests::support::probe::write(&mut clint, crate::common::PhysAddr::new(0x0000), 1_u64, 4);
+    crate::tests::support::probe::write(
+        &mut clint,
+        crate::common::PhysAddr::new(0x0000),
+        1_u64,
+        ProbeWidth::B4,
+    );
     assert!(clint.msip_pending(HART0), "MSIP set should be reported by msip_pending()");
 }
 
@@ -138,10 +193,14 @@ fn clint_write_mtime_u64() {
         &mut clint,
         crate::common::PhysAddr::new(0xBFF8),
         0x1234_5678_9ABC_DEF0,
-        8,
+        ProbeWidth::B8,
     );
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0xBFF8), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0xBFF8),
+            ProbeWidth::B8
+        ),
         0x1234_5678_9ABC_DEF0
     );
 }
@@ -153,10 +212,14 @@ fn clint_write_mtimecmp_u64() {
         &mut clint,
         crate::common::PhysAddr::new(0x4000),
         0xABCD,
-        8,
+        ProbeWidth::B8,
     );
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0x4000), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0x4000),
+            ProbeWidth::B8
+        ),
         0xABCD
     );
 }
@@ -168,11 +231,14 @@ fn clint_read_mtime_u32_lower() {
         &mut clint,
         crate::common::PhysAddr::new(0xBFF8),
         0x1234_5678_9ABC_DEF0,
-        8,
+        ProbeWidth::B8,
     );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0xBFF8), 4)
-            as u32),
+        (crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0xBFF8),
+            ProbeWidth::B4
+        ) as u32),
         0x9ABC_DEF0
     );
 }
@@ -184,11 +250,14 @@ fn clint_read_mtime_u32_upper() {
         &mut clint,
         crate::common::PhysAddr::new(0xBFF8),
         0x1234_5678_9ABC_DEF0,
-        8,
+        ProbeWidth::B8,
     );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0xBFF8 + 4), 4)
-            as u32),
+        (crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0xBFF8 + 4),
+            ProbeWidth::B4
+        ) as u32),
         0x1234_5678
     );
 }
@@ -197,12 +266,19 @@ fn clint_read_mtime_u32_upper() {
 fn clint_unrecognized_offset_returns_zero() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 1);
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0x1000), 8),
+        crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0x1000),
+            ProbeWidth::B8
+        ),
         0
     );
     assert_eq!(
-        (crate::tests::support::probe::read(&mut clint, crate::common::PhysAddr::new(0x1000), 4)
-            as u32),
+        (crate::tests::support::probe::read(
+            &mut clint,
+            crate::common::PhysAddr::new(0x1000),
+            ProbeWidth::B4
+        ) as u32),
         0
     );
 }
@@ -210,21 +286,32 @@ fn clint_unrecognized_offset_returns_zero() {
 #[test]
 fn clint_msip_registers_are_per_hart() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 2);
-    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x0004), 1, 4);
+    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x0004), 1, ProbeWidth::B4);
     assert!(!clint.msip_pending(HART0));
     assert!(clint.msip_pending(HART1));
-    assert_eq!(crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x0000), 4), 0);
-    assert_eq!(crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x0004), 4), 1);
+    assert_eq!(
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x0000), ProbeWidth::B4),
+        0
+    );
+    assert_eq!(
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x0004), ProbeWidth::B4),
+        1
+    );
 }
 
 #[test]
 fn clint_eight_byte_msip_access_covers_two_harts() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 2);
-    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x0000), 1 | (1 << 32), 8);
+    crate::tests::support::probe::write(
+        &mut clint,
+        PhysAddr::new(0x0000),
+        1 | (1 << 32),
+        ProbeWidth::B8,
+    );
     assert!(clint.msip_pending(HART0));
     assert!(clint.msip_pending(HART1));
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x0000), 8),
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x0000), ProbeWidth::B8),
         1 | (1 << 32)
     );
 }
@@ -232,9 +319,15 @@ fn clint_eight_byte_msip_access_covers_two_harts() {
 #[test]
 fn clint_mtimecmp_registers_are_per_hart() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 2);
-    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x4008), 3, 8);
-    assert_eq!(crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4000), 8), u64::MAX);
-    assert_eq!(crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4008), 8), 3);
+    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x4008), 3, ProbeWidth::B8);
+    assert_eq!(
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4000), ProbeWidth::B8),
+        u64::MAX
+    );
+    assert_eq!(
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4008), ProbeWidth::B8),
+        3
+    );
     for _ in 0..3 {
         clint.tick();
     }
@@ -245,22 +338,31 @@ fn clint_mtimecmp_registers_are_per_hart() {
 #[test]
 fn clint_mtimecmp_upper_half_write_targets_the_right_hart() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 2);
-    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x4008), 0, 8);
-    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x400C), 0x1234, 4);
+    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x4008), 0, ProbeWidth::B8);
+    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x400C), 0x1234, ProbeWidth::B4);
     assert_eq!(
-        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4008), 8),
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4008), ProbeWidth::B8),
         0x1234 << 32
     );
-    assert_eq!(crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4000), 8), u64::MAX);
+    assert_eq!(
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4000), ProbeWidth::B8),
+        u64::MAX
+    );
 }
 
 #[test]
 fn clint_registers_of_absent_harts_read_zero_and_ignore_writes() {
     let mut clint = Clint::new(PhysAddr::new(0), std::num::NonZero::new(1).unwrap(), 1);
-    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x0004), 1, 4);
-    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x4008), 7, 8);
-    assert_eq!(crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x0004), 4), 0);
-    assert_eq!(crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4008), 8), 0);
+    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x0004), 1, ProbeWidth::B4);
+    crate::tests::support::probe::write(&mut clint, PhysAddr::new(0x4008), 7, ProbeWidth::B8);
+    assert_eq!(
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x0004), ProbeWidth::B4),
+        0
+    );
+    assert_eq!(
+        crate::tests::support::probe::read(&mut clint, PhysAddr::new(0x4008), ProbeWidth::B8),
+        0
+    );
     assert!(!clint.msip_pending(HART1));
     assert!(!clint.timer_pending(HART1));
 }
