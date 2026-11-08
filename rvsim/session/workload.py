@@ -8,6 +8,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from .._core import StatsTree
 from ..simulator import Simulator
 from .stops import Stopped
 
@@ -44,7 +45,7 @@ class Workload:
     disk: str | None = None
     dtb: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if (self.binary is None) == (self.kernel is None):
             raise ValueError("a workload is a binary or a kernel, exactly one of them")
         if self.binary is not None and (self.firmware or self.dtb):
@@ -94,8 +95,8 @@ class Region:
     """The stats and console output of one measured region."""
 
     name: str
-    stats: Any
-    """The region's stats (a ``Stats``): only what happened inside it."""
+    stats: StatsTree
+    """The region's stats: only what happened inside it."""
     console: str
     """What the guest printed during the region."""
     exit_code: int | None

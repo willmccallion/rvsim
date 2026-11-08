@@ -19,7 +19,7 @@ from ._ansi import BOLD, DIM, PURPLE, RESET, TEAL, stdout_is_tty
 __all__ = ["Stats", "Table"]
 
 
-class Stats(dict):
+class Stats(dict[str, float]):
     """
     Dict-like simulation statistics with querying and comparison.
 
@@ -79,7 +79,7 @@ class Stats(dict):
             return Table([], [], [], title)
 
         labels = list(rows.keys())
-        all_keys: set = set()
+        all_keys: set[str] = set()
         for s in rows.values():
             all_keys.update(s.keys())
         metrics = sorted(all_keys)
@@ -145,7 +145,7 @@ def _as_count_if_whole(path: str, value: float) -> Any:
     return value
 
 
-def _fmt(v) -> str:
+def _fmt(v: object) -> str:
     if isinstance(v, float):
         return f"{v:.4f}"
     if isinstance(v, int):
@@ -222,11 +222,15 @@ def _sibling(metric: str, leaf: str) -> str:
     return f"{prefix}.{leaf}"
 
 
+def _numbers(values: Sequence[Any]) -> list[float] | None:
+    """``values`` when every one is a number, else ``None``."""
+    numbers = [v for v in values if isinstance(v, (int, float))]
+    return numbers if len(numbers) == len(values) else None
+
+
 def _sum_of(stats_list: Sequence[Stats], key: str) -> float | None:
-    values = [s.get(key) for s in stats_list]
-    if any(not isinstance(v, (int, float)) for v in values):
-        return None
-    return float(sum(values))
+    values = _numbers([s.get(key) for s in stats_list])
+    return None if values is None else float(sum(values))
 
 
 def _aggregate_rate(metric: str, stats_list: Sequence[Stats]) -> float | None:
@@ -245,9 +249,9 @@ def _aggregate_rate(metric: str, stats_list: Sequence[Stats]) -> float | None:
         hits = _sum_of(stats_list, _sibling(metric, "hits"))
         return _ratio(misses, hits)
 
-    values = [s.get(metric) for s in stats_list]
+    values = _numbers([s.get(metric) for s in stats_list])
     weights = [s.get("instructions_retired", 0) for s in stats_list]
-    if any(not isinstance(v, (int, float)) for v in values):
+    if values is None:
         return None
     if leaf == "ipc":
         return _weighted_harmonic_mean(values, weights)
@@ -313,7 +317,7 @@ class Table:
 
     __slots__ = ("__col_header", "__grid", "__labels", "__metrics", "__title")
 
-    def __dir__(self):
+    def __dir__(self) -> list[str]:
         return []
 
     def __init__(

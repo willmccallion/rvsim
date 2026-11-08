@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from ._core_defaults import COMPONENTS, MACHINE
 
@@ -153,15 +155,35 @@ class Fu:
         latency: int = _FU["vec_permute_latency"]
 
     # The default machine's pool.
-    _DEFAULTS: list
+    _DEFAULTS: list[_AnyFuUnit]
 
-    def __init__(self, units=None):
+    def __init__(self, units: Iterable[_AnyFuUnit] | None = None) -> None:
         self.units = list(units) if units is not None else list(Fu._DEFAULTS)
 
     def __repr__(self) -> str:
         inner = ", ".join(repr(u) for u in self.units)
         return f"Fu([{inner}])"
 
+
+_AnyFuUnit = (
+    Fu.IntAlu
+    | Fu.IntMul
+    | Fu.IntDiv
+    | Fu.FpAdd
+    | Fu.FpMul
+    | Fu.FpFma
+    | Fu.FpDivSqrt
+    | Fu.Branch
+    | Fu.Mem
+    | Fu.VecIntAlu
+    | Fu.VecIntMul
+    | Fu.VecIntDiv
+    | Fu.VecFpAlu
+    | Fu.VecFpFma
+    | Fu.VecFpDivSqrt
+    | Fu.VecMem
+    | Fu.VecPermute
+)
 
 # Each unit type and the stem of its count and latency in the core's pool:
 # ``num_<stem>`` and ``<stem>_latency``.
@@ -186,7 +208,7 @@ _UNITS = (
 )
 
 
-def _fu_from(pool: dict) -> Fu:
+def _fu_from(pool: dict[str, int]) -> Fu:
     """The unit list a core pool dict describes: every type it has a unit of."""
     return Fu(
         [
@@ -209,7 +231,7 @@ class Backend:
 
         def __init__(
             self,
-            fu_config=None,
+            fu_config: Fu | None = None,
             *,
             rob_size: int = _IN_ORDER["rob_size"],
             store_buffer_size: int = _IN_ORDER["store_buffer_size"],
@@ -217,7 +239,7 @@ class Backend:
             store_ports: int = _IN_ORDER["store_ports"],
             vec_store_buffer_size: int = _IN_ORDER["vec_store_buffer_size"],
             vec_store_forwarding: str = _IN_ORDER["vec_store_forwarding"],
-        ):
+        ) -> None:
             self.fu_config = (
                 fu_config if fu_config is not None else _fu_from(_IN_ORDER["fu_config"])
             )
@@ -246,14 +268,14 @@ class Backend:
             store_ports: int = _OUT_OF_ORDER["store_ports"],
             prf_gpr_size: int = _OUT_OF_ORDER["prf_gpr_size"],
             prf_fpr_size: int = _OUT_OF_ORDER["prf_fpr_size"],
-            fu_config=None,
+            fu_config: Fu | None = None,
             checkpoint_count: int = _OUT_OF_ORDER["checkpoint_count"],
             squash_width: int = _OUT_OF_ORDER["squash_width"],
             prf_vpr_size: int = _OUT_OF_ORDER["prf_vpr_size"],
             vec_chaining: bool = _OUT_OF_ORDER["vec_chaining"],
             vec_store_buffer_size: int = _OUT_OF_ORDER["vec_store_buffer_size"],
             vec_store_forwarding: str = _OUT_OF_ORDER["vec_store_forwarding"],
-        ):
+        ) -> None:
             self.rob_size = rob_size
             self.store_buffer_size = store_buffer_size
             self.issue_queue_size = issue_queue_size
@@ -283,7 +305,10 @@ class Backend:
             )
 
 
-def _backend_from(pipeline: dict):
+_AnyBackend = Backend.InOrder | Backend.OutOfOrder
+
+
+def _backend_from(pipeline: dict[str, Any]) -> _AnyBackend:
     """The backend a core pipeline dict describes, with its unit pool."""
     units = _fu_from(pipeline["fu_config"])
     if pipeline["backend"] == "InOrder":

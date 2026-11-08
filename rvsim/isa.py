@@ -6,9 +6,12 @@ Provides callable namespace objects:
 - ``csr``: CSR lookup (``csr.MSTATUS`` → 0x300, ``csr("mstatus")`` → 0x300, ``csr.name(0x300)`` → ``"mstatus"``)
 """
 
+from __future__ import annotations
+
 import struct
 import sys
 from enum import Enum
+from typing import TextIO
 
 from ._core import csr_names, disassemble, register_names
 
@@ -38,31 +41,31 @@ class Disassemble:
         Disassemble().inst(0x00a00513)  # single instruction -> str
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._data: bytes | None = None
         self._base: int = 0x8000_0000
         self._offset: int = 0
         self._count: int | None = None
 
-    def binary(self, path: str) -> "Disassemble":
+    def binary(self, path: str) -> Disassemble:
         with open(path, "rb") as f:
             self._data = f.read()
         return self
 
-    def bytes(self, data: bytes) -> "Disassemble":
+    def bytes(self, data: bytes) -> Disassemble:
         self._data = data
         return self
 
-    def base(self, addr: int) -> "Disassemble":
+    def base(self, addr: int) -> Disassemble:
         self._base = addr
         return self
 
-    def at(self, addr: int, count: int | None = None) -> "Disassemble":
+    def at(self, addr: int, count: int | None = None) -> Disassemble:
         self._offset = addr - self._base
         self._count = count
         return self
 
-    def limit(self, n: int) -> "Disassemble":
+    def limit(self, n: int) -> Disassemble:
         self._count = n
         return self
 
@@ -98,7 +101,7 @@ class Disassemble:
                 break
         return result
 
-    def print(self, file=None) -> "Disassemble":
+    def print(self, file: TextIO | None = None) -> Disassemble:
         if file is None:
             file = sys.stdout
         for pc, raw, asm in self.decode():
@@ -133,7 +136,7 @@ class _RegLookup:
         except KeyError:
             raise AttributeError(f"no register named {name!r}") from None
 
-    def __call__(self, name) -> int:
+    def __call__(self, name: str | int) -> int:
         if isinstance(name, int):
             return name
         return _REG_BY_NAME[name.lower()]
@@ -170,7 +173,7 @@ class _CsrLookup:
         except KeyError:
             raise AttributeError(f"no CSR named {name!r}") from None
 
-    def __call__(self, name) -> int:
+    def __call__(self, name: str | int) -> int:
         if isinstance(name, int):
             return name
         return _CSR_BY_NAME[name.lower()]

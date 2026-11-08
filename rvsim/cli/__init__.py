@@ -8,18 +8,27 @@ Usage::
     rvsim list               List bundled programs
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import pathlib
 import runpy
 import sys
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..config import ConsoleMode
 from ..config._units import _parse_cycles
 from ..presets import PRESETS
 from ..simulator import DebugEnd
+
+if TYPE_CHECKING:
+    from rich.table import Table
+
+    from ..config import Config
+    from ..simulator import Simulator
 
 _PROGRAM_DESCRIPTIONS = {
     "chess": "alpha-beta chess engine, searches to fixed depth",
@@ -46,7 +55,7 @@ def _detect_mode(filepath: str) -> str:
     return "kernel"
 
 
-def _find_bundled_binaries():
+def _find_bundled_binaries() -> tuple[pathlib.Path, pathlib.Path] | None:
     pkg_dir = pathlib.Path(__file__).resolve().parent.parent
     repo_root = pkg_dir.parent
     programs = repo_root / "software" / "bin" / "programs"
@@ -58,28 +67,29 @@ def _find_bundled_binaries():
     benchmarks = cwd / "software" / "bin" / "benchmarks"
     if programs.is_dir() and benchmarks.is_dir():
         return programs, benchmarks
-    return None, None
+    return None
 
 
-def _cmd_list():
+def _cmd_list() -> None:
     from .._ansi import BOLD, DIM, RESET, TEAL, stdout_is_tty
 
-    programs, benchmarks = _find_bundled_binaries()
-    if programs is None:
+    found = _find_bundled_binaries()
+    if found is None:
         print(
             "Bundled binaries not found. Run from the rvsim repository root.",
             file=sys.stderr,
         )
         sys.exit(1)
+    programs, benchmarks = found
 
     is_tty = stdout_is_tty()
 
-    def section(name):
+    def section(name: str) -> str:
         if is_tty:
             return f"\n{BOLD}{TEAL}[{name}]{RESET}"
         return f"\n[{name}]"
 
-    def row(stem, desc):
+    def row(stem: str, desc: str) -> str:
         if is_tty:
             return f"  {BOLD}{stem:<18}{RESET}{DIM}{desc}{RESET}"
         return f"  {stem:<18}{desc}"
@@ -214,7 +224,9 @@ _TIP = (
 )
 
 
-def _rows(title: str, rows, styles: tuple[str, str]):
+def _rows(
+    title: str, rows: Iterable[tuple[str, str]], styles: tuple[str, str]
+) -> Table:
     """A borderless two-column table of ``rows`` under ``title``."""
     from rich.table import Table
 
@@ -295,7 +307,9 @@ class _Invocation:
     program_args: list[str]
 
 
-def _parse_invocation(parser, args, remaining: list[str]) -> _Invocation:
+def _parse_invocation(
+    parser: argparse.ArgumentParser, args: argparse.Namespace, remaining: list[str]
+) -> _Invocation:
     """The file and the program's arguments, after `--` when they start
     with a dash, checked against what the mode takes."""
     target = args.positional_args[0]
@@ -317,7 +331,7 @@ def _parse_invocation(parser, args, remaining: list[str]) -> _Invocation:
     return _Invocation(target, mode, program_args)
 
 
-def _select_config(args, mode: str):
+def _select_config(args: argparse.Namespace, mode: str) -> Config:
     """The config the options name, with their hart count and console."""
     from ..config import Config, load_config
 
@@ -338,7 +352,12 @@ def _select_config(args, mode: str):
     return cfg
 
 
-def _build_simulator(parser, args, cfg, run: _Invocation):
+def _build_simulator(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+    cfg: Config,
+    run: _Invocation,
+) -> Simulator:
     """The simulator for `run`: a kernel, several programs, or one binary."""
     import shlex
 
@@ -367,7 +386,7 @@ def _build_simulator(parser, args, cfg, run: _Invocation):
     return Simulator(cfg, programs=programs, **host_files)
 
 
-def _run_under_gdb(sim, port: int, *, limit) -> int | None:
+def _run_under_gdb(sim: Simulator, port: int, *, limit: int | None) -> int | None:
     """Serves GDB on ``port``; a run GDB detaches from goes on to its exit."""
     print(
         f"waiting for gdb on 127.0.0.1:{port} (in gdb: target remote :{port})",
@@ -379,7 +398,9 @@ def _run_under_gdb(sim, port: int, *, limit) -> int | None:
     return code
 
 
-def _run_watched(build, args, target: str) -> tuple[Any, int | None]:
+def _run_watched(
+    build: Callable[[], Simulator], args: argparse.Namespace, target: str
+) -> tuple[Simulator, int | None]:
     """Builds the simulator with setup chatter kept off the dashboard, then
     runs it under the live dashboard."""
     import io
@@ -403,7 +424,9 @@ def _run_watched(build, args, target: str) -> tuple[Any, int | None]:
     return sim, exit_code
 
 
-def _run_plain(build, args) -> tuple[Any, int | None]:
+def _run_plain(
+    build: Callable[[], Simulator], args: argparse.Namespace
+) -> tuple[Simulator, int | None]:
     """Builds the simulator and runs it, under GDB if asked, then prints the
     stats unless told not to."""
     sim = build()
@@ -418,7 +441,7 @@ def _run_plain(build, args) -> tuple[Any, int | None]:
     return sim, exit_code
 
 
-def _write_json(path: str, sim) -> None:
+def _write_json(path: str, sim: Simulator) -> None:
     import json
 
     from ..stats import Stats
@@ -453,7 +476,7 @@ def main() -> None:
 
     cfg = _select_config(args, run.mode)
 
-    def build():
+    def build() -> Simulator:
         return _build_simulator(parser, args, cfg, run)
 
     sim, exit_code = (

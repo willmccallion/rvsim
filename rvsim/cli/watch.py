@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 import time
-from typing import IO
+from typing import IO, TYPE_CHECKING
 
 from rich.console import Console
 from rich.live import Live
@@ -15,6 +15,9 @@ from rich.table import Table
 from rich.text import Text
 
 from rvsim.stats import Stats
+
+if TYPE_CHECKING:
+    from rvsim.simulator import Simulator
 
 # Cycles simulated per chunk between renders. Larger = faster sim, less responsive UI.
 _CHUNK = 200_000
@@ -28,7 +31,7 @@ def _bar(ratio: float) -> Text:
     return Text(s, style=color)
 
 
-def _fmt(n: int) -> str:
+def _fmt(n: float) -> str:
     if n >= 1_000_000_000:
         return f"{n / 1_000_000_000:.2f}G"
     if n >= 1_000_000:
@@ -38,7 +41,7 @@ def _fmt(n: int) -> str:
     return str(n)
 
 
-def _section(title: str, rows: list[tuple]) -> Panel:
+def _section(title: str, rows: list[tuple[str, str, str | Text]]) -> Panel:
     t = Table(show_header=False, box=None, padding=(0, 1), expand=True)
     t.add_column(style="dim")
     t.add_column(justify="right")
@@ -48,7 +51,7 @@ def _section(title: str, rows: list[tuple]) -> Panel:
     return Panel(t, title=f"[bold]{title}[/]", border_style="cyan")
 
 
-def _build(stats: dict, wall: float, binary: str, done: bool) -> Table:
+def _build(stats: Stats, wall: float, binary: str, done: bool) -> Panel:
     s = stats
 
     cycles = s.get("cycles", 0)
@@ -68,7 +71,7 @@ def _build(stats: dict, wall: float, binary: str, done: bool) -> Table:
     l1d_r = hit_rate("l1d")
     l2_r = hit_rate("l2")
 
-    def sr(n):
+    def sr(n: float) -> float:
         return n / cycles if cycles else 0.0
 
     core = _section(
@@ -121,11 +124,11 @@ def _build(stats: dict, wall: float, binary: str, done: bool) -> Table:
 
 
 def run_watch(
-    cpu, limit: int | None, binary: str, print_stats: bool = False
+    sim: Simulator, limit: int | None, binary: str, print_stats: bool = False
 ) -> int | None:
-    """Run *cpu* with a live-updating dashboard. Returns exit code."""
+    """Run *sim* with a live-updating dashboard. Returns exit code."""
     with tempfile.TemporaryFile() as captured:
-        exit_code = _run_live(cpu, limit, binary, captured)
+        exit_code = _run_live(sim, limit, binary, captured)
         captured.seek(0)
         program_output = captured.read()
     if program_output:
@@ -133,13 +136,15 @@ def run_watch(
         sys.stdout.buffer.flush()
 
     if print_stats and exit_code is not None:
-        print(cpu.stats.summary())
+        print(sim.stats.summary())
 
     return exit_code
 
 
-def _run_live(cpu, limit: int | None, binary: str, captured: IO[bytes]) -> int | None:
-    """Runs *cpu* under the dashboard with fd 2 redirected into *captured*.
+def _run_live(
+    sim: Simulator, limit: int | None, binary: str, captured: IO[bytes]
+) -> int | None:
+    """Runs *sim* under the dashboard with fd 2 redirected into *captured*.
 
     UART output is written to fd 2 from Rust, so the redirect is at the file
     descriptor level; it keeps program output from interleaving with the TUI.
@@ -164,14 +169,14 @@ def _run_live(cpu, limit: int | None, binary: str, captured: IO[bytes]) -> int |
                     break
                 chunk = min(chunk, remaining)
 
-            code = cpu.run(limit=chunk)
+            code = sim.run(limit=chunk)
             cycles_run += chunk
 
             if code is not None:
                 exit_code = code
 
             wall = time.monotonic() - start
-            stats = Stats.from_core(cpu.stats)
+            stats = Stats.from_core(sim.stats)
             live.update(_build(stats, wall, binary, exit_code is not None))
 
             if exit_code is not None:

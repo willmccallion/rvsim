@@ -40,7 +40,7 @@ make software    # build the guest programs into software/bin
 Run these before opening a pull request:
 
 ```sh
-make lint        # rustfmt, clippy and rustdoc; ruff format and ruff check
+make lint        # rustfmt, clippy and rustdoc; ruff and strict mypy
 make test        # Rust unit and integration tests
 make test-python # Python API tests, and rvsim/_core.pyi against the extension
 ```

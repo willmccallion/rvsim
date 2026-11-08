@@ -6,8 +6,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .backend import _UNITS, Backend, Fu
-from .branch import BranchPredictor, MemDepPredictor
+from .backend import _UNITS, Backend, Fu, _AnyBackend
+from .branch import (
+    BranchPredictor,
+    MemDepPredictor,
+    _AnyBranchPredictor,
+    _AnyMemDepPredictor,
+)
 from .coherence import Coherence, HomeAgent, Interconnect
 from .console import ConsoleMode
 from .memory import (
@@ -18,6 +23,7 @@ from .memory import (
     Prefetcher,
     ReplacementPolicy,
     StorePrefetcher,
+    _AnyMemoryController,
 )
 
 if TYPE_CHECKING:
@@ -106,7 +112,7 @@ def _tage_sc_l_dicts(bp: BranchPredictor.ScLTage) -> dict[str, Any]:
     }
 
 
-def _predictor_dicts(bp) -> dict[str, Any]:
+def _predictor_dicts(bp: _AnyBranchPredictor) -> dict[str, Any]:
     """The pipeline fields the selected branch predictor sets: its name and
     its own tables."""
     fields: dict[str, Any] = {"branch_predictor": _name(BranchPredictor, bp)}
@@ -135,7 +141,7 @@ def _predictor_dicts(bp) -> dict[str, Any]:
     return fields
 
 
-def _mem_dep_dicts(mdp) -> dict[str, Any]:
+def _mem_dep_dicts(mdp: _AnyMemDepPredictor) -> dict[str, Any]:
     """The pipeline fields the memory dependence predictor sets."""
     fields: dict[str, Any] = {"mem_dep_predictor": _name(MemDepPredictor, mdp)}
     if isinstance(mdp, MemDepPredictor.StoreSet):
@@ -157,7 +163,7 @@ def _fu_config_to_dict(fc: Fu) -> dict[str, int]:
     return pool
 
 
-def _backend_dicts(be) -> dict[str, Any]:
+def _backend_dicts(be: _AnyBackend) -> dict[str, Any]:
     """The pipeline fields the backend sets: both backends' ROB, store
     buffer, ports and vector store buffer, and the out-of-order backend's
     queues and register files."""
@@ -236,7 +242,7 @@ def _store_prefetcher_to_dict(p: StorePrefetcher.Stream | None) -> dict[str, Any
     return {"kind": "Stream", "streams": p.streams, "l2_lines": p.l2_lines}
 
 
-def _controller_dicts(mc) -> dict[str, Any]:
+def _controller_dicts(mc: _AnyMemoryController) -> dict[str, Any]:
     """The memory fields the memory controller sets."""
     fields: dict[str, Any] = {"controller": _name(MemoryController, mc)}
     if isinstance(mc, MemoryController.Simple):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from ._core_defaults import COMPONENTS
 
 _SNOOP_FILTER = COMPONENTS["snoop_filter"]
@@ -85,7 +87,10 @@ class Interconnect:
         kind = "Hypercube"
 
 
-def _home_agent_from(home_agent: dict):
+_AnyHomeAgent = HomeAgent.Broadcast | HomeAgent.SnoopFilter
+
+
+def _home_agent_from(home_agent: dict[str, Any]) -> _AnyHomeAgent:
     """The home agent a core coherence dict names."""
     if home_agent["kind"] == "Broadcast":
         return HomeAgent.Broadcast()
@@ -94,9 +99,10 @@ def _home_agent_from(home_agent: dict):
     )
 
 
-def _interconnect_from(interconnect: dict):
+def _interconnect_from(interconnect: dict[str, Any]) -> Interconnect._Kind:
     """The interconnect a core coherence dict names."""
-    return getattr(Interconnect, interconnect["kind"])(
+    kind: type[Interconnect._Kind] = getattr(Interconnect, interconnect["kind"])
+    return kind(
         hop_latency=interconnect["hop_latency"],
         bytes_per_cycle=interconnect["bytes_per_cycle"],
     )
@@ -107,15 +113,10 @@ class Coherence:
 
     def __init__(
         self,
-        home_agent: HomeAgent.Broadcast | HomeAgent.SnoopFilter | None = None,
-        interconnect: Interconnect.Crossbar
-        | Interconnect.Ring
-        | Interconnect.Mesh
-        | Interconnect.Torus
-        | Interconnect.Hypercube
-        | None = None,
+        home_agent: _AnyHomeAgent | None = None,
+        interconnect: Interconnect._Kind | None = None,
         txn_entries: int = _COHERENCE["txn_entries"],
-    ):
+    ) -> None:
         self.protocol = "Mesi"
         self.home_agent = (
             home_agent
@@ -136,7 +137,7 @@ class Coherence:
         )
 
 
-def _coherence_from(coherence: dict) -> Coherence:
+def _coherence_from(coherence: dict[str, Any]) -> Coherence:
     """The coherence fabric a core coherence dict describes."""
     return Coherence(
         home_agent=_home_agent_from(coherence["home_agent"]),

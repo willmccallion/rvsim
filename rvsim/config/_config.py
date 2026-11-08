@@ -12,10 +12,10 @@ from .._core import check_config
 from ._core_defaults import MACHINE
 from ._serialize import _config_to_dict_impl
 from ._units import _parse_size
-from .backend import Backend, _backend_from
+from .backend import _AnyBackend, _backend_from
 from .branch import (
-    BranchPredictor,
-    MemDepPredictor,
+    _AnyBranchPredictor,
+    _AnyMemDepPredictor,
     _branch_predictor_from,
     _mem_dep_predictor_from,
 )
@@ -25,6 +25,8 @@ from .memory import (
     Cache,
     LoadPrefetcher,
     StorePrefetcher,
+    _AnyInclusionPolicy,
+    _AnyMemoryController,
     _cache_from,
     _controller_from,
     _load_prefetcher_from,
@@ -51,6 +53,7 @@ _DEFAULT_INCLUSION_POLICY = getattr(Cache, _CACHES["inclusion_policy"])()
 _DEFAULT_LOAD_PREFETCHER = _load_prefetcher_from(_CACHES["load_prefetcher"])
 _DEFAULT_STORE_PREFETCHER = _store_prefetcher_from(_CACHES["store_prefetcher"])
 _DEFAULT_MEMORY_CONTROLLER = _controller_from(_MEMORY)
+_DEFAULT_COHERENCE = Coherence()
 
 # The fields holding component objects, which each Config copies.
 _COMPONENT_FIELDS = (
@@ -106,19 +109,9 @@ class Config:
     csr_squash: str | None = _PIPELINE["csr_squash"]
     fence_squash: bool = _PIPELINE["fence_squash"]
     store_forward_latency: int | None = _PIPELINE["store_forward_latency"]
-    branch_predictor: (
-        BranchPredictor.Static
-        | BranchPredictor.GShare
-        | BranchPredictor.Bht
-        | BranchPredictor.Tage
-        | BranchPredictor.ScLTage
-        | BranchPredictor.Perceptron
-        | BranchPredictor.Tournament
-    ) = _DEFAULT_BRANCH_PREDICTOR
-    backend: Backend.InOrder | Backend.OutOfOrder = _DEFAULT_BACKEND
-    mem_dep_predictor: MemDepPredictor.Blind | MemDepPredictor.StoreSet = (
-        _DEFAULT_MEM_DEP_PREDICTOR
-    )
+    branch_predictor: _AnyBranchPredictor = _DEFAULT_BRANCH_PREDICTOR
+    backend: _AnyBackend = _DEFAULT_BACKEND
+    mem_dep_predictor: _AnyMemDepPredictor = _DEFAULT_MEM_DEP_PREDICTOR
     btb_size: int = _PIPELINE["btb_size"]
     btb_ways: int = _PIPELINE["btb_ways"]
     ras_size: int = _PIPELINE["ras_size"]
@@ -127,13 +120,13 @@ class Config:
     l1d: Cache | None = _DEFAULT_L1D
     l2: Cache | None = _DEFAULT_L2
     l3: Cache | None = _DEFAULT_L3
-    inclusion_policy: Any = _DEFAULT_INCLUSION_POLICY
+    inclusion_policy: _AnyInclusionPolicy = _DEFAULT_INCLUSION_POLICY
     wcb_entries: int = _CACHES["wcb_entries"]
     load_prefetcher: LoadPrefetcher.Stride | None = _DEFAULT_LOAD_PREFETCHER
     store_prefetcher: StorePrefetcher.Stream | None = _DEFAULT_STORE_PREFETCHER
     # Memory
     ram_size: str | int = _MEMORY["ram_size"]
-    memory_controller: Any = _DEFAULT_MEMORY_CONTROLLER
+    memory_controller: _AnyMemoryController = _DEFAULT_MEMORY_CONTROLLER
     tlb_size: int = _MEMORY["tlb_size"]
     tlb_ways: int = _MEMORY["tlb_ways"]
     l2_tlb_size: int = _MEMORY["l2_tlb_size"]
@@ -168,7 +161,7 @@ class Config:
     rtc_epoch_seconds: int = _SYSTEM["rtc_epoch_seconds"]
     console: ConsoleMode | str = _SYSTEM["console"]
     hart_count: int = _SYSTEM["hart_count"]
-    coherence: Coherence | None = None
+    coherence: Coherence = _DEFAULT_COHERENCE
 
     def __post_init__(self) -> None:
         # Each Config owns its components, so editing one leaves the
@@ -178,8 +171,6 @@ class Config:
         self.ram_size = _parse_size(self.ram_size)
         self.device_latency_ns_overrides = dict(self.device_latency_ns_overrides or {})
         self.console = ConsoleMode(self.console)
-        if self.coherence is None:
-            self.coherence = Coherence()
         check_config(self.to_dict())
 
     def isa_string(self) -> str:
@@ -195,7 +186,7 @@ class Config:
         """Produce the nested dict expected by the Rust backend."""
         return _config_to_dict_impl(self)
 
-    def replace(self, **kwargs) -> Config:
+    def replace(self, **kwargs: Any) -> Config:
         """Return a new Config with the given fields overridden.
 
         Example::
