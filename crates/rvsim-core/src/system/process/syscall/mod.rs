@@ -330,7 +330,7 @@ impl Sys<'_> {
     }
 
     fn read_user(&self, vaddr: VirtAddr, len: u64) -> Result<Vec<u8>, Errno> {
-        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
+        let len = file_calls::buffer_len(len)?;
         self.process.space.read(self.memory, vaddr, len).map_err(Errno::from)
     }
 
@@ -349,7 +349,7 @@ impl Sys<'_> {
 
     /// The `(base, len)` pairs of an `iovec` array.
     fn iovecs(&self, iov: VirtAddr, count: u64) -> Result<Vec<(VirtAddr, u64)>, Errno> {
-        let count = usize::try_from(count).map_err(|_| Errno::EINVAL)?;
+        let count = file_calls::buffer_len(count)?;
         let bytes = self.read_user(iov, (count * 16) as u64)?;
         Ok(bytes
             .as_chunks::<16>()
@@ -377,7 +377,7 @@ impl Sys<'_> {
     fn readv(&mut self, fd: Fd, iov: VirtAddr, count: u64) -> SysResult {
         let mut total = 0u64;
         for (base, len) in self.iovecs(iov, count)? {
-            let want = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
+            let want = file_calls::buffer_len(len)?;
             let bytes = self.process.files.read(fd, want)?;
             self.write_user(base, &bytes)?;
             total += bytes.len() as u64;
@@ -500,7 +500,7 @@ impl Sys<'_> {
         if flags & MAP_ANONYMOUS == 0 {
             // A private file mapping is the file's bytes copied in, whatever
             // the pages' rights; writes never reach the file.
-            let len_usize = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
+            let len_usize = file_calls::buffer_len(len)?;
             let bytes = self.process.files.pread(fd, len_usize, offset)?;
             self.write_user(start, &bytes)?;
             self.process.note_file_map(start, page_ceil(len));
@@ -711,7 +711,7 @@ impl Sys<'_> {
     }
 
     fn getrandom(&mut self, buf: VirtAddr, len: u64) -> SysResult {
-        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
+        let len = file_calls::buffer_len(len)?;
         let mut bytes = Vec::with_capacity(len);
         while bytes.len() < len {
             bytes.extend_from_slice(&self.process.next_random().to_le_bytes());
