@@ -115,12 +115,11 @@ fn vector_requirement(op: VectorOp) -> Requirement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::VirtAddr;
     use crate::exec::decode::decode_inst;
 
     fn requirement_of(inst: u32) -> Requirement {
-        let decoded = decode_inst(inst, VirtAddr::new(0), 0);
-        assert!(decoded.trap.is_none(), "{inst:#010x} decodes");
+        let decoded = decode_inst(inst, 0);
+        assert!(decoded.fault.is_none(), "{inst:#010x} decodes");
         requirement(&decoded.ctrl, inst)
     }
 

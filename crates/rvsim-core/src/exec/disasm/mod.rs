@@ -4,9 +4,7 @@
 mod scalar;
 mod vector;
 
-use crate::common::VirtAddr;
-use crate::exec::decode::decode_inst;
-use crate::isa::privileged::Trap;
+use crate::exec::decode::{DecodeFault, decode_inst};
 use crate::isa::reg::{ArchReg, RegIdx};
 use crate::isa::rvc;
 
@@ -38,9 +36,9 @@ pub fn disassemble(inst: u32) -> String {
     let Some(word) = word else {
         return unknown(inst);
     };
-    let decoded = decode_inst(word, VirtAddr::new(0), VTYPE_SMALLEST_GROUPS);
-    match decoded.trap {
-        Some(Trap::Breakpoint(_)) => "ebreak".to_owned(),
+    let decoded = decode_inst(word, VTYPE_SMALLEST_GROUPS);
+    match decoded.fault {
+        Some(DecodeFault::Breakpoint) => "ebreak".to_owned(),
         Some(_) => unknown(inst),
         None => match decoded.ctrl.vec_op {
             Some(op) => vector::disassemble(op, &decoded.ctrl, &decoded.fields),

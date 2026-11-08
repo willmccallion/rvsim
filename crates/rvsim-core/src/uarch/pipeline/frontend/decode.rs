@@ -7,16 +7,17 @@
 //! register dependency.
 
 use crate::common::VirtAddr;
+use crate::common::trace::{Hex, Hex32};
 use crate::exec::decode::requirement::requirement;
-use crate::exec::decode::{DecodedInst, decode_inst};
+use crate::exec::decode::{DecodeFault, DecodedInst, decode_inst};
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::exec::state::ArchState;
 use crate::isa::instruction::InstructionBits;
 use crate::isa::op::SystemOp;
-use crate::isa::privileged::Trap;
 use crate::isa::reg::{self, ArchReg};
 use crate::isa::rvv::VectorConfig;
+use crate::trace_decode;
 use crate::uarch::bpred::ControlInst;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::BundleHazard;
@@ -63,14 +64,23 @@ pub fn decode_stage(
 
         let inst = if_entry.bits;
 
-        let DecodedInst { fields: mut d, mut ctrl, mut trap } =
-            decode_inst(inst, if_entry.pc, vector.vtype);
+        let DecodedInst { fields: mut d, mut ctrl, mut fault } = decode_inst(inst, vector.vtype);
         // An instruction of an extension the hart does not implement is
         // illegal on it, as on hardware without the extension.
-        if trap.is_none() && !state.core().isa.permits(requirement(&ctrl, inst)) {
+        if fault.is_none() && !state.core().isa.permits(requirement(&ctrl, inst)) {
             ctrl = ControlSignals::default();
-            trap = Some(Trap::IllegalInstruction(inst));
+            fault = Some(DecodeFault::ExtensionNotImplemented);
         }
+        if let Some(fault) = fault {
+            trace_decode!(state.config.general.trace_instructions;
+                event  = "trap",
+                pc     = %Hex(if_entry.pc.val()),
+                inst   = %Hex32(inst),
+                reason = ?fault,
+                "instruction decodes to a trap"
+            );
+        }
+        let trap = fault.map(|fault| fault.trap(inst, if_entry.pc));
         // In SE mode a user program's ecall returns its syscall's result in
         // a0, which is its destination so that dependents wait for it.
         if ctrl.system_op == SystemOp::Ecall && state.serves_syscalls() {
