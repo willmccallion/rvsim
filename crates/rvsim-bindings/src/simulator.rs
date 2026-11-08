@@ -521,22 +521,20 @@ impl PySimulator {
         Memory { sim: slf.unbind(), width: Width::Bits64 }
     }
 
-    /// Virtual memory view for 32-bit reads — ``sim.vmem32[vaddr]``.
-    ///
-    /// Translates the virtual address through the current page tables (SATP)
-    /// before reading. Raises ``ValueError`` if translation fails.
+    /// Virtual memory view for 32-bit reads through hart 0's page tables —
+    /// ``sim.vmem32[vaddr]``; ``sim.harts[n].vmem32`` reads through hart
+    /// `n`'s. Raises ``ValueError`` if translation fails.
     #[getter]
     fn vmem32(slf: Bound<'_, Self>) -> VirtualMemory {
-        VirtualMemory { sim: slf.unbind(), width: Width::Bits32 }
+        VirtualMemory { sim: slf.unbind(), hart: 0, width: Width::Bits32 }
     }
 
-    /// Virtual memory view for 64-bit reads — ``sim.vmem64[vaddr]``.
-    ///
-    /// Translates the virtual address through the current page tables (SATP)
-    /// before reading. Raises ``ValueError`` if translation fails.
+    /// Virtual memory view for 64-bit reads through hart 0's page tables —
+    /// ``sim.vmem64[vaddr]``; ``sim.harts[n].vmem64`` reads through hart
+    /// `n`'s. Raises ``ValueError`` if translation fails.
     #[getter]
     fn vmem64(slf: Bound<'_, Self>) -> VirtualMemory {
-        VirtualMemory { sim: slf.unbind(), width: Width::Bits64 }
+        VirtualMemory { sim: slf.unbind(), hart: 0, width: Width::Bits64 }
     }
 
     /// Committed PC trace from the pipeline as a list of ``(pc, raw_inst)`` pairs.

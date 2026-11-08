@@ -204,6 +204,20 @@ impl Hart {
         Csrs { sim: self.sim.clone_ref(py), hart: self.index }
     }
 
+    /// 32-bit reads through this hart's page tables —
+    /// ``sim.harts[n].vmem32[vaddr]``.
+    #[getter]
+    fn vmem32(&self, py: Python<'_>) -> VirtualMemory {
+        VirtualMemory { sim: self.sim.clone_ref(py), hart: self.index, width: Width::Bits32 }
+    }
+
+    /// 64-bit reads through this hart's page tables —
+    /// ``sim.harts[n].vmem64[vaddr]``.
+    #[getter]
+    fn vmem64(&self, py: Python<'_>) -> VirtualMemory {
+        VirtualMemory { sim: self.sim.clone_ref(py), hart: self.index, width: Width::Bits64 }
+    }
+
     fn __repr__(&self, py: Python<'_>) -> String {
         let sim = self.sim.borrow(py);
         let hart = sim.inner.hart(self.index);
@@ -299,14 +313,16 @@ impl Memory {
 
 /// Subscript memory access with virtual-to-physical translation via the MMU.
 ///
-/// ``sim.vmem64[addr]`` translates `addr` through hart 0's page tables
-/// (its SATP), then reads the resulting physical address. A failed
-/// translation raises ``ValueError``.
+/// ``sim.harts[n].vmem64[addr]`` translates `addr` through hart `n`'s page
+/// tables (its SATP), then reads the resulting physical address;
+/// ``sim.vmem64`` is hart 0's. A failed translation raises ``ValueError``.
 #[pyclass(name = "VirtualMemory", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct VirtualMemory {
     /// The simulator whose memory this reads.
     pub sim: Py<PySimulator>,
+    /// The hart whose page tables translate.
+    pub hart: usize,
     /// Bits per read.
     pub width: Width,
 }
@@ -315,7 +331,7 @@ pub struct VirtualMemory {
 impl VirtualMemory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> PyResult<u64> {
         let mut sim = self.sim.borrow_mut(py);
-        let paddr = sim.inner.translate_now(0, VirtAddr::new(addr)).map_err(|trap| {
+        let paddr = sim.inner.translate_now(self.hart, VirtAddr::new(addr)).map_err(|trap| {
             pyo3::exceptions::PyValueError::new_err(format!(
                 "translation failed for VA {addr:#x}: {trap:?}"
             ))
@@ -324,6 +340,6 @@ impl VirtualMemory {
     }
 
     fn __repr__(&self) -> String {
-        format!("VirtualMemory(u{})", self.width.bits())
+        format!("VirtualMemory(u{}, hart={})", self.width.bits(), self.hart)
     }
 }
