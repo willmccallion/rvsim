@@ -53,7 +53,7 @@ impl QueryResult {
     }
 
     /// Iterates matched `(path, value)` pairs.
-    pub fn iter(&self) -> impl Iterator<Item = (&str, f64)> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&str, f64)> {
         self.matches.iter().map(|(p, v)| (p.as_str(), *v))
     }
 }
