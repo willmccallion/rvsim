@@ -40,19 +40,17 @@ make software    # build the guest programs into software/bin
 Run these before opening a pull request:
 
 ```sh
-make fmt-check   # rustfmt and ruff format
-make clippy      # clippy, with warnings as errors
+make lint        # rustfmt, clippy and rustdoc; ruff format and ruff check
 make test        # Rust unit and integration tests
 make test-python # Python API tests, and rvsim/_core.pyi against the extension
 ```
 
-Every pull request must pass `make test-all-smoke`, which CI runs: the Rust
-and Python tests and the conformance smoke subsets (see `tests/README.md`).
-Changes to the ISA, the pipelines or the memory system should also pass the
-full suites:
+Every pull request must pass what CI runs, which `make ci` runs locally: the
+lints, the Rust and Python tests, the conformance smoke subsets (see
+`tests/README.md`) and SE mode against qemu-riscv64. Changes to the ISA, the
+pipelines or the memory system should also pass the full suites:
 
 ```sh
-make test-all-smoke
 make riscv-tests
 make vector-test
 ```
