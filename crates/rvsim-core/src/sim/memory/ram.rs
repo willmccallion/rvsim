@@ -25,9 +25,7 @@ impl Ram {
     /// Returns the host's error when it cannot map `size` bytes, or one
     /// saying so when `size` is more than the host can address.
     pub fn new(base: PhysAddr, size: u64) -> io::Result<Self> {
-        let len = usize::try_from(size)
-            .map_err(|_| io::Error::other("RAM larger than the host's address space"))?;
-        Ok(Self { bytes: ZeroedBytes::new(len)?, base })
+        Ok(Self { bytes: ZeroedBytes::new(usize_of(size))?, base })
     }
 
     /// The first physical address of the image.
@@ -118,7 +116,9 @@ impl ZeroedBytes {
 
     /// Byte-aligned, which keeps a large allocation on the lazily zeroed path.
     fn layout(len: usize) -> io::Result<Layout> {
-        Layout::from_size_align(len, 1).map_err(io::Error::other)
+        Layout::from_size_align(len, 1).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "more than the host can address")
+        })
     }
 
     const fn as_slice(&self) -> &[u8] {

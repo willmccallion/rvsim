@@ -76,5 +76,7 @@ fn an_empty_image_contains_nothing() {
 
 #[test]
 fn a_size_the_host_cannot_map_is_an_error() {
-    assert!(Ram::new(PhysAddr::new(BASE), u64::MAX).is_err());
+    let error = Ram::new(PhysAddr::new(BASE), u64::MAX).expect_err("no host maps that much");
+
+    assert_eq!(error.to_string(), "more than the host can address");
 }
