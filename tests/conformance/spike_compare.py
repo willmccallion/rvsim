@@ -17,12 +17,10 @@ import contextlib
 import glob
 import io
 import os
-import re
 import subprocess
 import sys
 import tempfile
 
-from rvsim import Config  # noqa: F401  (kept for backward compatibility)
 from rvsim._core import Simulator
 from rvsim.config._config import _config_to_dict
 
@@ -32,6 +30,7 @@ ORACLE_DIR = os.path.join(ROOT, "tests", "builds", "spike-oracle")
 
 # Shared pipeline matrix.
 sys.path.insert(0, ROOT)
+from tests.conformance.common import SPIKE, compare_traces, parse_log
 from tests.conformance.configs.pipelines import PIPELINES
 
 # ── Test suites ──────────────────────────────────────────────────────────────
@@ -47,70 +46,6 @@ SUITES = [
 ]
 
 CYCLE_LIMIT = 500_000
-
-# ── Spike log parsing ────────────────────────────────────────────────────────
-LINE_RE = re.compile(r"core\s+\d+:\s+0x([0-9a-f]+)\s+\(0x([0-9a-f]+)\)")
-
-# Instructions that rvsim's decode eliminates (never enter the pipeline).
-NOP_ENCODINGS = {0x00000013, 0x00000001}
-
-# Spike reset vector range.
-SPIKE_RESET_START = 0x1000
-SPIKE_RESET_END = 0x2000
-
-
-def parse_log(path, skip_nops=True, skip_reset=False):
-    """Parse a commit log into a list of (pc, inst) tuples."""
-    entries = []
-    with open(path) as f:
-        for line in f:
-            m = LINE_RE.search(line)
-            if m is None:
-                continue
-            pc = int(m.group(1), 16)
-            inst = int(m.group(2), 16)
-            if skip_reset and SPIKE_RESET_START <= pc < SPIKE_RESET_END:
-                continue
-            if skip_nops and inst in NOP_ENCODINGS:
-                continue
-            entries.append((pc, inst))
-    return entries
-
-
-def compare_traces(spike_trace, rvsim_trace):
-    """Compare two traces by PC sequence. Returns (match_count, divergence_info_or_None).
-
-    Only PCs are compared, not instruction encodings, because rvsim logs
-    the 32-bit expanded form of compressed instructions while spike logs
-    the original 16-bit encoding.
-
-    rvsim may be shorter than spike because rvsim exits immediately on
-    HTIF tohost write, while spike continues the polling loop.  A shorter
-    rvsim trace is fine as long as every PC it *did* retire matches spike
-    exactly.  A shorter *spike* trace (rvsim retired instructions spike
-    didn't) is a real divergence.
-    """
-    for i, (s, r) in enumerate(zip(spike_trace, rvsim_trace, strict=False)):
-        if s[0] != r[0]:
-            return i, {
-                "inst_num": i + 1,
-                "spike_pc": s[0],
-                "spike_inst": s[1],
-                "rvsim_pc": r[0],
-                "rvsim_inst": r[1],
-            }
-    # All matched up to the shorter trace
-    min_len = min(len(spike_trace), len(rvsim_trace))
-    if len(rvsim_trace) > len(spike_trace):
-        # rvsim retired more instructions than spike — real divergence
-        return min_len, {
-            "inst_num": min_len + 1,
-            "length_mismatch": True,
-            "spike_len": len(spike_trace),
-            "rvsim_len": len(rvsim_trace),
-        }
-    # rvsim <= spike in length, all matched: OK (rvsim exits early on HTIF)
-    return min_len, None
 
 
 def find_tests():
@@ -135,7 +70,7 @@ def generate_spike_oracle(tests):
         oracle_path = os.path.join(ORACLE_DIR, f"{name}.log")
 
         result = subprocess.run(
-            ["spike", "-l", "--isa=rv64gc", path],
+            [SPIKE, "-l", "--isa=rv64gc", path],
             capture_output=True,
             timeout=30,
             check=False,

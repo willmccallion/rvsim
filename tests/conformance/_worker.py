@@ -23,7 +23,6 @@ Exit codes:
 import argparse
 import os
 import struct
-import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,26 +30,10 @@ sys.path.insert(0, ROOT)
 
 from rvsim._core import Simulator
 from rvsim.config._config import _config_to_dict
+from tests.conformance.common import signature_range
 from tests.conformance.configs.pipelines import PIPELINES
 
 CYCLE_LIMIT = int(os.environ.get("RVSIM_CYCLE_LIMIT", "10000000"))
-READELF = "riscv64-elf-readelf"
-
-
-def get_signature_range(elf_path):
-    out = subprocess.run(
-        [READELF, "-s", elf_path], capture_output=True, text=True, check=True
-    ).stdout
-    begin = end = None
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) >= 8:
-            sym = parts[-1]
-            if sym == "begin_signature":
-                begin = int(parts[1], 16)
-            elif sym == "end_signature":
-                end = int(parts[1], 16)
-    return begin, end
 
 
 def main():
@@ -96,7 +79,7 @@ def main():
     exit_code = cpu.run(limit=CYCLE_LIMIT)
 
     if sig_out:
-        begin, end = get_signature_range(elf_path)
+        begin, end = signature_range(elf_path)
         if begin is not None and end is not None and end > begin:
             sig_bytes = bytes(cpu.read_phys_bytes(begin, end - begin))
             with open(sig_out, "w") as f:
