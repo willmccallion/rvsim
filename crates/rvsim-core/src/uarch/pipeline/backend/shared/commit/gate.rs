@@ -36,7 +36,7 @@ pub(super) fn trap_or_interrupt(
 ) -> CommitFlow {
     if let TrapProgress::Pending(pending) = &common.commit.trap {
         state.uncore.kernel.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
-        if state.kernel.cycle < pending.taken_at {
+        if state.uncore.kernel.cycle < pending.taken_at {
             return CommitFlow::Stop(None);
         }
         let pending = pending.clone();
@@ -62,7 +62,7 @@ pub(super) fn trap_or_interrupt(
         common.commit.trap = TrapProgress::DrainingForInterrupt;
         let drained = state.hart.wfi_waiting || (rob.is_empty() && common.frontend_empty);
         if drained {
-            trace_trap!(state.trace_trap_enabled(&interrupt_trap);
+            trace_trap!(state.uncore.trace_trap_enabled(&interrupt_trap);
                 event      = "interrupt",
                 epc        = %Hex(epc.val()),
                 cause      = ?interrupt_trap,
@@ -138,7 +138,7 @@ pub(super) fn gate_head(
 
     if head.state == RobState::Completed && lr_read_a_stale_line(state, head) {
         state.uncore.kernel.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
-        trace_trap!(state.kernel.config.general.trace_instructions;
+        trace_trap!(state.uncore.kernel.config.general.trace_instructions;
             event   = "coherence-reexecute",
             pc      = %Hex(head.pc.val()),
             rob_tag = %head.tag,
@@ -151,7 +151,7 @@ pub(super) fn gate_head(
     if head.state == RobState::Completed
         && head.dirty_updates.iter().any(|update| updated_pte(state, update).is_none())
     {
-        trace_trap!(state.kernel.config.general.trace_instructions;
+        trace_trap!(state.uncore.kernel.config.general.trace_instructions;
             event   = "pte-changed-reexecute",
             pc      = %Hex(head.pc.val()),
             rob_tag = %head.tag,
@@ -168,7 +168,7 @@ pub(super) fn gate_head(
     }
 
     if head.ctrl.system_op == SystemOp::FenceI
-        && state.kernel.config.cache.fence_i_flushes_l1_d()
+        && state.uncore.kernel.config.cache.fence_i_flushes_l1_d()
         && !advance_data_cache_flush(state, common)
     {
         return CommitFlow::Stop(None);
@@ -218,7 +218,7 @@ fn take_fault(
             );
         }
     }
-    trace_trap!(state.trace_trap_enabled(the_trap);
+    trace_trap!(state.uncore.trace_trap_enabled(the_trap);
         event     = "sync-exception",
         pc        = %Hex(entry.pc.val()),
         rob_tag   = %entry.tag,
@@ -254,7 +254,7 @@ fn as_fetched(trap: &Trap, size: InstSize) -> Trap {
 /// wrote it, so the reservation it would set is already broken. Plain loads
 /// are not checked: RVWMO lets them keep the earlier value.
 fn lr_read_a_stale_line(state: &CoreCtx<'_>, head: &RobEntry) -> bool {
-    let Some(log) = state.kernel.memory.write_log() else { return false };
+    let Some(log) = state.uncore.kernel.memory.write_log() else { return false };
     let (Some(observed), Some(LrScRecord::Lr { paddr })) = (head.observed, head.lr_sc) else {
         return false;
     };
@@ -270,26 +270,29 @@ pub(super) fn updated_pte(state: &CoreCtx<'_>, update: &PteUpdate) -> Option<u64
 
 /// The word at `paddr` as it is in RAM right now; `None` outside pure RAM.
 fn read_ram_word(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> Option<u64> {
-    if width == MemWidth::Nop || !state.bus.is_ram(paddr, width.bytes()) {
+    if width == MemWidth::Nop || !state.uncore.bus.is_ram(paddr, width.bytes()) {
         return None;
     }
-    state.kernel.memory.read(paddr, width.bytes() as usize)
+    state.uncore.kernel.memory.read(paddr, width.bytes() as usize)
 }
 
 /// Takes `trap` now when there is no trap latency, else parks it for
 /// commit to take once the latency has elapsed.
-fn schedule_trap(
+const fn schedule_trap(
     state: &CoreCtx<'_>,
     common: &mut BackendCommon,
     trap: Trap,
     epc: VirtAddr,
 ) -> Option<CommitEvent> {
-    let latency = state.kernel.config.pipeline.trap_latency;
+    let latency = state.uncore.kernel.config.pipeline.trap_latency;
     if latency == 0 {
         return Some(CommitEvent::Trap(trap, epc));
     }
-    common.commit.trap =
-        TrapProgress::Pending(PendingTrap { trap, epc, taken_at: state.kernel.cycle + latency });
+    common.commit.trap = TrapProgress::Pending(PendingTrap {
+        trap,
+        epc,
+        taken_at: state.uncore.kernel.cycle + latency,
+    });
     None
 }
 

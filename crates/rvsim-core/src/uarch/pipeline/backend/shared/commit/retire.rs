@@ -61,10 +61,15 @@ pub(super) fn retire_entry(
     let privilege = state.hart.privilege;
     let flow = apply_retirement(state, targets, entry, syscall);
     #[cfg(feature = "commit-log")]
-    if state.host.commit_log.is_some() {
+    if state.uncore.host.commit_log.is_some() {
         let store = targets.store_buffer.committed_write(entry.tag);
-        let retired =
-            Retired::capture(entry, privilege, state.kernel.cycle, store, state.hart.regs.vpr());
+        let retired = Retired::capture(
+            entry,
+            privilege,
+            state.uncore.kernel.cycle,
+            store,
+            state.hart.regs.vpr(),
+        );
         log_retired(state, &retired);
     }
     flow
@@ -75,7 +80,7 @@ pub(super) fn retire_entry(
 fn log_retired(state: &mut CoreCtx<'_>, retired: &Retired) {
     let csr_value = retired.csr().map(|addr| state.csr_read(addr));
     let fflags = retired.raised_fp_flags().then(|| state.csr_read(csr::FFLAGS));
-    if let Some(log) = state.host.commit_log.as_mut() {
+    if let Some(log) = state.uncore.host.commit_log.as_mut() {
         let _ = retired.write(log, csr_value, fflags);
     }
 }
@@ -178,7 +183,7 @@ fn advance_pc(state: &mut CoreCtx<'_>, entry: &RobEntry) {
 /// Records the retirement: the trace, the debug PC ring, the retired
 /// counters and per-instruction statistics, and branch outcomes.
 fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
-    trace_commit!(state.kernel.config.general.trace_instructions;
+    trace_commit!(state.uncore.kernel.config.general.trace_instructions;
         rob_tag    = %entry.tag,
         pc         = %Hex(entry.pc.val()),
         rd         = entry.rd.as_usize(),
@@ -194,7 +199,7 @@ fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     );
 
     let hart_idx = state.hart.hart_id.as_index();
-    let pc_trace = &mut state.per_hart_debug[hart_idx].pc_trace;
+    let pc_trace = &mut state.uncore.per_hart_debug[hart_idx].pc_trace;
     pc_trace.push((entry.pc, entry.bits));
     if pc_trace.len() > PC_TRACE_MAX {
         let _ = pc_trace.remove(0);
@@ -203,11 +208,11 @@ fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     state.hart.csrs.count_retired();
     state.hart.instructions_retired += 1;
     let hart_paths = state.hart_paths();
-    state.kernel.stats.counter(hart_paths.retired_insts).inc();
+    state.uncore.kernel.stats.counter(hart_paths.retired_insts).inc();
     update_instruction_stats(state, entry);
 
     if let Some(control) = entry.control {
-        trace_branch!(state.kernel.config.general.trace_instructions;
+        trace_branch!(state.uncore.kernel.config.general.trace_instructions;
             event         = "retire",
             pc            = %Hex(entry.pc.val()),
             rob_tag       = %entry.tag,
@@ -242,7 +247,7 @@ fn write_destinations(
         Some(dest @ ArchReg::Fp(rd)) => {
             retire::write_fp(state.hart, rd, val);
             registers.retire_scalar(entry, dest);
-            trace_commit!(state.kernel.config.general.trace_instructions;
+            trace_commit!(state.uncore.kernel.config.general.trace_instructions;
                 pc       = %Hex(entry.pc.val()),
                 rob_tag  = %entry.tag,
                 reg      = entry.rd.as_usize(),
@@ -259,7 +264,7 @@ fn write_destinations(
                 registers.write_result(entry, val);
             }
             registers.retire_scalar(entry, dest);
-            trace_commit!(state.kernel.config.general.trace_instructions;
+            trace_commit!(state.uncore.kernel.config.general.trace_instructions;
                 pc       = %Hex(entry.pc.val()),
                 rob_tag  = %entry.tag,
                 reg      = entry.rd.as_usize(),
@@ -332,7 +337,7 @@ fn retire_system(
         if state.hart.pc != pc_before {
             return CommitFlow::Stop(Some(CommitEvent::SquashAfter(state.hart.pc)));
         }
-        trace_csr!(state.kernel.config.general.trace_instructions;
+        trace_csr!(state.uncore.kernel.config.general.trace_instructions;
             op       = "write-deferred",
             pc       = %Hex(entry.pc.val()),
             rob_tag  = %entry.tag,
@@ -356,7 +361,7 @@ fn retire_system(
     match entry.ctrl.system_op {
         SystemOp::Mret => {
             state.do_mret();
-            trace_trap!(state.kernel.config.general.trace_instructions;
+            trace_trap!(state.uncore.kernel.config.general.trace_instructions;
                 event      = "return",
                 insn       = "MRET",
                 pc         = %Hex(entry.pc.val()),
@@ -370,7 +375,7 @@ fn retire_system(
         }
         SystemOp::Sret => {
             state.do_sret();
-            trace_trap!(state.kernel.config.general.trace_instructions;
+            trace_trap!(state.uncore.kernel.config.general.trace_instructions;
                 event      = "return",
                 insn       = "SRET",
                 pc         = %Hex(entry.pc.val()),
@@ -416,17 +421,17 @@ fn retire_pseudo_op(state: &mut CoreCtx<'_>, entry: &RobEntry, op: PseudoOp) -> 
     let a1 = state.hart.regs.read(REG_A1);
     match op {
         PseudoOp::Exit => {
-            state.signal_exit(0);
+            state.uncore.signal_exit(0);
             return CommitFlow::Stop(None);
         }
         PseudoOp::Fail => {
-            state.signal_exit(a1);
+            state.uncore.signal_exit(a1);
             return CommitFlow::Stop(None);
         }
         PseudoOp::Panic => {
             tracing::warn!(target: "rvsim::pseudo_op", pc = %Hex(entry.pc.val()),
                 "the guest called m5_panic; the run ends with exit code 1");
-            state.signal_exit(1);
+            state.uncore.signal_exit(1);
             return CommitFlow::Stop(None);
         }
         PseudoOp::Rpns | PseudoOp::Sum => {}
@@ -495,8 +500,8 @@ fn release_memory_resources(
 
 /// Whether the core squashes after a CSR access that wrote `written` when
 /// it commits.
-fn squashes_after_csr(state: &CoreCtx<'_>, written: Option<u32>) -> bool {
-    state.kernel.config.pipeline.csr_squash().squashes(written)
+const fn squashes_after_csr(state: &CoreCtx<'_>, written: Option<u32>) -> bool {
+    state.uncore.kernel.config.pipeline.csr_squash().squashes(written)
 }
 
 /// Applies a FENCE.I or SFENCE.VMA, whose older stores have all been
@@ -515,7 +520,7 @@ fn retire_fence(state: &mut CoreCtx<'_>, entry: &RobEntry) -> Option<CommitEvent
         return Some(squash_younger);
     }
     if matches!(entry.ctrl.system_op, SystemOp::Fence(_))
-        && state.kernel.config.pipeline.fence_squash
+        && state.uncore.kernel.config.pipeline.fence_squash
     {
         return Some(squash_younger);
     }

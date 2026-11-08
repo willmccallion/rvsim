@@ -18,8 +18,6 @@ pub mod trap;
 
 pub use stage::StageCtx;
 
-use std::ops::{Deref, DerefMut};
-
 use crate::arch::Hart;
 use crate::common::InstSeq;
 use crate::common::PhysAddr;
@@ -36,8 +34,7 @@ const SIGNAL_EXIT_BASE: u64 = 128;
 
 /// What a pipeline works on: its hart, its core, and the uncore.
 ///
-/// Built by [`crate::system::SystemState::core_ctx`] from disjoint borrows. Derefs to
-/// [`Uncore`] so uncore fields read as `ctx.bus`, `ctx.kernel.event_queue`.
+/// Built by [`crate::system::SystemState::core_ctx`] from disjoint borrows.
 #[derive(Debug)]
 pub struct CoreCtx<'a> {
     /// The hart the pipeline is executing.
@@ -55,7 +52,7 @@ impl CoreCtx<'_> {
     pub fn park_thread(&mut self, run_exit: Option<u64>) {
         park(self.hart);
         if let Some(code) = run_exit {
-            self.signal_exit(code);
+            self.uncore.signal_exit(code);
         }
     }
 
@@ -83,20 +80,6 @@ impl CoreCtx<'_> {
     /// Reports an instruction leaving the pipeline to the open trace, if any.
     pub fn trace_left(&mut self, seq: InstSeq, how: Departure) {
         self.uncore.trace_left(self.hart.hart_id, seq, how);
-    }
-}
-
-impl Deref for CoreCtx<'_> {
-    type Target = Uncore;
-
-    fn deref(&self) -> &Uncore {
-        self.uncore
-    }
-}
-
-impl DerefMut for CoreCtx<'_> {
-    fn deref_mut(&mut self) -> &mut Uncore {
-        self.uncore
     }
 }
 

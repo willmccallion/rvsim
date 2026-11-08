@@ -176,12 +176,12 @@ impl O3Engine {
         }
 
         let mut view = VecPrfView::new(&mut self.vec_prf, mapping);
-        let mut recorder = AgnosticRecorder::new(&mut view, commit_log_open(state));
+        let mut recorder = AgnosticRecorder::new(&mut view, commit_log_open(state.uncore));
         let executed = execute_vec_op_on(
             &mut recorder,
             entry.vector_config,
             entry.vector_rounding,
-            state.kernel.config.isa.vector.elen,
+            state.uncore.kernel.config.isa.vector.elen,
             state.core.isa.extensions.contains(Extension::Zvfh),
             &entry.inst,
         );
@@ -272,7 +272,7 @@ impl O3Engine {
             });
             return;
         }
-        let width = state.kernel.config.pipeline.vector_mem_width_bytes();
+        let width = state.uncore.kernel.config.pipeline.vector_mem_width_bytes();
         self.vec_mem_inflight.push(VecMemInflight::plan(&result, micro_ops, width, vd));
     }
 

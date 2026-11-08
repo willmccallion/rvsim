@@ -156,7 +156,7 @@ impl O3Engine {
         self.mdp.squash(scope, &self.rob);
         self.vec_store_buffer.squash(scope);
         self.common.squash(scope);
-        self.fu_pool.release_squashed(state.kernel.cycle, |tag| !scope.keeps(tag));
+        self.fu_pool.release_squashed(state.uncore.kernel.cycle, |tag| !scope.keeps(tag));
         self.mem1_mem2.retain(|e| scope.keeps(e.op.rob_tag));
         self.mem2_wb.retain(|e| scope.keeps(e.op.rob_tag));
         self.pending_results.retain(|p| scope.keeps(p.entry.op.rob_tag));
@@ -196,7 +196,7 @@ impl O3Engine {
         self.checkpoints.squash(scope);
 
         *redirect = Some(squash.redirect.target);
-        let now = state.kernel.cycle;
+        let now = state.uncore.kernel.cycle;
         self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
         self.debug_assert_registers_conserved();
     }

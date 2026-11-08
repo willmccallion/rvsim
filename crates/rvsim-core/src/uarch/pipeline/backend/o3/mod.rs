@@ -306,7 +306,7 @@ impl ExecutionEngine for O3Engine {
         rename_output: &mut Vec<O3Entry>,
         redirect: &mut Option<VirtAddr>,
     ) {
-        let now = state.kernel.cycle;
+        let now = state.uncore.kernel.cycle;
 
         self.take_rename_view(rename_output.len());
         self.count_squash_stall(state);
