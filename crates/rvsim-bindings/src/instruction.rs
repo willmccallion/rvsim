@@ -1,6 +1,6 @@
 //! Instruction Python binding.
 //!
-//! A single committed instruction returned by `Cpu.step()`.
+//! A single committed instruction returned by `Simulator.step()`.
 
 use pyo3::prelude::*;
 
