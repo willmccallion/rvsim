@@ -16,6 +16,8 @@ const JAL_SELF: u32 = 0x0000_006F;
 const A0: usize = 10;
 const A1: usize = 11;
 const WRITTEN: u64 = 42;
+/// Cycles the minimal machine needs to run the copy, with room to spare.
+const CYCLES_TO_COPY: usize = 200;
 
 /// What `a1` holds after Python wrote `a0` through `regs[10] = 42` and the
 /// program copied `a0` into `a1`.
@@ -42,7 +44,7 @@ fn copied_after_python_write(backend: BackendKind) -> u64 {
         let regs = Py::new(py, Registers { sim: sim.clone_ref(py), hart: 0 }).expect("view");
         regs.bind(py).set_item(A0, WRITTEN).expect("regs[10] = 42");
 
-        for _ in 0..200 {
+        for _ in 0..CYCLES_TO_COPY {
             sim.borrow_mut(py).inner.tick().expect("tick");
         }
 

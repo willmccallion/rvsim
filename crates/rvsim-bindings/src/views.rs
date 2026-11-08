@@ -103,10 +103,11 @@ impl Registers {
 
     fn __repr__(&self, py: Python<'_>) -> String {
         let sim = self.sim.borrow(py);
-        let vals: Vec<String> = (0u8..32)
-            .filter_map(|i| {
-                let v = sim.inner.hart(self.hart).regs.read(RegIdx::new(i));
-                if v != 0 { Some(format!("x{i}={v:#x}")) } else { None }
+        let regs = &sim.inner.hart(self.hart).regs;
+        let vals: Vec<String> = RegIdx::all()
+            .filter_map(|reg| {
+                let v = regs.read(reg);
+                (v != 0).then(|| format!("{reg}={v:#x}"))
             })
             .collect();
         format!("Registers({})", vals.join(", "))
