@@ -116,7 +116,7 @@ fn rounded(host_bits: u64, host_flags: FpFlags, sign_bit: u64) -> bool {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 4096, ..ProptestConfig::default() })]
+    #![proptest_config(crate::tests::support::seeded_cases(4096))]
 
     #[test]
     fn single_precision_arithmetic_rounds_as_the_host_does(

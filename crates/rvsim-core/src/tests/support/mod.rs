@@ -22,6 +22,18 @@ pub fn open_pmp(pmp: &mut crate::arch::pmp::Pmp) {
     pmp.set_cfg(pmp_entry(0), TOR_RWX);
 }
 
+/// The seed every property test starts from, so a run is repeatable.
+const PROPTEST_SEED: u64 = 0x7276_7369_6d00_0001;
+
+/// A property test of `cases` cases from the fixed seed.
+pub fn seeded_cases(cases: u32) -> proptest::test_runner::Config {
+    proptest::test_runner::Config {
+        cases,
+        rng_seed: proptest::test_runner::RngSeed::Fixed(PROPTEST_SEED),
+        ..proptest::test_runner::Config::default()
+    }
+}
+
 /// `n` as the non-zero count a cache's resources take.
 pub fn count(n: usize) -> std::num::NonZeroUsize {
     std::num::NonZeroUsize::new(n).expect("a test count is non-zero")
