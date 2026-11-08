@@ -100,7 +100,7 @@ impl Bimodal {
     fn counter(&self, index: usize) -> i8 {
         let state = (u8::from(self.prediction[index]) << 1)
             | u8::from(self.hysteresis[index >> self.share_log]);
-        state as i8 - 2
+        state.cast_signed() - 2
     }
 
     const fn saturated(counter: i8) -> bool {

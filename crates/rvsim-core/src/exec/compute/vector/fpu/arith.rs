@@ -104,7 +104,7 @@ fn unary<F: VecFloat>(op: FpUnaryOp, bits: u64, frm: RoundingMode) -> (u64, FpFl
             canonical(F::from_int(bits & F::SEW.mask(), (F::INT_WIDTH, Signedness::Unsigned), frm))
         }
         FpUnaryOp::Convert(IntConvert::FromInt(Signedness::Signed)) => {
-            let value = F::SEW.sign_extend(bits) as u64;
+            let value = F::SEW.sign_extend(bits).cast_unsigned();
             canonical(F::from_int(value, (F::INT_WIDTH, Signedness::Signed), frm))
         }
     }

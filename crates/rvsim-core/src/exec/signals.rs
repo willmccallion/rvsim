@@ -78,8 +78,8 @@ impl BranchCond {
         match self {
             Self::Eq => a == b,
             Self::Ne => a != b,
-            Self::Lt => (a as i64) < (b as i64),
-            Self::Ge => (a as i64) >= (b as i64),
+            Self::Lt => a.cast_signed() < b.cast_signed(),
+            Self::Ge => a.cast_signed() >= b.cast_signed(),
             Self::Ltu => a < b,
             Self::Geu => a >= b,
         }

@@ -148,7 +148,7 @@ pub(super) fn read_op1(vpr: &impl VectorRegFile, operand1: &VecOperand, i: usize
     match operand1 {
         VecOperand::Vector(vs1) => vpr.read_element(*vs1, ElemIdx::new(i), sew),
         VecOperand::Scalar(s) => *s & sew.mask(),
-        VecOperand::Immediate(imm) => (*imm as u64) & sew.mask(),
+        VecOperand::Immediate(imm) => (*imm).cast_unsigned() & sew.mask(),
     }
 }
 

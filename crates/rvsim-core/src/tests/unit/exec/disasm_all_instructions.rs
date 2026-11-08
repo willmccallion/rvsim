@@ -264,8 +264,8 @@ fn test_large_immediates() {
 #[test]
 fn test_all_integer_registers() {
     // Test disassembly includes all register names
-    for i in 0..32 {
-        let inst = 0x00050513 | ((i as u32) << 7); // addi xi, a0, 0
+    for i in 0..32_u32 {
+        let inst = 0x00050513 | (i << 7); // addi xi, a0, 0
         let result = disassemble(inst);
         assert!(!result.is_empty());
         assert!(result.contains("addi"));
@@ -275,8 +275,8 @@ fn test_all_integer_registers() {
 #[test]
 fn test_all_float_registers() {
     // Test floating-point register names
-    for i in 0..32 {
-        let inst = 0x00052507 | ((i as u32) << 7); // flw fi, 0(a0)
+    for i in 0..32_u32 {
+        let inst = 0x00052507 | (i << 7); // flw fi, 0(a0)
         let result = disassemble(inst);
         assert!(!result.is_empty());
         assert!(result.contains("flw") || result.contains("f"));

@@ -87,7 +87,7 @@ impl IType {
     /// The instruction word.
     #[must_use]
     pub const fn encode(self) -> u32 {
-        ((self.imm as u32) & 0xFFF) << 20
+        (self.imm.cast_unsigned() & 0xFFF) << 20
             | reg(self.rs1) << 15
             | (self.funct3 & 0x7) << 12
             | reg(self.rd) << 7
@@ -114,7 +114,7 @@ impl SType {
     /// The instruction word.
     #[must_use]
     pub const fn encode(self) -> u32 {
-        let imm = self.imm as u32;
+        let imm = self.imm.cast_unsigned();
         ((imm >> 5) & 0x7F) << 25
             | reg(self.rs2) << 20
             | reg(self.rs1) << 15
@@ -143,7 +143,7 @@ impl BType {
     /// The instruction word.
     #[must_use]
     pub const fn encode(self) -> u32 {
-        let offset = self.offset as u32;
+        let offset = self.offset.cast_unsigned();
         ((offset >> 12) & 1) << 31
             | ((offset >> 5) & 0x3F) << 25
             | reg(self.rs2) << 20
@@ -189,7 +189,7 @@ impl JType {
     /// The instruction word.
     #[must_use]
     pub const fn encode(self) -> u32 {
-        let offset = self.offset as u32;
+        let offset = self.offset.cast_unsigned();
         ((offset >> 20) & 1) << 31
             | ((offset >> 1) & 0x3FF) << 21
             | ((offset >> 11) & 1) << 20

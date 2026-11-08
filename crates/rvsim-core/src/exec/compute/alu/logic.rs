@@ -28,7 +28,7 @@ pub const fn execute(op: LogicOp, a: u64, b: u64, width: IntWidth) -> u64 {
         LogicOp::Xor => a ^ b,
         LogicOp::Slt => match width {
             IntWidth::Word => ((a as i32) < (b as i32)) as u64,
-            IntWidth::Double => ((a as i64) < (b as i64)) as u64,
+            IntWidth::Double => (a.cast_signed() < b.cast_signed()) as u64,
         },
         LogicOp::Sltu => match width {
             IntWidth::Word => ((a as u32) < (b as u32)) as u64,

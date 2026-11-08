@@ -43,7 +43,7 @@ impl FpFormat {
     }
 
     const fn fraction_bits(self) -> u32 {
-        (self.precision() - 1) as u32
+        (self.precision() - 1).cast_unsigned()
     }
 
     const fn sign_bit(self) -> u64 {
@@ -82,9 +82,12 @@ impl Exact {
         let fraction = (bits & ((1 << fraction_bits) - 1)) as u128;
         let negative = bits & format.sign_bit() != 0;
         let (significand, exponent) = if exponent_field == 0 {
-            (fraction, format.min_exponent() - fraction_bits as i32)
+            (fraction, format.min_exponent() - fraction_bits.cast_signed())
         } else {
-            (fraction | (1 << fraction_bits), exponent_field - format.bias() - fraction_bits as i32)
+            (
+                fraction | (1 << fraction_bits),
+                exponent_field - format.bias() - fraction_bits.cast_signed(),
+            )
         };
         Self { negative, significand, exponent, sticky: false }
     }
@@ -134,7 +137,7 @@ impl Exact {
             let shift = top - current;
             Self {
                 significand: self.significand << shift,
-                exponent: self.exponent - shift as i32,
+                exponent: self.exponent - shift.cast_signed(),
                 ..self
             }
         } else {
@@ -142,7 +145,7 @@ impl Exact {
             let (significand, lost) = shift_right_sticky(self.significand, shift);
             Self {
                 significand,
-                exponent: self.exponent + shift as i32,
+                exponent: self.exponent + shift.cast_signed(),
                 sticky: self.sticky || lost,
                 ..self
             }
@@ -179,7 +182,7 @@ pub const fn add(x: Exact, y: Exact) -> Exact {
     let y = y.with_top_bit_at(125);
     let (big, small) = if x.exponent >= y.exponent { (x, y) } else { (y, x) };
     let (aligned, lost) =
-        shift_right_sticky(small.significand, (big.exponent - small.exponent) as u32);
+        shift_right_sticky(small.significand, (big.exponent - small.exponent).cast_unsigned());
     if big.negative == small.negative {
         return Exact {
             negative: big.negative,
@@ -362,9 +365,9 @@ const fn rounds_up(rm: RoundingMode, negative: bool, odd: bool, discarded: Disca
 const fn round_to_multiple(x: Exact, lsb_exponent: i32, rm: RoundingMode) -> (u128, bool) {
     let shift = lsb_exponent - x.exponent;
     let (kept, round, sticky) = if shift <= 0 {
-        (x.significand << (-shift) as u32, false, x.sticky)
+        (x.significand << (-shift).cast_unsigned(), false, x.sticky)
     } else {
-        let shift = shift as u32;
+        let shift = shift.cast_unsigned();
         let (kept, _) = shift_right_sticky(x.significand, shift);
         let round = shift <= 128 && (x.significand >> (shift - 1)) & 1 == 1;
         let (_, below_round) = shift_right_sticky(x.significand, shift.saturating_sub(1));
@@ -403,7 +406,7 @@ pub const fn round(x: Exact, format: FpFormat, rm: RoundingMode) -> (u64, FpFlag
         x
     };
     let precision = format.precision();
-    let top = x.exponent + x.significand.ilog2() as i32;
+    let top = x.exponent + x.significand.ilog2().cast_signed();
     let min_lsb = format.min_exponent() - (precision - 1);
     let unbounded_lsb = top - (precision - 1);
     let lsb = if unbounded_lsb > min_lsb { unbounded_lsb } else { min_lsb };
@@ -411,13 +414,13 @@ pub const fn round(x: Exact, format: FpFormat, rm: RoundingMode) -> (u64, FpFlag
     if kept == 0 {
         return (sign, underflow_flags(true, inexact));
     }
-    let kept_top = lsb + kept.ilog2() as i32;
+    let kept_top = lsb + kept.ilog2().cast_signed();
     if kept_top > format.max_exponent() {
         return (overflowed(format, x.negative, rm), FpFlags::OF.union(FpFlags::NX));
     }
     let tiny = tiny_after_rounding(x, unbounded_lsb, format, rm);
     let bits = if kept_top >= format.min_exponent() {
-        let normalized = kept >> (kept_top - lsb - (precision - 1)) as u32;
+        let normalized = kept >> (kept_top - lsb - (precision - 1)).cast_unsigned();
         let fraction = (normalized as u64) & ((1 << format.fraction_bits()) - 1);
         let exponent_field = (kept_top + format.bias()) as u64;
         (exponent_field << format.fraction_bits()) | fraction
@@ -436,7 +439,7 @@ const fn tiny_after_rounding(
     rm: RoundingMode,
 ) -> bool {
     let (kept, _) = round_to_multiple(x, unbounded_lsb, rm);
-    unbounded_lsb + (kept.ilog2() as i32) < format.min_exponent()
+    unbounded_lsb + kept.ilog2().cast_signed() < format.min_exponent()
 }
 
 const fn underflow_flags(tiny: bool, inexact: bool) -> FpFlags {

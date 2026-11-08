@@ -22,13 +22,13 @@ pub(super) const fn compute_widening(
     let wmask = wsew.mask();
 
     // Sign- and zero-extend narrow operands to the wide width.
-    let s2_narrow = sew.sign_extend(vs2_val) as u64 & wmask;
+    let s2_narrow = sew.sign_extend(vs2_val).cast_unsigned() & wmask;
     let u2_narrow = vs2_val & sew.mask();
-    let s1 = sew.sign_extend(op1_val) as u64 & wmask;
+    let s1 = sew.sign_extend(op1_val).cast_unsigned() & wmask;
     let u1 = op1_val & sew.mask();
 
     // For `.w` variants, vs2 is already wide.
-    let s2_wide = wsew.sign_extend(vs2_val) as u64 & wmask;
+    let s2_wide = wsew.sign_extend(vs2_val).cast_unsigned() & wmask;
     let u2_wide = vs2_val & wmask;
 
     match op {
@@ -122,7 +122,7 @@ pub(super) const fn compute_narrowing(
         }
         NarrowOp::Sra => {
             let s = wsew.sign_extend(vs2_val);
-            let result = (s >> shamt) as u64;
+            let result = (s >> shamt).cast_unsigned();
             (result & mask, false)
         }
         NarrowOp::ClipU => {
@@ -132,16 +132,16 @@ pub(super) const fn compute_narrowing(
         }
         NarrowOp::Clip => {
             let s = wsew.sign_extend(vs2_val);
-            let r = rounding_incr(vs2_val, shamt, vxrm) as i64;
+            let r = rounding_incr(vs2_val, shamt, vxrm).cast_signed();
             let shifted = (s >> shamt).wrapping_add(r);
             let max_pos = (1i64 << (sew.bits() - 1)) - 1;
             let min_neg = -(1i64 << (sew.bits() - 1));
             if shifted > max_pos {
-                (max_pos as u64 & mask, true)
+                (max_pos.cast_unsigned() & mask, true)
             } else if shifted < min_neg {
-                (min_neg as u64 & mask, true)
+                (min_neg.cast_unsigned() & mask, true)
             } else {
-                (shifted as u64 & mask, false)
+                (shifted.cast_unsigned() & mask, false)
             }
         }
     }

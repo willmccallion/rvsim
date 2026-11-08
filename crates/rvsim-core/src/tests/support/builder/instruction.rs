@@ -433,7 +433,7 @@ impl InstructionBuilder {
         self.rd = rd;
         self.rs1 = rs1;
         self.funct3 = CSRRW;
-        self.imm = csr as i32;
+        self.imm = csr.cast_signed();
         self
     }
 
@@ -443,7 +443,7 @@ impl InstructionBuilder {
         self.rd = rd;
         self.rs1 = rs1;
         self.funct3 = CSRRC;
-        self.imm = csr as i32;
+        self.imm = csr.cast_signed();
         self
     }
 
@@ -453,7 +453,7 @@ impl InstructionBuilder {
         self.rd = rd;
         self.rs1 = rs1;
         self.funct3 = CSRRS;
-        self.imm = csr as i32;
+        self.imm = csr.cast_signed();
         self
     }
 
@@ -497,19 +497,19 @@ impl InstructionBuilder {
             }
             OP_IMM | OP_IMM_32 | OP_LOAD | OP_JALR | OP_SYSTEM => {
                 // I-type: imm[11:0] | rs1 | funct3 | rd | opcode
-                let imm_val = (self.imm as u32) & 0xFFF;
+                let imm_val = self.imm.cast_unsigned() & 0xFFF;
                 (imm_val << 20) | rs1 | funct3 | rd | opcode
             }
             OP_STORE => {
                 // S-type: imm[11:5] | rs2 | rs1 | funct3 | imm[4:0] | opcode
-                let imm_val = self.imm as u32;
+                let imm_val = self.imm.cast_unsigned();
                 let imm_11_5 = ((imm_val >> 5) & 0x7F) << 25;
                 let imm_4_0 = (imm_val & 0x1F) << 7;
                 imm_11_5 | rs2 | rs1 | funct3 | imm_4_0 | opcode
             }
             OP_BRANCH => {
                 // B-type: imm[12|10:5] | rs2 | rs1 | funct3 | imm[4:1|11] | opcode
-                let imm_val = self.imm as u32;
+                let imm_val = self.imm.cast_unsigned();
                 let bit_12 = ((imm_val >> 12) & 0x1) << 31;
                 let bits_10_5 = ((imm_val >> 5) & 0x3F) << 25;
                 let bits_4_1 = ((imm_val >> 1) & 0xF) << 8;
@@ -518,12 +518,12 @@ impl InstructionBuilder {
             }
             OP_LUI | OP_AUIPC => {
                 // U-type: imm is the raw 20-bit immediate (not pre-shifted).
-                let imm_val = (self.imm as u32) & 0xFFFFF;
+                let imm_val = self.imm.cast_unsigned() & 0xFFFFF;
                 (imm_val << 12) | rd | opcode
             }
             OP_JAL => {
                 // J-type: imm[20|10:1|11|19:12] | rd | opcode
-                let imm_val = self.imm as u32;
+                let imm_val = self.imm.cast_unsigned();
                 let bit_20 = ((imm_val >> 20) & 0x1) << 31;
                 let bits_10_1 = ((imm_val >> 1) & 0x3FF) << 21;
                 let bit_11 = ((imm_val >> 11) & 0x1) << 20;

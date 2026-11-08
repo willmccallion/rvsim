@@ -60,11 +60,11 @@ impl Stream {
     const fn needs(&self, level: usize, line: u64, current: u64, stride: i64, reach: i64) -> bool {
         let Some(ahead) = self.ahead[level] else { return true };
         let direction = stride.signum();
-        let lead = (ahead as i64).wrapping_sub(current as i64).wrapping_mul(direction);
+        let lead = ahead.cast_signed().wrapping_sub(current.cast_signed()).wrapping_mul(direction);
         if lead <= 0 || lead > reach {
             return true;
         }
-        (line as i64).wrapping_sub(ahead as i64).wrapping_mul(direction) > 0
+        line.cast_signed().wrapping_sub(ahead.cast_signed()).wrapping_mul(direction) > 0
     }
 }
 
@@ -135,7 +135,7 @@ impl LoadPrefetcher {
 
         let ranges = [1..=l1_lines as i64, l1_lines as i64 + 1..=l2_lines as i64];
         let furthest = l1_lines.max(l2_lines) as i64 + 1;
-        let reach = stride.abs().max(line_bytes as i64).saturating_mul(furthest);
+        let reach = stride.abs().max(line_bytes.cast_signed()).saturating_mul(furthest);
         let mut prefetches = Vec::new();
         for (level, (into, steps)) in LEVELS.into_iter().zip(ranges).enumerate() {
             for k in steps {

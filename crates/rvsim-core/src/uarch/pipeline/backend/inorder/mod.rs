@@ -217,7 +217,7 @@ impl InOrderEngine {
         let addresses = element_accesses(
             state.hart.regs.vpr(),
             entry.inst.rv1,
-            entry.inst.rv2 as i64,
+            entry.inst.rv2.cast_signed(),
             &entry.inst.ctrl,
             state.hart.csrs.vector_config(),
         );

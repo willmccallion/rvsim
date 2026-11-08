@@ -237,7 +237,8 @@ pub fn element_accesses<V: VectorRegFile>(
                 if !is_element_active_vrf(vrf, i, vm) {
                     continue;
                 }
-                let elem_base = base_addr.wrapping_add((i as i64).wrapping_mul(stride) as u64);
+                let elem_base =
+                    base_addr.wrapping_add((i as i64).wrapping_mul(stride).cast_unsigned());
                 for seg in 0..nf.fields_usize() {
                     let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
                     let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());

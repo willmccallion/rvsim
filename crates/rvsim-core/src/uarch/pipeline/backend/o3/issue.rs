@@ -243,7 +243,7 @@ impl O3Engine {
         let micro_ops = element_accesses(
             &VecPrfView::new(&mut self.vec_prf, mapping),
             result.op.alu,
-            result.store_data as i64,
+            result.store_data.cast_signed(),
             ctrl,
             entry.vector_config,
         );

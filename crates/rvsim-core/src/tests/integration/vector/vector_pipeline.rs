@@ -35,7 +35,7 @@ fn wide_inorder_config() -> Config {
 
 /// Encode `addi rd, rs1, imm` (12-bit signed immediate).
 fn addi(rd: u32, rs1: u32, imm: i32) -> u32 {
-    let imm = (imm as u32) & 0xFFF;
+    let imm = imm.cast_unsigned() & 0xFFF;
     (imm << 20) | (rs1 << 15) | (rd << 7) | 0x13
 }
 

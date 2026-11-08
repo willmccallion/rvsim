@@ -21,9 +21,9 @@ const ONE: u64 = 1;
 const NEG1: u64 = u64::MAX; // 0xFFFF_FFFF_FFFF_FFFF
 
 const I64_MAX: u64 = i64::MAX as u64; // 0x7FFF_FFFF_FFFF_FFFF
-const I64_MIN: u64 = i64::MIN as u64; // 0x8000_0000_0000_0000
+const I64_MIN: u64 = i64::MIN.cast_unsigned(); // 0x8000_0000_0000_0000
 
-const I32_MIN_SEXT: u64 = i32::MIN as i64 as u64; // 0xFFFF_FFFF_8000_0000
+const I32_MIN_SEXT: u64 = (i32::MIN as i64).cast_unsigned(); // 0xFFFF_FFFF_8000_0000
 
 fn alu(op: impl Into<IntAluOp>, a: u64, b: u64, width: IntWidth) -> u64 {
     alu::execute(op.into(), a, b, width)
@@ -33,7 +33,7 @@ const W: IntWidth = IntWidth::Word;
 const D: IntWidth = IntWidth::Double;
 
 fn sext32(val: u32) -> u64 {
-    i64::from(val as i32) as u64
+    i64::from(val.cast_signed()) as u64
 }
 
 #[test]
@@ -302,14 +302,14 @@ fn sra_rv64_shift_amount_masked() {
 /// Arithmetic right shift of -2 by 1 should give -1.
 #[test]
 fn sra_rv64_neg2_shift_by_1() {
-    assert_eq!(alu(ShiftOp::Sra, -2i64 as u64, 1, D), NEG1);
+    assert_eq!(alu(ShiftOp::Sra, (-2i64).cast_unsigned(), 1, D), NEG1);
 }
 
 /// Shift each bit position to verify sign-extension pattern.
 #[test]
 fn sra_rv64_progressive_shift_negative() {
     for i in 0..64 {
-        let expected = (i64::MIN >> i) as u64;
+        let expected = (i64::MIN >> i).cast_unsigned();
         assert_eq!(alu(ShiftOp::Sra, I64_MIN, i, D), expected, "SRA failed: i64::MIN >> {i}");
     }
 }
@@ -421,7 +421,7 @@ fn srl_divide_by_power_of_two() {
 #[test]
 fn sra_signed_divide_rounds_toward_negative_infinity() {
     // -7 >> 1 = -4 (rounds toward -inf, not -3)
-    assert_eq!(alu(ShiftOp::Sra, -7i64 as u64, 1, D), -4i64 as u64);
+    assert_eq!(alu(ShiftOp::Sra, (-7i64).cast_unsigned(), 1, D), (-4i64).cast_unsigned());
 }
 
 /// Extract byte N via SRL + AND (common pattern).

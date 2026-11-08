@@ -67,7 +67,7 @@ impl IntTarget {
     /// The bits of `integral`, a value within [`Self::range`].
     const fn bits_of(self, integral: f64) -> u64 {
         let wide = match self.signedness {
-            Signedness::Signed => integral as i64 as u64,
+            Signedness::Signed => (integral as i64).cast_unsigned(),
             Signedness::Unsigned => integral as u64,
         };
         wide & self.mask()
@@ -107,7 +107,7 @@ pub(super) fn fp_to_int_register(
     rm: RoundingMode,
 ) -> (u64, FpFlags) {
     let (bits, flags) = fp_to_int(value, target, rm);
-    (sign_extend(bits, target.bits()) as u64, flags)
+    (sign_extend(bits, target.bits()).cast_unsigned(), flags)
 }
 
 /// Rounds an f64 value to an integer using the specified RISC-V rounding mode.

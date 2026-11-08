@@ -152,7 +152,7 @@ fn run_in(backend: BackendKind, width: usize, mode: PrivilegeMode) -> TestContex
         MRET,
     ];
     let mut spin: Vec<u32> =
-        (0..STRAIGHT_LINE).map(|n| i().addi(T0 + n % 3, 0, n as i32).build()).collect();
+        (0..STRAIGHT_LINE).map(|n| i().addi(T0 + n % 3, 0, n.cast_signed()).build()).collect();
     spin.push(ECALL);
     let mut handler = vec![i().csrrw(0, MTVEC, 0).build()];
     handler.extend(exit_sequence());

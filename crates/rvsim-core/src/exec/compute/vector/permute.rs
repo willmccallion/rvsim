@@ -79,7 +79,7 @@ const fn no_flags_result(scalar: Option<u64>) -> VecExecResult {
 fn exec_vmv_xs(vpr: &impl VectorRegFile, vs2: VRegIdx, ctx: &VecExecCtx) -> VecExecResult {
     let val = vpr.read_element(vs2, ElemIdx::new(0), ctx.sew);
     // RVV 1.0: vmv.x.s sign-extends the SEW-width value to XLEN.
-    let sign_extended = ctx.sew.sign_extend(val) as u64;
+    let sign_extended = ctx.sew.sign_extend(val).cast_unsigned();
     no_flags_result(Some(sign_extended))
 }
 
@@ -257,7 +257,7 @@ fn exec_rgather(
         let index = match operand1 {
             VecOperand::Vector(vs1) => vpr.read_element(*vs1, ElemIdx::new(i), ctx.sew) as usize,
             VecOperand::Scalar(v) => *v as usize,
-            VecOperand::Immediate(v) => *v as u64 as usize,
+            VecOperand::Immediate(v) => (*v).cast_unsigned() as usize,
         };
 
         let val =

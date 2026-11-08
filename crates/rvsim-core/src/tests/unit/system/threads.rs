@@ -130,7 +130,7 @@ fn a_wait_past_its_deadline_resumes_with_etimedout() {
     processes.expire_waits(100);
 
     assert!(early.is_empty());
-    assert_eq!(resumed(&mut processes), vec![(hart(1), (-(ETIMEDOUT as i64)) as u64)]);
+    assert_eq!(resumed(&mut processes), vec![(hart(1), (-ETIMEDOUT.cast_signed()) as u64)]);
     assert_eq!(processes.next_deadline(), None);
 }
 
@@ -212,5 +212,5 @@ fn a_checkpoint_keeps_waits_and_their_deadlines() {
         Processes::from_checkpoint(processes.checkpoint(), &Terminal::shared(Console::Quiet));
     restored.expire_waits(50);
 
-    assert_eq!(resumed(&mut restored), vec![(hart(1), (-(ETIMEDOUT as i64)) as u64)]);
+    assert_eq!(resumed(&mut restored), vec![(hart(1), (-ETIMEDOUT.cast_signed()) as u64)]);
 }

@@ -174,7 +174,7 @@ fn exec_widen_int_reduction(
 
         let wide = match op {
             WidenIntReduceOp::SumU => elem,
-            WidenIntReduceOp::Sum => (src_sew.sign_extend(elem) as u64) & dst_mask,
+            WidenIntReduceOp::Sum => src_sew.sign_extend(elem).cast_unsigned() & dst_mask,
         };
 
         acc = acc.wrapping_add(wide) & dst_mask;
@@ -408,7 +408,7 @@ mod tests {
 
         // vs2 = [5, -3, 10, 1] as signed i32
         vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 5);
-        vpr.write_element(vs2, ElemIdx::new(1), Sew::E32, u64::from(-3i32 as u32));
+        vpr.write_element(vs2, ElemIdx::new(1), Sew::E32, u64::from((-3i32).cast_unsigned()));
         vpr.write_element(vs2, ElemIdx::new(2), Sew::E32, 10);
         vpr.write_element(vs2, ElemIdx::new(3), Sew::E32, 1);
         // accumulator = 100
@@ -417,7 +417,7 @@ mod tests {
         let _result = vec_reduce(ReduceOp::Int(IntReduceOp::Min), &mut vpr, vd, vs2, vs1, &ctx);
         // min(100, 5, -3, 10, 1) = -3
         let val = vpr.read_element(vd, ElemIdx::new(0), Sew::E32);
-        assert_eq!(val as u32, (-3i32) as u32);
+        assert_eq!(val as u32, (-3i32).cast_unsigned());
     }
 
     #[test]

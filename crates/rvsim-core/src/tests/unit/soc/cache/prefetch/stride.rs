@@ -27,7 +27,7 @@ fn stream(
 ) -> Vec<u64> {
     let mut last = Vec::new();
     for i in 0..count {
-        last = observe(pf, base.wrapping_add_signed(stride * i as i64), pc, Lookup::Miss);
+        last = observe(pf, base.wrapping_add_signed(stride * i.cast_signed()), pc, Lookup::Miss);
     }
     last
 }

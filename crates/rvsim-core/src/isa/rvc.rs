@@ -78,7 +78,7 @@ const fn expand_quadrant_1(inst: u16, funct3: u16) -> Option<u32> {
             if imm == 0 {
                 return None;
             }
-            UType { opcode: opcodes::OP_LUI, rd, imm20: imm as u32 }.encode()
+            UType { opcode: opcodes::OP_LUI, rd, imm20: imm.cast_unsigned() }.encode()
         }
         q1::C_MISC_ALU => return expand_misc_alu(inst),
         q1::C_J => {
@@ -105,7 +105,7 @@ const fn expand_misc_alu(inst: u16) -> Option<u32> {
 
 /// `srli` or `srai` of `rd` by the CI shift amount; `funct7` picks which.
 const fn shift_right_immediate(rd: RegIdx, funct7: u32, inst: u16) -> u32 {
-    let imm = ((funct7 << 5) | ci_uimm(inst)) as i32;
+    let imm = ((funct7 << 5) | ci_uimm(inst)).cast_signed();
     IType { opcode: opcodes::OP_IMM, funct3: funct3::SRL_SRA, rd, rs1: rd, imm }.encode()
 }
 
@@ -135,7 +135,7 @@ const fn expand_quadrant_2(inst: u16, funct3: u16) -> Option<u32> {
             funct3: funct3::SLL,
             rd,
             rs1: rd,
-            imm: ci_uimm(inst) as i32,
+            imm: ci_uimm(inst).cast_signed(),
         }
         .encode(),
         q2::C_FLDSP => load(fp_opcodes::OP_LOAD_FP, funct3::LD, rd, REG_SP, ldsp_offset(inst)),
@@ -245,7 +245,8 @@ const fn addi4spn_imm(inst: u16) -> i32 {
     (field(inst, 6, 6) << 2
         | field(inst, 5, 5) << 3
         | field(inst, 12, 11) << 4
-        | field(inst, 10, 7) << 6) as i32
+        | field(inst, 10, 7) << 6)
+        .cast_signed()
 }
 
 /// `c.addi16sp`'s immediate, `nzimm[9|4|6|8:7|5]`, sign-extended.
@@ -260,32 +261,32 @@ const fn addi16sp_imm(inst: u16) -> i32 {
 
 /// The CL and CS formats' word offset: `uimm[5:3|2|6]`.
 const fn word_offset(inst: u16) -> i32 {
-    (field(inst, 6, 6) << 2 | field(inst, 12, 10) << 3 | field(inst, 5, 5) << 6) as i32
+    (field(inst, 6, 6) << 2 | field(inst, 12, 10) << 3 | field(inst, 5, 5) << 6).cast_signed()
 }
 
 /// The CL and CS formats' doubleword offset: `uimm[5:3|7:6]`.
 const fn double_offset(inst: u16) -> i32 {
-    (field(inst, 12, 10) << 3 | field(inst, 6, 5) << 6) as i32
+    (field(inst, 12, 10) << 3 | field(inst, 6, 5) << 6).cast_signed()
 }
 
 /// `c.lwsp`'s offset: `uimm[5|4:2|7:6]`.
 const fn lwsp_offset(inst: u16) -> i32 {
-    (field(inst, 12, 12) << 5 | field(inst, 6, 4) << 2 | field(inst, 3, 2) << 6) as i32
+    (field(inst, 12, 12) << 5 | field(inst, 6, 4) << 2 | field(inst, 3, 2) << 6).cast_signed()
 }
 
 /// `c.ldsp` and `c.fldsp`'s offset: `uimm[5|4:3|8:6]`.
 const fn ldsp_offset(inst: u16) -> i32 {
-    (field(inst, 12, 12) << 5 | field(inst, 6, 5) << 3 | field(inst, 4, 2) << 6) as i32
+    (field(inst, 12, 12) << 5 | field(inst, 6, 5) << 3 | field(inst, 4, 2) << 6).cast_signed()
 }
 
 /// `c.swsp`'s offset: `uimm[5:2|7:6]`.
 const fn swsp_offset(inst: u16) -> i32 {
-    (field(inst, 12, 9) << 2 | field(inst, 8, 7) << 6) as i32
+    (field(inst, 12, 9) << 2 | field(inst, 8, 7) << 6).cast_signed()
 }
 
 /// `c.sdsp` and `c.fsdsp`'s offset: `uimm[5:3|8:6]`.
 const fn sdsp_offset(inst: u16) -> i32 {
-    (field(inst, 12, 10) << 3 | field(inst, 9, 7) << 6) as i32
+    (field(inst, 12, 10) << 3 | field(inst, 9, 7) << 6).cast_signed()
 }
 
 /// `c.j`'s offset, `imm[11|4|9:8|10|6|7|3:1|5]`, sign-extended.

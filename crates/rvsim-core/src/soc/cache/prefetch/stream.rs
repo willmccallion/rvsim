@@ -65,8 +65,8 @@ impl Prefetcher for StreamPrefetcher {
         _lookup: Lookup,
         prefetches: &mut Vec<u64>,
     ) {
-        let diff = (addr as i64) - (self.last_addr as i64);
-        let line_sz = self.line_bytes as i64;
+        let diff = addr.cast_signed() - self.last_addr.cast_signed();
+        let line_sz = self.line_bytes.cast_signed();
 
         let step = if diff == line_sz {
             Some(Direction::Ascending)
@@ -95,7 +95,7 @@ impl Prefetcher for StreamPrefetcher {
                 let offset = if direction == Direction::Ascending {
                     (k as u64) * self.line_bytes
                 } else {
-                    ((k as i64) * -(line_sz)) as u64
+                    ((k as i64) * -(line_sz)).cast_unsigned()
                 };
 
                 let target = (addr & !(self.line_bytes - 1)).wrapping_add(offset);

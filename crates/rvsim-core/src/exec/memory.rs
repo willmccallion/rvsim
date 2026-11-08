@@ -25,9 +25,9 @@ pub const fn load_result(raw: u64, width: MemWidth, signed: bool, fp_dest: bool)
 const fn extend_load(raw: u64, width: MemWidth, signed: bool) -> u64 {
     if signed {
         match width {
-            MemWidth::Byte => (raw as u8 as i8) as i64 as u64,
-            MemWidth::Half => (raw as u16 as i16) as i64 as u64,
-            MemWidth::Word => (raw as u32 as i32) as i64 as u64,
+            MemWidth::Byte => ((raw as u8).cast_signed() as i64).cast_unsigned(),
+            MemWidth::Half => ((raw as u16).cast_signed() as i64).cast_unsigned(),
+            MemWidth::Word => ((raw as u32).cast_signed() as i64).cast_unsigned(),
             MemWidth::Double => raw,
             MemWidth::Nop => 0,
         }

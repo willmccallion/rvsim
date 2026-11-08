@@ -19,8 +19,8 @@ pub fn execute(op: BitOp, a: u64, b: u64, width: IntWidth) -> u64 {
         BitOp::Xnor => !(a ^ b),
         BitOp::Count(op) => count_bits(op, a, width),
         BitOp::MinMax(op) => min_max(op, a, b, width),
-        BitOp::SextB => i64::from(a as i8) as u64,
-        BitOp::SextH => i64::from(a as i16) as u64,
+        BitOp::SextB => i64::from(a as i8).cast_unsigned(),
+        BitOp::SextH => i64::from(a as i16).cast_unsigned(),
         BitOp::Rotate(op) => rotate(op, a, b, width),
         BitOp::OrcB => map_bytes(a, |byte| if byte == 0 { 0 } else { 0xFF }),
         BitOp::Rev8 => a.swap_bytes(),
@@ -79,8 +79,8 @@ fn min_max(op: MinMaxOp, a: u64, b: u64, width: IntWidth) -> u64 {
         IntWidth::Double => (a, b),
     };
     match op {
-        MinMaxOp::Max => (a as i64).max(b as i64) as u64,
-        MinMaxOp::Min => (a as i64).min(b as i64) as u64,
+        MinMaxOp::Max => a.cast_signed().max(b.cast_signed()).cast_unsigned(),
+        MinMaxOp::Min => a.cast_signed().min(b.cast_signed()).cast_unsigned(),
         MinMaxOp::Maxu => a.max(b),
         MinMaxOp::Minu => a.min(b),
     }

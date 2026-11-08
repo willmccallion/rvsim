@@ -20,7 +20,7 @@ const MARKER: [u16; 2] = [0x8F93, 0x001F];
 
 /// `jal x0, offset` as its two half-words.
 fn jal_back(offset_bytes: i32) -> [u16; 2] {
-    let imm = offset_bytes as u32;
+    let imm = offset_bytes.cast_unsigned();
     let word = ((imm >> 20) & 1) << 31
         | ((imm >> 1) & 0x3FF) << 21
         | ((imm >> 11) & 1) << 20

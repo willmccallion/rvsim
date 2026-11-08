@@ -142,7 +142,7 @@ fn resolve_branch<R: IssueRegisters>(
     issued: &RenameIssueEntry<R>,
     taken: bool,
 ) -> Result<Option<Redirect>, Trap> {
-    let actual_target = issued.inst.pc.wrapping_add(issued.inst.imm as u64);
+    let actual_target = issued.inst.pc.wrapping_add(issued.inst.imm.cast_unsigned());
     let fallthrough = issued.inst.next_pc();
     let predicted_next_pc = issued.predicted_target.unwrap_or(fallthrough);
     let actual_next_pc = if taken { actual_target } else { fallthrough };

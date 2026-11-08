@@ -68,7 +68,7 @@ fn execute_in<F: Float>(op: FpOp, [a, b, c]: [u64; 3], rm: RoundingMode) -> (u64
         }
         FpOp::Class => (FpClass::of(F::FORMAT, x.raw_bits()).mask(), FpFlags::NONE),
         // fmv.x.*: the register's low bits as they are, NaN-boxed or not.
-        FpOp::MoveToInt => (sign_extend(a, F::BITS) as u64, FpFlags::NONE),
+        FpOp::MoveToInt => (sign_extend(a, F::BITS).cast_unsigned(), FpFlags::NONE),
         FpOp::MoveFromInt => (F::from_raw_bits(a).to_register(), FpFlags::NONE),
         FpOp::ToInt(width, signedness) => {
             fp_to_int_register(x.to_f64(), IntTarget::of_width(width, signedness), rm)

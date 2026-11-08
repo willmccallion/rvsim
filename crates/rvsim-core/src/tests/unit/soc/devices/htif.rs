@@ -172,7 +172,7 @@ fn getcwd_into_a_buffer_too_small_for_the_path_fails_with_erange() {
     probe::write_and_run_dma(&mut htif, &mut memory, PhysAddr::new(0x1000), BLOCK, 8);
 
     let result = memory.read(PhysAddr::new(BLOCK), 8).expect("the block is in RAM");
-    assert_eq!(result as i64, -ERANGE);
+    assert_eq!(result.cast_signed(), -ERANGE);
 }
 
 /// An exit code is any value the target passes, the largest included.

@@ -292,7 +292,7 @@ fn a_cbo_passes_through_and_counts_at_every_level(rec: &mut Recorder) {
 /// Four loads from four lines, none depending on another.
 fn independent_misses() -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
-    ending_in_spin((0..4).map(|n| i().ld(T0 + n % 3, A1, 64 * n as i32).build()).collect())
+    ending_in_spin((0..4).map(|n| i().ld(T0 + n % 3, A1, 64 * n.cast_signed()).build()).collect())
 }
 
 fn misses_beyond_the_mshrs_wait_as_blocked_requests(rec: &mut Recorder) {
@@ -433,8 +433,9 @@ fn every_level_writes_back_and_drops_what_an_inclusive_level_below_evicts(rec: &
 
 fn misses_beyond_each_levels_mshrs_wait_there(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
-    let program =
-        ending_in_spin((0..8).map(|n| i().ld(T0 + n % 3, A1, 64 * n as i32).build()).collect());
+    let program = ending_in_spin(
+        (0..8).map(|n| i().ld(T0 + n % 3, A1, 64 * n.cast_signed()).build()).collect(),
+    );
     let context = "OutOfOrder width 4";
     let mut config = hierarchy(BackendKind::OutOfOrder);
     config.pipeline.width = 4;

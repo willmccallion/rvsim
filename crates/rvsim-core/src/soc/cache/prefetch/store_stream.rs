@@ -82,15 +82,15 @@ impl StoreStreamPrefetcher {
     /// The lines of `run`'s page up to `l2_lines` past its last miss that
     /// it has not requested yet.
     fn extend(&self, run: &mut StoreRun) -> Vec<u64> {
-        let step = self.line_bytes as i64 * run.direction;
+        let step = self.line_bytes.cast_signed() * run.direction;
         let mut prefetches = Vec::new();
         for k in 1..=self.l2_lines as i64 {
-            let target = (run.last_line as i64).wrapping_add(step * k) as u64;
+            let target = run.last_line.cast_signed().wrapping_add(step * k).cast_unsigned();
             if target >> PAGE_SHIFT != run.page {
                 break;
             }
             let requested = run.ahead.is_some_and(|ahead| {
-                (target as i64).wrapping_sub(ahead as i64).signum() != run.direction
+                target.cast_signed().wrapping_sub(ahead.cast_signed()).signum() != run.direction
             });
             if !requested {
                 prefetches.push(target);

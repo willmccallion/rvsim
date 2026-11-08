@@ -141,7 +141,7 @@ impl Htif {
                 calls.files.open(path, args.raw(3), args.raw(4)).map(Fd::return_value)
             }
             SYS_CLOSE => calls.files.close(args.fd(0)).map(|()| 0),
-            SYS_LSEEK => calls.files.seek(args.fd(0), args.raw(1) as i64, args.raw(2)),
+            SYS_LSEEK => calls.files.seek(args.fd(0), args.raw(1).cast_signed(), args.raw(2)),
             SYS_FSTAT => calls.fstat(args.fd(0), args.paddr(1)),
             SYS_NEWFSTATAT => {
                 let stat = file_calls::stat(&fesvr_path(&mut calls, args.raw(1), args.raw(2))?)?;

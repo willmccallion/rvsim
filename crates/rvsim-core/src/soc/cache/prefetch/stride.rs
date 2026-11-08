@@ -37,7 +37,7 @@ impl StrideTracker {
     /// Trains on the stream's next access; returns the stride once the
     /// same nonzero stride has repeated with full confidence.
     pub fn train(&mut self, addr: u64) -> Option<i64> {
-        let stride = (addr as i64).wrapping_sub(self.last_addr as i64);
+        let stride = addr.cast_signed().wrapping_sub(self.last_addr.cast_signed());
         self.last_addr = addr;
         if stride == self.stride {
             if self.confidence < MAX_CONFIDENCE {
@@ -58,9 +58,9 @@ impl StrideTracker {
 /// The line `k` steps along `stride` from `addr`. Prefetches go out a line
 /// at a time, so a stride shorter than a line steps a line.
 pub const fn line_along(addr: u64, stride: i64, k: i64, line_bytes: u64) -> u64 {
-    let line = line_bytes as i64;
+    let line = line_bytes.cast_signed();
     let step = if stride.abs() < line { line * stride.signum() } else { stride };
-    (addr as i64).wrapping_add(step.wrapping_mul(k)) as u64 & !(line_bytes - 1)
+    addr.cast_signed().wrapping_add(step.wrapping_mul(k)).cast_unsigned() & !(line_bytes - 1)
 }
 
 /// The table slot of the load at `pc`: instructions are at least 2-byte

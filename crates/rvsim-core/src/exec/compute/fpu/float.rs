@@ -220,7 +220,7 @@ impl Float for SoftF16 {
         let widened = match kind {
             (IntWidth::Word, Signedness::Signed) => f64::from(value as i32),
             (IntWidth::Word, Signedness::Unsigned) => f64::from(value as u32),
-            (IntWidth::Double, Signedness::Signed) => value as i64 as f64,
+            (IntWidth::Double, Signedness::Signed) => value.cast_signed() as f64,
             (IntWidth::Double, Signedness::Unsigned) => u64_to_f64(value),
         };
         Self::round(widened, rm, FpFlags::NONE)
@@ -348,7 +348,7 @@ macro_rules! host_float_from_int {
                     $on_host(rm, || black_box(value) as f32, || Exact::of_unsigned(value.into()))
                 }
                 (IntWidth::Double, Signedness::Signed) => {
-                    let value = value as i64;
+                    let value = value.cast_signed();
                     $on_host(rm, || black_box(value) as f32, || Exact::of_integer(value.into()))
                 }
                 (IntWidth::Double, Signedness::Unsigned) => {
@@ -377,7 +377,7 @@ macro_rules! host_float_from_int {
                     )
                 }
                 (IntWidth::Double, Signedness::Signed) => {
-                    let value = value as i64;
+                    let value = value.cast_signed();
                     $on_host(rm, || black_box(value) as f64, || Exact::of_integer(value.into()))
                 }
                 (IntWidth::Double, Signedness::Unsigned) => {

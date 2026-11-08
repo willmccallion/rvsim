@@ -666,7 +666,7 @@ fn decode_lui() {
     assert_eq!(d.opcode, i_op::OP_LUI);
     assert_eq!(d.rd, RegIdx::new(5));
     // U-type imm = upper 20 bits << 12 (sign-extended to i64)
-    assert_eq!(d.imm, i64::from(0xDEADB000u32 as i32));
+    assert_eq!(d.imm, i64::from(0xDEADB000u32.cast_signed()));
 }
 
 #[test]
@@ -683,7 +683,7 @@ fn decode_lui_sign_extension() {
     // imm20 = 0x80000 → top bit set → should sign-extend to negative
     let inst = u_type(i_op::OP_LUI, 1, 0x80000);
     let d = decode(inst);
-    assert_eq!(d.imm, i64::from(0x80000000u32 as i32));
+    assert_eq!(d.imm, i64::from(0x80000000u32.cast_signed()));
     assert!(d.imm < 0, "U-type with bit 31 set must sign-extend to negative");
 }
 
@@ -1179,7 +1179,7 @@ fn u_type_imm_round_trip() {
     for &imm20 in &[0u32, 1, 0x7FFFF, 0x80000, 0xFFFFF] {
         let inst = u_type(i_op::OP_LUI, 0, imm20);
         let d = decode(inst);
-        let expected = i64::from((imm20 << 12) as i32);
+        let expected = i64::from((imm20 << 12).cast_signed());
         assert_eq!(d.imm, expected, "U-type round-trip failed for imm20={imm20:#x}");
     }
 }

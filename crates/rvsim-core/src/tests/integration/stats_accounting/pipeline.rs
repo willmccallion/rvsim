@@ -132,7 +132,7 @@ const STRAIGHT_LINE: u32 = 24;
 fn independent_alu_ops(count: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> =
-        (0..count).map(|n| i().addi(T0 + n % 3, 0, n as i32).build()).collect();
+        (0..count).map(|n| i().addi(T0 + n % 3, 0, n.cast_signed()).build()).collect();
     program.extend(exit_sequence());
     program
 }
@@ -203,7 +203,7 @@ fn behind_a_divide(then: &[u32]) -> (Vec<u32>, u64) {
 
 fn alu_ops(count: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    (0..count).map(|n| i().addi(T2 + n % 2 * (A1 - T2), 0, n as i32).build()).collect()
+    (0..count).map(|n| i().addi(T2 + n % 2 * (A1 - T2), 0, n.cast_signed()).build()).collect()
 }
 
 fn straight_line() -> (Vec<u32>, u64) {
