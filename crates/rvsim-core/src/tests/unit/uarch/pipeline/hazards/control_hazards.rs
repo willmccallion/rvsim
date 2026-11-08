@@ -11,7 +11,7 @@ use crate::tests::support::regs::{X0, X1, X2, X3, X4, X5, X6, X7};
 const BASE_ADDR: u64 = 0x8000_0000;
 const MEM_SIZE: usize = 0x1000;
 
-/// Build a TestContext with memory at BASE_ADDR.
+/// Build a `TestContext` with memory at `BASE_ADDR`.
 fn ctx() -> TestContext {
     TestContext::new().with_memory(MEM_SIZE, BASE_ADDR)
 }

@@ -12,7 +12,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 fn all_bank_refresh_closes_open_rows_then_holds_the_rank_for_t_rfc() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     // Open row 0 of bank 0 and leave it open.
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id1 = h.issue(a, 0, read_op());
@@ -45,7 +45,7 @@ fn all_bank_refresh_closes_open_rows_then_holds_the_rank_for_t_rfc() {
 fn refresh_does_not_block_other_rank() {
     let cfg = tworank_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     // Enqueue both requests at the same simulated moment before letting
     // the scheduler tick — rank 0's refresh window must not force rank 1's
     // read to serialize behind it.
@@ -64,7 +64,7 @@ fn same_bank_refresh_rotates_bank_sets_and_leaves_the_others_serving() {
     let mut cfg = tiny_config();
     cfg.refresh = RefreshKind::SameBank;
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     // Two banks per group: set 0 refreshes at tREFI/2, set 1 at tREFI.
     let interval = t.t_refi / 2;
     let in_set0 = addr_from(&cfg, 0, 0, 0, 0, 0);
@@ -107,11 +107,11 @@ fn a_controller_resumed_later_starts_fresh_there_instead_of_replaying_the_gap() 
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
-    let mut fresh = Harness::new(cfg);
+    let mut fresh = Harness::new(&cfg);
     let fresh_id = fresh.issue(a, 0, read_op());
     let fresh_latency = fresh.response_at(fresh_id);
     let resume = 5 * t.t_refi;
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
 
     h.controller.resume_at(resume);
     h.next_tick = resume;

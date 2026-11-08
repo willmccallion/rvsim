@@ -19,7 +19,7 @@ fn scrub_interval_resolves_nanoseconds_to_dram_clocks() {
 fn scrubber_reads_consecutive_lines_and_produces_no_responses() {
     let mut cfg = tiny_config();
     cfg.ecc = EccKind::SecDed { patrol_scrub_ns: Some(100) };
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let interval = 240;
     h.run_until(interval * 8 + 200);
     let reads = h.commands_of(DramCmdKind::Read);
@@ -45,7 +45,7 @@ fn scrubber_reads_consecutive_lines_and_produces_no_responses() {
 #[test]
 fn no_ecc_means_no_background_traffic() {
     let cfg = tiny_config();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     h.run_until(5_000);
     assert!(h.commands_of(DramCmdKind::Read).is_empty());
 }

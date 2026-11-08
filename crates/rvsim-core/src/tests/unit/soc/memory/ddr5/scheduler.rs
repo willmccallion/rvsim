@@ -12,7 +12,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op,
 fn read_rows_after_miss_then_hit(kind: SchedulerKind) -> Vec<u32> {
     let mut cfg = tiny_config();
     cfg.scheduler = kind;
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let opener = h.issue(addr_from(&cfg, 0, 0, 0, 0, 0), 0, read_op());
     let _ = h.response_at(opener);
     let miss = h.issue(addr_from(&cfg, 0, 0, 0, 1, 0), 300, read_op());

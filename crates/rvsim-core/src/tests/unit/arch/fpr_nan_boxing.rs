@@ -17,7 +17,7 @@ use crate::isa::reg::RegIdx;
 fn fpr_all_registers_initially_zero() {
     let fpr = Fpr::new();
     for i in 0u8..32 {
-        assert_eq!(fpr.read(RegIdx::new(i)), 0, "f{} should be 0 initially", i);
+        assert_eq!(fpr.read(RegIdx::new(i)), 0, "f{i} should be 0 initially");
     }
 }
 

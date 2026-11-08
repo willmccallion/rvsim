@@ -11,7 +11,7 @@ fn idle_rank_powers_down_and_the_next_activate_waits_t_xp_after_exit() {
     let mut cfg = tiny_config();
     cfg.power_down = PowerDownPolicy::AfterIdle { idle_clocks: IDLE_CLOCKS };
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let first = h.issue(a, 0, read_op());
     let first_end = h.response_at(first);
@@ -48,7 +48,7 @@ fn idle_rank_powers_down_and_the_next_activate_waits_t_xp_after_exit() {
 #[test]
 fn disabled_policy_never_issues_power_commands() {
     let cfg = tiny_config();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let first = h.issue(a, 0, read_op());
     let end = h.response_at(first);
@@ -62,7 +62,7 @@ fn a_rank_does_not_power_down_right_before_its_refresh() {
     let mut cfg = tiny_config();
     cfg.power_down = PowerDownPolicy::AfterIdle { idle_clocks: IDLE_CLOCKS };
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id = h.issue(a, t.t_refi - t.t_pd - 4, read_op());
     let _ = h.response_at(id);

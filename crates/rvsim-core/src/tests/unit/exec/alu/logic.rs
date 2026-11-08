@@ -286,7 +286,7 @@ fn slt_rv64_zero_not_less_than_zero() {
     assert_eq!(alu(LogicOp::Slt, ZERO, ZERO, D), 0);
 }
 
-/// Signed comparison: 0x8000...0 is negative (i64::MIN).
+/// Signed comparison: 0x8000...0 is negative (`i64::MIN`).
 #[test]
 fn slt_rv64_high_bit_is_negative() {
     assert_eq!(alu(LogicOp::Slt, I64_MIN, ONE, D), 1);
@@ -306,7 +306,7 @@ fn slt_rv32_basic() {
     assert_eq!(alu(LogicOp::Slt, 10, 5, W), 0);
 }
 
-/// In RV32 mode, 0x8000_0000 is i32::MIN (negative).
+/// In RV32 mode, `0x8000_0000` is `i32::MIN` (negative).
 #[test]
 fn slt_rv32_high_bit_is_negative() {
     assert_eq!(alu(LogicOp::Slt, 0x8000_0000, ONE, W), 1);
@@ -318,7 +318,7 @@ fn slt_rv32_ignores_upper_bits() {
     assert_eq!(alu(LogicOp::Slt, 0xFFFF_FFFF_0000_0005, 0x0000_0000_0000_000A, W), 1);
 }
 
-/// 0xFFFF_FFFF in i32 is -1.
+/// `0xFFFF_FFFF` in i32 is -1.
 #[test]
 fn slt_rv32_u32_max_is_negative_one() {
     assert_eq!(alu(LogicOp::Slt, 0xFFFF_FFFF, ZERO, W), 1);
@@ -383,7 +383,7 @@ fn sltu_rv32_basic() {
     assert_eq!(alu(LogicOp::Sltu, 10, 5, W), 0);
 }
 
-/// In RV32 mode, 0x8000_0000 is a large positive u32.
+/// In RV32 mode, `0x8000_0000` is a large positive u32.
 #[test]
 fn sltu_rv32_high_bit_is_large() {
     assert_eq!(alu(LogicOp::Sltu, 0x8000_0000, ONE, W), 0);
@@ -412,7 +412,7 @@ fn slt_vs_sltu_sign_bit_distinction() {
     assert_eq!(alu(LogicOp::Sltu, I64_MIN, ONE, D), 0);
 }
 
-/// NEG1 = 0xFFFF... is -1 signed but u64::MAX unsigned.
+/// NEG1 = 0xFFFF... is -1 signed but `u64::MAX` unsigned.
 #[test]
 fn slt_vs_sltu_neg1_distinction() {
     // SLT:  -1 < 0 → true

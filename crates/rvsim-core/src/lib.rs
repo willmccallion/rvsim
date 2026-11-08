@@ -54,19 +54,8 @@ pub use crate::exec::disasm;
     clippy::missing_const_for_fn,
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::doc_markdown,
-    clippy::format_collect,
-    clippy::uninlined_format_args,
     clippy::float_cmp,
-    clippy::single_char_pattern,
-    clippy::semicolon_if_nothing_returned,
-    unused_results,
-    clippy::used_underscore_binding,
-    clippy::unused_self,
-    clippy::fn_params_excessive_bools,
-    clippy::let_underscore_untyped,
-    clippy::redundant_clone,
-    clippy::large_types_passed_by_value
+    unused_results
 )]
 mod tests;
 

@@ -11,7 +11,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 fn counters_and_derived_rates_reflect_the_commands_issued() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let miss = h.issue(addr_from(&cfg, 0, 0, 0, 0, 0), 0, read_op());
     let _ = h.response_at(miss);
     let hit = h.issue(addr_from(&cfg, 0, 0, 0, 0, 1), 200, read_op());

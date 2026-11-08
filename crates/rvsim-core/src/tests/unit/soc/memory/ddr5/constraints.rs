@@ -10,7 +10,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 fn fifth_activate_stalls_on_faw() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     // Four distinct (bg, bank) tuples => four ACTs land in the tFAW window,
     // plus a fifth ACT to the same bank[0] (different row) so PRE + ACT are
     // needed. All five are enqueued at cycle 0 to expose the tFAW stall.
@@ -43,7 +43,7 @@ fn fifth_activate_stalls_on_faw() {
 fn write_then_read_same_bank_group_pays_wtr_l() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let w = addr_from(&cfg, 0, 0, 0, 0, 0);
     let r = addr_from(&cfg, 0, 0, 0, 0, 1);
     let wid = h.issue(w, 0, write_op());
@@ -67,7 +67,7 @@ fn write_then_read_same_bank_group_pays_wtr_l() {
 fn read_then_write_pays_rtw() {
     let cfg = tiny_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let r = addr_from(&cfg, 0, 0, 0, 0, 0);
     let w = addr_from(&cfg, 0, 0, 0, 0, 1);
     let rid = h.issue(r, 0, read_op());
@@ -90,7 +90,7 @@ fn read_then_write_pays_rtw() {
 fn rank_switch_pays_rtrs() {
     let cfg = tworank_config();
     let t = Ddr5Timing::default();
-    let mut h = Harness::new(cfg);
+    let mut h = Harness::new(&cfg);
     let r0 = addr_from(&cfg, 0, 0, 0, 0, 0);
     let r1 = addr_from(&cfg, 1, 0, 0, 0, 0);
     let id0 = h.issue(r0, 0, read_op());

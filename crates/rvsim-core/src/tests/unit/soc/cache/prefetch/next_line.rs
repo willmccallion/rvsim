@@ -56,7 +56,7 @@ fn odd_offset_aligns() {
     assert_eq!(addrs[0], 0x1040);
 }
 
-/// NextLine prefetcher does NOT differentiate between hits and misses.
+/// `NextLine` prefetcher does NOT differentiate between hits and misses.
 #[test]
 fn hit_and_miss_produce_same_result() {
     let mut pf_hit = NextLinePrefetcher::new(64, std::num::NonZero::new(1).unwrap());
