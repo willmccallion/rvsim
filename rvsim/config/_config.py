@@ -241,7 +241,8 @@ def load_config(path: str) -> Config:
 
     The module is imported and the first of these is used as the entry point:
     a function named after the file, a ``config`` variable, or a ``get_config``
-    function.
+    function. Raises ``TypeError`` when it gives something other than a
+    `Config`.
     """
     import importlib.util
     import os
@@ -254,16 +255,18 @@ def load_config(path: str) -> Config:
     spec.loader.exec_module(mod)
 
     name = os.path.splitext(os.path.basename(path))[0]
-    if hasattr(mod, name):
-        entry = getattr(mod, name)
-        return entry() if callable(entry) else entry
-    if hasattr(mod, "config"):
-        entry = mod.config
-        return entry() if callable(entry) else entry
-    if hasattr(mod, "get_config"):
-        return mod.get_config()
-
-    raise AttributeError(
-        f"could not find config entry point in {path}. "
-        f"Expected function '{name}' or 'get_config' or variable 'config'."
+    attribute = next(
+        (a for a in (name, "config", "get_config") if hasattr(mod, a)), None
     )
+    if attribute is None:
+        raise AttributeError(
+            f"could not find config entry point in {path}. "
+            f"Expected function '{name}' or 'get_config' or variable 'config'."
+        )
+    entry = getattr(mod, attribute)
+    config = entry() if callable(entry) else entry
+    if not isinstance(config, Config):
+        raise TypeError(
+            f"{path}: {attribute} gave a {type(config).__name__}, not a Config"
+        )
+    return config
