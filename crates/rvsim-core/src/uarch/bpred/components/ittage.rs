@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn a_target_trained_after_a_history_repair_is_predicted() {
+    fn a_history_repair_realigns_prediction_with_the_snapshot() {
         let mut ittage = Ittage::new(&test_config());
         let pc = 0x8000_1000u64;
         let target = 0x8000_5000u64;
@@ -229,11 +229,17 @@ mod tests {
             ghr.push(false);
         }
 
-        // Repair to snapshot.
         ghr = snapshot;
         ittage.repair_history(&ghr);
 
-        // Train and verify prediction works after repair.
+        let banks = 0..ittage.banks.num_banks();
+        let (indices, tags) = ittage.banks.snapshot_all(pc, &ghr);
+        let speculative: Vec<_> = banks
+            .clone()
+            .map(|bank| (ittage.banks.spec_index(pc, bank), ittage.banks.spec_tag(pc, bank)))
+            .collect();
+        let recomputed: Vec<_> = banks.map(|bank| (indices[bank], tags[bank])).collect();
+        assert_eq!(speculative, recomputed);
         ittage.update(pc, target, &ghr);
         assert_eq!(ittage.predict(pc), Some(target));
     }
