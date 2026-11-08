@@ -198,7 +198,7 @@ impl Simulator {
             version: VERSION,
             cycle: state.uncore.kernel.cycle,
             trace: state.uncore.trace.armed,
-            ram_base: ram.map_or(0, Ram::base),
+            ram_base: ram.map_or(0, |ram| ram.base().val()),
             ram_size: ram.map_or(0, Ram::size),
             vlen_bits: state.uncore.kernel.config.pipeline.vlen.bits() as u64,
             harts: state
@@ -241,7 +241,7 @@ impl Simulator {
         let ram = self.state.uncore.kernel.memory.ram();
         mismatch("harts", header.harts.len() as u64, self.state.harts.len() as u64)?;
         mismatch("RAM bytes", header.ram_size, ram.map_or(0, Ram::size))?;
-        mismatch("RAM base", header.ram_base, ram.map_or(0, Ram::base))?;
+        mismatch("RAM base", header.ram_base, ram.map_or(0, |ram| ram.base().val()))?;
         mismatch(
             "VLEN",
             header.vlen_bits,

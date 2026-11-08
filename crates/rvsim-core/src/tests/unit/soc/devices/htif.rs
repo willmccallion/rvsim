@@ -157,8 +157,11 @@ fn getcwd_into_a_buffer_too_small_for_the_path_fails_with_erange() {
     const BLOCK: u64 = RAM_BASE + 0x100;
     const SYS_GETCWD: u64 = 17;
     const ERANGE: i64 = 34;
-    let mut memory =
-        GlobalMemory::new(Some(Ram::new(RAM_BASE, 0x1000).expect("test RAM maps")), 1, 64);
+    let mut memory = GlobalMemory::new(
+        Some(Ram::new(PhysAddr::new(RAM_BASE), 0x1000).expect("test RAM maps")),
+        1,
+        64,
+    );
     let block: Vec<u8> = [SYS_GETCWD, RAM_BASE + 0x200, 1, 0, 0, 0, 0, 0]
         .iter()
         .flat_map(|w| w.to_le_bytes())
@@ -178,8 +181,11 @@ fn an_exit_with_the_largest_code_still_ends_the_run() {
     const RAM_BASE: u64 = 0x8000_0000;
     const BLOCK: u64 = RAM_BASE + 0x100;
     const SYS_EXIT: u64 = 93;
-    let mut memory =
-        GlobalMemory::new(Some(Ram::new(RAM_BASE, 0x1000).expect("test RAM maps")), 1, 64);
+    let mut memory = GlobalMemory::new(
+        Some(Ram::new(PhysAddr::new(RAM_BASE), 0x1000).expect("test RAM maps")),
+        1,
+        64,
+    );
     let block: Vec<u8> =
         [SYS_EXIT, u64::MAX, 0, 0, 0, 0, 0, 0].iter().flat_map(|w| w.to_le_bytes()).collect();
     memory.write_bytes(Writer::External, PhysAddr::new(BLOCK), &block);

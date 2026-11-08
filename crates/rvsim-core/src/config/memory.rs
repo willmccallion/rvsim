@@ -39,7 +39,7 @@ pub enum MemoryControllerKind {
 #[serde(default)]
 pub struct MemoryConfig {
     /// RAM size in bytes
-    pub ram_size: usize,
+    pub ram_size: u64,
 
     /// Memory controller type
     pub controller: MemoryControllerKind,

@@ -230,7 +230,7 @@ fn process_call(
     args: SyscallArgs,
 ) -> SysResult {
     let cycle = state.uncore.kernel.cycle;
-    let ram_bytes = state.uncore.kernel.config.memory.ram_size as u64;
+    let ram_bytes = state.uncore.kernel.config.memory.ram_size;
     let isa = state.core.isa;
     let misaligned_traps = state.uncore.kernel.config.memory.misaligned_access_trap;
     let uncore = &mut *state.uncore;

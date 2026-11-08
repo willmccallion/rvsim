@@ -243,7 +243,7 @@ fn the_write_combining_buffer_counts_merges_into_held_lines_and_line_writes(rec:
 }
 
 const STREAM_LOADS: i32 = 24;
-const RAM_SIZE: usize = 0x1_0000;
+const RAM_SIZE: u64 = 0x1_0000;
 
 /// One load a line for `STREAM_LOADS` lines from `a1`, each load's address
 /// depending on the last's (zero) value so the misses do not fill every
@@ -277,7 +277,7 @@ fn prefetching(backend: BackendKind, page_boundary: PageBoundary) -> crate::conf
 }
 
 fn a_stride_stream_is_prefetched_into_each_level_and_dropped_where_it_must_be(rec: &mut Recorder) {
-    let ram_end = super::program::PROGRAM_BASE + RAM_SIZE as u64;
+    let ram_end = super::program::PROGRAM_BASE + RAM_SIZE;
     for backend in BACKENDS {
         let context = format!("{backend:?}");
         let mut inside =

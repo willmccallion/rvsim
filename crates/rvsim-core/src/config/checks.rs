@@ -45,7 +45,7 @@ const MAX_LOOP_FIELD_BITS: usize = 16;
 /// Bits of a loop-predictor confidence or age counter, held in 8-bit fields.
 const MAX_LOOP_COUNTER_BITS: usize = 8;
 /// The granule RAM is sized in.
-const PAGE_BYTES: usize = 4096;
+const PAGE_BYTES: u64 = 4096;
 /// The most harts: coherence tracks sharers in a 64-bit `CoreSet`.
 const MAX_HARTS: usize = 64;
 
@@ -143,7 +143,7 @@ const fn at_most(field: &'static str, value: usize, most: usize) -> Result<(), C
     if value > most { Err(ConfigError::TooLarge { field, value, most }) } else { Ok(()) }
 }
 
-fn check_system(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigError> {
+fn check_system(system: &SystemConfig, ram_size: u64) -> Result<(), ConfigError> {
     at_least_one("system.hart_count", system.hart_count)?;
     at_least_one("system.cpu_clock_mhz", system.cpu_clock_mhz)?;
     at_least_one("system.timebase_hz", system.timebase_hz)?;
@@ -161,7 +161,7 @@ fn check_system(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigErro
     if ram_size == 0 || !ram_size.is_multiple_of(PAGE_BYTES) {
         return Err(ConfigError::RamSize(ram_size));
     }
-    if system.kernel_offset >= ram_size as u64 {
+    if system.kernel_offset >= ram_size {
         return Err(ConfigError::KernelOffset { offset: system.kernel_offset, ram_size });
     }
     check_address_map(system, ram_size)?;
@@ -169,11 +169,8 @@ fn check_system(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigErro
 }
 
 /// RAM and every device's register window must not share an address.
-fn check_address_map(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigError> {
-    let ram = super::DeviceRegion {
-        name: "RAM",
-        range: PhysRange::new(system.ram_base, ram_size as u64),
-    };
+fn check_address_map(system: &SystemConfig, ram_size: u64) -> Result<(), ConfigError> {
+    let ram = super::DeviceRegion { name: "RAM", range: PhysRange::new(system.ram_base, ram_size) };
     let regions = system.device_regions();
     let all: Vec<_> = std::iter::once(ram).chain(regions).collect();
     for (index, first) in all.iter().enumerate() {

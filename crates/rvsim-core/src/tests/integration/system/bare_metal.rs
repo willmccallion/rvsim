@@ -56,7 +56,7 @@ fn every_hart_starts_at_the_entry_with_its_id_and_the_device_tree() {
 
     sim.load_program(&bare_elf(&[0x0000_006f]), &ProcessArgs::default()).expect("the image loads");
 
-    let dtb_addr = RAM_BASE + config.memory.ram_size as u64 - DTB_RESERVE;
+    let dtb_addr = RAM_BASE + config.memory.ram_size - DTB_RESERVE;
     for (index, hart) in sim.state.harts.iter().enumerate() {
         assert_eq!(hart.pc, VirtAddr::new(RAM_BASE + CODE_OFFSET), "hart {index}");
         assert_eq!(hart.privilege, PrivilegeMode::Machine, "hart {index}");

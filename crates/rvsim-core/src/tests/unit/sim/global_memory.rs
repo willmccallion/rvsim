@@ -11,12 +11,12 @@ use crate::sim::packet::{AccessSize, MemOp, MemRespData};
 
 const H0: HartId = HartId::new(0);
 const H1: HartId = HartId::new(1);
-const RAM_BYTES: usize = 0x1000;
+const RAM_BYTES: u64 = 0x1000;
 const WORD: PhysAddr = PhysAddr::new(0x100);
 
 /// Two harts' memory over `RAM_BYTES` of RAM at address zero.
 fn memory() -> GlobalMemory {
-    GlobalMemory::new(Some(Ram::new(0, RAM_BYTES).expect("test RAM maps")), 2, 64)
+    GlobalMemory::new(Some(Ram::new(PhysAddr::new(0), RAM_BYTES).expect("test RAM maps")), 2, 64)
 }
 
 fn value(response: &MemRespData) -> u64 {
@@ -100,8 +100,11 @@ const NEXT_GRANULE: PhysAddr = PhysAddr::new(0x140);
 
 #[test]
 fn a_line_write_breaks_a_reservation_anywhere_in_the_line() {
-    let mut memory =
-        GlobalMemory::new(Some(Ram::new(0, RAM_BYTES).expect("test RAM maps")), 2, 128);
+    let mut memory = GlobalMemory::new(
+        Some(Ram::new(PhysAddr::new(0), RAM_BYTES).expect("test RAM maps")),
+        2,
+        128,
+    );
     memory.reservations_mut().set(H1, NEXT_GRANULE);
 
     memory.write_bytes(Writer::Hart(H0), WORD, &[0; 128]);

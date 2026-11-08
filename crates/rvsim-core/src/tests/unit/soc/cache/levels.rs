@@ -22,7 +22,7 @@ use crate::tests::support::count;
 const LATENCY: u64 = 2;
 const RESPONSE_LATENCY: u64 = 1;
 const HART: WriteOrigin = WriteOrigin::Hart(HartId::new(0));
-const RAM_BYTES: usize = 0x1_0000;
+const RAM_BYTES: u64 = 0x1_0000;
 const SELF: ComponentId = ComponentId::Cache(CacheId::new(0));
 const DOWNSTREAM: ComponentId = ComponentId::Cache(CacheId::new(1));
 const UPSTREAM: ComponentId = ComponentId::Cache(CacheId::new(2));
@@ -70,7 +70,11 @@ impl Bench {
             cache,
             queue: EventQueue::new(),
             stats,
-            memory: GlobalMemory::new(Some(Ram::new(0, RAM_BYTES).expect("test RAM maps")), 1, 64),
+            memory: GlobalMemory::new(
+                Some(Ram::new(PhysAddr::new(0), RAM_BYTES).expect("test RAM maps")),
+                1,
+                64,
+            ),
             config: Config::minimal(),
             cycle: 100,
         }
