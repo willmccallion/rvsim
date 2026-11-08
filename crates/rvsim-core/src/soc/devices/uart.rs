@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{IrqId, PhysRange};
+use crate::common::{IrqId, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -117,7 +117,7 @@ impl PanicWatch {
 #[allow(clippy::struct_excessive_bools)]
 pub struct Uart {
     /// Base physical address of the device.
-    base_addr: u64,
+    base_addr: PhysAddr,
     /// Queue for received bytes (from stdin).
     rx_queue: VecDeque<u8>,
     /// The console it transmits to and receives from.
@@ -218,7 +218,7 @@ impl Uart {
     /// Creates a new UART device on `console`; a terminal console spawns a
     /// thread reading stdin. `cpu_clock_mhz` sizes the interrupt delay in
     /// cycles.
-    pub const fn new(base_addr: u64, terminal: SharedTerminal, cpu_clock_mhz: u64) -> Self {
+    pub const fn new(base_addr: PhysAddr, terminal: SharedTerminal, cpu_clock_mhz: u64) -> Self {
         Self {
             base_addr,
             rx_queue: VecDeque::new(),

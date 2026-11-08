@@ -1,6 +1,6 @@
 //! Test memory mocks updated for the packet-based `Handle` trait.
 
-use crate::common::{LineAddr, PhysRange};
+use crate::common::{LineAddr, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -95,6 +95,6 @@ impl Device for MockMemory {
         DeviceKind::Mock
     }
     fn region(&self) -> PhysRange {
-        PhysRange::new(self.base, self.data.len() as u64)
+        PhysRange::new(PhysAddr::new(self.base), self.data.len() as u64)
     }
 }

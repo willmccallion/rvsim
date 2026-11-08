@@ -9,7 +9,7 @@
 //! * `0x00`: Time (Low 32 bits)
 //! * `0x04`: Time (High 32 bits)
 
-use crate::common::{IrqId, PhysRange};
+use crate::common::{IrqId, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -21,7 +21,7 @@ use crate::soc::traits::{MmioRegisters, serve_mmio};
 #[derive(Debug)]
 pub struct GoldfishRtc {
     /// Base physical address of the device.
-    base_addr: u64,
+    base_addr: PhysAddr,
     /// Wall-clock time at cycle zero, in nanoseconds since the Unix epoch.
     epoch_ns: u64,
     /// Core clock, to convert cycles to nanoseconds.
@@ -33,7 +33,7 @@ impl GoldfishRtc {
     pub const IRQ: IrqId = IrqId::new(11);
 
     /// Creates a new Goldfish RTC device reading `epoch_ns` at cycle zero.
-    pub const fn new(base_addr: u64, epoch_ns: u64, cpu_clock_mhz: u64) -> Self {
+    pub const fn new(base_addr: PhysAddr, epoch_ns: u64, cpu_clock_mhz: u64) -> Self {
         Self {
             base_addr,
             epoch_ns,

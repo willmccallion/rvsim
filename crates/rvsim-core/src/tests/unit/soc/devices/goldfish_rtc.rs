@@ -2,6 +2,7 @@
 //!
 //! Verifies basic device identification for the Goldfish real-time clock.
 
+use crate::common::PhysAddr;
 use crate::soc::devices::Device;
 use crate::soc::devices::goldfish_rtc::GoldfishRtc;
 
@@ -11,13 +12,13 @@ const CLOCK_MHZ: u64 = 2_400;
 
 #[test]
 fn goldfish_rtc_name() {
-    let rtc = GoldfishRtc::new(0x101000, EPOCH_NS, CLOCK_MHZ);
+    let rtc = GoldfishRtc::new(PhysAddr::new(0x101000), EPOCH_NS, CLOCK_MHZ);
     assert_eq!(rtc.name(), "GoldfishRTC");
 }
 
 #[test]
 fn goldfish_rtc_address_range() {
-    let rtc = GoldfishRtc::new(0x101000, EPOCH_NS, CLOCK_MHZ);
+    let rtc = GoldfishRtc::new(PhysAddr::new(0x101000), EPOCH_NS, CLOCK_MHZ);
     let region = rtc.region();
     let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, 0x101000);
@@ -26,7 +27,7 @@ fn goldfish_rtc_address_range() {
 
 #[test]
 fn goldfish_rtc_read_time_low_nonzero() {
-    let mut rtc = GoldfishRtc::new(0, EPOCH_NS, CLOCK_MHZ);
+    let mut rtc = GoldfishRtc::new(PhysAddr::new(0), EPOCH_NS, CLOCK_MHZ);
     let time_low =
         crate::tests::support::probe::read(&mut rtc, crate::common::PhysAddr::new(0x0), 4) as u32;
     let _time_high =
@@ -37,7 +38,7 @@ fn goldfish_rtc_read_time_low_nonzero() {
 
 #[test]
 fn the_clock_reads_the_epoch_at_cycle_zero_and_advances_with_simulated_time() {
-    let rtc = GoldfishRtc::new(0, EPOCH_NS, CLOCK_MHZ);
+    let rtc = GoldfishRtc::new(PhysAddr::new(0), EPOCH_NS, CLOCK_MHZ);
 
     assert_eq!(rtc.time_ns(0), EPOCH_NS);
     assert_eq!(rtc.time_ns(2_400), EPOCH_NS + 1_000, "2400 cycles at 2.4 GHz is a microsecond");
@@ -46,8 +47,8 @@ fn the_clock_reads_the_epoch_at_cycle_zero_and_advances_with_simulated_time() {
 
 #[test]
 fn two_devices_built_alike_read_the_same_clock() {
-    let a = GoldfishRtc::new(0, EPOCH_NS, CLOCK_MHZ);
-    let b = GoldfishRtc::new(0, EPOCH_NS, CLOCK_MHZ);
+    let a = GoldfishRtc::new(PhysAddr::new(0), EPOCH_NS, CLOCK_MHZ);
+    let b = GoldfishRtc::new(PhysAddr::new(0), EPOCH_NS, CLOCK_MHZ);
 
     assert_eq!(a.time_ns(123_456_789), b.time_ns(123_456_789));
 }

@@ -246,8 +246,8 @@ pub struct PhysRange {
 impl PhysRange {
     /// The `size` bytes from `base`.
     #[must_use]
-    pub const fn new(base: u64, size: u64) -> Self {
-        Self { base: PhysAddr::new(base), size }
+    pub const fn new(base: PhysAddr, size: u64) -> Self {
+        Self { base, size }
     }
 
     /// One past the last address.

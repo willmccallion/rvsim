@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::{HartId, PhysRange};
+use crate::common::{HartId, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -33,7 +33,7 @@ const MTIMECMP_STRIDE: u64 = 8;
 #[derive(Debug)]
 pub struct Clint {
     /// Base physical address of the device.
-    base_addr: u64,
+    base_addr: PhysAddr,
     /// Machine time counter shared by every hart.
     mtime: u64,
     /// Per-hart machine time compare registers.
@@ -88,7 +88,7 @@ impl Clint {
     ///
     /// `divider` is the ratio of CPU cycles to timer ticks (10 means `mtime`
     /// increments every 10 cycles); zero is treated as one.
-    pub fn new(base_addr: u64, divider: u64, hart_count: usize) -> Self {
+    pub fn new(base_addr: PhysAddr, divider: u64, hart_count: usize) -> Self {
         Self {
             base_addr,
             mtime: 0,

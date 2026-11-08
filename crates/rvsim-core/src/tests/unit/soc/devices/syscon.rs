@@ -4,6 +4,7 @@
 //! which provides power management and reset functionality through memory-mapped
 //! registers.
 
+use crate::common::PhysAddr;
 use crate::soc::devices::Device;
 use crate::soc::devices::syscon::SysCon;
 use crate::soc::exit::ExitSignal;
@@ -12,7 +13,7 @@ use crate::soc::exit::ExitSignal;
 fn create_test_syscon() -> (SysCon, ExitSignal) {
     let base_addr = 0x100000;
     let exit_signal = ExitSignal::new();
-    let syscon = SysCon::new(base_addr, exit_signal.clone());
+    let syscon = SysCon::new(PhysAddr::new(base_addr), exit_signal.clone());
     (syscon, exit_signal)
 }
 
@@ -26,7 +27,7 @@ fn test_syscon_name() {
 fn test_syscon_address_range() {
     let base_addr = 0x100000;
     let exit_signal = ExitSignal::new();
-    let syscon = SysCon::new(base_addr, exit_signal);
+    let syscon = SysCon::new(PhysAddr::new(base_addr), exit_signal);
 
     let region = syscon.region();
     let (base, size) = (region.base.val(), region.size);
@@ -260,7 +261,7 @@ fn test_syscon_all_magic_values() {
 
     // Test poweroff
     let exit_signal = ExitSignal::new();
-    let mut syscon = SysCon::new(base_addr, exit_signal.clone());
+    let mut syscon = SysCon::new(PhysAddr::new(base_addr), exit_signal.clone());
     crate::tests::support::probe::write(
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
@@ -271,7 +272,7 @@ fn test_syscon_all_magic_values() {
 
     // Test reset
     let exit_signal = ExitSignal::new();
-    let mut syscon = SysCon::new(base_addr, exit_signal.clone());
+    let mut syscon = SysCon::new(PhysAddr::new(base_addr), exit_signal.clone());
     crate::tests::support::probe::write(
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),
@@ -282,7 +283,7 @@ fn test_syscon_all_magic_values() {
 
     // Test failure
     let exit_signal = ExitSignal::new();
-    let mut syscon = SysCon::new(base_addr, exit_signal.clone());
+    let mut syscon = SysCon::new(PhysAddr::new(base_addr), exit_signal.clone());
     crate::tests::support::probe::write(
         &mut syscon,
         crate::common::PhysAddr::new(0x100000),

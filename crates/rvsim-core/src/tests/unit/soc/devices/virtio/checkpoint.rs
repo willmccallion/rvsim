@@ -4,6 +4,7 @@
 use super::dma_timing::{
     DATA, MMIO, Request, SECTOR, device_with_a_queued, disk_image, notify, place,
 };
+use crate::common::PhysAddr;
 use crate::sim::events::EventQueue;
 use crate::soc::devices::Device;
 use crate::soc::devices::virtio_disk::VirtioBlock;
@@ -20,7 +21,7 @@ fn device_after_a_write() -> VirtioBlock {
 }
 
 fn fresh_device(image: Vec<u8>) -> VirtioBlock {
-    let mut device = VirtioBlock::new(MMIO);
+    let mut device = VirtioBlock::new(PhysAddr::new(MMIO));
     device.load(image);
     device
 }

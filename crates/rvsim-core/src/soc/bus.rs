@@ -178,7 +178,7 @@ impl Bus {
     }
 
     /// Tells the bus that `ctrl` serves the `size` bytes of RAM at `base`.
-    pub const fn attach_ram(&mut self, ctrl: MemCtrlId, base: u64, size: u64) {
+    pub const fn attach_ram(&mut self, ctrl: MemCtrlId, base: PhysAddr, size: u64) {
         self.ram = Some(RamWindow { ctrl, range: PhysRange::new(base, size) });
     }
 

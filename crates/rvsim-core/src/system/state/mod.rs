@@ -64,34 +64,26 @@ fn build_bus(
 ) -> Result<Bus, SimError> {
     let system = &config.system;
     let mut bus = Bus::new(system.bus_width, system.bus_latency, hart_count);
-    let mut disk_device = VirtioBlock::new(system.disk_base.val());
+    let mut disk_device = VirtioBlock::new(system.disk_base);
     if let Some(path) = disk {
         disk_device.load(load_binary(path)?);
     }
     let rtc_epoch_ns = system.rtc_epoch_seconds.saturating_mul(NANOS_PER_SECOND);
-    bus.add_device(Box::new(Uart::new(
-        system.uart_base.val(),
-        terminal.clone(),
-        system.cpu_clock_mhz,
-    )));
+    bus.add_device(Box::new(Uart::new(system.uart_base, terminal.clone(), system.cpu_clock_mhz)));
     bus.add_device(Box::new(disk_device));
-    bus.add_device(Box::new(Clint::new(
-        system.clint_base.val(),
-        system.clint_divider(),
-        hart_count,
-    )));
+    bus.add_device(Box::new(Clint::new(system.clint_base, system.clint_divider(), hart_count)));
     bus.add_device(Box::new(Plic::new(crate::config::PLIC_BASE, hart_count)));
-    bus.add_device(Box::new(SysCon::new(system.syscon_base.val(), exit_signal.clone())));
+    bus.add_device(Box::new(SysCon::new(system.syscon_base, exit_signal.clone())));
     bus.add_device(Box::new(GoldfishRtc::new(
         crate::config::RTC_BASE,
         rtc_epoch_ns,
         system.cpu_clock_mhz,
     )));
     if let Some(tohost) = system.tohost_addr {
-        let htif = Htif::new(tohost.val(), exit_signal.clone(), Vec::new(), terminal.clone());
+        let htif = Htif::new(tohost, exit_signal.clone(), Vec::new(), terminal.clone());
         bus.add_device(Box::new(htif));
     }
-    bus.attach_ram(MemCtrlId::new(0), system.ram_base.val(), config.memory.ram_size as u64);
+    bus.attach_ram(MemCtrlId::new(0), system.ram_base, config.memory.ram_size as u64);
     Ok(bus)
 }
 

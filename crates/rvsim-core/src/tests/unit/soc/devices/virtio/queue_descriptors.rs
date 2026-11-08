@@ -3,12 +3,12 @@
 //! Verifies register identification (magic, version, device ID),
 //! status register, queue configuration, and interrupt status.
 
-use crate::common::IrqId;
+use crate::common::{IrqId, PhysAddr};
 use crate::soc::devices::Device;
 use crate::soc::devices::virtio_disk::VirtioBlock;
 
 fn make_virtio() -> VirtioBlock {
-    VirtioBlock::new(0x1000_1000)
+    VirtioBlock::new(PhysAddr::new(0x1000_1000))
 }
 
 #[test]

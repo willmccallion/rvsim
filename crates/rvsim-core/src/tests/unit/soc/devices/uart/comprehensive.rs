@@ -3,14 +3,14 @@
 //! Tests for UART data transmission, receive buffer, interrupt handling,
 //! and various register configurations.
 
-use crate::common::IrqId;
+use crate::common::{IrqId, PhysAddr};
 use crate::config::Console;
 use crate::soc::devices::Device;
 use crate::soc::devices::uart::Uart;
 use crate::soc::terminal::{SharedTerminal, Terminal};
 
 fn uart(base_addr: u64, console: crate::config::Console, cpu_clock_mhz: u64) -> Uart {
-    Uart::new(base_addr, Terminal::shared(console), cpu_clock_mhz)
+    Uart::new(PhysAddr::new(base_addr), Terminal::shared(console), cpu_clock_mhz)
 }
 
 #[test]
@@ -576,7 +576,7 @@ fn uart_scratch_pattern() {
 #[test]
 fn a_kernel_panic_message_is_printed_whole_and_noticed() {
     let terminal: SharedTerminal = Terminal::shared(Console::Captured);
-    let mut uart = Uart::new(0, terminal.clone(), 2400);
+    let mut uart = Uart::new(PhysAddr::new(0), terminal.clone(), 2400);
     for &byte in b"Kernel panic - not syncing" {
         crate::tests::support::probe::write(
             &mut uart,
@@ -596,7 +596,7 @@ fn a_kernel_panic_message_is_printed_whole_and_noticed() {
 #[test]
 fn a_captured_console_keeps_output_for_the_host() {
     let terminal: SharedTerminal = Terminal::shared(Console::Captured);
-    let mut uart = Uart::new(0, terminal.clone(), 2400);
+    let mut uart = Uart::new(PhysAddr::new(0), terminal.clone(), 2400);
     for &byte in b"ok\n" {
         crate::tests::support::probe::write(
             &mut uart,
@@ -616,7 +616,7 @@ fn a_captured_console_keeps_output_for_the_host() {
 #[test]
 fn a_captured_console_delivers_the_hosts_input() {
     let terminal = Terminal::shared(Console::Captured);
-    let mut uart = Uart::new(0, terminal.clone(), 2400);
+    let mut uart = Uart::new(PhysAddr::new(0), terminal.clone(), 2400);
 
     terminal.lock().expect("the terminal is free").type_input(b"r");
     for _ in 0..=u8::MAX {

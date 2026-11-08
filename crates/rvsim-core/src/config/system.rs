@@ -70,7 +70,7 @@ pub struct DeviceRegion {
     /// The device's name, as its statistics and latency overrides spell it.
     pub name: &'static str,
     /// The window's first address.
-    pub base: u64,
+    pub base: PhysAddr,
     /// The window's length in bytes.
     pub size: u64,
 }
@@ -79,13 +79,13 @@ impl DeviceRegion {
     /// One past the window's last address.
     #[must_use]
     pub const fn end(self) -> u64 {
-        self.base.saturating_add(self.size)
+        self.base.val().saturating_add(self.size)
     }
 
     /// True when the two windows share an address.
     #[must_use]
     pub const fn overlaps(self, other: Self) -> bool {
-        self.base < other.end() && other.base < self.end()
+        self.base.val() < other.end() && other.base.val() < self.end()
     }
 }
 
@@ -96,13 +96,13 @@ pub const VIRTIO_REGION_BYTES: u64 = 0x1000;
 /// The CLINT's register window in bytes.
 pub const CLINT_REGION_BYTES: u64 = 0x1_0000;
 /// The PLIC's fixed base address.
-pub const PLIC_BASE: u64 = 0x0c00_0000;
+pub const PLIC_BASE: PhysAddr = PhysAddr::new(0x0c00_0000);
 /// The PLIC's register window in bytes.
 pub const PLIC_REGION_BYTES: u64 = 0x400_0000;
 /// The system controller's register window in bytes.
 pub const SYSCON_REGION_BYTES: u64 = 0x1000;
 /// The Goldfish RTC's fixed base address.
-pub const RTC_BASE: u64 = 0x10_1000;
+pub const RTC_BASE: PhysAddr = PhysAddr::new(0x10_1000);
 /// The Goldfish RTC's register window in bytes.
 pub const RTC_REGION_BYTES: u64 = 0x1000;
 
@@ -194,17 +194,17 @@ impl SystemConfig {
         [
             DeviceRegion {
                 name: DeviceKind::Uart.name(),
-                base: self.uart_base.val(),
+                base: self.uart_base,
                 size: UART_REGION_BYTES,
             },
             DeviceRegion {
                 name: DeviceKind::VirtioBlk.name(),
-                base: self.disk_base.val(),
+                base: self.disk_base,
                 size: VIRTIO_REGION_BYTES,
             },
             DeviceRegion {
                 name: DeviceKind::Clint.name(),
-                base: self.clint_base.val(),
+                base: self.clint_base,
                 size: CLINT_REGION_BYTES,
             },
             DeviceRegion {
@@ -214,7 +214,7 @@ impl SystemConfig {
             },
             DeviceRegion {
                 name: DeviceKind::SysCon.name(),
-                base: self.syscon_base.val(),
+                base: self.syscon_base,
                 size: SYSCON_REGION_BYTES,
             },
             DeviceRegion {

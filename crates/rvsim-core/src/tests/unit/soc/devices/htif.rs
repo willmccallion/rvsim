@@ -14,7 +14,7 @@ fn quiet() -> SharedTerminal {
 #[test]
 fn reading_tohost_returns_zero() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal, Vec::new(), quiet());
 
     assert_eq!(
         crate::tests::support::probe::read(&mut htif, crate::common::PhysAddr::new(0x1000), 1)
@@ -40,7 +40,7 @@ fn reading_tohost_returns_zero() {
 #[test]
 fn byte_and_halfword_writes_to_tohost_are_ignored() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1_u64, 1);
     assert_eq!(exit_signal.peek(), None);
@@ -52,7 +52,7 @@ fn byte_and_halfword_writes_to_tohost_are_ignored() {
 #[test]
 fn a_write_beside_tohost_does_not_end_the_run() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(
         &mut htif,
@@ -69,7 +69,7 @@ fn a_write_beside_tohost_does_not_end_the_run() {
 #[test]
 fn a_tohost_value_of_one_passes_the_run() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1, 8);
     assert_eq!(exit_signal.peek(), Some(0));
@@ -78,7 +78,7 @@ fn a_tohost_value_of_one_passes_the_run() {
 #[test]
 fn an_odd_tohost_value_above_one_fails_with_its_test_number() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     // value 3 is test number 1 (3 >> 1)
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 3, 8);
@@ -92,7 +92,7 @@ fn an_odd_tohost_value_above_one_fails_with_its_test_number() {
 #[test]
 fn a_zero_tohost_value_is_ignored() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 0, 8);
     assert_eq!(exit_signal.peek(), None);
@@ -103,7 +103,7 @@ fn a_zero_tohost_value_is_ignored() {
 #[test]
 fn an_even_tohost_value_is_a_syscall_block_not_an_exit() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 42, 8);
     assert_eq!(exit_signal.peek(), None);
@@ -112,7 +112,7 @@ fn an_even_tohost_value_is_a_syscall_block_not_an_exit() {
 #[test]
 fn a_word_write_to_tohost_counts() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     // U32 pass
     crate::tests::support::probe::write(&mut htif, crate::common::PhysAddr::new(0x1000), 1_u64, 4);
@@ -124,7 +124,7 @@ fn a_word_write_to_tohost_counts() {
 #[test]
 fn fromhost_survives_a_checkpoint() {
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal, Vec::new(), quiet());
     let state = serde_json::json!({ "fromhost": 5, "host_files_open": 0 });
 
     htif.restore(&state).expect("the state restores");
@@ -141,7 +141,7 @@ fn fromhost_survives_a_checkpoint() {
 #[test]
 fn a_checkpoint_with_host_files_open_is_refused() {
     let exit_signal = ExitSignal::new();
-    let htif = Htif::new(0x1000, exit_signal, Vec::new(), quiet());
+    let htif = Htif::new(PhysAddr::new(0x1000), exit_signal, Vec::new(), quiet());
     let state = serde_json::json!({ "fromhost": 0, "host_files_open": 2 });
 
     let refused = htif.check_restore(&state);
@@ -164,7 +164,7 @@ fn getcwd_into_a_buffer_too_small_for_the_path_fails_with_erange() {
         .flat_map(|w| w.to_le_bytes())
         .collect();
     memory.write_bytes(Writer::External, PhysAddr::new(BLOCK), &block);
-    let mut htif = Htif::new(0x1000, ExitSignal::new(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), ExitSignal::new(), Vec::new(), quiet());
 
     probe::write_and_run_dma(&mut htif, &mut memory, PhysAddr::new(0x1000), BLOCK, 8);
 
@@ -184,7 +184,7 @@ fn an_exit_with_the_largest_code_still_ends_the_run() {
         [SYS_EXIT, u64::MAX, 0, 0, 0, 0, 0, 0].iter().flat_map(|w| w.to_le_bytes()).collect();
     memory.write_bytes(Writer::External, PhysAddr::new(BLOCK), &block);
     let exit_signal = ExitSignal::new();
-    let mut htif = Htif::new(0x1000, exit_signal.clone(), Vec::new(), quiet());
+    let mut htif = Htif::new(PhysAddr::new(0x1000), exit_signal.clone(), Vec::new(), quiet());
 
     probe::write_and_run_dma(&mut htif, &mut memory, PhysAddr::new(0x1000), BLOCK, 8);
 

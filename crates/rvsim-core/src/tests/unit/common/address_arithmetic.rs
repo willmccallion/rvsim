@@ -122,7 +122,7 @@ fn virt_and_phys_same_value_not_interchangeable() {
 
 #[test]
 fn a_range_contains_its_base_but_not_its_end() {
-    let range = PhysRange::new(0x1000, 0x100);
+    let range = PhysRange::new(PhysAddr::new(0x1000), 0x100);
 
     assert!(range.contains(PhysAddr::new(0x1000)));
     assert!(range.contains(PhysAddr::new(0x10ff)));
@@ -132,7 +132,7 @@ fn a_range_contains_its_base_but_not_its_end() {
 
 #[test]
 fn a_range_covers_an_access_only_when_all_of_it_is_inside() {
-    let range = PhysRange::new(0x1000, 0x100);
+    let range = PhysRange::new(PhysAddr::new(0x1000), 0x100);
 
     assert!(range.covers(PhysAddr::new(0x10f8), 8));
     assert!(!range.covers(PhysAddr::new(0x10fc), 8));
@@ -141,7 +141,7 @@ fn a_range_covers_an_access_only_when_all_of_it_is_inside() {
 
 #[test]
 fn ranges_overlap_only_when_they_share_an_address() {
-    let range = PhysRange::new(0x1000, 0x100);
+    let range = PhysRange::new(PhysAddr::new(0x1000), 0x100);
 
     assert!(range.overlaps(PhysAddr::new(0xffc), 8));
     assert!(range.overlaps(PhysAddr::new(0x10fc), 8));
