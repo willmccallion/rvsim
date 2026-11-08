@@ -90,135 +90,130 @@ pub(super) const fn sets_fixed_field(op: VectorOp, inst: u32) -> bool {
 /// extensions) into `c`.
 pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), DecodeFault> {
     match d.opcode {
-        v_opcodes::OP_V => {
-            if d.funct3 == v_funct3::OPCFG {
-                // vsetvl family: all write scalar rd.
-                let bit31 = (inst >> 31) & 1;
-                let bit30 = (inst >> 30) & 1;
+        v_opcodes::OP_V if d.funct3 == v_funct3::OPCFG => decode_config(c, inst),
+        v_opcodes::OP_V => decode_arithmetic(c, inst, d.funct3),
+        v_opcodes::OP_V_CRYPTO => decode_crypto(c, inst, d.funct3),
+        _ => Err(DecodeFault::UnknownEncoding),
+    }
+}
 
-                if bit31 == 0 {
-                    // vsetvli: zimm[10:0] from bits 30:20
-                    c.vec_op = Some(VectorOp::Config(VecConfigOp::Vsetvli {
-                        vtype: v_enc::zimm_vsetvli(inst),
-                    }));
-                    c.reg_write = true;
-                } else if bit30 == 1 {
-                    // vsetivli: zimm[9:0] from bits 29:20, uimm[4:0] from bits 19:15
-                    c.vec_op = Some(VectorOp::Config(VecConfigOp::Vsetivli {
-                        avl: v_enc::uimm_vsetivli(inst),
-                        vtype: v_enc::zimm_vsetivli(inst),
-                    }));
-                    c.reg_write = true;
-                } else if inst & VSETVL_ZERO_BITS != 0 {
-                    return Err(DecodeFault::ReservedField);
-                } else {
-                    // vsetvl: vtype from rs2
-                    c.vec_op = Some(VectorOp::Config(VecConfigOp::Vsetvl));
-                    c.reg_write = true;
-                    c.b_src = OpBSrc::Reg2;
-                }
+/// Records `inst`'s vd, vs1 and vs2 fields.
+const fn read_vector_registers(c: &mut ControlSignals, inst: u32) {
+    c.vd = VRegIdx::new(v_enc::vd(inst));
+    c.vs1 = VRegIdx::new(v_enc::vs1(inst));
+    c.vs2 = VRegIdx::new(v_enc::vs2(inst));
+}
 
-                // Store decoded vector register indices for downstream
-                c.vd = VRegIdx::new(v_enc::vd(inst));
-                c.vs1 = VRegIdx::new(v_enc::vs1(inst));
-                c.vs2 = VRegIdx::new(v_enc::vs2(inst));
-            } else {
-                // Vector arithmetic: funct6 is bits 31:26
-                let f6 = v_enc::funct6(inst);
-                c.vm = v_enc::vm(inst);
-                c.vd = VRegIdx::new(v_enc::vd(inst));
-                c.vs1 = VRegIdx::new(v_enc::vs1(inst));
-                c.vs2 = VRegIdx::new(v_enc::vs2(inst));
+/// Decodes the vsetvl family, which all write scalar rd.
+const fn decode_config(c: &mut ControlSignals, inst: u32) -> Result<(), DecodeFault> {
+    let bit31 = (inst >> 31) & 1;
+    let bit30 = (inst >> 30) & 1;
+    let config = if bit31 == 0 {
+        // vsetvli: zimm[10:0] from bits 30:20
+        VecConfigOp::Vsetvli { vtype: v_enc::zimm_vsetvli(inst) }
+    } else if bit30 == 1 {
+        // vsetivli: zimm[9:0] from bits 29:20, uimm[4:0] from bits 19:15
+        VecConfigOp::Vsetivli { avl: v_enc::uimm_vsetivli(inst), vtype: v_enc::zimm_vsetivli(inst) }
+    } else if inst & VSETVL_ZERO_BITS != 0 {
+        return Err(DecodeFault::ReservedField);
+    } else {
+        // vsetvl: vtype from rs2
+        c.b_src = OpBSrc::Reg2;
+        VecConfigOp::Vsetvl
+    };
+    c.vec_op = Some(VectorOp::Config(config));
+    c.reg_write = true;
+    read_vector_registers(c, inst);
+    Ok(())
+}
 
-                match d.funct3 {
-                    v_funct3::OPIVV => {
-                        c.vec_reg_write = true;
-                        c.vec_src_encoding = VecSrcEncoding::VV;
-                        c.vec_op = Some(decode_opivv(f6)?);
-                    }
-                    v_funct3::OPIVX => {
-                        c.vec_reg_write = true;
-                        c.vec_src_encoding = VecSrcEncoding::VX;
-                        c.vec_op = Some(decode_opivx(f6)?);
-                    }
-                    v_funct3::OPIVI => {
-                        c.vec_reg_write = true;
-                        let op = decode_opivi(f6, inst)?;
-                        c.vec_op = Some(op);
-                        c.vec_src_encoding = VecSrcEncoding::VI(vi_immediate(op, inst));
-                        // Whole-register moves: validate vd+nregs and vs2+nregs <= 32
-                        if let VectorOp::Permute(PermuteOp::WholeMove(registers)) = op {
-                            let nregs = registers.count();
-                            let vd_raw = v_enc::vd(inst);
-                            let vs2_raw = v_enc::vs2(inst);
-                            if vd_raw + nregs > 32 || vs2_raw + nregs > 32 {
-                                return Err(DecodeFault::MisplacedRegisterGroup);
-                            }
-                        }
-                    }
-                    v_funct3::OPMVV => {
-                        c.vec_src_encoding = VecSrcEncoding::VV;
-                        let (op, writes_vec) = decode_opmvv(f6, inst)?;
-                        c.vec_op = Some(op);
-                        c.vec_reg_write = writes_vec;
-                        // Some OPMVV ops write scalar rd instead of vec
-                        if matches!(
-                            op,
-                            VectorOp::Permute(PermuteOp::MvXS)
-                                | VectorOp::Mask(MaskOp::CPop | MaskOp::First)
-                        ) {
-                            c.reg_write = true;
-                        }
-                    }
-                    v_funct3::OPMVX => {
-                        c.vec_src_encoding = VecSrcEncoding::VX;
-                        let (op, writes_vec) = decode_opmvx(f6)?;
-                        c.vec_op = Some(op);
-                        c.vec_reg_write = writes_vec;
-                    }
-                    v_funct3::OPFVV => {
-                        c.vec_src_encoding = VecSrcEncoding::VV;
-                        let (op, writes_vec) = decode_opfvv(f6, inst)?;
-                        c.vec_op = Some(op);
-                        c.vec_reg_write = writes_vec;
-                        // Scalar-to-FP move (vfmv.f.s) writes FP rd, not vec
-                        if matches!(op, VectorOp::Fp(VecFpOp::MoveToScalar)) {
-                            c.fp_reg_write = true;
-                        }
-                    }
-                    v_funct3::OPFVF => {
-                        c.vec_src_encoding = VecSrcEncoding::VF;
-                        c.rs1_fp = true;
-                        let (op, writes_vec) = decode_opfvf(f6, inst)?;
-                        c.vec_op = Some(op);
-                        c.vec_reg_write = writes_vec;
-                    }
-                    _ => {
-                        return Err(DecodeFault::UnknownEncoding);
-                    }
+/// Decodes a vector arithmetic instruction, whose funct3 names its
+/// operand forms and funct6 (bits 31:26) its operation.
+fn decode_arithmetic(c: &mut ControlSignals, inst: u32, funct3: u32) -> Result<(), DecodeFault> {
+    let f6 = v_enc::funct6(inst);
+    c.vm = v_enc::vm(inst);
+    read_vector_registers(c, inst);
+
+    match funct3 {
+        v_funct3::OPIVV => {
+            c.vec_reg_write = true;
+            c.vec_src_encoding = VecSrcEncoding::VV;
+            c.vec_op = Some(decode_opivv(f6)?);
+        }
+        v_funct3::OPIVX => {
+            c.vec_reg_write = true;
+            c.vec_src_encoding = VecSrcEncoding::VX;
+            c.vec_op = Some(decode_opivx(f6)?);
+        }
+        v_funct3::OPIVI => {
+            c.vec_reg_write = true;
+            let op = decode_opivi(f6, inst)?;
+            c.vec_op = Some(op);
+            c.vec_src_encoding = VecSrcEncoding::VI(vi_immediate(op, inst));
+            // Whole-register moves: validate vd+nregs and vs2+nregs <= 32
+            if let VectorOp::Permute(PermuteOp::WholeMove(registers)) = op {
+                let nregs = registers.count();
+                if v_enc::vd(inst) + nregs > 32 || v_enc::vs2(inst) + nregs > 32 {
+                    return Err(DecodeFault::MisplacedRegisterGroup);
                 }
             }
         }
-        v_opcodes::OP_V_CRYPTO => {
-            // RVV crypto extensions (Zvkned/Zvknha/Zvksed/Zvksh/Zvkg).
-            // All Zvk* ops use opcode 0x77 with funct3=0b010 (OPMVV) and
-            // bit25=1 (vm always set; the masked encoding is reserved).
-            if d.funct3 != v_funct3::OPMVV {
-                return Err(DecodeFault::UnknownEncoding);
-            }
-            let f6 = v_enc::funct6(inst);
-            c.vm = v_enc::vm(inst);
-            c.vd = VRegIdx::new(v_enc::vd(inst));
-            c.vs1 = VRegIdx::new(v_enc::vs1(inst));
-            c.vs2 = VRegIdx::new(v_enc::vs2(inst));
+        v_funct3::OPMVV => {
             c.vec_src_encoding = VecSrcEncoding::VV;
-            c.vec_reg_write = true;
-            // VCRYPTO_VS = .vs form: broadcast vs2[0]; VCRYPTO_VV = .vv form: per-group key.
-            c.vec_broadcast_vs2 = f6 == v_f6::VCRYPTO_VS;
-            c.vec_op = Some(decode_opcrypto(f6, inst)?);
+            let (op, writes_vec) = decode_opmvv(f6, inst)?;
+            c.vec_op = Some(op);
+            c.vec_reg_write = writes_vec;
+            // Some OPMVV ops write scalar rd instead of vec
+            if matches!(
+                op,
+                VectorOp::Permute(PermuteOp::MvXS) | VectorOp::Mask(MaskOp::CPop | MaskOp::First)
+            ) {
+                c.reg_write = true;
+            }
+        }
+        v_funct3::OPMVX => {
+            c.vec_src_encoding = VecSrcEncoding::VX;
+            let (op, writes_vec) = decode_opmvx(f6)?;
+            c.vec_op = Some(op);
+            c.vec_reg_write = writes_vec;
+        }
+        v_funct3::OPFVV => {
+            c.vec_src_encoding = VecSrcEncoding::VV;
+            let (op, writes_vec) = decode_opfvv(f6, inst)?;
+            c.vec_op = Some(op);
+            c.vec_reg_write = writes_vec;
+            // Scalar-to-FP move (vfmv.f.s) writes FP rd, not vec
+            if matches!(op, VectorOp::Fp(VecFpOp::MoveToScalar)) {
+                c.fp_reg_write = true;
+            }
+        }
+        v_funct3::OPFVF => {
+            c.vec_src_encoding = VecSrcEncoding::VF;
+            c.rs1_fp = true;
+            let (op, writes_vec) = decode_opfvf(f6, inst)?;
+            c.vec_op = Some(op);
+            c.vec_reg_write = writes_vec;
         }
         _ => return Err(DecodeFault::UnknownEncoding),
     }
+    Ok(())
+}
+
+/// Decodes the vector crypto extensions (Zvkned/Zvknha/Zvksed/Zvksh/Zvkg),
+/// which all use funct3 OPMVV with bit 25 set (the masked encoding is
+/// reserved).
+fn decode_crypto(c: &mut ControlSignals, inst: u32, funct3: u32) -> Result<(), DecodeFault> {
+    if funct3 != v_funct3::OPMVV {
+        return Err(DecodeFault::UnknownEncoding);
+    }
+    let f6 = v_enc::funct6(inst);
+    c.vm = v_enc::vm(inst);
+    read_vector_registers(c, inst);
+    c.vec_src_encoding = VecSrcEncoding::VV;
+    c.vec_reg_write = true;
+    // VCRYPTO_VS = .vs form: broadcast vs2[0]; VCRYPTO_VV = .vv form: per-group key.
+    c.vec_broadcast_vs2 = f6 == v_f6::VCRYPTO_VS;
+    c.vec_op = Some(decode_opcrypto(f6, inst)?);
     Ok(())
 }
 
