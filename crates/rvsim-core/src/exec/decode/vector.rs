@@ -1,6 +1,6 @@
 //! Vector instruction decoding.
 
-use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32};
+use super::{DecodeFault, VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32};
 use crate::exec::signals::{ControlSignals, OpBSrc};
 use crate::isa::encoding::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
@@ -14,7 +14,6 @@ use crate::isa::op::{
     VecFpOp, VecLoadOp, VecSrcEncoding, VecStoreOp, VectorOp, WholeRegisters, WidenIntReduceOp,
     WidenMaccOp, WidenOp,
 };
-use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, VRegIdx};
 
 /// The instruction bit holding the top bit of `vror.vi`'s 6-bit rotate.
@@ -89,7 +88,7 @@ pub(super) const fn sets_fixed_field(op: VectorOp, inst: u32) -> bool {
 
 /// Decodes a vector instruction (RVV 1.0 and the vector crypto
 /// extensions) into `c`.
-pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), Trap> {
+pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), DecodeFault> {
     match d.opcode {
         v_opcodes::OP_V => {
             if d.funct3 == v_funct3::OPCFG {
@@ -111,7 +110,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                     }));
                     c.reg_write = true;
                 } else if inst & VSETVL_ZERO_BITS != 0 {
-                    return Err(Trap::IllegalInstruction(inst));
+                    return Err(DecodeFault::ReservedField);
                 } else {
                     // vsetvl: vtype from rs2
                     c.vec_op = Some(VectorOp::Config(VecConfigOp::Vsetvl));
@@ -135,12 +134,12 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                     v_funct3::OPIVV => {
                         c.vec_reg_write = true;
                         c.vec_src_encoding = VecSrcEncoding::VV;
-                        c.vec_op = Some(decode_opivv(f6, inst)?);
+                        c.vec_op = Some(decode_opivv(f6)?);
                     }
                     v_funct3::OPIVX => {
                         c.vec_reg_write = true;
                         c.vec_src_encoding = VecSrcEncoding::VX;
-                        c.vec_op = Some(decode_opivx(f6, inst)?);
+                        c.vec_op = Some(decode_opivx(f6)?);
                     }
                     v_funct3::OPIVI => {
                         c.vec_reg_write = true;
@@ -153,7 +152,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                             let vd_raw = v_enc::vd(inst);
                             let vs2_raw = v_enc::vs2(inst);
                             if vd_raw + nregs > 32 || vs2_raw + nregs > 32 {
-                                return Err(Trap::IllegalInstruction(inst));
+                                return Err(DecodeFault::MisplacedRegisterGroup);
                             }
                         }
                     }
@@ -173,7 +172,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                     }
                     v_funct3::OPMVX => {
                         c.vec_src_encoding = VecSrcEncoding::VX;
-                        let (op, writes_vec) = decode_opmvx(f6, inst)?;
+                        let (op, writes_vec) = decode_opmvx(f6)?;
                         c.vec_op = Some(op);
                         c.vec_reg_write = writes_vec;
                     }
@@ -195,7 +194,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
                         c.vec_reg_write = writes_vec;
                     }
                     _ => {
-                        return Err(Trap::IllegalInstruction(inst));
+                        return Err(DecodeFault::UnknownEncoding);
                     }
                 }
             }
@@ -205,7 +204,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
             // All Zvk* ops use opcode 0x77 with funct3=0b010 (OPMVV) and
             // bit25=1 (vm always set; the masked encoding is reserved).
             if d.funct3 != v_funct3::OPMVV {
-                return Err(Trap::IllegalInstruction(inst));
+                return Err(DecodeFault::UnknownEncoding);
             }
             let f6 = v_enc::funct6(inst);
             c.vm = v_enc::vm(inst);
@@ -218,7 +217,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
             c.vec_broadcast_vs2 = f6 == v_f6::VCRYPTO_VS;
             c.vec_op = Some(decode_opcrypto(f6, inst)?);
         }
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     }
     Ok(())
 }
@@ -230,7 +229,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
 /// rounds use distinct funct6 values and a shared vs1 sub-opcode set —
 /// the caller must inspect the original funct6 to set
 /// `vec_broadcast_vs2` accordingly.
-const fn decode_opcrypto(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
+const fn decode_opcrypto(f6: u32, inst: u32) -> Result<VectorOp, DecodeFault> {
     let vs1 = v_enc::vs1(inst);
     Ok(match f6 {
         v_f6::VSM3_ME => VectorOp::Crypto(CryptoOp::Sm3Me),
@@ -243,7 +242,7 @@ const fn decode_opcrypto(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
             v_f6::VAES_VS1_EF => VectorOp::Crypto(CryptoOp::AesEf),
             v_f6::VSM4_VS1_R => VectorOp::Crypto(CryptoOp::Sm4R),
             v_f6::VGMUL_VS1 => VectorOp::Crypto(CryptoOp::Gmul),
-            _ => return Err(Trap::IllegalInstruction(inst)),
+            _ => return Err(DecodeFault::UnknownEncoding),
         },
         v_f6::VCRYPTO_VS => match vs1 {
             v_f6::VAES_VS1_DM => VectorOp::Crypto(CryptoOp::AesDm),
@@ -252,7 +251,7 @@ const fn decode_opcrypto(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
             v_f6::VAES_VS1_EF => VectorOp::Crypto(CryptoOp::AesEf),
             v_f6::VAES_VS1_Z => VectorOp::Crypto(CryptoOp::AesZ),
             v_f6::VSM4_VS1_R => VectorOp::Crypto(CryptoOp::Sm4R),
-            _ => return Err(Trap::IllegalInstruction(inst)),
+            _ => return Err(DecodeFault::UnknownEncoding),
         },
         v_f6::VAES_KF2 => VectorOp::Crypto(CryptoOp::AesKf2),
         v_f6::VSM3_C => VectorOp::Crypto(CryptoOp::Sm3C),
@@ -260,12 +259,12 @@ const fn decode_opcrypto(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VSHA2_MS => VectorOp::Crypto(CryptoOp::Sha2Ms),
         v_f6::VSHA2_CH => VectorOp::Crypto(CryptoOp::Sha2Ch),
         v_f6::VSHA2_CL => VectorOp::Crypto(CryptoOp::Sha2Cl),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
 /// Decode OPIVV funct3 (integer vector-vector) operations.
-const fn decode_opivv(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
+const fn decode_opivv(f6: u32) -> Result<VectorOp, DecodeFault> {
     Ok(match f6 {
         v_f6::VSUB => VectorOp::Alu(VecAluOp::Int(IntOp::Sub)),
         v_f6::VMINU => VectorOp::Alu(VecAluOp::Int(IntOp::MinU)),
@@ -310,12 +309,12 @@ const fn decode_opivv(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VROL => VectorOp::Alu(VecAluOp::Int(IntOp::Rol)),
         v_f6::VROR => VectorOp::Alu(VecAluOp::Int(IntOp::Ror)),
         v_f6::VWSLL => VectorOp::Alu(VecAluOp::Widen(WidenOp::Sll)),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
 /// Decode OPIVX funct3 (integer vector-scalar) operations.
-const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
+const fn decode_opivx(f6: u32) -> Result<VectorOp, DecodeFault> {
     Ok(match f6 {
         v_f6::VSUB => VectorOp::Alu(VecAluOp::Int(IntOp::Sub)),
         v_f6::VRSUB => VectorOp::Alu(VecAluOp::Int(IntOp::Rsub)),
@@ -361,7 +360,7 @@ const fn decode_opivx(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VROL => VectorOp::Alu(VecAluOp::Int(IntOp::Rol)),
         v_f6::VROR => VectorOp::Alu(VecAluOp::Int(IntOp::Ror)),
         v_f6::VWSLL => VectorOp::Alu(VecAluOp::Widen(WidenOp::Sll)),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
@@ -384,7 +383,7 @@ const fn vi_immediate(op: VectorOp, inst: u32) -> i8 {
     }
 }
 
-const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
+const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, DecodeFault> {
     Ok(match f6 {
         v_f6::VRSUB => VectorOp::Alu(VecAluOp::Int(IntOp::Rsub)),
         v_f6::VAND => VectorOp::Alu(VecAluOp::Int(IntOp::And)),
@@ -406,7 +405,7 @@ const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
                 0b00001 => VectorOp::Permute(PermuteOp::WholeMove(WholeRegisters::Two)),
                 0b00011 => VectorOp::Permute(PermuteOp::WholeMove(WholeRegisters::Four)),
                 0b00111 => VectorOp::Permute(PermuteOp::WholeMove(WholeRegisters::Eight)),
-                _ => return Err(Trap::IllegalInstruction(inst)),
+                _ => return Err(DecodeFault::UnknownEncoding),
             }
         }
         v_f6::VADC => VectorOp::Alu(VecAluOp::Carry(CarryOp::Adc)),
@@ -431,13 +430,13 @@ const fn decode_opivi(f6: u32, inst: u32) -> Result<VectorOp, Trap> {
         v_f6::VNCLIP => VectorOp::Alu(VecAluOp::Narrow(NarrowOp::Clip)),
         v_f6::VROR | v_f6::VROR_VI_ROTATE_HIGH => VectorOp::Alu(VecAluOp::Int(IntOp::Ror)),
         v_f6::VWSLL => VectorOp::Alu(VecAluOp::Widen(WidenOp::Sll)),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
 /// Decode OPMVV funct3 (mask/reduction vector-vector) operations.
 /// Returns `(VectorOp, writes_vec_reg)`.
-const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), DecodeFault> {
     Ok(match f6 {
         v_f6::VREDSUM => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Sum)), true),
         v_f6::VREDAND => (VectorOp::Reduce(ReduceOp::Int(IntReduceOp::And)), true),
@@ -457,7 +456,7 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
                 v_f6::VWXUNARY0_VMV_X_S => (VectorOp::Permute(PermuteOp::MvXS), false),
                 v_f6::VWXUNARY0_VCPOP_M => (VectorOp::Mask(MaskOp::CPop), false),
                 v_f6::VWXUNARY0_VFIRST_M => (VectorOp::Mask(MaskOp::First), false),
-                _ => return Err(Trap::IllegalInstruction(inst)),
+                _ => return Err(DecodeFault::UnknownEncoding),
             }
         }
         v_f6::VXUNARY0 => match decode_vxunary0(inst) {
@@ -476,7 +475,7 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
                 }
                 v_f6::VMUNARY0_VIOTA_M => (VectorOp::Mask(MaskOp::Iota), true),
                 v_f6::VMUNARY0_VID_V => (VectorOp::Mask(MaskOp::Id), true),
-                _ => return Err(Trap::IllegalInstruction(inst)),
+                _ => return Err(DecodeFault::UnknownEncoding),
             }
         }
         // VMERGE_VMV in OPMVV decodes to vcompress.
@@ -518,13 +517,13 @@ const fn decode_opmvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VWMACCSU => (VectorOp::Alu(VecAluOp::WidenMacc(WidenMaccOp::MaccSU)), true),
         v_f6::VCLMUL => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMul)), true),
         v_f6::VCLMULH => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMulH)), true),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
 /// Decode OPMVX funct3 (mask/move vector-scalar) operations.
 /// Returns `(VectorOp, writes_vec_reg)`.
-const fn decode_opmvx(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+const fn decode_opmvx(f6: u32) -> Result<(VectorOp, bool), DecodeFault> {
     Ok(match f6 {
         v_f6::VRXUNARY0 => (VectorOp::Permute(PermuteOp::MvSX), true),
         v_f6::VSLIDEUP => (VectorOp::Permute(PermuteOp::Slide1Up), true),
@@ -562,13 +561,13 @@ const fn decode_opmvx(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VASUB => (VectorOp::Alu(VecAluOp::Int(IntOp::ASub)), true),
         v_f6::VCLMUL => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMul)), true),
         v_f6::VCLMULH => (VectorOp::Alu(VecAluOp::Int(IntOp::ClMulH)), true),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
 /// Decode `VXUNARY0`, the Zvbb unary ops and the integer extensions, from
 /// the vs1 field.
-const fn decode_vxunary0(inst: u32) -> Result<VecAluOp, Trap> {
+const fn decode_vxunary0(inst: u32) -> Result<VecAluOp, DecodeFault> {
     let vs1_field = v_enc::vs1(inst);
     Ok(match vs1_field {
         v_f6::VXUNARY0_VBREV => VecAluOp::Int(IntOp::Brev),
@@ -579,7 +578,7 @@ const fn decode_vxunary0(inst: u32) -> Result<VecAluOp, Trap> {
         v_f6::VXUNARY0_VCPOP => VecAluOp::Int(IntOp::CpopV),
         _ => match extension(vs1_field) {
             Some(op) => VecAluOp::Extend(op),
-            None => return Err(Trap::IllegalInstruction(inst)),
+            None => return Err(DecodeFault::UnknownEncoding),
         },
     })
 }
@@ -601,7 +600,7 @@ const fn extension(vs1_field: u8) -> Option<ExtendOp> {
 }
 
 /// Decode `VFUNARY0` sub-operations (conversion ops) from the vs1 field.
-const fn decode_vfunary0(inst: u32) -> Result<VecFpOp, Trap> {
+const fn decode_vfunary0(inst: u32) -> Result<VecFpOp, DecodeFault> {
     use IntConvert::{FromInt, ToInt};
     use IntRounding::{Dynamic, TowardZero};
     use Signedness::{Signed, Unsigned};
@@ -628,26 +627,26 @@ const fn decode_vfunary0(inst: u32) -> Result<VecFpOp, Trap> {
         0b10101 => VecFpOp::NarrowConvert(FpNarrowConvertOp::FloatRoundToOdd),
         0b10110 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(ToInt(Unsigned, TowardZero))),
         0b10111 => VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(ToInt(Signed, TowardZero))),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
 /// Decode `VFUNARY1` sub-operations (`vfsqrt`, `vfrsqrt7`, `vfrec7`, `vfclass`)
 /// from the vs1 field.
-const fn decode_vfunary1(inst: u32) -> Result<FpUnaryOp, Trap> {
+const fn decode_vfunary1(inst: u32) -> Result<FpUnaryOp, DecodeFault> {
     let vs1_field = v_enc::vs1(inst);
     Ok(match vs1_field {
         0b00000 => FpUnaryOp::Sqrt,
         0b00100 => FpUnaryOp::Rsqrt7,
         0b00101 => FpUnaryOp::Rec7,
         0b10000 => FpUnaryOp::Class,
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
 /// Decode OPFVV funct3 (FP vector-vector) operations.
 /// Returns `(VectorOp, writes_vec_reg)`.
-const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), DecodeFault> {
     Ok(match f6 {
         v_f6::VFADD => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Add)), true),
         v_f6::VFSUB => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sub)), true),
@@ -683,7 +682,7 @@ const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
             let vs1_field = v_enc::vs1(inst);
             match vs1_field {
                 v_f6::VWFUNARY0_VFMV_F_S => (VectorOp::Fp(VecFpOp::MoveToScalar), false),
-                _ => return Err(Trap::IllegalInstruction(inst)),
+                _ => return Err(DecodeFault::UnknownEncoding),
             }
         }
         v_f6::VFUNARY0 => match decode_vfunary0(inst) {
@@ -700,13 +699,13 @@ const fn decode_opfvv(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
         v_f6::VFREDMAX => (VectorOp::Reduce(ReduceOp::Fp(FpReduceOp::Max)), true),
         v_f6::VFWREDUSUM => (VectorOp::Reduce(ReduceOp::FpWiden(FpWidenReduceOp::USum)), true),
         v_f6::VFWREDOSUM => (VectorOp::Reduce(ReduceOp::FpWiden(FpWidenReduceOp::OSum)), true),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
 /// Decode OPFVF funct3 (FP vector-scalar) operations.
 /// Returns `(VectorOp, writes_vec_reg)`.
-const fn decode_opfvf(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
+const fn decode_opfvf(f6: u32, inst: u32) -> Result<(VectorOp, bool), DecodeFault> {
     Ok(match f6 {
         v_f6::VFADD => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Add)), true),
         v_f6::VFSUB => (VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Sub)), true),
@@ -748,12 +747,12 @@ const fn decode_opfvf(f6: u32, inst: u32) -> Result<(VectorOp, bool), Trap> {
             let vs2_field = v_enc::vs2(inst);
             match vs2_field {
                 v_f6::VRFUNARY0_VFMV_S_F => (VectorOp::Fp(VecFpOp::MoveFromScalar), true),
-                _ => return Err(Trap::IllegalInstruction(inst)),
+                _ => return Err(DecodeFault::UnknownEncoding),
             }
         }
         // VMERGE_VMV: vm=0 vfmerge.vfm, vm=1 vfmv.v.f.
         v_f6::VMERGE_VMV => (VectorOp::Fp(VecFpOp::Merge), true),
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     })
 }
 
@@ -772,7 +771,7 @@ pub(super) const fn decode_vec_load(
     inst: u32,
     funct3: u32,
     c: &mut ControlSignals,
-) -> Result<(), Trap> {
+) -> Result<(), DecodeFault> {
     let eew = funct3_to_eew(funct3);
     let mop = v_enc::mop(inst);
     let vm = v_enc::vm(inst);
@@ -781,14 +780,14 @@ pub(super) const fn decode_vec_load(
 
     // mew must be 0 for RVV 1.0
     if mew {
-        return Err(Trap::IllegalInstruction(inst));
+        return Err(DecodeFault::ReservedField);
     }
 
     let vd_raw = v_enc::vd(inst);
 
     // Segment/whole-register ops access vd..vd+nf; reject if that exceeds v31.
     if vd_raw + nf >= 32 {
-        return Err(Trap::IllegalInstruction(inst));
+        return Err(DecodeFault::MisplacedRegisterGroup);
     }
 
     c.vec_eew = eew;
@@ -806,7 +805,7 @@ pub(super) const fn decode_vec_load(
                 LUMOP_WHOLE_REG => VectorOp::Load(VecLoadOp::WholeRegister),
                 LUMOP_MASK => VectorOp::Load(VecLoadOp::Mask),
                 LUMOP_FAULT_FIRST => VectorOp::Load(VecLoadOp::FaultOnlyFirst),
-                _ => return Err(Trap::IllegalInstruction(inst)),
+                _ => return Err(DecodeFault::UnknownEncoding),
             });
         }
         MOP_INDEXED_UNORD => {
@@ -818,7 +817,7 @@ pub(super) const fn decode_vec_load(
         MOP_INDEXED_ORD => {
             c.vec_op = Some(VectorOp::Load(VecLoadOp::IndexedOrdered));
         }
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     }
 
     Ok(())
@@ -829,7 +828,7 @@ pub(super) const fn decode_vec_store(
     inst: u32,
     funct3: u32,
     c: &mut ControlSignals,
-) -> Result<(), Trap> {
+) -> Result<(), DecodeFault> {
     let eew = funct3_to_eew(funct3);
     let mop = v_enc::mop(inst);
     let vm = v_enc::vm(inst);
@@ -838,14 +837,14 @@ pub(super) const fn decode_vec_store(
 
     // mew must be 0 for RVV 1.0
     if mew {
-        return Err(Trap::IllegalInstruction(inst));
+        return Err(DecodeFault::ReservedField);
     }
 
     let vd_raw = v_enc::vd(inst);
 
     // Segment/whole-register ops access vs3..vs3+nf; reject if that exceeds v31.
     if vd_raw + nf >= 32 {
-        return Err(Trap::IllegalInstruction(inst));
+        return Err(DecodeFault::MisplacedRegisterGroup);
     }
 
     c.vec_eew = eew;
@@ -862,7 +861,7 @@ pub(super) const fn decode_vec_store(
                 SUMOP_UNIT => VectorOp::Store(VecStoreOp::Unit),
                 SUMOP_WHOLE_REG => VectorOp::Store(VecStoreOp::WholeRegister),
                 SUMOP_MASK => VectorOp::Store(VecStoreOp::Mask),
-                _ => return Err(Trap::IllegalInstruction(inst)),
+                _ => return Err(DecodeFault::UnknownEncoding),
             });
         }
         MOP_INDEXED_UNORD => {
@@ -874,7 +873,7 @@ pub(super) const fn decode_vec_store(
         MOP_INDEXED_ORD => {
             c.vec_op = Some(VectorOp::Store(VecStoreOp::IndexedOrdered));
         }
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     }
 
     Ok(())
@@ -882,7 +881,6 @@ pub(super) const fn decode_vec_store(
 
 #[cfg(test)]
 mod tests {
-    use crate::common::VirtAddr;
     use crate::exec::decode::decode_inst;
     use crate::isa::encoding::rvv::{funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes};
     use crate::isa::op::{
@@ -902,8 +900,8 @@ mod tests {
             | funct3 << 12
             | vd << 7
             | v_opcodes::OP_V;
-        let decoded = decode_inst(inst, VirtAddr::new(0), 0);
-        if decoded.trap.is_some() {
+        let decoded = decode_inst(inst, 0);
+        if decoded.fault.is_some() {
             return None;
         }
         decoded.ctrl.vec_op
@@ -1024,7 +1022,7 @@ mod tests {
     const WIDTH_32: u32 = 0b110;
 
     fn is_illegal(inst: u32) -> bool {
-        decode_inst(inst, VirtAddr::new(0), 0).trap.is_some()
+        decode_inst(inst, 0).fault.is_some()
     }
 
     #[test]

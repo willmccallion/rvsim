@@ -27,8 +27,43 @@ pub(super) const VEC_WIDTH_32: u32 = 0b110;
 /// Vector load/store width encoding for EEW=64.
 pub(super) const VEC_WIDTH_64: u32 = 0b111;
 
+/// Why an instruction decodes to a trap instead of control signals.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecodeFault {
+    /// The opcode and function fields name no instruction the simulator
+    /// implements.
+    UnknownEncoding,
+    /// A field holds a value its encoding reserves: a rounding mode, a mask
+    /// bit or vs2 the operation fixes, a memory width or field count.
+    ReservedField,
+    /// A vector register group is misaligned for its size or runs past v31.
+    MisplacedRegisterGroup,
+    /// `vtype.vill` is set and the instruction depends on `vtype`.
+    IllegalVtype,
+    /// The hart is configured without the instruction's extension.
+    ExtensionNotImplemented,
+    /// `ebreak`.
+    Breakpoint,
+}
+
+impl DecodeFault {
+    /// The trap the instruction `inst` at `pc` takes: a breakpoint for
+    /// `ebreak`, an illegal-instruction exception otherwise.
+    #[must_use]
+    pub const fn trap(self, inst: u32, pc: VirtAddr) -> Trap {
+        match self {
+            Self::Breakpoint => Trap::Breakpoint(pc.val()),
+            Self::UnknownEncoding
+            | Self::ReservedField
+            | Self::MisplacedRegisterGroup
+            | Self::IllegalVtype
+            | Self::ExtensionNotImplemented => Trap::IllegalInstruction(inst),
+        }
+    }
+}
+
 /// Decodes a single instruction into control signals.
-fn decode_instruction(inst: u32, pc: VirtAddr, d: &Decoded) -> Result<ControlSignals, Trap> {
+fn decode_instruction(inst: u32, d: &Decoded) -> Result<ControlSignals, DecodeFault> {
     let mut c = ControlSignals {
         a_src: OpASrc::Reg1,
         b_src: OpBSrc::Imm,
@@ -38,12 +73,12 @@ fn decode_instruction(inst: u32, pc: VirtAddr, d: &Decoded) -> Result<ControlSig
 
     match d.opcode {
         v_opcodes::OP_V | v_opcodes::OP_V_CRYPTO => vector::decode(&mut c, inst, d)?,
-        _ => scalar::decode(&mut c, inst, pc, d)?,
+        _ => scalar::decode(&mut c, inst, d)?,
     }
     if let Some(op) = c.vec_op
         && vector::sets_fixed_field(op, inst)
     {
-        return Err(Trap::IllegalInstruction(inst));
+        return Err(DecodeFault::ReservedField);
     }
     Ok(c)
 }
@@ -55,21 +90,21 @@ pub struct DecodedInst {
     pub fields: Decoded,
     /// What it does.
     pub ctrl: ControlSignals,
-    /// The illegal-instruction trap decoding found, if any.
-    pub trap: Option<Trap>,
+    /// Why it decodes to a trap, if it does.
+    pub fault: Option<DecodeFault>,
 }
 
-/// Decodes the (expanded) instruction `inst` at `pc` while `vtype` holds
+/// Decodes the (expanded) instruction `inst` while `vtype` holds
 /// `vtype_bits`.
 ///
 /// A vector instruction takes its register-group size from `vtype`, and is
 /// illegal when its register groups are misaligned for it.
 #[must_use]
-pub fn decode_inst(inst: u32, pc: VirtAddr, vtype_bits: u64) -> DecodedInst {
+pub fn decode_inst(inst: u32, vtype_bits: u64) -> DecodedInst {
     let mut fields = instruction_decode(inst);
-    let (mut ctrl, mut trap) = match decode_instruction(inst, pc, &fields) {
+    let (mut ctrl, mut fault) = match decode_instruction(inst, &fields) {
         Ok(ctrl) => (ctrl, None),
-        Err(trap) => (ControlSignals::default(), Some(trap)),
+        Err(fault) => (ControlSignals::default(), Some(fault)),
     };
     // A pseudo-operation that returns a value leaves it in a0, which is
     // its destination so that dependents wait for it.
@@ -80,21 +115,21 @@ pub fn decode_inst(inst: u32, pc: VirtAddr, vtype_bits: u64) -> DecodedInst {
         ctrl.reg_write = true;
     }
     let vtype = parse_vtype(vtype_bits);
-    if trap.is_none() && vtype.vill && ctrl.vec_op.is_some_and(VectorOp::depends_on_vtype) {
+    if fault.is_none() && vtype.vill && ctrl.vec_op.is_some_and(VectorOp::depends_on_vtype) {
         ctrl = ControlSignals::default();
-        trap = Some(Trap::IllegalInstruction(inst));
+        fault = Some(DecodeFault::IllegalVtype);
     }
     if let Some(op) = ctrl.vec_op
         && !op.is_config()
     {
         ctrl.vec_lmul_regs = vtype.vlmul.group_regs().regs();
         ctrl.vec_lmul_is_fractional = vtype.vlmul.is_fractional();
-        if trap.is_none() && vector_groups_misaligned(op, &ctrl, vtype) {
+        if fault.is_none() && vector_groups_misaligned(op, &ctrl, vtype) {
             ctrl = ControlSignals::default();
-            trap = Some(Trap::IllegalInstruction(inst));
+            fault = Some(DecodeFault::MisplacedRegisterGroup);
         }
     }
-    DecodedInst { fields, ctrl, trap }
+    DecodedInst { fields, ctrl, fault }
 }
 
 const fn is_whole_register_access(op: VectorOp) -> bool {

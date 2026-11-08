@@ -3,7 +3,7 @@
 //! table does not rely on rvsim's own encoders.
 
 use crate::common::VirtAddr;
-use crate::exec::decode::{DecodedInst, decode_inst};
+use crate::exec::decode::{DecodeFault, DecodedInst, decode_inst};
 use crate::exec::signals::{BranchCond, ControlFlow, JumpKind};
 use crate::isa::fence::Fence;
 use crate::isa::fp::{FpFormat, Rounding, RoundingMode};
@@ -77,7 +77,12 @@ use System::{Csr, Plain};
 const PC: u64 = 0x8000_0000;
 
 fn decode(word: u32) -> DecodedInst {
-    decode_inst(word, VirtAddr::new(PC), 0)
+    decode_inst(word, 0)
+}
+
+/// The trap `word` at `PC` takes, if it decodes to one.
+fn trap_of(word: u32) -> Option<Trap> {
+    decode(word).fault.map(|fault| fault.trap(word, VirtAddr::new(PC)))
 }
 
 fn format_of(decoded: &DecodedInst) -> Format {
@@ -108,8 +113,8 @@ fn check_rows<T: PartialEq + std::fmt::Debug>(
         .iter()
         .filter_map(|(asm, word, expected)| {
             let decoded = decode(*word);
-            if let Some(trap) = &decoded.trap {
-                return Some(format!("{asm} ({word:#010x}): trapped with {trap:?}"));
+            if let Some(fault) = &decoded.fault {
+                return Some(format!("{asm} ({word:#010x}): trapped with {fault:?}"));
             }
             let actual = meaning(&decoded, expected);
             (actual != *expected)
@@ -378,8 +383,44 @@ fn each_system_instruction_decodes_to_its_system_or_csr_operation() {
 }
 
 #[test]
+fn an_instruction_that_traps_says_why() {
+    const VADD_VV_V1_V2_V4: u32 = 0x0222_00d7;
+    const VTYPE_E8_M2: u64 = 0b001;
+    const VILL: u64 = 1 << 63;
+    let cases = [
+        ("op with funct7 0x7f", 0xfe00_0033, 0, DecodeFault::UnknownEncoding),
+        ("fadd.s with rounding mode 5", 0x0000_5053, 0, DecodeFault::ReservedField),
+        (
+            "vadd.vv into v1 at LMUL 2",
+            VADD_VV_V1_V2_V4,
+            VTYPE_E8_M2,
+            DecodeFault::MisplacedRegisterGroup,
+        ),
+        ("vadd.vv under vill", VADD_VV_V1_V2_V4, VILL, DecodeFault::IllegalVtype),
+        ("ebreak", 0x0010_0073, 0, DecodeFault::Breakpoint),
+    ];
+    for (what, word, vtype, fault) in cases {
+        assert_eq!(decode_inst(word, vtype).fault, Some(fault), "{what}");
+    }
+}
+
+#[test]
+fn every_fault_but_a_breakpoint_is_an_illegal_instruction() {
+    let illegal = [
+        DecodeFault::UnknownEncoding,
+        DecodeFault::ReservedField,
+        DecodeFault::MisplacedRegisterGroup,
+        DecodeFault::IllegalVtype,
+        DecodeFault::ExtensionNotImplemented,
+    ];
+    for fault in illegal {
+        assert_eq!(fault.trap(0x1234, VirtAddr::new(PC)), Trap::IllegalInstruction(0x1234));
+    }
+}
+
+#[test]
 fn ebreak_raises_a_breakpoint_at_its_pc() {
-    assert_eq!(decode(0x0010_0073).trap, Some(Trap::Breakpoint(PC)));
+    assert_eq!(trap_of(0x0010_0073), Some(Trap::Breakpoint(PC)));
 }
 
 /// An R-type word.
@@ -484,7 +525,7 @@ fn reserved_encodings_raise_illegal_instruction() {
     let wrong: Vec<String> = RESERVED
         .iter()
         .filter_map(|(name, word)| {
-            let trap = decode(*word).trap;
+            let trap = trap_of(*word);
             (trap != Some(Trap::IllegalInstruction(*word)))
                 .then(|| format!("{name} ({word:#010x}): {trap:?}"))
         })

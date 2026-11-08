@@ -1,8 +1,7 @@
 //! Scalar instruction decoding.
 
 use super::vector;
-use super::{VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64};
-use crate::common::VirtAddr;
+use super::{DecodeFault, VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64};
 use crate::exec::signals::{BranchCond, ControlFlow, ControlSignals, JumpKind, OpASrc, OpBSrc};
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64a::{
@@ -25,7 +24,6 @@ use crate::isa::op::{
     FpCompareOp, FpOp, IntAluOp, IntWidth, LogicOp, MemWidth, MinMaxOp, MulOp, OperandFormat,
     PackOp, RotateOp, ShiftAddOp, ShiftOp, SignInjectOp, Signedness, SingleBitOp, SystemOp,
 };
-use crate::isa::privileged::Trap;
 
 /// funct6 (bits 31:26) of the 64-bit shift-immediate encodings, whose low
 /// six immediate bits are the shift amount.
@@ -63,13 +61,7 @@ const SFENCE_VMA_MASK: u32 = 0xFE00_7FFF;
 /// Decodes a scalar instruction (RV64IMAFDC, Zb*, Zk*, Zicsr, Zicbo*,
 /// Zfh) into `c`, which starts with `alu: Add`, `a_src: Reg1` and
 /// `b_src: Imm`.
-pub(super) fn decode(
-    c: &mut ControlSignals,
-    inst: u32,
-    pc: VirtAddr,
-    d: &Decoded,
-) -> Result<(), Trap> {
-    let illegal = || Trap::IllegalInstruction(inst);
+pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), DecodeFault> {
     match d.opcode {
         i_opcodes::OP_LUI => {
             c.reg_write = true;
@@ -88,44 +80,45 @@ pub(super) fn decode(
             c.control_flow = ControlFlow::Jump(JumpKind::Jalr);
         }
         i_opcodes::OP_BRANCH => {
-            c.control_flow = ControlFlow::Branch(branch_cond(d.funct3).ok_or_else(illegal)?);
+            c.control_flow =
+                ControlFlow::Branch(branch_cond(d.funct3).ok_or(DecodeFault::UnknownEncoding)?);
             c.b_src = OpBSrc::Reg2;
         }
         i_opcodes::OP_LOAD => {
-            (c.width, c.signed_load) = load_width(d.funct3).ok_or_else(illegal)?;
+            (c.width, c.signed_load) = load_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.reg_write = true;
             c.mem_read = true;
         }
         i_opcodes::OP_STORE => {
-            c.width = store_width(d.funct3).ok_or_else(illegal)?;
+            c.width = store_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.mem_write = true;
         }
         i_opcodes::OP_IMM => {
             c.reg_write = true;
-            c.alu = AluOp::Int(op_imm(inst, d).ok_or_else(illegal)?);
+            c.alu = AluOp::Int(op_imm(inst, d).ok_or(DecodeFault::UnknownEncoding)?);
         }
         i_opcodes::OP_IMM_32 => {
             c.reg_write = true;
-            c.alu = AluOp::Int(op_imm_32(inst, d).ok_or_else(illegal)?);
+            c.alu = AluOp::Int(op_imm_32(inst, d).ok_or(DecodeFault::UnknownEncoding)?);
             c.format = OperandFormat::Int(word_op_width(c.alu));
         }
         i_opcodes::OP_REG => {
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            c.alu = AluOp::Int(op(d).ok_or_else(illegal)?);
+            c.alu = AluOp::Int(op(d).ok_or(DecodeFault::UnknownEncoding)?);
         }
         i_opcodes::OP_REG_32 => {
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            c.alu = AluOp::Int(op_32(d).ok_or_else(illegal)?);
+            c.alu = AluOp::Int(op_32(d).ok_or(DecodeFault::UnknownEncoding)?);
             c.format = OperandFormat::Int(word_op_width(c.alu));
         }
-        a_opcodes::OP_AMO => decode_amo(c, inst, d).ok_or_else(illegal)?,
+        a_opcodes::OP_AMO => decode_amo(c, inst, d).ok_or(DecodeFault::UnknownEncoding)?,
         f_opcodes::OP_LOAD_FP if is_vector_width(d.funct3) => {
             vector::decode_vec_load(inst, d.funct3, c)?;
         }
         f_opcodes::OP_LOAD_FP => {
-            let (width, format) = fp_mem_width(d.funct3).ok_or_else(illegal)?;
+            let (width, format) = fp_mem_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.fp_reg_write = true;
             c.mem_read = true;
             c.width = width;
@@ -135,32 +128,34 @@ pub(super) fn decode(
             vector::decode_vec_store(inst, d.funct3, c)?;
         }
         f_opcodes::OP_STORE_FP => {
-            let (width, format) = fp_mem_width(d.funct3).ok_or_else(illegal)?;
+            let (width, format) = fp_mem_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.mem_write = true;
             c.rs2_fp = true;
             c.width = width;
             c.format = OperandFormat::Fp(format);
         }
         f_opcodes::OP_FP => {
-            c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or_else(illegal)?);
+            c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(DecodeFault::UnknownEncoding)?);
             c.rs1_fp = true;
             c.rs2_fp = true;
             c.fp_reg_write = true;
             c.b_src = OpBSrc::Reg2;
-            let op = op_fp(c, d).ok_or_else(illegal)?;
+            let op = op_fp(c, d).ok_or(DecodeFault::UnknownEncoding)?;
             c.alu = AluOp::Fp(op);
             if rounds(op) {
-                c.fp_rm = Some(rounding(inst, d)?);
+                c.fp_rm = Some(rounding(d)?);
             }
         }
-        d_opcodes::OP_FMADD => decode_fused(c, inst, d, FmaSigns::Macc)?,
-        d_opcodes::OP_FMSUB => decode_fused(c, inst, d, FmaSigns::MSac)?,
-        d_opcodes::OP_FNMADD => decode_fused(c, inst, d, FmaSigns::NMacc)?,
-        d_opcodes::OP_FNMSUB => decode_fused(c, inst, d, FmaSigns::NMSac)?,
-        sys_ops::OP_SYSTEM => decode_system(c, inst, pc, d)?,
+        d_opcodes::OP_FMADD => decode_fused(c, d, FmaSigns::Macc)?,
+        d_opcodes::OP_FMSUB => decode_fused(c, d, FmaSigns::MSac)?,
+        d_opcodes::OP_FNMADD => decode_fused(c, d, FmaSigns::NMacc)?,
+        d_opcodes::OP_FNMSUB => decode_fused(c, d, FmaSigns::NMSac)?,
+        sys_ops::OP_SYSTEM => decode_system(c, inst, d)?,
         sys_ops::OP_PSEUDO => c.system_op = SystemOp::Pseudo(PseudoOp::of(inst)),
-        i_opcodes::OP_MISC_MEM => c.system_op = misc_mem_op(d).ok_or_else(illegal)?,
-        _ => return Err(illegal()),
+        i_opcodes::OP_MISC_MEM => {
+            c.system_op = misc_mem_op(d).ok_or(DecodeFault::UnknownEncoding)?;
+        }
+        _ => return Err(DecodeFault::UnknownEncoding),
     }
     Ok(())
 }
@@ -380,38 +375,33 @@ const fn writes_int_register(c: &mut ControlSignals) {
 }
 
 /// Decodes a fused multiply-add with the `signs` into `c`.
-fn decode_fused(
-    c: &mut ControlSignals,
-    inst: u32,
-    d: &Decoded,
-    signs: FmaSigns,
-) -> Result<(), Trap> {
+fn decode_fused(c: &mut ControlSignals, d: &Decoded, signs: FmaSigns) -> Result<(), DecodeFault> {
     c.rs1_fp = true;
     c.rs2_fp = true;
     c.rs3_fp = true;
     c.fp_reg_write = true;
     c.b_src = OpBSrc::Reg2;
-    c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(Trap::IllegalInstruction(inst))?);
-    c.fp_rm = Some(rounding(inst, d)?);
+    c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(DecodeFault::UnknownEncoding)?);
+    c.fp_rm = Some(rounding(d)?);
     c.alu = AluOp::Fp(FpOp::Fma(signs));
     Ok(())
 }
 
 /// Decodes a SYSTEM instruction into `c`: SFENCE.VMA, a privileged
 /// instruction, or a CSR access.
-fn decode_system(c: &mut ControlSignals, inst: u32, pc: VirtAddr, d: &Decoded) -> Result<(), Trap> {
+fn decode_system(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), DecodeFault> {
     if inst & SFENCE_VMA_MASK == sys_ops::SFENCE_VMA {
         c.system_op = SystemOp::SfenceVma;
         return Ok(());
     }
     if d.funct3 == 0 {
         c.system_op = match d.raw {
-            sys_ops::EBREAK => return Err(Trap::Breakpoint(pc.val())),
+            sys_ops::EBREAK => return Err(DecodeFault::Breakpoint),
             sys_ops::MRET => SystemOp::Mret,
             sys_ops::SRET => SystemOp::Sret,
             sys_ops::WFI => SystemOp::Wfi,
             sys_ops::ECALL => SystemOp::Ecall,
-            _ => return Err(Trap::IllegalInstruction(inst)),
+            _ => return Err(DecodeFault::UnknownEncoding),
         };
         return Ok(());
     }
@@ -422,7 +412,7 @@ fn decode_system(c: &mut ControlSignals, inst: u32, pc: VirtAddr, d: &Decoded) -
         sys_ops::CSRRWI => CsrOp::Rwi,
         sys_ops::CSRRSI => CsrOp::Rsi,
         sys_ops::CSRRCI => CsrOp::Rci,
-        _ => return Err(Trap::IllegalInstruction(inst)),
+        _ => return Err(DecodeFault::UnknownEncoding),
     };
     c.system_op = SystemOp::Csr;
     c.csr_addr = inst.csr();
@@ -622,10 +612,10 @@ const fn op_32(d: &Decoded) -> Option<IntAluOp> {
 
 /// The rounding `d`'s rounding-mode field selects; a reserved mode makes
 /// the instruction illegal.
-const fn rounding(inst: u32, d: &Decoded) -> Result<Rounding, Trap> {
+const fn rounding(d: &Decoded) -> Result<Rounding, DecodeFault> {
     match Rounding::from_field(d.funct3) {
         Some(rounding) => Ok(rounding),
-        None => Err(Trap::IllegalInstruction(inst)),
+        None => Err(DecodeFault::ReservedField),
     }
 }
 
