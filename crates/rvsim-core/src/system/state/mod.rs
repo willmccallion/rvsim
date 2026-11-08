@@ -384,6 +384,7 @@ impl SystemState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::CoreId;
     use crate::common::PhysAddr;
     use crate::config::Config;
 
@@ -430,7 +431,7 @@ mod tests {
         assert_eq!(sys.harts.len(), 2);
         assert_eq!(sys.cores.len(), 2);
         assert_eq!(sys.harts[1].hart_id, HartId::new(1));
-        assert_eq!(sys.cores[1].units.core_id, crate::common::CoreId::new(1));
+        assert_eq!(sys.cores[1].units.core_id, CoreId::new(1));
         assert_ne!(sys.cores[0].units.l2_cache.id, sys.cores[1].units.l2_cache.id);
         assert_eq!(sys.uncore.l3_cache.id, sys.uncore.topology.llc);
     }

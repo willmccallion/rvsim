@@ -53,6 +53,7 @@ pub fn execute_vsetvl(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::isa::rvv;
     use crate::isa::rvv::{MaskPolicy, Sew, TailPolicy, Vlmul, VtypeFields};
 
     const ELEN: usize = 64;
@@ -184,10 +185,10 @@ mod tests {
         // This is a LEGAL configuration: SEW * lmul_den (8*8=64) <= ELEN * lmul_num (64*1=64).
         // VLMAX = (128/8)*1/8 = 2
         let vtype_bits: u64 = 0b101; // vsew=0, vlmul=0b101, vta=0, vma=0
-        let parsed = crate::isa::rvv::parse_vtype(vtype_bits);
+        let parsed = rvv::parse_vtype(vtype_bits);
         assert!(!parsed.vill, "mf8/e8 should NOT set vill");
-        assert_eq!(parsed.vlmul, crate::isa::rvv::Vlmul::Mf8);
-        assert_eq!(parsed.vsew, crate::isa::rvv::Sew::E8);
+        assert_eq!(parsed.vlmul, Vlmul::Mf8);
+        assert_eq!(parsed.vsew, Sew::E8);
 
         // execute_vsetvl with AVL=0, rd!=0, rs1!=0
         let (vl, vtype) = execute_vsetvl(0, vtype_bits, false, false, vlen128(), ELEN, 0);

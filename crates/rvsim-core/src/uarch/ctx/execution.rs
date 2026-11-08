@@ -177,11 +177,12 @@ const fn set_bits(word: &mut u64, mask: u64, on: bool) {
 mod tests {
     use super::*;
     use crate::config::Config;
+    use crate::system::SystemState;
 
     #[test]
     fn each_cycle_is_charged_to_the_current_privilege_mode() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         let paths = state.hart_paths();

@@ -267,11 +267,12 @@ mod tests {
     use crate::config::Config;
 
     use crate::isa::csr;
+    use crate::system::SystemState;
 
     #[test]
     fn mstatus_ignores_unwritable_bits_and_sstatus_shows_its_supervisor_view() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::MSTATUS, 0xFFFF_FFFF_FFFF_FFFF);
@@ -286,7 +287,7 @@ mod tests {
     #[test]
     fn mstatus_reads_sd_when_only_the_vector_state_is_dirty() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::MSTATUS, csr::MSTATUS_VS_DIRTY);
@@ -297,7 +298,7 @@ mod tests {
     #[test]
     fn an_fcsr_write_splits_into_fflags_and_frm() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         state.csr_write(csr::FCSR, 0xFF);

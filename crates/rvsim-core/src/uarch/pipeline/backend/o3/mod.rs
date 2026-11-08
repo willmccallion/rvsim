@@ -456,18 +456,18 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::isa::reg::RegIdx;
+    use crate::sim::components::CacheId;
+    use crate::sim::components::PipelineId;
+    use crate::system::SystemState;
+    use crate::uarch::pipeline::rename::prf::PhysReg;
 
     #[test]
     fn flush_empties_the_memory_stage_latches() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
-        let mut engine = O3Engine::new(
-            &config,
-            crate::sim::components::PipelineId::new(0),
-            crate::sim::components::CacheId::new(0),
-            crate::sim::components::CacheId::new(1),
-        );
+        let mut engine =
+            O3Engine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
         engine.execute_mem1.push(ExMem1Entry::default());
         engine.mem1_mem2.push(Mem1Mem2Entry::default());
         engine.mem2_wb.push(Mem2WbEntry::default());
@@ -481,21 +481,14 @@ mod tests {
     #[test]
     fn sync_arch_regs_copies_an_integer_register_into_the_prf() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let state = sys.core_ctx(0);
-        let mut engine = O3Engine::new(
-            &config,
-            crate::sim::components::PipelineId::new(0),
-            crate::sim::components::CacheId::new(0),
-            crate::sim::components::CacheId::new(1),
-        );
+        let mut engine =
+            O3Engine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
 
         state.hart.regs.write(RegIdx::new(1), 42);
         engine.sync_arch_regs(&state);
 
-        assert_eq!(
-            engine.prf.read(crate::uarch::pipeline::rename::prf::PhysReg::from_index(1)),
-            42
-        );
+        assert_eq!(engine.prf.read(PhysReg::from_index(1)), 42);
     }
 }

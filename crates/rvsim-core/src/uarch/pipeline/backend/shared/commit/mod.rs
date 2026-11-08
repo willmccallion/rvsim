@@ -260,27 +260,34 @@ fn is_pure_ram(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> bool {
 #[allow(clippy::unwrap_used, unused_results)]
 mod tests {
     use super::*;
+    use crate::common::InstSeq;
     use crate::common::VirtAddr;
     use crate::config::Config;
+    use crate::config::VecStoreForwarding;
+    use crate::exec::inst::Inst;
+    use crate::exec::signals::ControlSignals;
     use crate::isa::instruction::InstSize;
     use crate::isa::reg::RegIdx;
+    use crate::system::SystemState;
+    use crate::uarch::pipeline::rename::prf::PhysReg;
+    use crate::uarch::pipeline::rob::RenamedDst;
 
     #[test]
     fn a_completed_register_write_commits_its_value_to_the_hart() {
         let config = Config::minimal();
-        let mut sys = crate::system::SystemState::build(&config);
+        let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
 
         let mut rob = Rob::new(4);
         let mut store_buffer = StoreBuffer::new(4);
-        let mut vec_store_buffer = VecStoreBuffer::new(4, crate::config::VecStoreForwarding::Off);
+        let mut vec_store_buffer = VecStoreBuffer::new(4, VecStoreForwarding::Off);
         let mut scoreboard = Scoreboard::new();
 
-        let ctrl = crate::exec::signals::ControlSignals { reg_write: true, ..Default::default() };
+        let ctrl = ControlSignals { reg_write: true, ..Default::default() };
 
         let tag = rob
             .allocate(
-                &crate::exec::inst::Inst {
+                &Inst {
                     pc: VirtAddr::new(0x1000),
                     bits: 0,
                     size: InstSize::Standard,
@@ -288,11 +295,8 @@ mod tests {
                     ctrl,
                     ..Default::default()
                 },
-                crate::common::InstSeq::default(),
-                crate::uarch::pipeline::rob::RenamedDst {
-                    phys: crate::uarch::pipeline::rename::prf::PhysReg::from_index(1),
-                    old: crate::uarch::pipeline::rename::prf::PhysReg::ZERO,
-                },
+                InstSeq::default(),
+                RenamedDst { phys: PhysReg::from_index(1), old: PhysReg::ZERO },
             )
             .unwrap();
         rob.complete(tag, 42);
