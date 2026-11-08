@@ -4,7 +4,8 @@ the nested dict the Rust core expects."""
 from __future__ import annotations
 
 import copy
-import inspect
+import dataclasses
+from dataclasses import dataclass
 from typing import Any
 
 from .._core import check_config
@@ -51,7 +52,24 @@ _DEFAULT_LOAD_PREFETCHER = _load_prefetcher_from(_CACHES["load_prefetcher"])
 _DEFAULT_STORE_PREFETCHER = _store_prefetcher_from(_CACHES["store_prefetcher"])
 _DEFAULT_MEMORY_CONTROLLER = _controller_from(_MEMORY)
 
+# The fields holding component objects, which each Config copies.
+_COMPONENT_FIELDS = (
+    "branch_predictor",
+    "backend",
+    "mem_dep_predictor",
+    "l1i",
+    "l1d",
+    "l2",
+    "l3",
+    "inclusion_policy",
+    "load_prefetcher",
+    "store_prefetcher",
+    "memory_controller",
+    "coherence",
+)
 
+
+@dataclass(kw_only=True, eq=False, repr=False)
 class Config:
     """
     Full simulator configuration with flat parameter access.
@@ -72,162 +90,96 @@ class Config:
         )
     """
 
-    def __init__(
-        self,
-        # Pipeline
-        width: int = _PIPELINE["width"],
-        fetch_width: int | None = _PIPELINE["fetch_width"],
-        decode_width: int | None = _PIPELINE["decode_width"],
-        rename_width: int | None = _PIPELINE["rename_width"],
-        issue_width: int | None = _PIPELINE["issue_width"],
-        commit_width: int | None = _PIPELINE["commit_width"],
-        writeback_width: int | None = _PIPELINE["writeback_width"],
-        trap_latency: int = _PIPELINE["trap_latency"],
-        redirect_latency: int | None = _PIPELINE["redirect_latency"],
-        fetch_decode_latency: int = _PIPELINE["fetch_decode_latency"],
-        decode_rename_latency: int = _PIPELINE["decode_rename_latency"],
-        rename_issue_latency: int = _PIPELINE["rename_issue_latency"],
-        csr_squash: str | None = _PIPELINE["csr_squash"],
-        fence_squash: bool = _PIPELINE["fence_squash"],
-        store_forward_latency: int | None = _PIPELINE["store_forward_latency"],
-        branch_predictor: BranchPredictor.Static
+    # Pipeline
+    width: int = _PIPELINE["width"]
+    fetch_width: int | None = _PIPELINE["fetch_width"]
+    decode_width: int | None = _PIPELINE["decode_width"]
+    rename_width: int | None = _PIPELINE["rename_width"]
+    issue_width: int | None = _PIPELINE["issue_width"]
+    commit_width: int | None = _PIPELINE["commit_width"]
+    writeback_width: int | None = _PIPELINE["writeback_width"]
+    trap_latency: int = _PIPELINE["trap_latency"]
+    redirect_latency: int | None = _PIPELINE["redirect_latency"]
+    fetch_decode_latency: int = _PIPELINE["fetch_decode_latency"]
+    decode_rename_latency: int = _PIPELINE["decode_rename_latency"]
+    rename_issue_latency: int = _PIPELINE["rename_issue_latency"]
+    csr_squash: str | None = _PIPELINE["csr_squash"]
+    fence_squash: bool = _PIPELINE["fence_squash"]
+    store_forward_latency: int | None = _PIPELINE["store_forward_latency"]
+    branch_predictor: (
+        BranchPredictor.Static
         | BranchPredictor.GShare
         | BranchPredictor.Bht
         | BranchPredictor.Tage
         | BranchPredictor.ScLTage
         | BranchPredictor.Perceptron
-        | BranchPredictor.Tournament = _DEFAULT_BRANCH_PREDICTOR,
-        backend: Backend.InOrder | Backend.OutOfOrder = _DEFAULT_BACKEND,
-        mem_dep_predictor: MemDepPredictor.Blind
-        | MemDepPredictor.StoreSet = _DEFAULT_MEM_DEP_PREDICTOR,
-        btb_size: int = _PIPELINE["btb_size"],
-        btb_ways: int = _PIPELINE["btb_ways"],
-        ras_size: int = _PIPELINE["ras_size"],
-        # Caches (None = disabled)
-        l1i: Cache | None = _DEFAULT_L1I,
-        l1d: Cache | None = _DEFAULT_L1D,
-        l2: Cache | None = _DEFAULT_L2,
-        l3: Cache | None = _DEFAULT_L3,
-        inclusion_policy: Any = _DEFAULT_INCLUSION_POLICY,
-        wcb_entries: int = _CACHES["wcb_entries"],
-        load_prefetcher: LoadPrefetcher.Stride | None = _DEFAULT_LOAD_PREFETCHER,
-        store_prefetcher: StorePrefetcher.Stream | None = _DEFAULT_STORE_PREFETCHER,
-        # Memory
-        ram_size: str | int = _MEMORY["ram_size"],
-        memory_controller: Any = _DEFAULT_MEMORY_CONTROLLER,
-        tlb_size: int = _MEMORY["tlb_size"],
-        tlb_ways: int = _MEMORY["tlb_ways"],
-        l2_tlb_size: int = _MEMORY["l2_tlb_size"],
-        l2_tlb_ways: int = _MEMORY["l2_tlb_ways"],
-        l2_tlb_latency: int = _MEMORY["l2_tlb_latency"],
-        misaligned_access_trap: bool = _MEMORY["misaligned_access_trap"],
-        paging_mode_max: str = _MEMORY["paging_mode_max"],
-        # ISA extensions
-        isa: str | None = _ISA["string"],
-        svadu: bool = _ISA["svadu"],
-        # Vector ISA
-        vlen: int = _PIPELINE["vlen"],
-        num_vec_lanes: int | None = _PIPELINE["num_vec_lanes"],
-        vector_mem_width: int | None = _PIPELINE["vector_mem_width"],
-        # General
-        trace: bool = _GENERAL["trace_instructions"],
-        page_mode: str = _GENERAL["page_mode"],
-        # System (advanced)
-        ram_base: int = _SYSTEM["ram_base"],
-        uart_base: int = _SYSTEM["uart_base"],
-        disk_base: int = _SYSTEM["disk_base"],
-        clint_base: int = _SYSTEM["clint_base"],
-        syscon_base: int = _SYSTEM["syscon_base"],
-        kernel_offset: int = _SYSTEM["kernel_offset"],
-        bus_width: int = _SYSTEM["bus_width"],
-        bus_latency: int = _SYSTEM["bus_latency"],
-        timer: str = _SYSTEM["timer"],
-        timebase_hz: int = _SYSTEM["timebase_hz"],
-        cpu_clock_mhz: int = _SYSTEM["cpu_clock_mhz"],
-        device_latency_ns: int = _SYSTEM["device_latency_ns"],
-        device_latency_ns_overrides: dict[str, int] | None = None,
-        rtc_epoch_seconds: int = _SYSTEM["rtc_epoch_seconds"],
-        console: ConsoleMode | str = _SYSTEM["console"],
-        hart_count: int = _SYSTEM["hart_count"],
-        coherence: Coherence | None = None,
-    ):
-        # Pipeline
-        self.width = width
-        self.fetch_width = fetch_width
-        self.decode_width = decode_width
-        self.rename_width = rename_width
-        self.issue_width = issue_width
-        self.commit_width = commit_width
-        self.writeback_width = writeback_width
-        self.trap_latency = trap_latency
-        self.redirect_latency = redirect_latency
-        self.fetch_decode_latency = fetch_decode_latency
-        self.decode_rename_latency = decode_rename_latency
-        self.rename_issue_latency = rename_issue_latency
-        self.csr_squash = csr_squash
-        self.fence_squash = fence_squash
-        self.store_forward_latency = store_forward_latency
-        self.branch_predictor = copy.deepcopy(branch_predictor)
-        self.backend = copy.deepcopy(backend)
-        self.mem_dep_predictor = copy.deepcopy(mem_dep_predictor)
-        self.btb_size = btb_size
-        self.btb_ways = btb_ways
-        self.ras_size = ras_size
+        | BranchPredictor.Tournament
+    ) = _DEFAULT_BRANCH_PREDICTOR
+    backend: Backend.InOrder | Backend.OutOfOrder = _DEFAULT_BACKEND
+    mem_dep_predictor: MemDepPredictor.Blind | MemDepPredictor.StoreSet = (
+        _DEFAULT_MEM_DEP_PREDICTOR
+    )
+    btb_size: int = _PIPELINE["btb_size"]
+    btb_ways: int = _PIPELINE["btb_ways"]
+    ras_size: int = _PIPELINE["ras_size"]
+    # Caches (None = disabled)
+    l1i: Cache | None = _DEFAULT_L1I
+    l1d: Cache | None = _DEFAULT_L1D
+    l2: Cache | None = _DEFAULT_L2
+    l3: Cache | None = _DEFAULT_L3
+    inclusion_policy: Any = _DEFAULT_INCLUSION_POLICY
+    wcb_entries: int = _CACHES["wcb_entries"]
+    load_prefetcher: LoadPrefetcher.Stride | None = _DEFAULT_LOAD_PREFETCHER
+    store_prefetcher: StorePrefetcher.Stream | None = _DEFAULT_STORE_PREFETCHER
+    # Memory
+    ram_size: str | int = _MEMORY["ram_size"]
+    memory_controller: Any = _DEFAULT_MEMORY_CONTROLLER
+    tlb_size: int = _MEMORY["tlb_size"]
+    tlb_ways: int = _MEMORY["tlb_ways"]
+    l2_tlb_size: int = _MEMORY["l2_tlb_size"]
+    l2_tlb_ways: int = _MEMORY["l2_tlb_ways"]
+    l2_tlb_latency: int = _MEMORY["l2_tlb_latency"]
+    misaligned_access_trap: bool = _MEMORY["misaligned_access_trap"]
+    paging_mode_max: str = _MEMORY["paging_mode_max"]
+    # ISA extensions
+    isa: str | None = _ISA["string"]
+    svadu: bool = _ISA["svadu"]
+    # Vector ISA
+    vlen: int = _PIPELINE["vlen"]
+    num_vec_lanes: int | None = _PIPELINE["num_vec_lanes"]
+    vector_mem_width: int | None = _PIPELINE["vector_mem_width"]
+    # General
+    trace: bool = _GENERAL["trace_instructions"]
+    page_mode: str = _GENERAL["page_mode"]
+    # System (advanced)
+    ram_base: int = _SYSTEM["ram_base"]
+    uart_base: int = _SYSTEM["uart_base"]
+    disk_base: int = _SYSTEM["disk_base"]
+    clint_base: int = _SYSTEM["clint_base"]
+    syscon_base: int = _SYSTEM["syscon_base"]
+    kernel_offset: int = _SYSTEM["kernel_offset"]
+    bus_width: int = _SYSTEM["bus_width"]
+    bus_latency: int = _SYSTEM["bus_latency"]
+    timer: str = _SYSTEM["timer"]
+    timebase_hz: int = _SYSTEM["timebase_hz"]
+    cpu_clock_mhz: int = _SYSTEM["cpu_clock_mhz"]
+    device_latency_ns: int = _SYSTEM["device_latency_ns"]
+    device_latency_ns_overrides: dict[str, int] | None = None
+    rtc_epoch_seconds: int = _SYSTEM["rtc_epoch_seconds"]
+    console: ConsoleMode | str = _SYSTEM["console"]
+    hart_count: int = _SYSTEM["hart_count"]
+    coherence: Coherence | None = None
 
-        # Caches
-        self.l1i = copy.deepcopy(l1i)
-        self.l1d = copy.deepcopy(l1d)
-        self.l2 = copy.deepcopy(l2)
-        self.l3 = copy.deepcopy(l3)
-        self.inclusion_policy = copy.deepcopy(inclusion_policy)
-        self.wcb_entries = wcb_entries
-        self.load_prefetcher = copy.deepcopy(load_prefetcher)
-        self.store_prefetcher = copy.deepcopy(store_prefetcher)
-
-        # Memory
-        self.ram_size = _parse_size(ram_size)
-        self.memory_controller = copy.deepcopy(memory_controller)
-        self.tlb_size = tlb_size
-        self.tlb_ways = tlb_ways
-        self.l2_tlb_size = l2_tlb_size
-        self.l2_tlb_ways = l2_tlb_ways
-        self.l2_tlb_latency = l2_tlb_latency
-        self.misaligned_access_trap = misaligned_access_trap
-        self.paging_mode_max = paging_mode_max
-
-        # ISA extensions
-        self.isa = isa
-        self.svadu = svadu
-
-        # Vector ISA
-        self.vlen = vlen
-        self.num_vec_lanes = num_vec_lanes
-        self.vector_mem_width = vector_mem_width
-
-        # General
-        self.trace = trace
-        self.page_mode = page_mode
-
-        # System
-        self.ram_base = ram_base
-        self.uart_base = uart_base
-        self.disk_base = disk_base
-        self.clint_base = clint_base
-        self.syscon_base = syscon_base
-        self.kernel_offset = kernel_offset
-        self.bus_width = bus_width
-        self.bus_latency = bus_latency
-        self.timer = timer
-        self.timebase_hz = timebase_hz
-        self.cpu_clock_mhz = cpu_clock_mhz
-        self.device_latency_ns = device_latency_ns
-        self.device_latency_ns_overrides = dict(device_latency_ns_overrides or {})
-        self.rtc_epoch_seconds = rtc_epoch_seconds
-        self.console = ConsoleMode(console)
-        self.hart_count = hart_count
-        self.coherence = (
-            copy.deepcopy(coherence) if coherence is not None else Coherence()
-        )
+    def __post_init__(self) -> None:
+        # Each Config owns its components, so editing one leaves the
+        # defaults and any Config it was made from alone.
+        for name in _COMPONENT_FIELDS:
+            setattr(self, name, copy.deepcopy(getattr(self, name)))
+        self.ram_size = _parse_size(self.ram_size)
+        self.device_latency_ns_overrides = dict(self.device_latency_ns_overrides or {})
+        self.console = ConsoleMode(self.console)
+        if self.coherence is None:
+            self.coherence = Coherence()
         check_config(self.to_dict())
 
     def isa_string(self) -> str:
@@ -252,16 +204,7 @@ class Config:
             wide = base.replace(width=8)
             ooo  = base.replace(backend=Backend.OutOfOrder(rob_size=128))
         """
-        fields = {
-            name: getattr(self, name)
-            for name in inspect.signature(Config.__init__).parameters
-            if name != "self"
-        }
-        unknown = set(kwargs) - set(fields)
-        if unknown:
-            raise TypeError(f"Config.replace() got unexpected fields: {unknown}")
-        fields.update(kwargs)
-        return Config(**fields)  # type: ignore[arg-type]
+        return dataclasses.replace(self, **kwargs)
 
     def __repr__(self) -> str:
         parts = [
