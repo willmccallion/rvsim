@@ -11,6 +11,11 @@
 //! mapping places its lowest-order field at bit [`CACHE_LINE_OFFSET_BITS`],
 //! so decomposing an address loses only its offset within the line.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "a DRAM coordinate is a bit field of the physical address"
+)]
+
 use crate::common::PhysAddr;
 use crate::config::AddressMappingKind;
 use crate::config::ddr5::CACHE_LINE_OFFSET_BITS;

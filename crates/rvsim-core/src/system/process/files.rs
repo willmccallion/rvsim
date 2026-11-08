@@ -34,6 +34,11 @@ pub struct Fd(i32);
 /// `openat`'s "relative to the working directory".
 pub const AT_FDCWD: Fd = Fd(-100);
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a descriptor is a C int in the syscall ABI"
+)]
 impl Fd {
     /// The descriptor a syscall argument holds: its low 32 bits, as the
     /// kernel reads an `int`.

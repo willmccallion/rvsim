@@ -113,6 +113,11 @@ impl MemoryConfig {
     /// The Simple controller's bandwidth in bytes per second; `None` when
     /// it is not positive.
     #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a positive finite rate, rounded down and saturating at u64::MAX"
+    )]
     pub fn simple_bandwidth_bytes_per_second(&self) -> Option<std::num::NonZeroU64> {
         let gib_s = self.simple_bandwidth_gib_s;
         if !(gib_s.is_finite() && gib_s > 0.0) {

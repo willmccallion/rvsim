@@ -5,6 +5,13 @@
 //! predictors, along with branch target buffer (BTB) and return address
 //! stack (RAS), composed into a prediction unit.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    reason = "predictor indices and tags are hashes folded from wider values"
+)]
+
 pub use self::direction::DirectionPredictor;
 pub use self::ghr::Ghr;
 pub use self::unit::{BranchPredUnit, ControlInst};

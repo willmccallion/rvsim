@@ -4,6 +4,11 @@
 //! This allows the simulator to provide a DTB to OpenSBI/Linux without
 //! requiring an external `dtc` compilation step.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "the flattened device tree stores 32-bit big-endian cells"
+)]
+
 use crate::config::{
     CLINT_REGION_BYTES, Config, PLIC_BASE, PLIC_REGION_BYTES, RTC_BASE, RTC_REGION_BYTES,
     SYSCON_REGION_BYTES, UART_REGION_BYTES, VIRTIO_REGION_BYTES,

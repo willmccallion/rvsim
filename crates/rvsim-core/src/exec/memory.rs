@@ -1,5 +1,10 @@
 //! What memory instructions compute from the data they access.
 
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "loads narrow to their width and sign- or zero-extend back"
+)]
+
 use crate::exec::compute::fpu::half::box_f16;
 use crate::exec::compute::fpu::nan_handling::F32_NAN_BOX_MASK;
 use crate::isa::bits::zext_word;

@@ -8,7 +8,7 @@ const _: () = assert!(usize::BITS == u64::BITS, "rvsim needs a 64-bit host");
 /// 64-bit, which the assertion above checks at compile time.
 #[inline]
 #[must_use]
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "usize is 64 bits on every host rvsim builds for"
 )]

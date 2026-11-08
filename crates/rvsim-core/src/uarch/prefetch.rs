@@ -5,6 +5,11 @@
 //! at a page boundary either stops or continues through the data TLB
 //! (`CPUACTLR_EL1[43]`).
 
+#![expect(
+    clippy::cast_possible_wrap,
+    reason = "prefetch candidates step over addresses by signed strides"
+)]
+
 use crate::common::{PAGE_SHIFT, PhysAddr, VirtAddr};
 use crate::config::PageBoundary;
 use crate::sim::packet::CacheLevel;

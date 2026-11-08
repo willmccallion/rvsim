@@ -51,6 +51,12 @@ pub fn build(
     let tracking: Box<dyn HomeAgent> = match config.home_agent {
         HomeAgentConfig::Broadcast => Box::new(Broadcast),
         HomeAgentConfig::SnoopFilter { capacity_factor, ways } => {
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                clippy::cast_precision_loss,
+                reason = "a non-negative multiple of a line count, rounded up to whole entries"
+            )]
             let entries =
                 (geometry.private_l2_lines as f64 * capacity_factor.max(0.0)).ceil() as usize;
             Box::new(SnoopFilter::new(entries.max(ways.get()), ways, geometry.line_bytes as u64))

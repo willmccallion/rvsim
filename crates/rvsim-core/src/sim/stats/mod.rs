@@ -15,6 +15,8 @@
 //!
 //! See `docs/architecture/stats.md` for the design rationale.
 
+#![expect(clippy::cast_precision_loss, reason = "stats report counts as f64, exact below 2^53")]
+
 use crate::common::ids::impl_id_from_index;
 use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write};
