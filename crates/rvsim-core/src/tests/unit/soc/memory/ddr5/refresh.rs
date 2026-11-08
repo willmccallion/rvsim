@@ -92,11 +92,11 @@ fn same_bank_refresh_rotates_bank_sets_and_leaves_the_others_serving() {
 
 #[test]
 fn bank_masks_cover_the_rank_and_one_bank_per_group() {
-    let layout = RankLayout { bank_groups: 2, banks_per_group: 2 };
+    let layout = RankLayout { bank_groups: 2, banks_per_group: std::num::NonZero::new(2).unwrap() };
     assert_eq!(bank_mask_all(layout), 0b1111);
     assert_eq!(bank_mask_set(layout, 0), 0b0101);
     assert_eq!(bank_mask_set(layout, 1), 0b1010);
-    let wide = RankLayout { bank_groups: 8, banks_per_group: 4 };
+    let wide = RankLayout { bank_groups: 8, banks_per_group: std::num::NonZero::new(4).unwrap() };
     assert_eq!(bank_mask_all(wide), (1u64 << 32) - 1);
     assert_eq!(bank_mask_set(wide, 3).count_ones(), 8);
 }

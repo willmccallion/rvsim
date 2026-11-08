@@ -27,7 +27,7 @@ pub fn tiny_config() -> Ddr5Config {
         subchannels_per_channel: 1,
         ranks_per_channel: 1,
         bank_groups_per_rank: 2,
-        banks_per_group: 2,
+        banks_per_group: std::num::NonZero::new(2).unwrap(),
         row_bits: 4,
         column_bits: 4,
         ..Ddr5Config::default()

@@ -149,7 +149,7 @@ impl Ddr5Controller {
                 subchannels: config.subchannels_per_channel,
                 ranks: config.ranks_per_channel,
                 bank_groups: config.bank_groups_per_rank,
-                banks_per_group: config.banks_per_group,
+                banks_per_group: config.banks_per_group.get(),
                 row_bits: config.row_bits,
                 column_bits: config.column_bits,
             },
@@ -432,7 +432,7 @@ impl Ddr5Controller {
     }
 
     fn bank_index(&self, bg: BankGroupId, bank: u8) -> usize {
-        usize::from(bg.val()) * usize::from(self.config.banks_per_group) + usize::from(bank)
+        usize::from(bg.val()) * usize::from(self.config.banks_per_group.get()) + usize::from(bank)
     }
 
     fn bank_snapshot(&self, ctx: BankCmdCtx) -> Bank {

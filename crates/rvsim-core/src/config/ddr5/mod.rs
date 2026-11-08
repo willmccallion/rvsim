@@ -3,6 +3,7 @@
 pub mod timing;
 
 use std::collections::BTreeMap;
+use std::num::NonZeroU8;
 
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +31,7 @@ pub struct Ddr5Config {
     /// Bank groups per rank.
     pub bank_groups_per_rank: u8,
     /// Banks per bank group.
-    pub banks_per_group: u8,
+    pub banks_per_group: NonZeroU8,
     /// Number of row-address bits.
     pub row_bits: u8,
     /// Number of column-address bits.
@@ -68,6 +69,12 @@ pub struct Ddr5Config {
     pub timing: Ddr5Timing,
 }
 
+/// DDR5's four banks per bank group.
+const BANKS_PER_GROUP: NonZeroU8 = match NonZeroU8::new(4) {
+    Some(banks) => banks,
+    None => panic!("a bank group holds banks"),
+};
+
 impl Ddr5Config {
     /// DDR5-4800B desktop configuration: two channels of two sub-channels,
     /// two ranks per channel of 16 Gb x8 devices (eight bank groups × four
@@ -81,7 +88,7 @@ impl Ddr5Config {
             subchannels_per_channel: 2,
             ranks_per_channel: 2,
             bank_groups_per_rank: 8,
-            banks_per_group: 4,
+            banks_per_group: BANKS_PER_GROUP,
             row_bits: 16,
             column_bits: 6,
             row_size_bytes: 4096,
@@ -206,7 +213,7 @@ impl TryFrom<Ddr5ParamsRaw> for Ddr5Params {
             ("subchannels_per_channel", raw.subchannels_per_channel),
             ("ranks_per_channel", raw.ranks_per_channel),
             ("bank_groups_per_rank", raw.bank_groups_per_rank),
-            ("banks_per_group", raw.banks_per_group),
+            ("banks_per_group", raw.banks_per_group.get()),
         ] {
             if value == 0 {
                 return Err(Ddr5ParamsError::Zero { field });
@@ -215,7 +222,7 @@ impl TryFrom<Ddr5ParamsRaw> for Ddr5Params {
                 return Err(Ddr5ParamsError::NotPowerOfTwo { field, value });
             }
         }
-        if u32::from(raw.bank_groups_per_rank) * u32::from(raw.banks_per_group) > 64 {
+        if u32::from(raw.bank_groups_per_rank) * u32::from(raw.banks_per_group.get()) > 64 {
             return Err(Ddr5ParamsError::TooManyBanks);
         }
         if raw.write_queue_entries == 0
@@ -300,7 +307,7 @@ pub struct Ddr5ParamsRaw {
     /// Bank groups per rank (power of two).
     pub bank_groups_per_rank: u8,
     /// Banks per bank group (power of two).
-    pub banks_per_group: u8,
+    pub banks_per_group: NonZeroU8,
     /// Row-address bits.
     pub row_bits: u8,
     /// Column-address bits, in cache-line units (row size is `64 << column_bits`).
