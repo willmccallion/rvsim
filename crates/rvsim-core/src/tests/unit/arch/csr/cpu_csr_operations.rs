@@ -534,16 +534,6 @@ fn test_csr_unknown_read_returns_zero() {
 }
 
 #[test]
-fn test_csr_unknown_write_ignored() {
-    let mut sys = minimal_system();
-    let mut state = sys.core_ctx(0);
-
-    // Writing to an unknown CSR should be ignored (no panic)
-    state.csr_write(CsrAddr::from_u32(0xFFF), 0xDEADBEEF);
-    // If we get here, the write was safely ignored
-}
-
-#[test]
 fn mstatus_write_turns_the_vector_unit_on() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
@@ -574,4 +564,14 @@ fn sstatus_reports_dirty_vector_state_in_sd() {
     state.csr_write(csr::SSTATUS, csr::MSTATUS_VS_DIRTY);
 
     assert_ne!(state.csr_read(csr::SSTATUS) & csr::MSTATUS_SD, 0);
+}
+
+#[test]
+fn a_write_to_an_unimplemented_csr_leaves_it_reading_zero() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(CsrAddr::from_u32(0xFFF), 0xDEAD_BEEF);
+
+    assert_eq!(state.csr_read(CsrAddr::from_u32(0xFFF)), 0);
 }
