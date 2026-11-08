@@ -5,6 +5,7 @@ Run with: .venv/bin/python -m unittest discover -s tests/python
 
 import contextlib
 import io
+import re
 import unittest
 
 from rvsim import Result, Stats
@@ -30,6 +31,19 @@ class Direction(unittest.TestCase):
 
     def test_a_counter_without_a_direction_has_none(self):
         self.assertIsNone(_better("core0.commit.op.load"))
+
+
+class Query(unittest.TestCase):
+    def test_a_regex_matches_anywhere_in_the_path_ignoring_case(self):
+        stats = run(core0__cache__l1d__misses=3, core0__cache__l1d__hits=7, ipc=1.5)
+
+        self.assertEqual(stats.query("L1D.MISS"), {"core0.cache.l1d.misses": 3})
+
+    def test_an_invalid_regex_is_an_error_not_a_substring_search(self):
+        stats = run(core0__cache__l1d__misses=3)
+
+        with self.assertRaises(re.error):
+            stats.query("l1d[")
 
 
 class RateAggregation(unittest.TestCase):
