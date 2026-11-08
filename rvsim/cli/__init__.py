@@ -15,6 +15,7 @@ import runpy
 import sys
 
 from ..presets import PRESETS
+from ..simulator import DebugEnd
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -201,7 +202,7 @@ def _run_under_gdb(sim, port: int, *, limit) -> int | None:
         file=sys.stderr,
     )
     outcome, code = sim.gdb(port)
-    if outcome == "detached":
+    if outcome is DebugEnd.DETACHED:
         return sim.run(limit=limit)
     return code
 

@@ -8,10 +8,23 @@ Provides callable namespace objects:
 
 import struct
 import sys
+from enum import Enum
 
 from ._core import disassemble
 
-__all__ = ["Disassemble", "csr", "reg"]
+__all__ = ["Disassemble", "Privilege", "csr", "reg"]
+
+
+class Privilege(str, Enum):
+    """A RISC-V privilege mode, by the letter the spec gives it; equal to
+    that letter as a string."""
+
+    MACHINE = "M"
+    SUPERVISOR = "S"
+    USER = "U"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class Disassemble:

@@ -15,6 +15,8 @@ mod conversion;
 mod errors;
 /// Instruction binding (`PyInstruction` exposed as `Instruction`).
 mod instruction;
+/// The Python package's enums the extension returns.
+mod python_enums;
 /// Simulator binding (`PySimulator` exposed as `Simulator`).
 mod simulator;
 /// Pipeline snapshot binding (`PyPipelineSnapshot` exposed as `PipelineSnapshot`).
