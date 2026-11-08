@@ -3,24 +3,23 @@
 use super::convert::f64_to_f32_round_to_odd;
 use super::fma::fma_operands;
 use super::{elem_to_f32, elem_to_f64, float_to_int};
-use crate::exec::compute::fpu::exact::{self, Exact, on_host_f32, on_host_f64};
+use crate::exec::compute::fpu::exact::{Exact, on_host_f32};
+use crate::exec::compute::fpu::float::{Float, SoftF16};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, is_snan_f16};
-use crate::exec::compute::fpu::host::{clear_host_fp_flags, read_host_fp_flags};
-use crate::exec::compute::fpu::nan_handling::{
-    box_f32_canon, canonicalize_f64_bits, is_snan_f32, is_snan_f64,
-};
+use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits, is_snan_f32};
 use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{
     VecExecCtx, VecExecResult, VecOperand, read_op1, widen_sew,
 };
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::isa::bits::zext_word;
-use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
+use crate::isa::fp::{FpFlags, RoundingMode};
 use crate::isa::op::{
     FmaAddend, FmaSigns, FpNarrowConvertOp, FpWidenConvertOp, FpWidenOp, IntConvert, Signedness,
 };
 use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlmax};
 use std::hint::black_box;
+use std::ops::Neg;
 
 /// Widening FP arithmetic: read at SEW (2*SEW for the `.w` forms' `vs2`),
 /// write at 2*SEW.
@@ -32,68 +31,65 @@ pub(super) fn exec_fp_widening(
     operand1: VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
+    let element: fn(FpWidenOp, u64, u64, RoundingMode) -> (u64, FpFlags) = match ctx.sew {
+        Sew::E32 => widening_arith::<f32, f64>,
+        Sew::E16 => widening_arith::<SoftF16, f32>,
+        Sew::E8 | Sew::E64 => return VecExecResult::default(),
+    };
     let Some(wsew) = widen_sew(ctx.sew) else {
         return VecExecResult::default();
     };
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let mut flags = FpFlags::NONE;
-    let vs2_wide = matches!(op, FpWidenOp::AddW | FpWidenOp::SubW);
-    let vs2_sew = if vs2_wide { wsew } else { ctx.sew };
+    let vs2_sew = if is_wide_vs2(op) { wsew } else { ctx.sew };
 
     for i in 0..vlmax {
         if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, wsew)) {
             continue;
         }
-
-        let vs2_raw = vpr.read_element(vs2_idx, ElemIdx::new(i), vs2_sew);
-        let op1_raw = read_op1(vpr, &operand1, i, ctx.sew);
-
-        if ctx.sew == Sew::E32 {
-            let vs2_f =
-                if vs2_wide { elem_to_f64(vs2_raw) } else { f64::from(elem_to_f32(vs2_raw)) };
-            let op1_f = f64::from(elem_to_f32(op1_raw));
-            let vs2_signaling = if vs2_wide {
-                is_snan_f64(elem_to_f64(vs2_raw))
-            } else {
-                is_snan_f32(elem_to_f32(vs2_raw))
-            };
-            flags = flags | invalid_if(vs2_signaling || is_snan_f32(elem_to_f32(op1_raw)));
-
-            let (r, f) = on_host_f64(
-                ctx.frm,
-                || widening_arith_on_host(op, vs2_f, op1_f),
-                || widening_arith_exact(op, vs2_f, op1_f),
-            );
-            flags = flags | f;
-            vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
-        } else if ctx.sew == Sew::E16 {
-            // f16 inputs → f32 output (via f64 for lossless computation).
-            let vs2_f = if vs2_wide {
-                f64::from(elem_to_f32(vs2_raw))
-            } else {
-                f64::from(f16_to_f32(vs2_raw as u16))
-            };
-            let op1_f = f64::from(f16_to_f32(op1_raw as u16));
-            let vs2_signaling = if vs2_wide {
-                is_snan_f32(elem_to_f32(vs2_raw))
-            } else {
-                is_snan_f16(vs2_raw as u16)
-            };
-            flags = flags | invalid_if(vs2_signaling || is_snan_f16(op1_raw as u16));
-
-            // The f64 result of f32-representable operands rounds to f32 the
-            // same as the exact one would, so the flags are read after it.
-            let (r_f32, f) = on_host_f32(
-                ctx.frm,
-                || black_box(widening_arith_on_host(op, vs2_f, op1_f)) as f32,
-                || widening_arith_exact(op, vs2_f, op1_f),
-            );
-            flags = flags | f;
-            vpr.write_element(vd_idx, ElemIdx::new(i), wsew, box_f32_canon(r_f32));
-        }
+        let vs2 = vpr.read_element(vs2_idx, ElemIdx::new(i), vs2_sew);
+        let op1 = read_op1(vpr, &operand1, i, ctx.sew);
+        let (result, f) = element(op, vs2, op1, ctx.frm);
+        flags = flags | f;
+        vpr.write_element(vd_idx, ElemIdx::new(i), wsew, result);
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
+}
+
+/// Whether `op` is a `.w` form, whose `vs2` is already 2*SEW.
+const fn is_wide_vs2(op: FpWidenOp) -> bool {
+    matches!(op, FpWidenOp::AddW | FpWidenOp::SubW)
+}
+
+/// The `N` element `bits` widened exactly to `W`, and whether it was a
+/// signaling NaN, which widening quiets.
+fn widened<N: Float, W: Float>(bits: u64) -> (W, bool) {
+    let narrow = N::from_raw_bits(bits);
+    (W::from_f64_exact(narrow.to_f64()), narrow.is_signaling_nan())
+}
+
+/// One element of a widening add, subtract or multiply: `vs2` at `N` (at
+/// `W` for the `.w` forms) and `op1` at `N`, computed and returned at `W`.
+fn widening_arith<N: Float, W: Float>(
+    op: FpWidenOp,
+    vs2: u64,
+    op1: u64,
+    rm: RoundingMode,
+) -> (u64, FpFlags) {
+    let (vs2, vs2_signaling) = if is_wide_vs2(op) {
+        let wide = W::from_raw_bits(vs2);
+        (wide, wide.is_signaling_nan())
+    } else {
+        widened::<N, W>(vs2)
+    };
+    let (op1, op1_signaling) = widened::<N, W>(op1);
+    let (result, flags) = match op {
+        FpWidenOp::Add | FpWidenOp::AddW => vs2.add(op1, rm),
+        FpWidenOp::Sub | FpWidenOp::SubW => vs2.sub(op1, rm),
+        FpWidenOp::Mul => vs2.mul(op1, rm),
+    };
+    (result.canonical().raw_bits(), flags | invalid_if(vs2_signaling || op1_signaling))
 }
 
 /// Widening conversions: read `vs2` at SEW, write at 2*SEW.
@@ -191,25 +187,6 @@ const fn invalid_if(signaling_nan_operand: bool) -> FpFlags {
     if signaling_nan_operand { FpFlags::NV } else { FpFlags::NONE }
 }
 
-/// A widening add, subtract or multiply of `vs2` and `op1` on the host.
-fn widening_arith_on_host(op: FpWidenOp, vs2: f64, op1: f64) -> f64 {
-    match op {
-        FpWidenOp::Add | FpWidenOp::AddW => black_box(vs2) + black_box(op1),
-        FpWidenOp::Sub | FpWidenOp::SubW => black_box(vs2) - black_box(op1),
-        FpWidenOp::Mul => black_box(vs2) * black_box(op1),
-    }
-}
-
-/// The exact result of [`widening_arith_on_host`]'s operation.
-const fn widening_arith_exact(op: FpWidenOp, vs2: f64, op1: f64) -> Exact {
-    let (vs2, op1) = (Exact::of_f64(vs2), Exact::of_f64(op1));
-    match op {
-        FpWidenOp::Add | FpWidenOp::AddW => exact::add(vs2, op1),
-        FpWidenOp::Sub | FpWidenOp::SubW => exact::sub(vs2, op1),
-        FpWidenOp::Mul => exact::mul(vs2, op1),
-    }
-}
-
 /// Widening FMA operations, accumulating into `vd` at 2*SEW.
 pub(super) fn exec_fp_widening_fma(
     signs: FmaSigns,
@@ -219,73 +196,46 @@ pub(super) fn exec_fp_widening_fma(
     operand1: VecOperand,
     ctx: &VecExecCtx,
 ) -> VecExecResult {
+    let element: fn(FmaSigns, [u64; 3], RoundingMode) -> (u64, FpFlags) = match ctx.sew {
+        Sew::E32 => widening_fma::<f32, f64>,
+        Sew::E16 => widening_fma::<SoftF16, f32>,
+        Sew::E8 | Sew::E64 => return VecExecResult::default(),
+    };
     let Some(wsew) = widen_sew(ctx.sew) else {
         return VecExecResult::default();
     };
     let vlmax = Vlmax::compute(vpr.vlen(), ctx.sew, ctx.vlmul).as_usize();
     let mut flags = FpFlags::NONE;
-    let form = (signs, FmaAddend::Vd);
 
     for i in 0..vlmax {
         if ctx.skip_element(vpr, i, FillTarget::Element(vd_idx, wsew)) {
             continue;
         }
-
-        let vs2_raw = vpr.read_element(vs2_idx, ElemIdx::new(i), ctx.sew);
-        let op1_raw = read_op1(vpr, &operand1, i, ctx.sew);
-        let vd_raw = vpr.read_element(vd_idx, ElemIdx::new(i), wsew);
-
-        if ctx.sew == Sew::E32 {
-            let vs2_f = f64::from(elem_to_f32(vs2_raw));
-            let op1_f = f64::from(elem_to_f32(op1_raw));
-            let vd_f = elem_to_f64(vd_raw);
-            flags = flags
-                | invalid_if(
-                    is_snan_f32(elem_to_f32(vs2_raw))
-                        || is_snan_f32(elem_to_f32(op1_raw))
-                        || is_snan_f64(vd_f),
-                );
-
-            let (a, b, c) = fma_operands(form, op1_f, vs2_f, vd_f);
-            let (r, f) = on_host_f64(
-                ctx.frm,
-                || black_box(a).mul_add(black_box(b), black_box(c)),
-                || exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c)),
-            );
-            flags = flags | f;
-            vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
-        } else if ctx.sew == Sew::E16 && ctx.zvfh {
-            // Zvfh widening FMA: f16 inputs → f32 accumulator
-            let vs2_f = f64::from(f16_to_f32(vs2_raw as u16));
-            let op1_f = f64::from(f16_to_f32(op1_raw as u16));
-            let vd_f = f64::from(elem_to_f32(vd_raw));
-            flags = flags
-                | invalid_if(
-                    is_snan_f16(vs2_raw as u16)
-                        || is_snan_f16(op1_raw as u16)
-                        || is_snan_f32(elem_to_f32(vd_raw)),
-                );
-
-            // The f64 fused result can be inexact and then rounds twice, so an
-            // inexact one is rounded to f32 from the exact value.
-            let (a, b, c) = fma_operands(form, op1_f, vs2_f, vd_f);
-            clear_host_fp_flags();
-            let host = black_box(black_box(a).mul_add(black_box(b), black_box(c)) as f32);
-            let host_flags = read_host_fp_flags();
-            let (bits, f) = if host_flags.contains(FpFlags::NX) && !host_flags.contains(FpFlags::NV)
-            {
-                let exact = exact::mul_add(Exact::of_f64(a), Exact::of_f64(b), Exact::of_f64(c));
-                let (bits, f) = exact::round(exact, FpFormat::Single, ctx.frm);
-                (box_f32_canon(f32::from_bits(bits as u32)), f)
-            } else {
-                (box_f32_canon(host), host_flags)
-            };
-            flags = flags | f;
-            vpr.write_element(vd_idx, ElemIdx::new(i), wsew, bits);
-        }
+        let vs2 = vpr.read_element(vs2_idx, ElemIdx::new(i), ctx.sew);
+        let op1 = read_op1(vpr, &operand1, i, ctx.sew);
+        let vd = vpr.read_element(vd_idx, ElemIdx::new(i), wsew);
+        let (result, f) = element(signs, [vs2, op1, vd], ctx.frm);
+        flags = flags | f;
+        vpr.write_element(vd_idx, ElemIdx::new(i), wsew, result);
     }
 
     VecExecResult { vxsat: false, scalar_result: None, fp_flags: flags }
+}
+
+/// One element of a widening FMA: `vs2` and `op1` at `N`, the `vd`
+/// accumulator at `W`, fused at `W`.
+fn widening_fma<N: Float, W: Float + Neg<Output = W>>(
+    signs: FmaSigns,
+    [vs2, op1, vd]: [u64; 3],
+    rm: RoundingMode,
+) -> (u64, FpFlags) {
+    let (vs2, vs2_signaling) = widened::<N, W>(vs2);
+    let (op1, op1_signaling) = widened::<N, W>(op1);
+    let vd = W::from_raw_bits(vd);
+    let (a, b, c) = fma_operands((signs, FmaAddend::Vd), op1, vs2, vd);
+    let (result, flags) = a.mul_add(b, c, rm);
+    let signaling = vs2_signaling || op1_signaling || vd.is_signaling_nan();
+    (result.canonical().raw_bits(), flags | invalid_if(signaling))
 }
 
 /// Narrowing FP conversions: read `vs2` at 2*SEW, write at SEW.
