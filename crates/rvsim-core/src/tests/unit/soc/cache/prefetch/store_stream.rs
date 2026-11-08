@@ -6,7 +6,7 @@ use crate::soc::cache::prefetch::StoreStreamPrefetcher;
 const LINE: u64 = 64;
 
 fn prefetcher(l2_lines: usize) -> StoreStreamPrefetcher {
-    StoreStreamPrefetcher::new(LINE as usize, 4, l2_lines)
+    StoreStreamPrefetcher::new(LINE as usize, std::num::NonZero::new(4).unwrap(), l2_lines)
 }
 
 #[test]

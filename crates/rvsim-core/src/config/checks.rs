@@ -6,9 +6,9 @@
 use super::pipeline::MAX_VECTOR_MEM_WIDTH;
 use super::{
     BackendKind, CacheConfig, CacheHierarchyConfig, CoherenceConfig, Config, ConfigError,
-    CsrSquash, HomeAgentConfig, InclusionPolicy, InterconnectConfig, LoadPrefetcherConfig,
-    MemoryConfig, MemoryControllerKind, PipelineConfig, PrefetcherKind, ReplacementPolicyKind,
-    StorePrefetcherConfig, SystemConfig, Timer,
+    CsrSquash, HomeAgentConfig, InclusionPolicy, LoadPrefetcherConfig, MemoryConfig,
+    MemoryControllerKind, PipelineConfig, PrefetcherKind, ReplacementPolicyKind, SystemConfig,
+    Timer,
 };
 use crate::common::PhysRange;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
@@ -237,9 +237,6 @@ fn check_caches(cache: &CacheHierarchyConfig) -> Result<(), ConfigError> {
     if let LoadPrefetcherConfig::Stride { table_size, .. } = cache.load_prefetcher {
         power_of_two("cache.load_prefetcher.table_size", table_size)?;
     }
-    if let StorePrefetcherConfig::Stream { streams, .. } = cache.store_prefetcher {
-        at_least_one("cache.store_prefetcher.streams", streams)?;
-    }
     Ok(())
 }
 
@@ -409,19 +406,10 @@ pub(in crate::config) const fn check_bank_list(
 }
 
 fn check_coherence(coherence: &CoherenceConfig) -> Result<(), ConfigError> {
-    at_least_one("coherence.txn_entries", coherence.txn_entries)?;
-    if let HomeAgentConfig::SnoopFilter { capacity_factor, ways } = coherence.home_agent {
-        if !(capacity_factor.is_finite() && capacity_factor > 0.0) {
-            return Err(ConfigError::SnoopFilterCapacity);
-        }
-        at_least_one("coherence.home_agent.ways", ways)?;
+    if let HomeAgentConfig::SnoopFilter { capacity_factor, .. } = coherence.home_agent
+        && !(capacity_factor.is_finite() && capacity_factor > 0.0)
+    {
+        return Err(ConfigError::SnoopFilterCapacity);
     }
-    let bytes_per_cycle = match coherence.interconnect {
-        InterconnectConfig::Crossbar { bytes_per_cycle, .. }
-        | InterconnectConfig::Ring { bytes_per_cycle, .. }
-        | InterconnectConfig::Mesh { bytes_per_cycle, .. }
-        | InterconnectConfig::Torus { bytes_per_cycle, .. }
-        | InterconnectConfig::Hypercube { bytes_per_cycle, .. } => bytes_per_cycle,
-    };
-    at_least_one("coherence.interconnect.bytes_per_cycle", bytes_per_cycle)
+    Ok(())
 }

@@ -7,6 +7,7 @@ use crate::soc::coherence::Interconnect;
 use crate::soc::coherence::stats::InterconnectStatPaths;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
+use std::num::NonZeroUsize;
 
 /// A full crossbar: any input can reach any output; each output accepts
 /// one message per class per transfer time, and a transfer takes
@@ -35,7 +36,7 @@ impl Crossbar {
         cores: usize,
         line_bytes: usize,
         hop_latency: u64,
-        bytes_per_cycle: usize,
+        bytes_per_cycle: NonZeroUsize,
         stat_paths: InterconnectStatPaths,
     ) -> Self {
         let ports = cores + 1;
@@ -43,7 +44,7 @@ impl Crossbar {
             cores,
             line_bytes,
             hop_latency,
-            bytes_per_cycle: bytes_per_cycle.max(1),
+            bytes_per_cycle: bytes_per_cycle.get(),
             inputs: (0..ports).map(|_| std::array::from_fn(|_| VecDeque::new())).collect(),
             output_free_at: vec![[0; 4]; ports],
             rr: vec![0; ports],
@@ -180,7 +181,7 @@ mod tests {
 
     #[test]
     fn a_message_arrives_after_hop_latency_plus_its_transfer_time() {
-        let mut xbar = Crossbar::new(2, 64, 3, 16, paths());
+        let mut xbar = Crossbar::new(2, 64, 3, std::num::NonZero::new(16).unwrap(), paths());
         xbar.send(10, Node::Core(CoreId::new(0)), req(1, 0));
         xbar.send(10, Node::Home, data(2, 1));
         let delivered = run(&mut xbar, 10, 30);
@@ -193,7 +194,7 @@ mod tests {
 
     #[test]
     fn one_output_serialises_messages_of_a_class_oldest_first() {
-        let mut xbar = Crossbar::new(2, 64, 1, 8, paths());
+        let mut xbar = Crossbar::new(2, 64, 1, std::num::NonZero::new(8).unwrap(), paths());
         xbar.send(5, Node::Core(CoreId::new(1)), req(1, 1));
         xbar.send(4, Node::Core(CoreId::new(0)), req(2, 0));
         let delivered = run(&mut xbar, 5, 20);
@@ -209,7 +210,7 @@ mod tests {
 
     #[test]
     fn classes_do_not_block_each_other() {
-        let mut xbar = Crossbar::new(1, 64, 1, 8, paths());
+        let mut xbar = Crossbar::new(1, 64, 1, std::num::NonZero::new(8).unwrap(), paths());
         // A long data transfer to core 0 and a short response to core 0 in the same cycle.
         xbar.send(0, Node::Home, data(1, 0));
         xbar.send(

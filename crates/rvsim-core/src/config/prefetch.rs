@@ -1,7 +1,9 @@
 //! The data prefetchers of the load/store unit and the L1D, modelled on
 //! the Cortex-A72's load/store hardware prefetcher (TRM §6.4.9).
 
+use super::defaults::non_zero;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 
 /// Where a load prefetch stream stops at the end of a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -30,7 +32,7 @@ impl StorePrefetcherConfig {
     /// ahead in the L2.
     #[must_use]
     pub const fn stream() -> Self {
-        Self::Stream { streams: 4, l2_lines: 8 }
+        Self::Stream { streams: non_zero(4), l2_lines: 8 }
     }
 }
 
@@ -71,7 +73,7 @@ pub enum StorePrefetcherConfig {
     /// prefetches only to the L2.
     Stream {
         /// Runs tracked at once.
-        streams: usize,
+        streams: NonZeroUsize,
         /// Lines ahead of the store misses prefetched into the L2.
         l2_lines: usize,
     },

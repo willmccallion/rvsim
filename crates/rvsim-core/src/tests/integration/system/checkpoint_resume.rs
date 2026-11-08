@@ -165,7 +165,10 @@ fn a_restore_leaves_the_snoop_filter_tracking_nothing() {
     ];
     let mut two_harts = config(BackendKind::OutOfOrder);
     two_harts.system.hart_count = std::num::NonZero::new(2).unwrap();
-    two_harts.coherence.home_agent = HomeAgentConfig::SnoopFilter { capacity_factor: 1.5, ways: 8 };
+    two_harts.coherence.home_agent = HomeAgentConfig::SnoopFilter {
+        capacity_factor: 1.5,
+        ways: std::num::NonZero::new(8).unwrap(),
+    };
     two_harts.cache.l1_d.enabled = true;
     two_harts.cache.l2.enabled = true;
     let mut system = MultiHart::with_config(&two_harts, &program);

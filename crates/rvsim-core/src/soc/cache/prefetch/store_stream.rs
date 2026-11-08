@@ -9,6 +9,7 @@
 //! larger page, so it stays inside the smallest.
 
 use crate::common::PAGE_SHIFT;
+use std::num::NonZeroUsize;
 
 /// A run of store misses in one page.
 #[derive(Clone, Copy, Debug)]
@@ -35,10 +36,10 @@ impl StoreStreamPrefetcher {
     /// A prefetcher tracking `streams` runs and keeping each `l2_lines`
     /// lines ahead.
     #[must_use]
-    pub fn new(line_bytes: usize, streams: usize, l2_lines: usize) -> Self {
+    pub fn new(line_bytes: usize, streams: NonZeroUsize, l2_lines: usize) -> Self {
         Self {
-            runs: Vec::with_capacity(streams.max(1)),
-            capacity: streams.max(1),
+            runs: Vec::with_capacity(streams.get()),
+            capacity: streams.get(),
             l2_lines,
             line_bytes: line_bytes as u64,
         }

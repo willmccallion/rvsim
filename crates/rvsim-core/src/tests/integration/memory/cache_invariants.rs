@@ -44,7 +44,10 @@ fn hierarchy(backend: BackendKind, policy: InclusionPolicy, prefetching: bool) -
         ] {
             cache.prefetcher = PrefetcherKind::NextLine;
         }
-        config.cache.store_prefetcher = StorePrefetcherConfig::Stream { streams: 4, l2_lines: 2 };
+        config.cache.store_prefetcher = StorePrefetcherConfig::Stream {
+            streams: std::num::NonZero::new(4).unwrap(),
+            l2_lines: 2,
+        };
         config.cache.load_prefetcher = LoadPrefetcherConfig::Stride {
             table_size: 64,
             l1_lines: 2,

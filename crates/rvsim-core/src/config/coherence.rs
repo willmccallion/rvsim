@@ -1,6 +1,8 @@
 //! The coherence fabric: protocol, home agent and interconnect.
 
+use super::defaults::non_zero;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 
 /// Which home agent decides who must be snooped.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
@@ -15,7 +17,7 @@ pub enum HomeAgentConfig {
         capacity_factor: f64,
         /// Filter associativity.
         #[serde(default = "HomeAgentConfig::default_ways")]
-        ways: usize,
+        ways: NonZeroUsize,
     },
 }
 
@@ -24,14 +26,14 @@ impl HomeAgentConfig {
         1.5
     }
 
-    const fn default_ways() -> usize {
-        8
+    const fn default_ways() -> NonZeroUsize {
+        non_zero(8)
     }
 }
 
 impl Default for HomeAgentConfig {
     fn default() -> Self {
-        Self::SnoopFilter { capacity_factor: 1.5, ways: 8 }
+        Self::SnoopFilter { capacity_factor: 1.5, ways: non_zero(8) }
     }
 }
 
@@ -46,7 +48,7 @@ pub enum InterconnectConfig {
         hop_latency: u64,
         /// Bytes an output port moves per cycle.
         #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
-        bytes_per_cycle: usize,
+        bytes_per_cycle: NonZeroUsize,
     },
     /// Bidirectional ring; the home is one stop.
     Ring {
@@ -55,7 +57,7 @@ pub enum InterconnectConfig {
         hop_latency: u64,
         /// Bytes a link moves per cycle.
         #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
-        bytes_per_cycle: usize,
+        bytes_per_cycle: NonZeroUsize,
     },
     /// 2-D mesh with XY routing.
     Mesh {
@@ -64,7 +66,7 @@ pub enum InterconnectConfig {
         hop_latency: u64,
         /// Bytes a link moves per cycle.
         #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
-        bytes_per_cycle: usize,
+        bytes_per_cycle: NonZeroUsize,
     },
     /// 2-D torus (mesh with wraparound) with XY routing.
     Torus {
@@ -73,7 +75,7 @@ pub enum InterconnectConfig {
         hop_latency: u64,
         /// Bytes a link moves per cycle.
         #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
-        bytes_per_cycle: usize,
+        bytes_per_cycle: NonZeroUsize,
     },
     /// Hypercube with dimension-order routing.
     Hypercube {
@@ -82,7 +84,7 @@ pub enum InterconnectConfig {
         hop_latency: u64,
         /// Bytes a link moves per cycle.
         #[serde(default = "InterconnectConfig::default_bytes_per_cycle")]
-        bytes_per_cycle: usize,
+        bytes_per_cycle: NonZeroUsize,
     },
 }
 
@@ -91,14 +93,14 @@ impl InterconnectConfig {
         2
     }
 
-    const fn default_bytes_per_cycle() -> usize {
-        32
+    const fn default_bytes_per_cycle() -> NonZeroUsize {
+        non_zero(32)
     }
 }
 
 impl Default for InterconnectConfig {
     fn default() -> Self {
-        Self::Crossbar { hop_latency: 2, bytes_per_cycle: 32 }
+        Self::Crossbar { hop_latency: 2, bytes_per_cycle: non_zero(32) }
     }
 }
 
@@ -123,7 +125,7 @@ pub struct CoherenceConfig {
     /// Interconnect.
     pub interconnect: InterconnectConfig,
     /// Transactions the home can have live at once.
-    pub txn_entries: usize,
+    pub txn_entries: NonZeroUsize,
 }
 
 impl Default for CoherenceConfig {
@@ -132,7 +134,7 @@ impl Default for CoherenceConfig {
             protocol: CoherenceProtocolConfig::default(),
             home_agent: HomeAgentConfig::default(),
             interconnect: InterconnectConfig::default(),
-            txn_entries: 32,
+            txn_entries: non_zero(32),
         }
     }
 }

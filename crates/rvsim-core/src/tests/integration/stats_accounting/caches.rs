@@ -46,7 +46,8 @@ fn prefetching_hierarchy(backend: BackendKind) -> Config {
     {
         cache.prefetcher = PrefetcherKind::NextLine;
     }
-    config.cache.store_prefetcher = StorePrefetcherConfig::Stream { streams: 4, l2_lines: 2 };
+    config.cache.store_prefetcher =
+        StorePrefetcherConfig::Stream { streams: std::num::NonZero::new(4).unwrap(), l2_lines: 2 };
     config
 }
 
@@ -346,7 +347,10 @@ fn store_prefetches_go_to_the_l2_and_are_dropped_without_an_mshr(rec: &mut Recor
     for backend in BACKENDS {
         let context = format!("{backend:?}");
         let mut config = hierarchy(backend);
-        config.cache.store_prefetcher = StorePrefetcherConfig::Stream { streams: 4, l2_lines: 2 };
+        config.cache.store_prefetcher = StorePrefetcherConfig::Stream {
+            streams: std::num::NonZero::new(4).unwrap(),
+            l2_lines: 2,
+        };
         config.cache.l2.mshr_count = count(16);
         let mut starved = config.clone();
         starved.cache.l2.mshr_count = count(1);
