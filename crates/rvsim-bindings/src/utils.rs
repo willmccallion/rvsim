@@ -5,6 +5,8 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+use rvsim_core::ValidConfig;
+
 use crate::conversion::py_dict_to_config;
 
 /// The version of the extension, as built.
@@ -33,7 +35,7 @@ pub fn disassemble(inst: u32) -> String {
 /// the simulator cannot implement.
 #[pyfunction]
 pub fn isa_string(py: Python<'_>, config_dict: &Bound<'_, PyAny>) -> PyResult<String> {
-    let config = py_dict_to_config(py, config_dict)?;
-    config.validate().map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let config = ValidConfig::try_from(py_dict_to_config(py, config_dict)?)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(config.isa_string())
 }
