@@ -1,6 +1,6 @@
 //! Demand requests: lookup, responses, misses, fills and evictions.
 
-use super::mshr::{Mshr, MshrTarget};
+use super::mshr::{FetchOrigin, Mshr, MshrTarget};
 use crate::common::{LineAddr, PAGE_SHIFT, PhysAddr, VirtAddr};
 use crate::config::InclusionPolicy;
 use crate::sim::components::{ComponentId, ReqId};
@@ -165,7 +165,10 @@ impl Cache {
         };
         if let Some(mshr) = self.mshrs.find_line_mut(line) {
             ctx.stats.counter(self.stat_paths.mshr_hits).inc();
-            if mshr.prefetch && mshr.targets.is_empty() && mshr.deferred.is_empty() {
+            if mshr.origin == FetchOrigin::Prefetch
+                && mshr.targets.is_empty()
+                && mshr.deferred.is_empty()
+            {
                 ctx.stats.counter(self.stat_paths.prefetches_late).inc();
             }
             if (is_write && !mshr.write) || !mshr.deferred.is_empty() {
@@ -182,7 +185,7 @@ impl Cache {
                 _ if is_write => MemOp::ReadOwn,
                 _ => MemOp::Read,
             };
-            self.start_fetch(line, vec![target], is_write, false, fetch_op, ctx);
+            self.start_fetch(line, vec![target], FetchOrigin::Demand, fetch_op, ctx);
             if is_write {
                 self.observe_store_miss(addr, ctx);
             }
@@ -196,11 +199,11 @@ impl Cache {
         &mut self,
         line: LineAddr,
         targets: Vec<MshrTarget>,
-        write: bool,
-        prefetch: bool,
+        origin: FetchOrigin,
         op: MemOp,
         ctx: &mut HandleCtx<'_>,
     ) {
+        let write = matches!(op, MemOp::ReadOwn);
         let vaddr = targets.first().and_then(|target| target.vaddr);
         let pc = targets.first().and_then(|target| target.pc);
         let req_id = self.alloc_req_id();
@@ -212,7 +215,7 @@ impl Cache {
             targets,
             deferred: Vec::new(),
             write,
-            prefetch,
+            origin,
             issued_at: ctx.cycle,
             upgrade,
         });
@@ -335,7 +338,7 @@ impl Cache {
             (false, CacheLevel::L1I) => MemOp::Fetch,
             (false, _) => MemOp::Read,
         };
-        self.start_fetch(line, Vec::new(), exclusive, true, op, ctx);
+        self.start_fetch(line, Vec::new(), FetchOrigin::Prefetch, op, ctx);
     }
 
     /// True when the line holding `addr` is here, writable if `exclusive`.
@@ -525,7 +528,7 @@ impl Cache {
         }
         let writable = matches!(installed, MesiState::Exclusive | MesiState::Modified);
         let Some(way) = self.find_way(line.val()).filter(|_| writable) else {
-            self.start_fetch(line, deferred, true, false, MemOp::ReadOwn, ctx);
+            self.start_fetch(line, deferred, FetchOrigin::Demand, MemOp::ReadOwn, ctx);
             return;
         };
         let index = self.set_index(line.val()) * self.ways + way;
@@ -569,8 +572,9 @@ impl Cache {
         let state = if self.lines[index].dirty() { MesiState::Modified } else { state };
         let kept = self.lines[index].valid().then_some(self.lines[index]);
         let upper = kept.map_or(0, |line| line.upper);
-        let unrequested_prefetch =
-            mshr.prefetch && mshr.targets.is_empty() && mshr.deferred.is_empty();
+        let unrequested_prefetch = mshr.origin == FetchOrigin::Prefetch
+            && mshr.targets.is_empty()
+            && mshr.deferred.is_empty();
         let prefetched = unrequested_prefetch || kept.is_some_and(|line| line.prefetched);
         self.lines[index] = CacheLine { tag, state, upper, prefetched };
         self.policy.insert(set_index, way);

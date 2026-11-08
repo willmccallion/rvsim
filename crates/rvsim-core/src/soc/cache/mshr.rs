@@ -11,6 +11,15 @@ use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp};
 use std::num::NonZeroUsize;
 
+/// What started a line fetch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchOrigin {
+    /// A request from above that missed.
+    Demand,
+    /// The cache's own prefetcher.
+    Prefetch,
+}
+
 /// A request waiting for an MSHR's fill.
 #[derive(Clone, Debug)]
 pub struct MshrTarget {
@@ -46,9 +55,8 @@ pub struct Mshr {
     /// True when the downstream request asked for write permission, so the
     /// fill installs the line dirty.
     pub write: bool,
-    /// True when the fetch was started by the prefetcher rather than a
-    /// demand request.
-    pub prefetch: bool,
+    /// Whether a demand request or the prefetcher started the fetch.
+    pub origin: FetchOrigin,
     /// Cycle the downstream request was sent.
     pub issued_at: u64,
     /// True when the line was already held and only write permission was
@@ -148,7 +156,7 @@ mod tests {
             targets: Vec::new(),
             deferred: Vec::new(),
             write: false,
-            prefetch: false,
+            origin: FetchOrigin::Demand,
             issued_at: 0,
             upgrade: false,
         }
