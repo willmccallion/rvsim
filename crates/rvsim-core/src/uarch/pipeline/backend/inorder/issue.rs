@@ -290,3 +290,163 @@ fn read_operand_by_tag(
     // A producer no longer in the ROB has committed its value to the register file.
     rob.find_entry(tag).map_or_else(from_register_file, |entry| entry.result)
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::common::{InstSeq, PhysAddr, VirtAddr};
+    use crate::config::{Config, FuConfig, VecStoreForwarding};
+    use crate::exec::inst::Inst;
+    use crate::exec::signals::ControlSignals;
+    use crate::isa::fence::Fence;
+    use crate::isa::op::{AmoOp, AtomicOp, MemWidth, SystemOp};
+    use crate::system::SystemState;
+    use crate::uarch::pipeline::rob::RenamedDst;
+
+    fn load() -> ControlSignals {
+        ControlSignals { mem_read: true, ..Default::default() }
+    }
+
+    fn store() -> ControlSignals {
+        ControlSignals { mem_write: true, ..Default::default() }
+    }
+
+    /// `fence pred, succ` with each set given as its four IORW bits.
+    fn fence(pred: u32, succ: u32) -> ControlSignals {
+        let bits = 0x0F | (pred << 24) | (succ << 20);
+        ControlSignals { system_op: SystemOp::Fence(Fence::decode(bits)), ..Default::default() }
+    }
+
+    fn amo() -> ControlSignals {
+        ControlSignals {
+            atomic_op: Some(AtomicOp::Amo(AmoOp::Add)),
+            mem_read: true,
+            mem_write: true,
+            ..Default::default()
+        }
+    }
+
+    /// An instruction executing `ctrl` allocated in `rob`, as rename hands
+    /// it to issue with its operands in the register file.
+    fn renamed(rob: &mut Rob, ctrl: ControlSignals) -> InOrderEntry {
+        let inst = Inst { pc: VirtAddr::new(0x1000), ctrl, ..Inst::default() };
+        let rob_tag = rob.allocate(&inst, InstSeq::default(), RenamedDst::NONE).unwrap();
+        RenameIssueEntry { rob_tag, inst, ..RenameIssueEntry::default() }
+    }
+
+    /// Retires the oldest instruction.
+    fn retire_head(rob: &mut Rob) {
+        let head = rob.peek_head().unwrap().tag;
+        rob.complete(head, 0);
+        let _ = rob.commit_head();
+    }
+
+    /// The machine's buffers and the issue unit holding `entry`.
+    struct Stage {
+        sys: SystemState,
+        store_buffer: StoreBuffer,
+        vec_store_buffer: VecStoreBuffer,
+        units: FuPool,
+        issue: InOrderIssueUnit,
+    }
+
+    impl Stage {
+        fn holding(entry: InOrderEntry) -> Self {
+            let mut issue = InOrderIssueUnit::new(4);
+            issue.dispatch(vec![entry]);
+            Self {
+                sys: SystemState::build(&Config::minimal()),
+                store_buffer: StoreBuffer::new(4),
+                vec_store_buffer: VecStoreBuffer::new(4, VecStoreForwarding::Off),
+                units: FuPool::new(&FuConfig::default()),
+                issue,
+            }
+        }
+
+        /// One cycle's selection against `rob`, from the head it has now.
+        fn select(&mut self, rob: &Rob) -> Selection {
+            let ctx = IssueContext {
+                rob,
+                head: HeadAtCycleStart::latch(rob),
+                store_buffer: &self.store_buffer,
+                vec_store_buffer: &self.vec_store_buffer,
+                pending_squash: None,
+                now: 0,
+            };
+            let mut core = self.sys.core_ctx(0);
+            self.issue.select(1, &ctx, &core.stage(), &mut self.units)
+        }
+    }
+
+    fn held_for_ordering(selection: &Selection) -> bool {
+        selection.issued.is_empty() && selection.held == Some(IssueHold::Ordering)
+    }
+
+    #[test]
+    fn a_load_waits_while_an_older_store_has_no_address() {
+        let mut rob = Rob::new(8);
+        let store = renamed(&mut rob, store());
+        let mut stage = Stage::holding(renamed(&mut rob, load()));
+        let _ = stage.store_buffer.allocate(store.rob_tag, MemWidth::Word);
+
+        let before = stage.select(&rob);
+        let address = PhysAddr::new(0x8000_0000);
+        stage.store_buffer.resolve_address(store.rob_tag, VirtAddr::new(0x8000_0000), address);
+        let after = stage.select(&rob);
+
+        assert!(held_for_ordering(&before));
+        assert_eq!(after.issued.len(), 1);
+    }
+
+    #[test]
+    fn an_amo_waits_until_it_is_the_oldest_instruction() {
+        let mut rob = Rob::new(8);
+        let _older = renamed(&mut rob, ControlSignals::default());
+        let mut stage = Stage::holding(renamed(&mut rob, amo()));
+
+        let behind_an_older_op = stage.select(&rob);
+        retire_head(&mut rob);
+        let at_the_head = stage.select(&rob);
+
+        assert!(held_for_ordering(&behind_an_older_op));
+        assert_eq!(at_the_head.issued.len(), 1);
+    }
+
+    #[test]
+    fn a_load_waits_behind_an_older_fence_that_orders_reads() {
+        let mut rob = Rob::new(8);
+        let _fence = renamed(&mut rob, fence(0b0010, 0b0010));
+        let mut stage = Stage::holding(renamed(&mut rob, load()));
+
+        let behind_the_fence = stage.select(&rob);
+        retire_head(&mut rob);
+        let after_it = stage.select(&rob);
+
+        assert!(held_for_ordering(&behind_the_fence));
+        assert_eq!(after_it.issued.len(), 1);
+    }
+
+    #[test]
+    fn an_alu_op_passes_an_older_fence() {
+        let mut rob = Rob::new(8);
+        let _fence = renamed(&mut rob, fence(0b0011, 0b0011));
+        let mut stage = Stage::holding(renamed(&mut rob, ControlSignals::default()));
+
+        assert_eq!(stage.select(&rob).issued.len(), 1);
+    }
+
+    #[test]
+    fn a_fence_waits_for_the_older_loads_it_orders() {
+        let mut rob = Rob::new(8);
+        let load = renamed(&mut rob, load());
+        let mut stage = Stage::holding(renamed(&mut rob, fence(0b0010, 0b0011)));
+
+        let while_the_load_is_out = stage.select(&rob);
+        rob.complete(load.rob_tag, 0);
+        let once_it_completes = stage.select(&rob);
+
+        assert!(held_for_ordering(&while_the_load_is_out));
+        assert_eq!(once_it_completes.issued.len(), 1);
+    }
+}
