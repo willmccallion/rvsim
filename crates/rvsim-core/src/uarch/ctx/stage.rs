@@ -8,8 +8,6 @@
 //! page-table walker's A-bit update, which the spec lets happen
 //! speculatively.
 
-use std::ops::Deref;
-
 use super::{csr, memory};
 use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
@@ -77,15 +75,14 @@ impl ArchState for StageCtx<'_> {
     }
 }
 
-impl Deref for StageCtx<'_> {
-    type Target = Uncore;
-
-    fn deref(&self) -> &Uncore {
+impl<'a> StageCtx<'a> {
+    /// The uncore, to read: a stage changes it only through this view's
+    /// methods.
+    #[must_use]
+    pub const fn uncore(&self) -> &Uncore {
         self.uncore
     }
-}
 
-impl<'a> StageCtx<'a> {
     pub(super) const fn new(
         hart: &'a Hart,
         core: &'a mut CoreUnits,

@@ -39,7 +39,7 @@ pub fn fetch2_stage(
 
     for f1 in entries {
         if let Some(ref trap) = f1.trap {
-            trace_trap!(state.trace_trap_enabled(trap);
+            trace_trap!(state.uncore().trace_trap_enabled(trap);
                 event = "propagate",
                 stage = "F2",
                 pc    = %Hex(f1.pc.val()),
@@ -75,7 +75,7 @@ pub fn fetch2_stage(
         };
 
         if let Some(t) = inst_trap {
-            trace_trap!(state.trace_trap_enabled(&t);
+            trace_trap!(state.uncore().trace_trap_enabled(&t);
                 event = "decode-trap",
                 stage = "F2",
                 pc    = %Hex(f1.pc.val()),
@@ -93,7 +93,7 @@ pub fn fetch2_stage(
             break;
         }
 
-        trace_fetch!(state.kernel.config.general.trace_instructions;
+        trace_fetch!(state.uncore().kernel.config.general.trace_instructions;
             pc         = %Hex(f1.pc.val()),
             inst       = inst,
             inst_size  = step.as_u64(),

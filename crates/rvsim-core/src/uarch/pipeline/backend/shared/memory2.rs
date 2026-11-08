@@ -72,7 +72,7 @@ pub fn memory2_stage(
 
     for mem in entries {
         if let Some(ref trap) = mem.op.trap {
-            trace_trap!(state.trace_trap_enabled(trap);
+            trace_trap!(state.uncore().trace_trap_enabled(trap);
                 event   = "propagate",
                 stage   = "M2",
                 pc      = %Hex(mem.op.pc.val()),
@@ -120,7 +120,7 @@ pub fn memory2_stage(
                     && let Some(violating_tag) =
                         lq.check_ordering_violation(paddr, width, mem.op.rob_tag)
                 {
-                    trace_fwd!(state.kernel.config.general.trace_instructions;
+                    trace_fwd!(state.uncore().kernel.config.general.trace_instructions;
                         event           = "violation",
                         store_pc        = %Hex(mem.op.pc.val()),
                         store_tag       = %mem.op.rob_tag,
@@ -134,7 +134,7 @@ pub fn memory2_stage(
                 }
             }
         } else {
-            trace_mem!(state.kernel.config.general.trace_instructions;
+            trace_mem!(state.uncore().kernel.config.general.trace_instructions;
                 stage   = "M2",
                 rob_tag = %mem.op.rob_tag,
                 pc      = %Hex(mem.op.pc.val()),
@@ -166,7 +166,7 @@ pub fn finalize_load(
         mem.op.ctrl.fp_reg_write,
     );
     if mem.sb_forwarded {
-        trace_fwd!(state.kernel.config.general.trace_instructions;
+        trace_fwd!(state.uncore().kernel.config.general.trace_instructions;
             event         = "forward",
             stage         = stage,
             load_pc       = %Hex(mem.op.pc.val()),
@@ -178,7 +178,7 @@ pub fn finalize_load(
             "load satisfied from store buffer (memory1 hit)"
         );
     } else {
-        trace_mem!(state.kernel.config.general.trace_instructions;
+        trace_mem!(state.uncore().kernel.config.general.trace_instructions;
             stage         = stage,
             rob_tag   = %mem.op.rob_tag,
             pc        = %Hex(mem.op.pc.val()),

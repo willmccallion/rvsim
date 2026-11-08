@@ -29,7 +29,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
                 rob.set_fp_flags(wb.op.rob_tag, wb.op.fp_flags);
             }
             rob.fault(wb.op.rob_tag, trap.clone());
-            trace_trap!(state.trace_trap_enabled(trap);
+            trace_trap!(state.uncore().trace_trap_enabled(trap);
                 event   = "writeback-fault",
                 pc      = %Hex(wb.op.pc.val()),
                 rob_tag = %wb.op.rob_tag,
@@ -65,7 +65,7 @@ pub fn writeback_stage(state: &mut StageCtx<'_>, input: &mut Vec<Mem2WbEntry>, r
         }
         rob.complete(wb.op.rob_tag, val);
 
-        trace_writeback!(state.kernel.config.general.trace_instructions;
+        trace_writeback!(state.uncore().kernel.config.general.trace_instructions;
             rob_tag  = %wb.op.rob_tag,
             pc       = %Hex(wb.op.pc.val()),
             result   = %Hex(val),

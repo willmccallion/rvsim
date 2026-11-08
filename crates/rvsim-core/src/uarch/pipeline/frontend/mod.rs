@@ -79,7 +79,7 @@ impl<E: ExecutionEngine> Frontend<E> {
         engine: &mut E,
         rename_output: &mut Latch<RenameIssueEntry<E::Regs>>,
     ) {
-        let now = state.kernel.cycle;
+        let now = state.uncore().kernel.cycle;
 
         self.rename_pass(state, engine, rename_output);
 
@@ -118,7 +118,9 @@ impl<E: ExecutionEngine> Frontend<E> {
         if engine.common().commit.trap.stops_fetch() {
             return;
         }
-        if engine.common().fetch.is_waiting() || engine.common().fetch_held(state.kernel.cycle) {
+        if engine.common().fetch.is_waiting()
+            || engine.common().fetch_held(state.uncore().kernel.cycle)
+        {
             state.counter(state.core().stat_paths.pipeline.stalls_fetch_wait).inc();
             return;
         }
@@ -141,7 +143,7 @@ impl<E: ExecutionEngine> Frontend<E> {
         engine: &mut E,
         rename_output: &mut Latch<RenameIssueEntry<E::Regs>>,
     ) {
-        let now = state.kernel.cycle;
+        let now = state.uncore().kernel.cycle;
         if rename_output.has_room()
             && let Some(decoded) = self.decode_rename.ready(now)
         {
@@ -181,5 +183,5 @@ impl<E: ExecutionEngine> Frontend<E> {
 /// MMIO returns garbage; the decoded `0` results in an illegal-instruction
 /// trap, which matches what real hardware would do.
 pub(super) fn read_inst_half(state: &StageCtx<'_>, paddr: u64) -> u16 {
-    state.kernel.memory.read(PhysAddr::new(paddr), 2).unwrap_or(0) as u16
+    state.uncore().kernel.memory.read(PhysAddr::new(paddr), 2).unwrap_or(0) as u16
 }

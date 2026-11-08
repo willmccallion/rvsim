@@ -63,10 +63,10 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
             acknowledge_write(pipeline, state, store.owner, req_id);
         }
     }
-    release_forwarded_loads(&mut pipeline.engine, state.kernel.cycle);
+    release_forwarded_loads(&mut pipeline.engine, state.uncore().kernel.cycle);
 
     drain_fetch_reorder(
-        state.kernel.cycle,
+        state.uncore().kernel.cycle,
         pipeline.engine.common_mut(),
         &mut pipeline.frontend.fetch_buffer,
         &mut pipeline.frontend.fetch1_fetch2,
@@ -151,9 +151,9 @@ fn complete_load<E: ExecutionEngine>(
 ) {
     let entry = load.entry;
     let paddr = load.paddr;
-    let cycle = state.kernel.cycle;
+    let cycle = state.uncore().kernel.cycle;
 
-    if let Some(log) = state.kernel.memory.write_log()
+    if let Some(log) = state.uncore().kernel.memory.write_log()
         && let Some(load_queue) = pipeline.engine.load_queue_mut()
         && let Some(violator) =
             load_queue.check_coherence_violation(entry.op.rob_tag, paddr, log, state.hart().hart_id)
@@ -179,7 +179,7 @@ fn complete_walk<E: ExecutionEngine>(
     data: &MemRespData,
 ) {
     let raw_pte = PartRead::of(data).value;
-    let bus_transit = state.bus.transit_cycles(8);
+    let bus_transit = state.uncore().bus.transit_cycles(8);
     let walked_page = walk.state.vaddr.val() >> PAGE_SHIFT;
     let outcome = state.translate_continue(walk.state, raw_pte, bus_transit, walk.access_size);
     match outcome {
@@ -255,7 +255,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
                     translations.second = translation;
                 }
                 pipeline.engine.common_mut().memory.mem1_delayed.push(DelayedAccess {
-                    ready_cycle: state.kernel.cycle,
+                    ready_cycle: state.uncore().kernel.cycle,
                     entry,
                     translations: *translations,
                 });
@@ -302,7 +302,7 @@ pub fn send_pte_write(
         .outstanding_stores
         .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked });
     let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
-    let cycle = state.kernel.cycle;
+    let cycle = state.uncore().kernel.cycle;
     state.events().schedule(
         cycle,
         ComponentId::Cache(l1_d_id),
@@ -326,7 +326,7 @@ fn emit_pte_req<E: ExecutionEngine>(
     pte_addr: PhysAddr,
 ) {
     let common = pipeline.engine.common();
-    let cycle = state.kernel.cycle;
+    let cycle = state.uncore().kernel.cycle;
     state.events().schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),

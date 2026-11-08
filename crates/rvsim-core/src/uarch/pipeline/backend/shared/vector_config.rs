@@ -18,7 +18,7 @@ pub fn set_vector_config<R: IssueRegisters>(
     let current_vl =
         rob.youngest_vec_csr_update().map_or_else(|| state.hart().csrs.vl, |config| config.vl);
     let vlen = state.hart().regs.vpr().vlen();
-    let elen = state.kernel.config.isa.vector.elen;
+    let elen = state.uncore().kernel.config.isa.vector.elen;
     let config = vector_config(&issued.inst, rs1_value, rs2_value, vlen, elen, current_vl);
     rob.set_vec_csr_update(issued.rob_tag, config);
     config.vl
