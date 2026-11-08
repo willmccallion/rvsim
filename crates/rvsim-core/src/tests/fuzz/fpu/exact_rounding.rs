@@ -72,7 +72,7 @@ fn f16_bits() -> impl Strategy<Value = u16> {
 fn half_range_f64_bits() -> impl Strategy<Value = u64> {
     const F64_BIAS: i64 = 1023;
     (any::<bool>(), -27i64..17, any::<u64>()).prop_map(|(neg, exponent, fraction)| {
-        (u64::from(neg) << 63) | (((exponent + F64_BIAS) as u64) << 52) | (fraction >> 12)
+        (u64::from(neg) << 63) | ((exponent + F64_BIAS).cast_unsigned() << 52) | (fraction >> 12)
     })
 }
 

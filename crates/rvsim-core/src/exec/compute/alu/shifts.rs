@@ -31,7 +31,9 @@ pub const fn execute(op: ShiftOp, a: u64, b: u64, width: IntWidth) -> u64 {
     let sh6 = (b & SHAMT_MASK_RV64) as u32;
     match op {
         ShiftOp::Sll => match width {
-            IntWidth::Word => (a as i32).wrapping_shl(b as u32 & SHAMT_MASK_RV32) as i64 as u64,
+            IntWidth::Word => {
+                ((a as i32).wrapping_shl(b as u32 & SHAMT_MASK_RV32) as i64).cast_unsigned()
+            }
             IntWidth::Double => a.wrapping_shl(sh6),
         },
         ShiftOp::Srl => match width {
@@ -39,8 +41,8 @@ pub const fn execute(op: ShiftOp, a: u64, b: u64, width: IntWidth) -> u64 {
             IntWidth::Double => a.wrapping_shr(sh6),
         },
         ShiftOp::Sra => match width {
-            IntWidth::Word => ((a as i32) >> (b as u32 & SHAMT_MASK_RV32)) as i64 as u64,
-            IntWidth::Double => ((a as i64) >> sh6) as u64,
+            IntWidth::Word => (((a as i32) >> (b as u32 & SHAMT_MASK_RV32)) as i64).cast_unsigned(),
+            IntWidth::Double => (a.cast_signed() >> sh6).cast_unsigned(),
         },
     }
 }

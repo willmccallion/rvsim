@@ -146,6 +146,6 @@ fn word_load_at_the_end_of_a_pmp_region_after_a_walk_does_not_fault() {
         (ctx.sim.state.harts[0].csrs.mcause, ctx.get_reg(X11 as usize))
     });
 
-    let loaded = (0, i64::from(FILL as i32) as u64);
+    let loaded = (0, i64::from(FILL.cast_signed()) as u64);
     assert_eq!(results, [loaded; 2], "[InOrder, OutOfOrder]: (mcause, x11)");
 }

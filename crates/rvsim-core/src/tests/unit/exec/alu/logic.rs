@@ -21,7 +21,7 @@ const ONE: u64 = 1;
 const NEG1: u64 = u64::MAX; // 0xFFFF_FFFF_FFFF_FFFF
 
 const I64_MAX: u64 = i64::MAX as u64; // 0x7FFF_FFFF_FFFF_FFFF
-const I64_MIN: u64 = i64::MIN as u64; // 0x8000_0000_0000_0000
+const I64_MIN: u64 = i64::MIN.cast_unsigned(); // 0x8000_0000_0000_0000
 const U64_MAX: u64 = u64::MAX;
 
 const ALTERNATING_A: u64 = 0xAAAA_AAAA_AAAA_AAAA;

@@ -348,7 +348,7 @@ pub fn decode(inst: u32) -> Decoded {
 /// I-Type format: `imm[11:0] | rs1 | funct3 | rd | opcode`
 /// Used for Load, JALR, and Immediate Arithmetic instructions.
 const fn decode_i_type_imm(inst: u32) -> i64 {
-    ((inst as i32) >> I_IMM_SHIFT) as i64
+    (inst.cast_signed() >> I_IMM_SHIFT) as i64
 }
 
 /// Decodes the immediate value for S-Type instructions.
@@ -384,7 +384,7 @@ pub(crate) const fn decode_b_type_imm(inst: u32) -> i64 {
 /// U-Type format: `imm[31:12] | rd | opcode`
 /// Used for LUI and AUIPC.
 const fn decode_u_type_imm(inst: u32) -> i64 {
-    ((inst & U_IMM_MASK) as i32) as i64
+    (inst & U_IMM_MASK).cast_signed() as i64
 }
 
 /// Decodes the immediate value for J-Type instructions.

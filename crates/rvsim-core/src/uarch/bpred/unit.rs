@@ -60,7 +60,7 @@ impl ControlInst {
     pub fn of(inst: &Inst) -> Option<Self> {
         let is_link = |reg: RegIdx| reg == reg::REG_RA || reg == reg::REG_T0;
         let link = is_link(inst.rd).then(|| inst.next_pc());
-        let pc_relative = inst.pc.wrapping_add(inst.imm as u64);
+        let pc_relative = inst.pc.wrapping_add(inst.imm.cast_unsigned());
         match inst.ctrl.control_flow {
             ControlFlow::Sequential => None,
             ControlFlow::Branch(_) => Some(Self::Branch { target: pc_relative }),

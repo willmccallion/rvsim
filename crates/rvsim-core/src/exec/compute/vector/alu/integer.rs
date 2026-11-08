@@ -64,7 +64,7 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
         }
         IntOp::Sra => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
-            let result = (s2 >> shamt) as u64;
+            let result = (s2 >> shamt).cast_unsigned();
             (result & mask, false)
         }
 
@@ -103,7 +103,7 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
                     // signed overflow: MIN_INT / -1 = MIN_INT
                     (min_int & mask, false)
                 } else {
-                    let result = s2.wrapping_div(s1) as u64;
+                    let result = s2.wrapping_div(s1).cast_unsigned();
                     (result & mask, false)
                 }
             }
@@ -125,7 +125,7 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
                     // signed overflow: MIN_INT % -1 = 0
                     (0, false)
                 } else {
-                    let result = s2.wrapping_rem(s1) as u64;
+                    let result = s2.wrapping_rem(s1).cast_unsigned();
                     (result & mask, false)
                 }
             }
@@ -138,9 +138,9 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
         IntOp::SAdd => {
             let sum = i128::from(s2) + i128::from(s1);
             if sum > i128::from(sew.signed_max()) {
-                ((sew.signed_max() as u64) & mask, true)
+                (sew.signed_max().cast_unsigned() & mask, true)
             } else if sum < i128::from(sew.signed_min()) {
-                ((sew.signed_min() as u64) & mask, true)
+                (sew.signed_min().cast_unsigned() & mask, true)
             } else {
                 (sum as u64 & mask, false)
             }
@@ -155,9 +155,9 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
         IntOp::SSub => {
             let diff = i128::from(s2) - i128::from(s1);
             if diff > i128::from(sew.signed_max()) {
-                ((sew.signed_max() as u64) & mask, true)
+                (sew.signed_max().cast_unsigned() & mask, true)
             } else if diff < i128::from(sew.signed_min()) {
-                ((sew.signed_min() as u64) & mask, true)
+                (sew.signed_min().cast_unsigned() & mask, true)
             } else {
                 (diff as u64 & mask, false)
             }
@@ -198,10 +198,10 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
             let sat;
             let clamped = if result_wide > i128::from(max_pos) {
                 sat = true;
-                max_pos as u64
+                max_pos.cast_unsigned()
             } else if result_wide < i128::from(min_neg) {
                 sat = true;
-                min_neg as u64
+                min_neg.cast_unsigned()
             } else {
                 sat = false;
                 result_wide as u64
@@ -218,7 +218,7 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
         IntOp::SSra => {
             let shamt = (op1 & (bits as u64 - 1)) as u32;
             let r = rounding_incr(vs2, shamt, vxrm);
-            let result = ((s2 >> shamt) as u64).wrapping_add(r);
+            let result = (s2 >> shamt).cast_unsigned().wrapping_add(r);
             (result & mask, false)
         }
 
@@ -402,8 +402,11 @@ pub(super) fn exec_extension(
         }
 
         let src_val = vpr.read_element(vs2_idx, ElemIdx::new(i), src_sew);
-        let result =
-            if is_signed { src_sew.sign_extend(src_val) as u64 & ctx.sew.mask() } else { src_val };
+        let result = if is_signed {
+            src_sew.sign_extend(src_val).cast_unsigned() & ctx.sew.mask()
+        } else {
+            src_val
+        };
         vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
     }
 

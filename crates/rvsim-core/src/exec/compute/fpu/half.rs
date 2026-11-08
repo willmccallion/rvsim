@@ -66,7 +66,7 @@ pub const fn f16_to_f32(h: u16) -> f32 {
                 e -= 1;
             }
             m &= F16_FRAC_MASK as u32;
-            let new_exp = (e + 127) as u32;
+            let new_exp = (e + 127).cast_unsigned();
             (sign << 31) | (new_exp << 23) | (m << 13)
         }
     } else if exp == F16_EXP_ALL_ONES as u32 {
@@ -74,7 +74,7 @@ pub const fn f16_to_f32(h: u16) -> f32 {
         (sign << 31) | (0xFF << 23) | (mant << 13)
     } else {
         // Re-bias via i32: exp can be below 15 (would underflow u32).
-        let new_exp = (exp as i32 - 15 + 127) as u32;
+        let new_exp = (exp.cast_signed() - 15 + 127).cast_unsigned();
         (sign << 31) | (new_exp << 23) | (mant << 13)
     };
 
@@ -136,9 +136,9 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
     // Normal target: shift = 53 - 11 (incl. implicit bit). Subnormal: shift
     // more, losing leading bits. Lower bits become guard/round/sticky.
     let (f16_exp, shift): (u32, u32) = if unbiased >= -14 {
-        ((unbiased + 15) as u32, 42)
+        ((unbiased + 15).cast_unsigned(), 42)
     } else {
-        (0, (42 + (-14 - unbiased)) as u32)
+        (0, (42 + (-14 - unbiased)).cast_unsigned())
     };
 
     let mant_shifted = sig >> shift;

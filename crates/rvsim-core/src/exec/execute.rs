@@ -30,7 +30,7 @@ pub const fn operands(inst: &Inst) -> (u64, u64) {
     };
     let op_b = match inst.ctrl.b_src {
         OpBSrc::Reg2 => inst.rv2,
-        OpBSrc::Imm => inst.imm as u64,
+        OpBSrc::Imm => inst.imm.cast_unsigned(),
         OpBSrc::Zero => 0,
     };
     (op_a, op_b)
@@ -347,9 +347,9 @@ pub const fn check_target_alignment(hart: &Hart, target: VirtAddr) -> Result<(),
 #[must_use]
 pub fn jump_target(inst: &Inst) -> VirtAddr {
     if inst.ctrl.control_flow == ControlFlow::Jump(JumpKind::Jalr) {
-        VirtAddr::new(inst.rv1.wrapping_add(inst.imm as u64) & JALR_ALIGNMENT_MASK)
+        VirtAddr::new(inst.rv1.wrapping_add(inst.imm.cast_unsigned()) & JALR_ALIGNMENT_MASK)
     } else {
-        inst.pc.wrapping_add(inst.imm as u64)
+        inst.pc.wrapping_add(inst.imm.cast_unsigned())
     }
 }
 

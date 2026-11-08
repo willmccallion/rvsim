@@ -65,7 +65,7 @@ pub const fn vd(inst: u32) -> u8 {
 /// Extract simm5 (bits 19:15): sign-extended 5-bit immediate for OPIVI.
 #[inline(always)]
 pub const fn simm5(inst: u32) -> i64 {
-    let raw = ((inst >> 15) & 0x1F) as i32;
+    let raw = ((inst >> 15) & 0x1F).cast_signed();
     ((raw << 27) >> 27) as i64
 }
 

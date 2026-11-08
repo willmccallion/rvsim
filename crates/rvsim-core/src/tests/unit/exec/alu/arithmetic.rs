@@ -14,14 +14,14 @@ use crate::isa::op::{ArithOp, DivOp, IntAluOp, IntWidth, MulOp};
 
 const ZERO: u64 = 0;
 const ONE: u64 = 1;
-const NEG1: u64 = -1i64 as u64;
+const NEG1: u64 = (-1i64).cast_unsigned();
 
 const I64_MAX: u64 = i64::MAX as u64;
-const I64_MIN: u64 = i64::MIN as u64;
+const I64_MIN: u64 = i64::MIN.cast_unsigned();
 const U64_MAX: u64 = u64::MAX;
 
 const I32_MAX: u64 = i32::MAX as u64;
-const I32_MIN: u64 = i32::MIN as i64 as u64;
+const I32_MIN: u64 = (i32::MIN as i64).cast_unsigned();
 const U32_MAX: u64 = u32::MAX as u64;
 
 const ALTERNATING_A: u64 = 0xAAAA_AAAA_AAAA_AAAA;
@@ -38,7 +38,7 @@ const D: IntWidth = IntWidth::Double;
 
 /// Sign-extend a 32-bit value to 64 bits (what every *W instruction must do).
 fn sext32(val: u32) -> u64 {
-    i64::from(val as i32) as u64
+    i64::from(val.cast_signed()) as u64
 }
 
 #[test]
@@ -60,16 +60,16 @@ fn add_rv64_positive_plus_positive() {
 #[test]
 fn add_rv64_negative_plus_negative() {
     // -5 + -3 = -8
-    let neg5 = -5i64 as u64;
-    let neg3 = -3i64 as u64;
-    let neg8 = -8i64 as u64;
+    let neg5 = (-5i64).cast_unsigned();
+    let neg3 = (-3i64).cast_unsigned();
+    let neg8 = (-8i64).cast_unsigned();
     assert_eq!(alu(ArithOp::Add, neg5, neg3, D), neg8);
 }
 
 #[test]
 fn add_rv64_positive_plus_negative() {
     // 10 + (-3) = 7
-    assert_eq!(alu(ArithOp::Add, 10, -3i64 as u64, D), 7);
+    assert_eq!(alu(ArithOp::Add, 10, (-3i64).cast_unsigned(), D), 7);
 }
 
 #[test]
@@ -172,7 +172,10 @@ fn sub_rv64_self_minus_self() {
 #[test]
 fn sub_rv64_negative_minus_negative() {
     // -5 - (-3) = -2
-    assert_eq!(alu(ArithOp::Sub, -5i64 as u64, -3i64 as u64, D), -2i64 as u64);
+    assert_eq!(
+        alu(ArithOp::Sub, (-5i64).cast_unsigned(), (-3i64).cast_unsigned(), D),
+        (-2i64).cast_unsigned()
+    );
 }
 
 #[test]
@@ -183,7 +186,7 @@ fn subw_positive_result() {
 #[test]
 fn subw_negative_result_sign_extends() {
     // 3 - 10 = -7 → sign-extended
-    assert_eq!(alu(ArithOp::Sub, 3, 10, W), -7i64 as u64);
+    assert_eq!(alu(ArithOp::Sub, 3, 10, W), (-7i64).cast_unsigned());
 }
 
 #[test]
@@ -212,7 +215,7 @@ fn mul_rv64_identity() {
 #[test]
 fn mul_rv64_neg1_is_negate() {
     // x * -1 = -x
-    assert_eq!(alu(MulOp::Mul, 42, NEG1, D), (-42i64) as u64);
+    assert_eq!(alu(MulOp::Mul, 42, NEG1, D), (-42i64).cast_unsigned());
 }
 
 #[test]
@@ -303,7 +306,7 @@ fn mulhsu_positive_times_positive() {
 #[test]
 fn mulhsu_negative_times_unsigned() {
     let a_s = -1i128;
-    let b_u = u128::from(u64::MAX) as i128;
+    let b_u = u128::from(u64::MAX).cast_signed();
     let expected = ((a_s * b_u) >> 64) as u64;
     assert_eq!(alu(MulOp::Mulhsu, NEG1, U64_MAX, D), expected);
 }
@@ -311,7 +314,7 @@ fn mulhsu_negative_times_unsigned() {
 #[test]
 fn mulhsu_min_times_max() {
     let a_s = i128::from(i64::MIN);
-    let b_u = u128::from(u64::MAX) as i128;
+    let b_u = u128::from(u64::MAX).cast_signed();
     let expected = ((a_s * b_u) >> 64) as u64;
     assert_eq!(alu(MulOp::Mulhsu, I64_MIN, U64_MAX, D), expected);
 }
@@ -347,7 +350,7 @@ fn mul_mulh_overflow_detection_no_overflow() {
     let lo = alu(MulOp::Mul, a, b, D);
     let hi = alu(MulOp::Mulh, a, b, D);
     // No overflow: hi should be sign-extension of lo's MSB
-    let expected_hi = if (lo as i64) < 0 { NEG1 } else { 0 };
+    let expected_hi = if lo.cast_signed() < 0 { NEG1 } else { 0 };
     assert_eq!(hi, expected_hi);
 }
 
@@ -358,7 +361,7 @@ fn mul_mulh_overflow_detection_with_overflow() {
     let lo = alu(MulOp::Mul, a, b, D);
     let hi = alu(MulOp::Mulh, a, b, D);
     // Overflow: hi should NOT be a simple sign-extension of lo
-    let sign_ext = if (lo as i64) < 0 { NEG1 } else { 0 };
+    let sign_ext = if lo.cast_signed() < 0 { NEG1 } else { 0 };
     assert_ne!(hi, sign_ext, "MULH should indicate overflow occurred");
 }
 
@@ -403,17 +406,17 @@ fn div_rv64_positive_by_positive() {
 #[test]
 fn div_rv64_negative_by_positive() {
     // -100 / 7 = -14 (truncated toward zero, not floored)
-    assert_eq!(alu(DivOp::Div, -100i64 as u64, 7, D), -14i64 as u64);
+    assert_eq!(alu(DivOp::Div, (-100i64).cast_unsigned(), 7, D), (-14i64).cast_unsigned());
 }
 
 #[test]
 fn div_rv64_positive_by_negative() {
-    assert_eq!(alu(DivOp::Div, 100, -7i64 as u64, D), -14i64 as u64);
+    assert_eq!(alu(DivOp::Div, 100, (-7i64).cast_unsigned(), D), (-14i64).cast_unsigned());
 }
 
 #[test]
 fn div_rv64_negative_by_negative() {
-    assert_eq!(alu(DivOp::Div, -100i64 as u64, -7i64 as u64, D), 14);
+    assert_eq!(alu(DivOp::Div, (-100i64).cast_unsigned(), (-7i64).cast_unsigned(), D), 14);
 }
 
 #[test]
@@ -440,7 +443,7 @@ fn divw_basic() {
 
 #[test]
 fn divw_negative_result_sign_extends() {
-    assert_eq!(alu(DivOp::Div, -100i64 as u64, 7, W), sext32(-14i32 as u32));
+    assert_eq!(alu(DivOp::Div, (-100i64).cast_unsigned(), 7, W), sext32((-14i32).cast_unsigned()));
 }
 
 #[test]
@@ -581,19 +584,22 @@ fn rem_rv64_positive_remainder() {
 #[test]
 fn rem_rv64_negative_dividend() {
     // -100 % 7 = -2 (sign of remainder matches dividend per RISC-V spec)
-    assert_eq!(alu(DivOp::Rem, -100i64 as u64, 7, D), -2i64 as u64);
+    assert_eq!(alu(DivOp::Rem, (-100i64).cast_unsigned(), 7, D), (-2i64).cast_unsigned());
 }
 
 #[test]
 fn rem_rv64_negative_divisor() {
     // 100 % -7 = 2 (sign follows dividend)
-    assert_eq!(alu(DivOp::Rem, 100, -7i64 as u64, D), 2);
+    assert_eq!(alu(DivOp::Rem, 100, (-7i64).cast_unsigned(), D), 2);
 }
 
 #[test]
 fn rem_rv64_both_negative() {
     // -100 % -7 = -2
-    assert_eq!(alu(DivOp::Rem, -100i64 as u64, -7i64 as u64, D), -2i64 as u64);
+    assert_eq!(
+        alu(DivOp::Rem, (-100i64).cast_unsigned(), (-7i64).cast_unsigned(), D),
+        (-2i64).cast_unsigned()
+    );
 }
 
 /// RISC-V spec: div * divisor + rem = dividend (algebraic identity).
@@ -604,7 +610,7 @@ fn rem_rv64_identity_div_mul_rem() {
     let q = alu(DivOp::Div, a, b, D);
     let r = alu(DivOp::Rem, a, b, D);
     assert_eq!(
-        (q as i64).wrapping_mul(b as i64).wrapping_add(r as i64) as u64,
+        q.cast_signed().wrapping_mul(b.cast_signed()).wrapping_add(r.cast_signed()) as u64,
         a,
         "q*b + r must equal a"
     );
@@ -646,7 +652,7 @@ fn remw_basic() {
 
 #[test]
 fn remw_negative_result_sign_extends() {
-    assert_eq!(alu(DivOp::Rem, -100i64 as u64, 7, W), sext32(-2i32 as u32));
+    assert_eq!(alu(DivOp::Rem, (-100i64).cast_unsigned(), 7, W), sext32((-2i32).cast_unsigned()));
 }
 
 /// RISC-V spec: Unsigned remainder by zero returns the dividend.

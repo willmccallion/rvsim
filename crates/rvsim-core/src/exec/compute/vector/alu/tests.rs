@@ -48,7 +48,7 @@ fn test_vwmaccus_vx_signed_vs2() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0x80);
-    let rs1: u64 = (-8_i64) as u64;
+    let rs1: u64 = (-8_i64).cast_unsigned();
     let _ = run(
         VecAluOp::WidenMacc(WidenMaccOp::MaccUS),
         &mut vpr,

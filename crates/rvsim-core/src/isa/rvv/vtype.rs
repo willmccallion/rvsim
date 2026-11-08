@@ -60,7 +60,7 @@ impl Sew {
     #[inline(always)]
     pub const fn sign_extend(self, val: u64) -> i64 {
         let shift = 64 - self.bits();
-        ((val << shift) as i64) >> shift
+        (val << shift).cast_signed() >> shift
     }
 
     /// Decode from the 3-bit vsew encoding.

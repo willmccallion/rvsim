@@ -97,7 +97,7 @@ fn store_then_alu_ops() -> Vec<u32> {
         i().addi(10, 10, DATA_OFFSET).build(),
         i().sd(10, 0, 0).build(),
     ];
-    program.extend((0..ALU_OPS).map(|n| i().addi(12 + n % 8, 0, n as i32).build()));
+    program.extend((0..ALU_OPS).map(|n| i().addi(12 + n % 8, 0, n.cast_signed()).build()));
     program.push(done());
     program.push(i().jal(0, 0).build());
     program

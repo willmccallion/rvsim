@@ -115,7 +115,7 @@ impl RobTag {
     /// realistic ROB sizes).
     #[inline]
     pub const fn is_older_than(self, other: Self) -> bool {
-        (self.0.wrapping_sub(other.0) as i32) < 0
+        self.0.wrapping_sub(other.0).cast_signed() < 0
     }
 
     /// Returns true if `self` is newer (was allocated after) `other`.

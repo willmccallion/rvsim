@@ -86,10 +86,10 @@ fn mixed_traffic_serves_all_requests() {
     let cfg = tiny_config();
     let mut h = Harness::new(cfg);
     let mut ids = Vec::new();
-    for i in 0..8 {
+    for i in 0..8_u32 {
         let bg = (i & 1) as u8;
         let bank = ((i >> 1) & 1) as u8;
-        let row = (i >> 2) as u32;
+        let row = i >> 2;
         let a = addr_from(&cfg, 0, bg, bank, row, 0);
         let op = if i % 2 == 0 { read_op() } else { write_op() };
         ids.push(h.issue(a, 0, op));

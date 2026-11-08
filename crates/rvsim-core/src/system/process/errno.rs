@@ -47,7 +47,7 @@ impl Errno {
     /// What the syscall leaves in `a0`: the number, negated.
     #[must_use]
     pub const fn return_value(self) -> u64 {
-        (-(self.0 as i64)) as u64
+        (-(self.0 as i64)).cast_unsigned()
     }
 
     /// The Linux number of the host's `errno` `code`. The host numbers its

@@ -230,14 +230,14 @@ impl Harts {
 
     fn __getitem__(&self, py: Python<'_>, index: isize) -> PyResult<Hart> {
         let count = self.__len__(py);
-        let resolved = if index < 0 { index + count as isize } else { index };
-        if resolved < 0 || resolved as usize >= count {
+        let resolved = if index < 0 { index + count.cast_signed() } else { index };
+        if resolved < 0 || resolved.cast_unsigned() >= count {
             return Err(PyIndexError::new_err(format!(
                 "hart index {index} out of range (0–{})",
                 count - 1
             )));
         }
-        Ok(Hart { cpu: self.cpu.clone_ref(py), index: resolved as usize })
+        Ok(Hart { cpu: self.cpu.clone_ref(py), index: resolved.cast_unsigned() })
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {

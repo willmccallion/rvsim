@@ -29,7 +29,7 @@ fn identity() -> impl Fn(VirtAddr) -> Result<PhysAddr, PrefetchDrop> {
 fn walk(pf: &mut LoadPrefetcher, base: u64, stride: i64, count: u64) -> Vec<LoadPrefetch> {
     let mut last = Vec::new();
     for i in 0..count {
-        let vaddr = VirtAddr::new(base.wrapping_add_signed(stride * i as i64));
+        let vaddr = VirtAddr::new(base.wrapping_add_signed(stride * i.cast_signed()));
         last = pf.train(LOAD, vaddr, identity());
     }
     last

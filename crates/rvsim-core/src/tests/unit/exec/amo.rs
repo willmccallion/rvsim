@@ -17,7 +17,7 @@ use crate::isa::op::{AmoOp, MemWidth};
 
 // 64-bit boundaries
 const I64_MAX: u64 = i64::MAX as u64; // 0x7FFF_FFFF_FFFF_FFFF
-const I64_MIN: u64 = i64::MIN as u64; // 0x8000_0000_0000_0000
+const I64_MIN: u64 = i64::MIN.cast_unsigned(); // 0x8000_0000_0000_0000
 const U64_MAX: u64 = u64::MAX; // 0xFFFF_FFFF_FFFF_FFFF
 
 // 32-bit boundaries (as 64-bit values, zero-extended)
@@ -27,7 +27,7 @@ const I32_MIN_ZEXT: u64 = 0x8000_0000u64; // 0x0000_0000_8000_0000
 
 /// Helper: sign-extend a 32-bit value to 64 bits.
 fn sext32(val: u32) -> u64 {
-    i64::from(val as i32) as u64
+    i64::from(val.cast_signed()) as u64
 }
 
 #[test]
@@ -160,22 +160,22 @@ fn min_word_positive() {
 #[test]
 fn min_word_negative_values() {
     // -1 vs -2 → min is -2
-    let neg1 = u64::from(-1i32 as u32);
-    let neg2 = u64::from(-2i32 as u32);
-    assert_eq!(atomic_alu(AmoOp::Min, neg1, neg2, MemWidth::Word), sext32(-2i32 as u32));
+    let neg1 = u64::from((-1i32).cast_unsigned());
+    let neg2 = u64::from((-2i32).cast_unsigned());
+    assert_eq!(atomic_alu(AmoOp::Min, neg1, neg2, MemWidth::Word), sext32((-2i32).cast_unsigned()));
 }
 
 #[test]
 fn min_word_mixed_sign() {
     // 1 vs -1 → min is -1 (signed comparison)
-    let neg1 = u64::from(-1i32 as u32);
-    assert_eq!(atomic_alu(AmoOp::Min, 1, neg1, MemWidth::Word), sext32(-1i32 as u32));
+    let neg1 = u64::from((-1i32).cast_unsigned());
+    assert_eq!(atomic_alu(AmoOp::Min, 1, neg1, MemWidth::Word), sext32((-1i32).cast_unsigned()));
 }
 
 #[test]
 fn min_double_negative() {
-    let neg1 = (-1i64) as u64;
-    let neg100 = (-100i64) as u64;
+    let neg1 = (-1i64).cast_unsigned();
+    let neg100 = (-100i64).cast_unsigned();
     assert_eq!(atomic_alu(AmoOp::Min, neg1, neg100, MemWidth::Double), neg100);
 }
 
@@ -183,7 +183,7 @@ fn min_double_negative() {
 fn min_word_edge_i32_min_max() {
     assert_eq!(
         atomic_alu(AmoOp::Min, I32_MAX, I32_MIN_ZEXT, MemWidth::Word),
-        sext32(i32::MIN as u32)
+        sext32(i32::MIN.cast_unsigned())
     );
 }
 
@@ -199,21 +199,21 @@ fn max_word_positive() {
 
 #[test]
 fn max_word_negative_values() {
-    let neg1 = u64::from(-1i32 as u32);
-    let neg2 = u64::from(-2i32 as u32);
-    assert_eq!(atomic_alu(AmoOp::Max, neg1, neg2, MemWidth::Word), sext32(-1i32 as u32));
+    let neg1 = u64::from((-1i32).cast_unsigned());
+    let neg2 = u64::from((-2i32).cast_unsigned());
+    assert_eq!(atomic_alu(AmoOp::Max, neg1, neg2, MemWidth::Word), sext32((-1i32).cast_unsigned()));
 }
 
 #[test]
 fn max_word_mixed_sign() {
-    let neg1 = u64::from(-1i32 as u32);
+    let neg1 = u64::from((-1i32).cast_unsigned());
     assert_eq!(atomic_alu(AmoOp::Max, 1, neg1, MemWidth::Word), sext32(1));
 }
 
 #[test]
 fn max_double_negative() {
-    let neg1 = (-1i64) as u64;
-    let neg100 = (-100i64) as u64;
+    let neg1 = (-1i64).cast_unsigned();
+    let neg100 = (-100i64).cast_unsigned();
     assert_eq!(atomic_alu(AmoOp::Max, neg1, neg100, MemWidth::Double), neg1);
 }
 

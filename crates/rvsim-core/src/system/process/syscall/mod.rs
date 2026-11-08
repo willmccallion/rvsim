@@ -212,7 +212,7 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
         a2 = %crate::common::trace::Hex(args.raw(2)), a3 = %crate::common::trace::Hex(args.raw(3)),
         result = ?result, "syscall");
     match result {
-        Ok(Reply::Value(value)) => Outcome::Continue { a0: value as u64 },
+        Ok(Reply::Value(value)) => Outcome::Continue { a0: value.cast_unsigned() },
         Ok(Reply::Wait) => Outcome::Wait,
         Ok(Reply::Ended(run_exit)) => Outcome::Ended { run_exit },
         Err(errno) => Outcome::Continue { a0: errno.return_value() },
@@ -292,7 +292,7 @@ struct Sys<'a> {
 
 #[allow(clippy::unnecessary_wraps, reason = "the handlers' common result type")]
 const fn ok(value: u64) -> SysResult {
-    Ok(Reply::Value(value as i64))
+    Ok(Reply::Value(value.cast_signed()))
 }
 
 impl Sys<'_> {
@@ -314,9 +314,11 @@ impl Sys<'_> {
                 .and_then(ok),
             SYS_OPENAT => self.openat(args.fd(0), args.vaddr(1), args.raw(2), args.raw(3)),
             SYS_CLOSE => self.process.files.close(args.fd(0)).map(|()| Reply::Value(0)),
-            SYS_LSEEK => {
-                self.process.files.seek(args.fd(0), args.raw(1) as i64, args.raw(2)).and_then(ok)
-            }
+            SYS_LSEEK => self
+                .process
+                .files
+                .seek(args.fd(0), args.raw(1).cast_signed(), args.raw(2))
+                .and_then(ok),
             SYS_FSTAT => self.file_calls().fstat(args.fd(0), args.vaddr(1)).and_then(ok),
             SYS_NEWFSTATAT => self.fstatat(args.fd(0), args.vaddr(1), args.vaddr(2), args.raw(3)),
             SYS_FACCESSAT | SYS_FACCESSAT2 => {

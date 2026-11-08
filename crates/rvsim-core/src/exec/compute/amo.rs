@@ -39,13 +39,13 @@ pub fn atomic_alu(op: AmoOp, mem_val: u64, reg_val: u64, width: MemWidth) -> u64
             AmoOp::Or => a | b,
             AmoOp::Min => a.min(b),
             AmoOp::Max => a.max(b),
-            AmoOp::MinU => (mem_val as u32).min(reg_val as u32) as i32,
-            AmoOp::MaxU => (mem_val as u32).max(reg_val as u32) as i32,
+            AmoOp::MinU => (mem_val as u32).min(reg_val as u32).cast_signed(),
+            AmoOp::MaxU => (mem_val as u32).max(reg_val as u32).cast_signed(),
         };
-        i64::from(res) as u64
+        i64::from(res).cast_unsigned()
     } else {
-        let a = mem_val as i64;
-        let b = reg_val as i64;
+        let a = mem_val.cast_signed();
+        let b = reg_val.cast_signed();
         let res = match op {
             AmoOp::Swap => b,
             AmoOp::Add => a.wrapping_add(b),
@@ -54,9 +54,9 @@ pub fn atomic_alu(op: AmoOp, mem_val: u64, reg_val: u64, width: MemWidth) -> u64
             AmoOp::Or => a | b,
             AmoOp::Min => a.min(b),
             AmoOp::Max => a.max(b),
-            AmoOp::MinU => (mem_val).min(reg_val) as i64,
-            AmoOp::MaxU => (mem_val).max(reg_val) as i64,
+            AmoOp::MinU => (mem_val).min(reg_val).cast_signed(),
+            AmoOp::MaxU => (mem_val).max(reg_val).cast_signed(),
         };
-        res as u64
+        res.cast_unsigned()
     }
 }

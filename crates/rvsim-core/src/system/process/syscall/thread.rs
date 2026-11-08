@@ -244,9 +244,9 @@ impl ThreadCall<'_> {
         let cycle = self.cycle;
         let (process, memory) = self.process_and_memory()?;
         let read = |at: VirtAddr| process.space.read_u64(memory, at).map_err(|_| Errno::EFAULT);
-        let seconds = read(timeout)? as i64;
-        let nanos = read(timeout.wrapping_add(8))? as i64;
-        if seconds < 0 || !(0..NANOS_PER_SECOND as i64).contains(&nanos) {
+        let seconds = read(timeout)?.cast_signed();
+        let nanos = read(timeout.wrapping_add(8))?.cast_signed();
+        if seconds < 0 || !(0..NANOS_PER_SECOND.cast_signed()).contains(&nanos) {
             return Err(Errno::EINVAL);
         }
         let ns = seconds as u128 * u128::from(NANOS_PER_SECOND) + nanos as u128;
@@ -295,7 +295,7 @@ impl ThreadCall<'_> {
         if shared && self.process_and_memory()?.0.space.translate(addr).is_none() {
             return Err(Errno::EFAULT);
         }
-        let count = (count as i32).max(1) as usize;
+        let count = count.cast_signed().max(1) as usize;
         ok(self.processes.wake(self.caller.tgid, addr, count, bitset) as u64)
     }
 
