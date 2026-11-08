@@ -13,7 +13,7 @@ pub use alu::{
     SingleBitOp,
 };
 pub use format::{IntWidth, OperandFormat, Signedness};
-pub use memory::{AtomicOp, MemWidth};
+pub use memory::{AmoOp, AtomicOp, MemWidth};
 pub use system::{CsrOp, SystemOp};
 pub use vector::{
     CarryOp, CompareOp, CryptoOp, ExtendOp, FmaAddend, FpBinaryOp, FpNarrowConvertOp, FpReduceOp,

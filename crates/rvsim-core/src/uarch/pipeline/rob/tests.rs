@@ -5,6 +5,7 @@
 use super::*;
 use crate::exec::signals::ControlSignals;
 use crate::isa::csr::CsrAddr;
+use crate::isa::op::AmoOp;
 use crate::isa::reg::RegIdx;
 
 fn make_ctrl(reg_write: bool, fp_reg_write: bool) -> ControlSignals {
@@ -232,7 +233,7 @@ fn test_has_fence_blocking() {
 fn an_acquire_atomic_holds_younger_loads_until_it_completes() {
     let mut rob = Rob::new(8);
     let acquire_ctrl = ControlSignals {
-        atomic_op: Some(crate::isa::op::AtomicOp::Swap),
+        atomic_op: Some(crate::isa::op::AtomicOp::Amo(AmoOp::Swap)),
         acquire: true,
         mem_read: true,
         mem_write: true,

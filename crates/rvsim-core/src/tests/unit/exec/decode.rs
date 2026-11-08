@@ -7,6 +7,7 @@ use crate::exec::decode::{DecodedInst, decode_inst};
 use crate::exec::signals::{BranchCond, ControlFlow, JumpKind};
 use crate::isa::fence::Fence;
 use crate::isa::fp::{FpFormat, Rounding, RoundingMode};
+use crate::isa::op::AmoOp;
 use crate::isa::op::{
     AluOp, AtomicOp, CsrOp, IntWidth, MemWidth, OperandFormat, SystemOp, VecSrcEncoding,
 };
@@ -298,19 +299,19 @@ fn each_load_and_store_decodes_to_its_width_extension_and_register_file() {
 const ATOMIC: &[(&str, u32, Atomic)] = &[
     ("lr.w a0, (a1)", 0x1005a52f, Atomic(AtomicOp::Lr, MemWidth::Word, Ordering::None)),
     ("sc.w a0, a2, (a1)", 0x18c5a52f, Atomic(AtomicOp::Sc, MemWidth::Word, Ordering::None)),
-    ("amoswap.w a0, a2, (a1)", 0x08c5a52f, Atomic(AtomicOp::Swap, MemWidth::Word, Ordering::None)),
-    ("amoadd.w a0, a2, (a1)", 0x00c5a52f, Atomic(AtomicOp::Add, MemWidth::Word, Ordering::None)),
-    ("amoxor.w a0, a2, (a1)", 0x20c5a52f, Atomic(AtomicOp::Xor, MemWidth::Word, Ordering::None)),
-    ("amoand.w a0, a2, (a1)", 0x60c5a52f, Atomic(AtomicOp::And, MemWidth::Word, Ordering::None)),
-    ("amoor.w a0, a2, (a1)", 0x40c5a52f, Atomic(AtomicOp::Or, MemWidth::Word, Ordering::None)),
-    ("amomin.w a0, a2, (a1)", 0x80c5a52f, Atomic(AtomicOp::Min, MemWidth::Word, Ordering::None)),
-    ("amomax.w a0, a2, (a1)", 0xa0c5a52f, Atomic(AtomicOp::Max, MemWidth::Word, Ordering::None)),
-    ("amominu.w a0, a2, (a1)", 0xc0c5a52f, Atomic(AtomicOp::MinU, MemWidth::Word, Ordering::None)),
-    ("amomaxu.w a0, a2, (a1)", 0xe0c5a52f, Atomic(AtomicOp::MaxU, MemWidth::Word, Ordering::None)),
+    ("amoswap.w a0, a2, (a1)", 0x08c5a52f, Atomic(AtomicOp::Amo(AmoOp::Swap), MemWidth::Word, Ordering::None)),
+    ("amoadd.w a0, a2, (a1)", 0x00c5a52f, Atomic(AtomicOp::Amo(AmoOp::Add), MemWidth::Word, Ordering::None)),
+    ("amoxor.w a0, a2, (a1)", 0x20c5a52f, Atomic(AtomicOp::Amo(AmoOp::Xor), MemWidth::Word, Ordering::None)),
+    ("amoand.w a0, a2, (a1)", 0x60c5a52f, Atomic(AtomicOp::Amo(AmoOp::And), MemWidth::Word, Ordering::None)),
+    ("amoor.w a0, a2, (a1)", 0x40c5a52f, Atomic(AtomicOp::Amo(AmoOp::Or), MemWidth::Word, Ordering::None)),
+    ("amomin.w a0, a2, (a1)", 0x80c5a52f, Atomic(AtomicOp::Amo(AmoOp::Min), MemWidth::Word, Ordering::None)),
+    ("amomax.w a0, a2, (a1)", 0xa0c5a52f, Atomic(AtomicOp::Amo(AmoOp::Max), MemWidth::Word, Ordering::None)),
+    ("amominu.w a0, a2, (a1)", 0xc0c5a52f, Atomic(AtomicOp::Amo(AmoOp::MinU), MemWidth::Word, Ordering::None)),
+    ("amomaxu.w a0, a2, (a1)", 0xe0c5a52f, Atomic(AtomicOp::Amo(AmoOp::MaxU), MemWidth::Word, Ordering::None)),
     ("lr.d.aqrl a0, (a1)", 0x1605b52f, Atomic(AtomicOp::Lr, MemWidth::Double, Ordering::AcquireRelease)),
     ("sc.d a0, a2, (a1)", 0x18c5b52f, Atomic(AtomicOp::Sc, MemWidth::Double, Ordering::None)),
-    ("amoadd.d.aq a0, a2, (a1)", 0x04c5b52f, Atomic(AtomicOp::Add, MemWidth::Double, Ordering::Acquire)),
-    ("amoswap.d.rl a0, a2, (a1)", 0x0ac5b52f, Atomic(AtomicOp::Swap, MemWidth::Double, Ordering::Release)),
+    ("amoadd.d.aq a0, a2, (a1)", 0x04c5b52f, Atomic(AtomicOp::Amo(AmoOp::Add), MemWidth::Double, Ordering::Acquire)),
+    ("amoswap.d.rl a0, a2, (a1)", 0x0ac5b52f, Atomic(AtomicOp::Amo(AmoOp::Swap), MemWidth::Double, Ordering::Release)),
 ];
 
 #[test]

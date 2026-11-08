@@ -148,7 +148,7 @@ impl GlobalMemory {
                 self.reservations.clear(*hart);
                 self.performed(Some(u64::from(!succeeds)))
             }
-            MemOp::Atomic { op, data, hart } => {
+            MemOp::Atomic { op: AtomicOp::Amo(op), data, hart } => {
                 let old = self.read(paddr, size.bytes());
                 let width = if size.bytes() == 4 { MemWidth::Word } else { MemWidth::Double };
                 let new = amo::atomic_alu(*op, old.unwrap_or(0), *data, width);

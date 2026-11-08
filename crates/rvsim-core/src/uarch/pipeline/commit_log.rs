@@ -115,7 +115,7 @@ impl MemEffect {
         let (read, write) = match mem.op.ctrl.atomic_op {
             Some(AtomicOp::Lr) => (Some(mem.load_data), None),
             Some(AtomicOp::Sc) => (None, (mem.load_data == 0).then_some(mem.store_data)),
-            Some(op) => {
+            Some(AtomicOp::Amo(op)) => {
                 (Some(mem.load_data), Some(atomic_alu(op, mem.load_data, mem.store_data, width)))
             }
             None if mem.op.ctrl.mem_read => (Some(mem.load_data), None),
