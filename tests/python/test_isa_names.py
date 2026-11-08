@@ -6,7 +6,7 @@ Run with: .venv/bin/python -m unittest discover -s tests/python
 
 import unittest
 
-from test_se_mode import EXIT_WITH_ARGC, user_elf
+from _programs import EXIT_WITH_ARGC, user_elf
 
 from rvsim import Config, Simulator, csr, reg
 

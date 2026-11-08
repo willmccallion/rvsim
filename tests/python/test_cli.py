@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 
+from _programs import COUNT_THEN_EXIT, EXIT_WITH_ARGC, SCRIPT, file_exchange, user_elf
+
 from rvsim.presets import PRESETS
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -154,8 +156,6 @@ class UserPrograms(unittest.TestCase):
     """A Linux user program gets the command line after its name."""
 
     def test_the_programs_arguments_follow_its_name(self):
-        from tests.python.test_se_mode import EXIT_WITH_ARGC, user_elf
-
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "prog.elf")
             with open(path, "wb") as f:
@@ -175,8 +175,6 @@ class HostFiles(unittest.TestCase):
     pseudo-operations their host files."""
 
     def test_script_and_outdir_reach_the_program(self):
-        from tests.python.test_se_mode import SCRIPT, file_exchange, user_elf
-
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "prog.elf")
             with open(path, "wb") as f:
@@ -212,8 +210,6 @@ class SeveralPrograms(unittest.TestCase):
     """``--program`` adds a program on another hart; the harts follow."""
 
     def test_a_second_program_runs_on_its_own_hart(self):
-        from tests.python.test_se_mode import COUNT_THEN_EXIT, EXIT_WITH_ARGC, user_elf
-
         with tempfile.TemporaryDirectory() as tmp:
             slow = os.path.join(tmp, "slow.elf")
             with open(slow, "wb") as f:

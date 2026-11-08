@@ -8,7 +8,7 @@ import os
 import tempfile
 import unittest
 
-from test_se_mode import EXIT_WITH_ARGC, user_elf
+from _programs import EXIT_WITH_ARGC, user_elf
 
 from rvsim import (
     CheckpointError,
