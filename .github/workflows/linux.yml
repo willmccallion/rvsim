@@ -1,0 +1,53 @@
+name: Linux
+
+# Building the image takes about an hour and booting it most of another,
+# too long to gate a merge. This checks main after each merge and nightly,
+# and a pull request that changes this workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths: [".github/workflows/linux.yml"]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer commit replaces a queued boot but never stops a running one.
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  boot:
+    name: Boot, log in and power off
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # The image is cached on what it is built from: the Buildroot version
+      # and build steps in tools/boot_linux.py and the guest configuration.
+      - uses: actions/cache@v4
+        id: image
+        with:
+          path: software/linux/output
+          key: linux-image-${{ hashFiles('tools/boot_linux.py', 'software/guest/**') }}
+      - name: Install Buildroot's host tools
+        if: steps.image.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y bc bison cpio file flex rsync unzip wget
+      - name: Build the Linux image
+        if: steps.image.outputs.cache-hit != 'true'
+        run: python3 tools/boot_linux.py --no-boot
+      - run: make python
+      - name: Boot two harts to a login, log in and power off
+        run: .venv/bin/python tools/diag/linux_poweroff.py --harts 2 --timeout 10800
