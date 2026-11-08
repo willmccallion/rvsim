@@ -91,10 +91,10 @@ fn vsetvli_consumes_immediately_preceding_li() {
 
     assert_eq!(ctx.get_reg(5), 4, "t0 should hold 4 after li");
     assert_eq!(
-        ctx.cpu().harts[0].csrs.vl,
+        ctx.state().harts[0].csrs.vl,
         4,
         "vsetvli e32/m1 with AVL=4 should yield vl=4 (got {})",
-        ctx.cpu().harts[0].csrs.vl
+        ctx.state().harts[0].csrs.vl
     );
     assert_eq!(ctx.get_reg(6), 4, "t1 (vsetvli rd) should equal new vl");
 }
@@ -113,7 +113,7 @@ fn vsetvli_consumes_immediately_preceding_li_width1() {
     let ctx = run_program(&Config::minimal(), &program, 500);
 
     assert_eq!(ctx.get_reg(5), 4);
-    assert_eq!(ctx.cpu().harts[0].csrs.vl, 4, "got vl={}", ctx.cpu().harts[0].csrs.vl);
+    assert_eq!(ctx.state().harts[0].csrs.vl, 4, "got vl={}", ctx.state().harts[0].csrs.vl);
 }
 
 /// Closest to the chipsalliance failing-ELF pattern: a flushing vsetvli
@@ -142,10 +142,10 @@ fn vsetvli_after_flushing_vsetvli_then_li() {
 
     assert_eq!(ctx.get_reg(5), 12, "t0 should hold 12");
     assert_eq!(
-        ctx.cpu().harts[0].csrs.vl,
+        ctx.state().harts[0].csrs.vl,
         2,
         "vsetvli e8/mf8 with AVL=12 (VLEN=128) saturates to vl=2 (got {})",
-        ctx.cpu().harts[0].csrs.vl
+        ctx.state().harts[0].csrs.vl
     );
     assert_eq!(ctx.get_reg(6), 2, "t1 (vsetvli rd) should equal new vl=2");
 }
@@ -167,10 +167,10 @@ fn vsetvli_after_flushing_vsetvli_then_li_width1() {
 
     assert_eq!(ctx.get_reg(5), 12);
     assert_eq!(
-        ctx.cpu().harts[0].csrs.vl,
+        ctx.state().harts[0].csrs.vl,
         2,
         "vsetvli e8/mf8 with AVL=12 (VLEN=128) saturates to vl=2 (got {})",
-        ctx.cpu().harts[0].csrs.vl
+        ctx.state().harts[0].csrs.vl
     );
 }
 
@@ -216,9 +216,9 @@ fn vwaddu_vv_at_mf8_does_not_trap_for_odd_vd() {
     let ctx = run_program(&wide_inorder_config(), &program, 500);
 
     // mcause = 2 (illegal instruction) is the failure mode we're catching.
-    let mcause = ctx.cpu().harts[0].csrs.mcause;
+    let mcause = ctx.state().harts[0].csrs.mcause;
     assert_eq!(mcause, 0, "vwaddu.vv at e8/mf8 with vd=v27 must not trap (mcause={:#x})", mcause);
-    assert_eq!(ctx.cpu().harts[0].csrs.vl, 2);
+    assert_eq!(ctx.state().harts[0].csrs.vl, 2);
 }
 
 /// `vid.v`'s vs2 field is part of its opcode: spike's decoder fixes it at
@@ -239,7 +239,7 @@ fn vid_v_with_its_vs2_field_set_is_illegal() {
 
     ctx.run(500);
 
-    let csrs = &ctx.cpu().harts[0].csrs;
+    let csrs = &ctx.state().harts[0].csrs;
     assert_eq!((csrs.mcause, csrs.mepc), (exception::ILLEGAL_INSTRUCTION, vid_v_address));
 }
 

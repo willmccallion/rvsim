@@ -80,7 +80,7 @@ fn logged_lines_until(
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     ctx.sim.open_commit_log(&path).expect("open commit log");
 
-    let reached = ctx.run_until(5_000, |ctx| ctx.cpu().harts[0].pc == VirtAddr::new(stop_pc));
+    let reached = ctx.run_until(5_000, |ctx| ctx.state().harts[0].pc == VirtAddr::new(stop_pc));
     ctx.run(20);
     drop(ctx);
 

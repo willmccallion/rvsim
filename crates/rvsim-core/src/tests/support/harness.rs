@@ -63,13 +63,13 @@ impl TestContext {
         Self { sim }
     }
 
-    /// Convenience accessor for the CPU.
-    pub fn cpu(&self) -> &SystemState {
+    /// The system the test runs.
+    pub fn state(&self) -> &SystemState {
         &self.sim.state
     }
 
-    /// Mutable convenience accessor for the CPU.
-    pub fn cpu_mut(&mut self) -> &mut SystemState {
+    /// The system the test runs, to change.
+    pub fn state_mut(&mut self) -> &mut SystemState {
         &mut self.sim.state
     }
 

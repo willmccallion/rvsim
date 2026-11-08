@@ -71,7 +71,7 @@ fn run_cbo(ctx: &mut TestContext, inst: u32, addr_in_x10: u64) {
     }
     ctx.set_reg(X10 as usize, addr_in_x10);
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
-    ctx.cpu_mut().harts[0].csrs.mtvec = RAM_BASE + park_offset;
+    ctx.state_mut().harts[0].csrs.mtvec = RAM_BASE + park_offset;
     ctx.run(1000);
 }
 
@@ -136,7 +136,7 @@ fn cbo_zero_ignores_low_address_bits() {
 fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
     let data_addr = RAM_BASE + 0x1000;
     let mut ctx = TestContext::new_with_config(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
-    assert_eq!(ctx.cpu().harts[0].csrs.menvcfg & crate::isa::csr::MENVCFG_CBZE, 0);
+    assert_eq!(ctx.state().harts[0].csrs.menvcfg & crate::isa::csr::MENVCFG_CBZE, 0);
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
 
     run_cbo_zero(&mut ctx, data_addr);
@@ -172,7 +172,7 @@ fn cbo_inval_in_machine_mode_does_not_trap() {
 
     run_cbo(&mut ctx, cbo_inval(X10), data_addr);
 
-    assert_eq!(ctx.cpu().harts[0].csrs.mcause, 0);
+    assert_eq!(ctx.state().harts[0].csrs.mcause, 0);
     // Pattern survives because RAM is the source of truth in this simulator.
     let expected = 0xDEAD_BEEF_CAFE_F00Du64;
     assert_eq!(read_u64(&mut ctx, data_addr), expected);
@@ -186,7 +186,7 @@ fn cbo_clean_in_machine_mode_does_not_trap() {
 
     run_cbo(&mut ctx, cbo_clean(X10), data_addr);
 
-    assert_eq!(ctx.cpu().harts[0].csrs.mcause, 0);
+    assert_eq!(ctx.state().harts[0].csrs.mcause, 0);
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn cbo_flush_in_machine_mode_does_not_trap() {
 
     run_cbo(&mut ctx, cbo_flush(X10), data_addr);
 
-    assert_eq!(ctx.cpu().harts[0].csrs.mcause, 0);
+    assert_eq!(ctx.state().harts[0].csrs.mcause, 0);
 }
 
 // L1D-state-observation tests for cbo.inval / cbo.clean / cbo.flush live
@@ -229,13 +229,13 @@ fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
     ctx.set_reg(X10 as usize, data_addr);
     ctx.set_reg(X11 as usize, u64::MAX);
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
-    ctx.cpu_mut().harts[0].csrs.mtvec = RAM_BASE + 12;
+    ctx.state_mut().harts[0].csrs.mtvec = RAM_BASE + 12;
     ctx.sim.sync_arch_regs();
 
     let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(X12 as usize) == 1);
 
     assert!(finished.is_some(), "{backend:?}: the program never finished");
-    assert_eq!(ctx.cpu().harts[0].csrs.mcause, 0, "{backend:?}: no trap was taken");
+    assert_eq!(ctx.state().harts[0].csrs.mcause, 0, "{backend:?}: no trap was taken");
     assert_eq!(ctx.get_reg(X11 as usize), 0, "{backend:?}: the load read the zeroed block");
 }
 

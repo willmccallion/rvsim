@@ -56,7 +56,7 @@ fn masked_add_result(backend: BackendKind) -> Vec<u8> {
     let done = ctx.run_until(10_000, |ctx| ctx.get_reg(DONE_REG) == DONE);
 
     assert!(done.is_some(), "{backend:?}: the program finished");
-    ctx.cpu().harts[0].regs.vpr().read_bytes(VRegIdx::new(1)).to_vec()
+    ctx.state().harts[0].regs.vpr().read_bytes(VRegIdx::new(1)).to_vec()
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn masked_compare_into_v0(backend: BackendKind) -> u8 {
     let done = ctx.run_until(10_000, |ctx| ctx.get_reg(DONE_REG) == DONE);
 
     assert!(done.is_some(), "{backend:?}: the program finished");
-    ctx.cpu().harts[0].regs.vpr().read_bytes(VRegIdx::new(0))[0] & 0b1111
+    ctx.state().harts[0].regs.vpr().read_bytes(VRegIdx::new(0))[0] & 0b1111
 }
 
 #[test]
