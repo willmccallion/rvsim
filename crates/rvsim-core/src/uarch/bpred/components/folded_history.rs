@@ -105,7 +105,7 @@ impl FoldedHistory {
         for i in (0..self.hist_length).rev() {
             let msb = (self.val >> (w - 1)) & 1;
             self.val = ((self.val << 1) | msb) & mask;
-            self.val ^= ghr.bit(i) as u64;
+            self.val ^= u64::from(ghr.bit(i));
         }
     }
 }

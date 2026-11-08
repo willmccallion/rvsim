@@ -33,7 +33,7 @@ const W: IntWidth = IntWidth::Word;
 const D: IntWidth = IntWidth::Double;
 
 fn sext32(val: u32) -> u64 {
-    val as i32 as i64 as u64
+    i64::from(val as i32) as u64
 }
 
 #[test]

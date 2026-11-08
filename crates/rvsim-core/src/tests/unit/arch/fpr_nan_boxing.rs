@@ -36,10 +36,10 @@ fn fpr_write_read_basic() {
 fn fpr_write_all_registers() {
     let mut fpr = Fpr::new();
     for i in 0u8..32 {
-        fpr.write(RegIdx::new(i), (i as u64 + 1) * 0x1000);
+        fpr.write(RegIdx::new(i), (u64::from(i) + 1) * 0x1000);
     }
     for i in 0u8..32 {
-        assert_eq!(fpr.read(RegIdx::new(i)), (i as u64 + 1) * 0x1000);
+        assert_eq!(fpr.read(RegIdx::new(i)), (u64::from(i) + 1) * 0x1000);
     }
 }
 

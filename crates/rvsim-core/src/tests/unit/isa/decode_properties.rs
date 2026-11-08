@@ -666,7 +666,7 @@ fn decode_lui() {
     assert_eq!(d.opcode, i_op::OP_LUI);
     assert_eq!(d.rd, RegIdx::new(5));
     // U-type imm = upper 20 bits << 12 (sign-extended to i64)
-    assert_eq!(d.imm, 0xDEADB000u32 as i32 as i64);
+    assert_eq!(d.imm, i64::from(0xDEADB000u32 as i32));
 }
 
 #[test]
@@ -683,7 +683,7 @@ fn decode_lui_sign_extension() {
     // imm20 = 0x80000 → top bit set → should sign-extend to negative
     let inst = u_type(i_op::OP_LUI, 1, 0x80000);
     let d = decode(inst);
-    assert_eq!(d.imm, 0x80000000u32 as i32 as i64);
+    assert_eq!(d.imm, i64::from(0x80000000u32 as i32));
     assert!(d.imm < 0, "U-type with bit 31 set must sign-extend to negative");
 }
 
@@ -938,8 +938,8 @@ fn decode_fmadd_d() {
 /// Encode an AMO instruction: funct5 | aq | rl | rs2 | rs1 | funct3 | rd | opcode
 fn amo_type(funct5: u32, aq: bool, rl: bool, rs2: u32, rs1: u32, funct3: u32, rd: u32) -> u32 {
     (funct5 & 0x1F) << 27
-        | (aq as u32) << 26
-        | (rl as u32) << 25
+        | u32::from(aq) << 26
+        | u32::from(rl) << 25
         | (rs2 & 0x1F) << 20
         | (rs1 & 0x1F) << 15
         | (funct3 & 0x7) << 12
@@ -1142,7 +1142,7 @@ fn i_type_imm_round_trip_all_values() {
     for raw in -2048i32..=2047 {
         let inst = i_type(i_op::OP_IMM, 0, 0, 0, raw);
         let d = decode(inst);
-        assert_eq!(d.imm, raw as i64, "I-type round-trip failed for imm={raw}");
+        assert_eq!(d.imm, i64::from(raw), "I-type round-trip failed for imm={raw}");
     }
 }
 
@@ -1151,7 +1151,7 @@ fn s_type_imm_round_trip_boundaries() {
     for &val in &[-2048i32, -1, 0, 1, 2047] {
         let inst = s_type(i_op::OP_STORE, 0, 0, 0, val);
         let d = decode(inst);
-        assert_eq!(d.imm, val as i64, "S-type round-trip failed for imm={val}");
+        assert_eq!(d.imm, i64::from(val), "S-type round-trip failed for imm={val}");
     }
 }
 
@@ -1161,7 +1161,7 @@ fn b_type_imm_round_trip_even_offsets() {
     for &val in &[-4096i32, -256, -8, 0, 8, 128, 4094] {
         let inst = b_type(i_op::OP_BRANCH, 0, 0, 0, val);
         let d = decode(inst);
-        assert_eq!(d.imm, val as i64, "B-type round-trip failed for imm={val}");
+        assert_eq!(d.imm, i64::from(val), "B-type round-trip failed for imm={val}");
     }
 }
 
@@ -1170,7 +1170,7 @@ fn j_type_imm_round_trip_boundaries() {
     for &val in &[-1048576i32, -20, 0, 100, 1048574] {
         let inst = j_type(i_op::OP_JAL, 0, val);
         let d = decode(inst);
-        assert_eq!(d.imm, val as i64, "J-type round-trip failed for imm={val}");
+        assert_eq!(d.imm, i64::from(val), "J-type round-trip failed for imm={val}");
     }
 }
 
@@ -1179,7 +1179,7 @@ fn u_type_imm_round_trip() {
     for &imm20 in &[0u32, 1, 0x7FFFF, 0x80000, 0xFFFFF] {
         let inst = u_type(i_op::OP_LUI, 0, imm20);
         let d = decode(inst);
-        let expected = (imm20 << 12) as i32 as i64;
+        let expected = i64::from((imm20 << 12) as i32);
         assert_eq!(d.imm, expected, "U-type round-trip failed for imm20={imm20:#x}");
     }
 }

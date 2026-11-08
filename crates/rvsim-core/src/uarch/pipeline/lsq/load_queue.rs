@@ -739,7 +739,7 @@ mod tests {
             let tag = RobTag::new(i);
             assert!(lq.allocate(tag, 4));
             lq.fill_address(tag, None, VirtAddr::new(0x1000), PhysAddr::new(0x8000_0000));
-            lq.fill_data(tag, None, i as u64, None);
+            lq.fill_data(tag, None, u64::from(i), None);
             lq.deallocate(tag);
         }
     }

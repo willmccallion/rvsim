@@ -23,7 +23,7 @@ pub(super) fn f64_to_f32_round_to_odd(a: f64) -> f32 {
     let abs = a.abs();
     let f32_max = f32::from_bits(0x7F7F_FFFF);
 
-    let truncated_f32 = if abs > f32_max as f64 {
+    let truncated_f32 = if abs > f64::from(f32_max) {
         // Overflow: RTZ saturates to ±max-normal.
         if a.is_sign_positive() { f32_max } else { -f32_max }
     } else {
@@ -34,7 +34,7 @@ pub(super) fn f64_to_f32_round_to_odd(a: f64) -> f32 {
         f64::from_bits(truncated_bits) as f32
     };
 
-    let lost = a.to_bits() & ((1u64 << 29) - 1) != 0 || abs > f32_max as f64;
+    let lost = a.to_bits() & ((1u64 << 29) - 1) != 0 || abs > f64::from(f32_max);
     if lost && truncated_f32.is_finite() {
         f32::from_bits(truncated_f32.to_bits() | 1)
     } else {

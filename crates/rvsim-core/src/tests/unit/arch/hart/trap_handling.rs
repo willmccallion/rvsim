@@ -444,7 +444,7 @@ fn test_trap_tval_for_illegal_instruction() {
     let bad_instr = 0xdeadbeef;
     state.trap(&Trap::IllegalInstruction(bad_instr), state.hart.pc);
 
-    assert_eq!(state.hart.csrs.mtval, bad_instr as u64);
+    assert_eq!(state.hart.csrs.mtval, u64::from(bad_instr));
 }
 
 #[test]

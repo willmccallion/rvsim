@@ -36,7 +36,7 @@ fn test_nan_boxing_unboxing() {
     assert_eq!(f32::from_bits(res as u32), 42.0);
 
     // Invalid boxing (upper bits not all 1s)
-    let invalid_boxed = f_val.to_bits() as u64; // Upper bits are 0
+    let invalid_boxed = u64::from(f_val.to_bits()); // Upper bits are 0
     let res_invalid = execute(FpOp::Arith(FpArithOp::Add), invalid_boxed, zero, 0, true);
 
     // RISC-V: If input is not properly NaN-boxed, it is treated as canonical NaN.
@@ -106,7 +106,7 @@ fn test_unbox_f32_direct() {
     let valid = to_register(1.0);
     assert_eq!(<f32 as Float>::from_register(valid).to_bits(), 1.0f32.to_bits());
 
-    let invalid = 1.0f32.to_bits() as u64; // upper bits are 0
+    let invalid = u64::from(1.0f32.to_bits()); // upper bits are 0
     assert_eq!(<f32 as Float>::from_register(invalid).to_bits(), 0x7fc0_0000);
 }
 

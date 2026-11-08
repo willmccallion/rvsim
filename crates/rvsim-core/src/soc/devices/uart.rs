@@ -332,7 +332,7 @@ impl Uart {
     /// Writes Transmitter Holding Register (THR) or Divisor Latch Low (DLL) based on DLAB.
     fn write_thr_or_dll(&mut self, val: u8) {
         if self.dlab_set() {
-            self.div = (self.div & 0xFF00) | (val as u16);
+            self.div = (self.div & 0xFF00) | u16::from(val);
         } else {
             self.panic_watch.observe(val);
             if let Ok(mut terminal) = self.terminal.lock() {

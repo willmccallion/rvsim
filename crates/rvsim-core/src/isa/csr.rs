@@ -87,7 +87,7 @@ impl From<u16> for CsrAddr {
 impl From<CsrAddr> for u32 {
     #[inline(always)]
     fn from(c: CsrAddr) -> Self {
-        c.0 as Self
+        Self::from(c.0)
     }
 }
 

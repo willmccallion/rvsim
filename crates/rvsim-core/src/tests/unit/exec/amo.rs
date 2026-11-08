@@ -27,7 +27,7 @@ const I32_MIN_ZEXT: u64 = 0x8000_0000u64; // 0x0000_0000_8000_0000
 
 /// Helper: sign-extend a 32-bit value to 64 bits.
 fn sext32(val: u32) -> u64 {
-    val as i32 as i64 as u64
+    i64::from(val as i32) as u64
 }
 
 #[test]
@@ -160,15 +160,15 @@ fn min_word_positive() {
 #[test]
 fn min_word_negative_values() {
     // -1 vs -2 → min is -2
-    let neg1 = (-1i32 as u32) as u64;
-    let neg2 = (-2i32 as u32) as u64;
+    let neg1 = u64::from(-1i32 as u32);
+    let neg2 = u64::from(-2i32 as u32);
     assert_eq!(atomic_alu(AmoOp::Min, neg1, neg2, MemWidth::Word), sext32(-2i32 as u32));
 }
 
 #[test]
 fn min_word_mixed_sign() {
     // 1 vs -1 → min is -1 (signed comparison)
-    let neg1 = (-1i32 as u32) as u64;
+    let neg1 = u64::from(-1i32 as u32);
     assert_eq!(atomic_alu(AmoOp::Min, 1, neg1, MemWidth::Word), sext32(-1i32 as u32));
 }
 
@@ -199,14 +199,14 @@ fn max_word_positive() {
 
 #[test]
 fn max_word_negative_values() {
-    let neg1 = (-1i32 as u32) as u64;
-    let neg2 = (-2i32 as u32) as u64;
+    let neg1 = u64::from(-1i32 as u32);
+    let neg2 = u64::from(-2i32 as u32);
     assert_eq!(atomic_alu(AmoOp::Max, neg1, neg2, MemWidth::Word), sext32(-1i32 as u32));
 }
 
 #[test]
 fn max_word_mixed_sign() {
-    let neg1 = (-1i32 as u32) as u64;
+    let neg1 = u64::from(-1i32 as u32);
     assert_eq!(atomic_alu(AmoOp::Max, 1, neg1, MemWidth::Word), sext32(1));
 }
 

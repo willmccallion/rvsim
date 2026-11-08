@@ -42,11 +42,11 @@ fn gpr_x0_always_zero() {
 fn gpr_write_all_registers() {
     let mut regs = RegisterFile::default();
     for i in 0u8..32 {
-        regs.write(RegIdx::new(i), i as u64 * 100);
+        regs.write(RegIdx::new(i), u64::from(i) * 100);
     }
     assert_eq!(regs.read(RegIdx::new(0)), 0, "x0 must remain 0");
     for i in 1u8..32 {
-        assert_eq!(regs.read(RegIdx::new(i)), i as u64 * 100);
+        assert_eq!(regs.read(RegIdx::new(i)), u64::from(i) * 100);
     }
 }
 
@@ -104,10 +104,10 @@ fn fpr_f0_is_writable() {
 fn fpr_write_all_registers() {
     let mut regs = RegisterFile::default();
     for i in 0u8..32 {
-        regs.write_f(RegIdx::new(i), (i as u64 + 1) * 1000);
+        regs.write_f(RegIdx::new(i), (u64::from(i) + 1) * 1000);
     }
     for i in 0u8..32 {
-        assert_eq!(regs.read_f(RegIdx::new(i)), (i as u64 + 1) * 1000);
+        assert_eq!(regs.read_f(RegIdx::new(i)), (u64::from(i) + 1) * 1000);
     }
 }
 

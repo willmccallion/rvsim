@@ -134,7 +134,7 @@ impl DirectionPredictor for TournamentPredictor {
         self.global_history = self.shifted(self.global_history, taken);
         if let Some(local) = history.local {
             let entry = &mut self.local_history_table[local.table_index];
-            *entry = (*entry << 1) | taken as u64;
+            *entry = (*entry << 1) | u64::from(taken);
         }
     }
 
@@ -149,7 +149,7 @@ impl DirectionPredictor for TournamentPredictor {
         self.global_history = self.shifted(history.global_history, taken);
         if let Some(local) = history.local {
             self.local_history_table[local.table_index] =
-                ((local.history as u64) << 1) | taken as u64;
+                ((local.history as u64) << 1) | u64::from(taken);
         }
     }
 

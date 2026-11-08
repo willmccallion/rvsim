@@ -157,7 +157,7 @@ fn test_circular_wraparound() {
 /// Encode a FENCE instruction with given pred/succ bits.
 /// FENCE encoding: opcode=0x0F, funct3=0, pred in bits[27:24], succ in bits[23:20].
 fn encode_fence(pred: u8, succ: u8) -> u32 {
-    0x0F | ((pred as u32 & 0xF) << 24) | ((succ as u32 & 0xF) << 20)
+    0x0F | ((u32::from(pred) & 0xF) << 24) | ((u32::from(succ) & 0xF) << 20)
 }
 
 /// Allocates a FENCE with the `pred` and `succ` sets.

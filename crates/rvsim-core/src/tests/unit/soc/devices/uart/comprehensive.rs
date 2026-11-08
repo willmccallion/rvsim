@@ -36,7 +36,7 @@ fn uart_transmit_full_message() {
         crate::tests::support::probe::write(
             &mut uart,
             crate::common::PhysAddr::new(0),
-            (byte) as u64,
+            u64::from(byte),
             1,
         );
     }

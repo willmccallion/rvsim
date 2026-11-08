@@ -87,7 +87,7 @@ impl Ghr {
         for i in (1..GHR_MAX_WORDS).rev() {
             self.bits[i] = (self.bits[i] << 1) | (self.bits[i - 1] >> 63);
         }
-        self.bits[0] = (self.bits[0] << 1) | (taken as u64);
+        self.bits[0] = (self.bits[0] << 1) | u64::from(taken);
 
         let len = self.len as usize;
         if len > 0 && len < GHR_MAX_WORDS * 64 {

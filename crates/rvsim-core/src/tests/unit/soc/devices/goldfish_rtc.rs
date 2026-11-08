@@ -41,7 +41,7 @@ fn goldfish_rtc_read_time_low_nonzero() {
         crate::tests::support::probe::read(&mut rtc, crate::common::PhysAddr::new(0x0), 4) as u32;
     let _time_high =
         crate::tests::support::probe::read(&mut rtc, crate::common::PhysAddr::new(0x4), 4) as u32;
-    let time_ns = ((_time_high as u64) << 32) | (time_low as u64);
+    let time_ns = (u64::from(_time_high) << 32) | u64::from(time_low);
     assert!(time_ns > 0, "Time since epoch should be > 0");
 }
 

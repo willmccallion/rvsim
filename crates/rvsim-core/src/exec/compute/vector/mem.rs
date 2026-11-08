@@ -63,7 +63,7 @@ pub fn vec_mem_dst_count(
     nf_field: u8,
 ) -> u8 {
     let (data_emul, _) = vec_mem_emul_regs(op, eew, sew, lmul);
-    let nf = (nf_field as u16 + 1).min(8) as u8;
+    let nf = (u16::from(nf_field) + 1).min(8) as u8;
     match op {
         VectorOp::Load(VecLoadOp::Mask) | VectorOp::Store(VecStoreOp::Mask) => 1,
         VectorOp::Load(VecLoadOp::WholeRegister) | VectorOp::Store(VecStoreOp::WholeRegister) => {

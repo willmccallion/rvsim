@@ -49,8 +49,9 @@ pub(super) fn exec_fp_widening(
         let op1_raw = read_op1(vpr, &operand1, i, ctx.sew);
 
         if ctx.sew == Sew::E32 {
-            let vs2_f = if vs2_wide { elem_to_f64(vs2_raw) } else { elem_to_f32(vs2_raw) as f64 };
-            let op1_f = elem_to_f32(op1_raw) as f64;
+            let vs2_f =
+                if vs2_wide { elem_to_f64(vs2_raw) } else { f64::from(elem_to_f32(vs2_raw)) };
+            let op1_f = f64::from(elem_to_f32(op1_raw));
             let vs2_signaling = if vs2_wide {
                 is_snan_f64(elem_to_f64(vs2_raw))
             } else {
@@ -68,11 +69,11 @@ pub(super) fn exec_fp_widening(
         } else if ctx.sew == Sew::E16 {
             // f16 inputs → f32 output (via f64 for lossless computation).
             let vs2_f = if vs2_wide {
-                elem_to_f32(vs2_raw) as f64
+                f64::from(elem_to_f32(vs2_raw))
             } else {
-                f16_to_f32(vs2_raw as u16) as f64
+                f64::from(f16_to_f32(vs2_raw as u16))
             };
-            let op1_f = f16_to_f32(op1_raw as u16) as f64;
+            let op1_f = f64::from(f16_to_f32(op1_raw as u16));
             let vs2_signaling = if vs2_wide {
                 is_snan_f32(elem_to_f32(vs2_raw))
             } else {
@@ -235,8 +236,8 @@ pub(super) fn exec_fp_widening_fma(
         let vd_raw = vpr.read_element(vd_idx, ElemIdx::new(i), wsew);
 
         if ctx.sew == Sew::E32 {
-            let vs2_f = elem_to_f32(vs2_raw) as f64;
-            let op1_f = elem_to_f32(op1_raw) as f64;
+            let vs2_f = f64::from(elem_to_f32(vs2_raw));
+            let op1_f = f64::from(elem_to_f32(op1_raw));
             let vd_f = elem_to_f64(vd_raw);
             flags = flags
                 | invalid_if(
@@ -255,9 +256,9 @@ pub(super) fn exec_fp_widening_fma(
             vpr.write_element(vd_idx, ElemIdx::new(i), wsew, canonicalize_f64_bits(r));
         } else if ctx.sew == Sew::E16 && ctx.zvfh {
             // Zvfh widening FMA: f16 inputs → f32 accumulator
-            let vs2_f = f16_to_f32(vs2_raw as u16) as f64;
-            let op1_f = f16_to_f32(op1_raw as u16) as f64;
-            let vd_f = elem_to_f32(vd_raw) as f64;
+            let vs2_f = f64::from(f16_to_f32(vs2_raw as u16));
+            let op1_f = f64::from(f16_to_f32(op1_raw as u16));
+            let vd_f = f64::from(elem_to_f32(vd_raw));
             flags = flags
                 | invalid_if(
                     is_snan_f16(vs2_raw as u16)

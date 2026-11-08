@@ -190,14 +190,14 @@ fn test_circular_wraparound() {
     for i in 1..=10 {
         let tag = RobTag::new(i);
         sb.allocate(tag, MemWidth::Word);
-        sb.resolve(tag, VirtAddr::new(0), PhysAddr::new(0x8000_0000), i as u64);
+        sb.resolve(tag, VirtAddr::new(0), PhysAddr::new(0x8000_0000), u64::from(i));
         sb.mark_committed(tag);
         let entry = drain_now(&mut sb).unwrap();
         assert_eq!(
             entry,
             StoreResolution::Committed {
                 paddr: PhysAddr::new(0x8000_0000),
-                data: StoreData::Bytes(i as u64)
+                data: StoreData::Bytes(u64::from(i))
             }
         );
     }
