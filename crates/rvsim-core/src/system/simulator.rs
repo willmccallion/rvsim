@@ -1129,8 +1129,8 @@ impl Simulator {
     /// Not for use inside pipeline stages — those emit `MemReq` packets
     /// through the global event queue and consume responses via the
     /// mailbox-drain stage.
-    pub fn probe_mem_load(&mut self, paddr: crate::common::PhysAddr, width: u8) -> u64 {
-        if let Some(value) = self.state.uncore.kernel.memory.read(paddr, usize::from(width)) {
+    pub fn probe_mem_load(&mut self, paddr: crate::common::PhysAddr, width: ProbeWidth) -> u64 {
+        if let Some(value) = self.state.uncore.kernel.memory.read(paddr, width.bytes()) {
             return value;
         }
         self.probe_mmio(paddr, width, crate::sim::packet::MemOp::Read)
@@ -1140,21 +1140,21 @@ impl Simulator {
     /// write as an external one every hart observes; for MMIO a `MemReq` is
     /// dispatched through the bus's `Handle` impl so the device's side
     /// effect runs.
-    pub fn probe_mem_store(&mut self, paddr: crate::common::PhysAddr, value: u64, width: u8) {
+    pub fn probe_mem_store(
+        &mut self,
+        paddr: crate::common::PhysAddr,
+        value: u64,
+        width: ProbeWidth,
+    ) {
         if self
             .state
             .uncore
             .kernel
             .memory
             .ram()
-            .is_some_and(|ram| ram.contains(paddr, u64::from(width)))
+            .is_some_and(|ram| ram.contains(paddr, width.bytes() as u64))
         {
-            self.state.uncore.kernel.memory.write(
-                Writer::External,
-                paddr,
-                value,
-                usize::from(width),
-            );
+            self.state.uncore.kernel.memory.write(Writer::External, paddr, value, width.bytes());
             return;
         }
         let op = crate::sim::packet::MemOp::Write {
@@ -1169,7 +1169,7 @@ impl Simulator {
     fn probe_mmio(
         &mut self,
         paddr: crate::common::PhysAddr,
-        width: u8,
+        width: ProbeWidth,
         op: crate::sim::packet::MemOp,
     ) -> u64 {
         use crate::sim::components::{ComponentId, PipelineId, ReqId};
@@ -1178,10 +1178,10 @@ impl Simulator {
         use crate::sim::stats::Stats;
 
         let access_size = match width {
-            1 => AccessSize::B1,
-            2 => AccessSize::B2,
-            4 => AccessSize::B4,
-            _ => AccessSize::B8,
+            ProbeWidth::B1 => AccessSize::B1,
+            ProbeWidth::B2 => AccessSize::B2,
+            ProbeWidth::B4 => AccessSize::B4,
+            ProbeWidth::B8 => AccessSize::B8,
         };
         let req_id = ReqId::HOST_PROBE;
         let mut local_queue = EventQueue::new();
@@ -1232,6 +1232,32 @@ fn dispatch_to_cache(state: &mut SystemState, id: CacheId, packet: Packet, sourc
             cache.handle(packet, source, &mut ctx);
         }
         CacheSlot::Llc => uncore.l3_cache.handle(packet, source, &mut ctx),
+    }
+}
+
+/// How many bytes a host probe of memory reads or writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProbeWidth {
+    /// One byte.
+    B1,
+    /// Two bytes.
+    B2,
+    /// Four bytes.
+    B4,
+    /// Eight bytes.
+    B8,
+}
+
+impl ProbeWidth {
+    /// The width in bytes.
+    #[must_use]
+    pub const fn bytes(self) -> usize {
+        match self {
+            Self::B1 => 1,
+            Self::B2 => 2,
+            Self::B4 => 4,
+            Self::B8 => 8,
+        }
     }
 }
 

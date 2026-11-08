@@ -4,6 +4,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -60,7 +61,7 @@ fn l1d_accesses(backend: BackendKind, with_store: bool) -> (u64, TestContext) {
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &copy(with_store));
     for byte in 0..BYTES {
-        ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, 1);
+        ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     // The committed store drains after the marker retires.
@@ -80,8 +81,9 @@ fn a_vector_store_writes_its_line_to_the_l1d_in_one_access() {
         let (without_store, _) = l1d_accesses(backend, false);
 
         assert_eq!(with_store - without_store, 1, "{backend:?}: one line, one write");
-        let stored: Vec<u64> =
-            (0..BYTES).map(|b| ctx.sim.probe_mem_load(PhysAddr::new(DEST + b), 1)).collect();
+        let stored: Vec<u64> = (0..BYTES)
+            .map(|b| ctx.sim.probe_mem_load(PhysAddr::new(DEST + b), ProbeWidth::B1))
+            .collect();
         assert_eq!(
             stored,
             (1..=BYTES).collect::<Vec<_>>(),

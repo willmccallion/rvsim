@@ -9,6 +9,7 @@ use crate::isa::csr;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE};
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -36,7 +37,7 @@ const STORE_PAGE_FAULT: u64 = 15;
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u64) {
     let index = (va >> (12 + 9 * level)) & 0x1ff;
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 const fn cbo(imm: i64, rs1: u32) -> u32 {
@@ -58,11 +59,15 @@ fn run(backend: BackendKind, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
         JAL_SELF,
     ];
     for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(CODE_PA + 4 * n as u64), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(CODE_PA + 4 * n as u64),
+            u64::from(*inst),
+            ProbeWidth::B4,
+        );
     }
-    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), 4);
+    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), ProbeWidth::B4);
     for off in (0..2 * CBOZ_BLOCK_SIZE).step_by(8) {
-        ctx.sim.probe_mem_store(PhysAddr::new(DATA_PA + off), 0xDEAD_BEEF, 8);
+        ctx.sim.probe_mem_store(PhysAddr::new(DATA_PA + off), 0xDEAD_BEEF, ProbeWidth::B8);
     }
 
     write_pte(&mut ctx, ROOT_PPN, CODE_VA, 2, (L1_PPN << 10) | PTE_V);
@@ -91,8 +96,9 @@ fn a_cbo_zero_that_misses_the_tlb_walks_and_zeroes_its_block() {
 
         let hart = &ctx.sim.state.harts[0];
         assert_eq!(hart.csrs.mcause, 0, "{backend:?}: no trap");
-        let zeroed = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA + CBOZ_BLOCK_SIZE), 8);
-        let untouched = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA), 8);
+        let zeroed =
+            ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA + CBOZ_BLOCK_SIZE), ProbeWidth::B8);
+        let untouched = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA), ProbeWidth::B8);
         assert_eq!((zeroed, untouched), (0, 0xDEAD_BEEF), "{backend:?}");
     }
 }

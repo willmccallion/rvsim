@@ -5,6 +5,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -35,7 +36,7 @@ fn check_one_access_per_amo(backend: BackendKind) {
     config.cache.wcb_entries = 0;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
-    ctx.sim.probe_mem_store(PhysAddr::new(DATA), 100, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new(DATA), 100, ProbeWidth::B8);
 
     ctx.run(400);
 
@@ -48,7 +49,7 @@ fn check_one_access_per_amo(backend: BackendKind) {
         "{backend:?}: the last AMO's old value"
     );
     assert_eq!(
-        ctx.sim.probe_mem_load(PhysAddr::new(DATA), 8),
+        ctx.sim.probe_mem_load(PhysAddr::new(DATA), ProbeWidth::B8),
         100 + 3 * AMOS,
         "{backend:?}: the word"
     );

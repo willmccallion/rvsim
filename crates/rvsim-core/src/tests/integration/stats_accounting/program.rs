@@ -5,6 +5,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{BackendKind, Config};
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use crate::system::SystemState;
+use crate::system::simulator::ProbeWidth;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, M5_FAIL, MRET};
 use crate::tests::support::harness::TestContext;
@@ -33,7 +34,7 @@ pub fn config(backend: BackendKind) -> Config {
 
 pub fn store_words(ctx: &mut TestContext, at: u64, words: &[u32]) {
     for (n, word) in words.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(at + 4 * n as u64), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(PhysAddr::new(at + 4 * n as u64), u64::from(*word), ProbeWidth::B4);
     }
 }
 

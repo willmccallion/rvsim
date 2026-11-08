@@ -9,6 +9,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -36,7 +37,7 @@ const PTE_V: u64 = 1;
 const PTE_LEAF_RWX_AD: u64 = 0b1100_1111;
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 /// Loads one word from each of `PAGES` pages, lets those walks drain
@@ -69,7 +70,11 @@ fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     let program = program();
     for (i, word) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(CODE + (i as u64) * 4), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(CODE + (i as u64) * 4),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
     let last_load_retired = program.len() as u64 - 1;
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);

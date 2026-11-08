@@ -8,6 +8,7 @@ use crate::exec::signals::ControlSignals;
 use crate::isa::encoding::rv64i::opcodes::*;
 use crate::isa::reg::RegIdx;
 use crate::soc::uncore::KERNEL_PANIC_GRACE_CYCLES;
+use crate::system::simulator::ProbeWidth;
 
 #[test]
 fn builder_add_encodes_r_type() {
@@ -281,8 +282,8 @@ fn harness_boot_default_pc() {
 #[test]
 fn harness_with_memory_adds_device() {
     let mut ctx = TestContext::new().with_memory(4096, 0x1000);
-    ctx.sim.probe_mem_store(PhysAddr::new(0x1000), 0xDEAD_BEEF, 4);
-    assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1000), 4), 0xDEAD_BEEF);
+    ctx.sim.probe_mem_store(PhysAddr::new(0x1000), 0xDEAD_BEEF, ProbeWidth::B4);
+    assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1000), ProbeWidth::B4), 0xDEAD_BEEF);
 }
 
 #[test]
@@ -294,8 +295,8 @@ fn harness_load_program_writes_instructions_and_sets_pc() {
     let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &program);
 
     assert_eq!(ctx.cpu().harts[0].pc, VirtAddr::new(0x1000), "PC should be set to program base");
-    assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1000), 4) as u32, nop);
-    assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1004), 4) as u32, addi);
+    assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1000), ProbeWidth::B4) as u32, nop);
+    assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1004), ProbeWidth::B4) as u32, addi);
 }
 
 #[test]
@@ -312,7 +313,7 @@ fn context_heading_for_a_kernel_panic() -> TestContext {
     let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &[spin]);
     let uart = PhysAddr::new(Config::minimal().system.uart_base.val());
     for byte in b"Kernel panic" {
-        ctx.sim.probe_mem_store(uart, u64::from(*byte), 1);
+        ctx.sim.probe_mem_store(uart, u64::from(*byte), ProbeWidth::B1);
     }
     ctx
 }

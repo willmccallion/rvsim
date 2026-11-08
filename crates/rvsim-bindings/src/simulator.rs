@@ -14,6 +14,7 @@ use pyo3::prelude::*;
 use rvsim_core::common::{HartId, PhysAddr, VirtAddr};
 use rvsim_core::isa::privileged::PrivilegeMode;
 use rvsim_core::system::loader::KernelBoot;
+use rvsim_core::system::simulator::ProbeWidth;
 use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramImage, ProgramKind};
 use rvsim_core::{Simulator, ValidConfig};
 
@@ -878,10 +879,10 @@ impl PySimulator {
         } else {
             let mut buf = vec![0u8; length];
             for (i, byte) in buf.iter_mut().enumerate() {
-                *byte = self
-                    .inner
-                    .probe_mem_load(rvsim_core::common::PhysAddr::new(paddr + i as u64), 1)
-                    as u8;
+                *byte = self.inner.probe_mem_load(
+                    rvsim_core::common::PhysAddr::new(paddr + i as u64),
+                    ProbeWidth::B1,
+                ) as u8;
             }
             pyo3::types::PyBytes::new(py, &buf)
         }

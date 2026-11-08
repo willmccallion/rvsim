@@ -5,6 +5,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -25,9 +26,13 @@ fn run(backend: BackendKind, privilege: PrivilegeMode, access: u32) -> (u64, u64
     let program = [i().lui(10, (UNMAPPED >> 12) as i32).build(), access, JAL_SELF];
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + 4 * n as u64), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(RAM_BASE + 4 * n as u64),
+            u64::from(*inst),
+            ProbeWidth::B4,
+        );
     }
-    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), 4);
+    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), ProbeWidth::B4);
     {
         let hart = &mut ctx.sim.state.harts[0];
         hart.csrs.mtvec = TRAP_PARK;

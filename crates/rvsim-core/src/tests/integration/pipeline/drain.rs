@@ -6,6 +6,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -30,7 +31,7 @@ fn program() -> Vec<u32> {
 }
 
 fn slot(ctx: &mut TestContext, index: u64) -> u64 {
-    ctx.sim.probe_mem_load(PhysAddr::new(SLOTS + 8 * index), 8)
+    ctx.sim.probe_mem_load(PhysAddr::new(SLOTS + 8 * index), ProbeWidth::B8)
 }
 
 /// Runs `cycles`, drains, and returns how many committed stores the drain

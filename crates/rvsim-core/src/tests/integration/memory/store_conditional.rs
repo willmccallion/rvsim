@@ -5,6 +5,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -48,7 +49,7 @@ fn run(backend: BackendKind, load: u32, between: u32) -> Outcome {
         ctx.run_until(5_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     Outcome {
         sc_result: ctx.get_reg(SC_RESULT),
-        memory: ctx.sim.probe_mem_load(PhysAddr::new(DATA), 8),
+        memory: ctx.sim.probe_mem_load(PhysAddr::new(DATA), ProbeWidth::B8),
         cycles,
     }
 }

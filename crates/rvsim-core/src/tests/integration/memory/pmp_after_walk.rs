@@ -8,6 +8,7 @@ use crate::isa::csr;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{CBO_ZERO_IMM, CBOZ_BLOCK_SIZE};
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::pmp_entry;
@@ -40,7 +41,7 @@ const PROTECTED: u64 = BLOCK + 0x10;
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u64) {
     let index = (va >> (12 + 9 * level)) & 0x1ff;
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 const fn cbo(imm: i64, rs1: u32) -> u32 {
@@ -64,11 +65,15 @@ fn run(
     config.system.console = Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(CODE_PA + 4 * n as u64), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(CODE_PA + 4 * n as u64),
+            u64::from(*inst),
+            ProbeWidth::B4,
+        );
     }
-    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), 4);
+    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), ProbeWidth::B4);
     for off in (0..PAGE).step_by(4) {
-        ctx.sim.probe_mem_store(PhysAddr::new(DATA_PA + off), u64::from(FILL), 4);
+        ctx.sim.probe_mem_store(PhysAddr::new(DATA_PA + off), u64::from(FILL), ProbeWidth::B4);
     }
     write_pte(&mut ctx, ROOT_PPN, CODE_VA, 2, (L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, L1_PPN, CODE_VA, 1, (L0_PPN << 10) | PTE_V);
@@ -109,7 +114,7 @@ fn cbo_zero_after_a_walk_cannot_zero_pmp_protected_bytes_of_its_block() {
     ];
     let results = [BackendKind::InOrder, BackendKind::OutOfOrder].map(|backend| {
         let mut ctx = run(backend, &program, protect_four_bytes_of_the_block);
-        let protected = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA + PROTECTED), 4);
+        let protected = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA + PROTECTED), ProbeWidth::B4);
         (ctx.sim.state.harts[0].csrs.mcause, protected)
     });
 

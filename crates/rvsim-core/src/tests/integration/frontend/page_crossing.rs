@@ -9,6 +9,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -39,12 +40,16 @@ const PTE_LEAF_RWX_AD: u64 = 0b1100_1111;
 const CROSSING_VA: u64 = DATA_VA + 0xFFC;
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 fn store_program(ctx: &mut TestContext, base: u64, program: &[u32]) {
     for (i, word) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(base + (i as u64) * 4), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(base + (i as u64) * 4),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
 }
 
@@ -89,7 +94,7 @@ fn run(backend: BackendKind, second_pa: Option<u64>) -> Outcome {
             second_pa.unwrap_or(0) + offset - 4
         };
         if pa != 0 {
-            ctx.sim.probe_mem_store(PhysAddr::new(pa), byte, 1);
+            ctx.sim.probe_mem_store(PhysAddr::new(pa), byte, ProbeWidth::B1);
         }
     }
 

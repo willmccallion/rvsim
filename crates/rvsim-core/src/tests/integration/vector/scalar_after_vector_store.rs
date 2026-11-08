@@ -4,6 +4,7 @@
 
 use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, Console};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -79,13 +80,13 @@ fn loaded(backend: BackendKind) -> u64 {
     config.system.console = Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     for byte in 0..BYTES {
-        ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, 1);
+        ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }
 
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     ctx.run(200);
 
-    ctx.sim.probe_mem_load(PhysAddr::new(OUT), 8)
+    ctx.sim.probe_mem_load(PhysAddr::new(OUT), ProbeWidth::B8)
 }
 
 const VECTOR_BYTES: u64 = 0x0807_0605_0403_0201;

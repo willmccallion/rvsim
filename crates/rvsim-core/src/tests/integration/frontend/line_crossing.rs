@@ -3,6 +3,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -33,7 +34,11 @@ fn run(backend: BackendKind, offset: i32) -> (u64, u64) {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx =
         TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program(offset));
-    ctx.sim.probe_mem_store(PhysAddr::new(DATA + offset as u64), 0x1817_1615_1413_1211, 8);
+    ctx.sim.probe_mem_store(
+        PhysAddr::new(DATA + offset as u64),
+        0x1817_1615_1413_1211,
+        ProbeWidth::B8,
+    );
 
     ctx.run(300);
 

@@ -8,6 +8,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
 
@@ -29,7 +30,7 @@ const JAL_SELF: u32 = 0x0000_006F;
 const JAL_PLUS_14: u32 = 0x00E0_006F;
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 /// A context whose code pages map `CODE_VA` to `FIRST_PA` and the page
@@ -68,14 +69,18 @@ fn straddling_context(backend: BackendKind) -> TestContext {
 
 /// Writes `inst` across the page boundary.
 fn store_straddling(ctx: &mut TestContext, inst: u32) {
-    ctx.sim.probe_mem_store(PhysAddr::new(FIRST_PA + 0xFFE), u64::from(inst & 0xFFFF), 2);
-    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA), u64::from(inst >> 16), 2);
+    ctx.sim.probe_mem_store(
+        PhysAddr::new(FIRST_PA + 0xFFE),
+        u64::from(inst & 0xFFFF),
+        ProbeWidth::B2,
+    );
+    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA), u64::from(inst >> 16), ProbeWidth::B2);
 }
 
 fn run(backend: BackendKind) -> u64 {
     let mut ctx = straddling_context(backend);
     store_straddling(&mut ctx, ADDI_A1_42);
-    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 2), u64::from(JAL_SELF), 4);
+    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 2), u64::from(JAL_SELF), ProbeWidth::B4);
 
     ctx.run(2_000);
     ctx.get_reg(A1)
@@ -86,9 +91,9 @@ fn run(backend: BackendKind) -> u64 {
 fn run_straddling_jump(backend: BackendKind) -> (u64, f64) {
     let mut ctx = straddling_context(backend);
     store_straddling(&mut ctx, JAL_PLUS_14);
-    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 2), u64::from(JAL_SELF), 4);
-    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 0xC), u64::from(ADDI_A1_42), 4);
-    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 0x10), u64::from(JAL_SELF), 4);
+    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 2), u64::from(JAL_SELF), ProbeWidth::B4);
+    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 0xC), u64::from(ADDI_A1_42), ProbeWidth::B4);
+    ctx.sim.probe_mem_store(PhysAddr::new(SECOND_PA + 0x10), u64::from(JAL_SELF), ProbeWidth::B4);
 
     ctx.run(2_000);
 

@@ -5,6 +5,7 @@ use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
 use crate::isa::reg::RegIdx;
 use crate::soc::exit::ExitSignal;
 use crate::system::SystemState;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::mocks::memory::MockMemory;
 
 /// A simulator for `config` with no disk.
@@ -82,7 +83,7 @@ impl TestContext {
     pub fn load_program(mut self, addr: u64, instructions: &[u32]) -> Self {
         for (i, inst) in instructions.iter().enumerate() {
             let offset = addr + (i as u64) * 4;
-            self.sim.probe_mem_store(PhysAddr::new(offset), u64::from(*inst), 4);
+            self.sim.probe_mem_store(PhysAddr::new(offset), u64::from(*inst), ProbeWidth::B4);
         }
         self.sim.set_pc(0, VirtAddr::new(addr));
         self

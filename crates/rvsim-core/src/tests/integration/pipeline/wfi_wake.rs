@@ -4,6 +4,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -46,7 +47,7 @@ fn check(backend: BackendKind, width: usize) {
     ctx.sim.probe_mem_store(
         PhysAddr::new(HANDLER),
         u64::from(InstructionBuilder::new().jal(0, 0).build()),
-        4,
+        ProbeWidth::B4,
     );
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();

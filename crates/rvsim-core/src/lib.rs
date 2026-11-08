@@ -86,3 +86,7 @@ pub use crate::isa::csr::CsrAddr;
 pub use crate::isa::reg::RegIdx;
 /// The simulated system: build it, load it, run it, inspect it.
 pub use crate::system::simulator::Simulator;
+
+/// How many bytes [`Simulator::probe_mem_load`] and
+/// [`Simulator::probe_mem_store`] move.
+pub use crate::system::simulator::ProbeWidth;

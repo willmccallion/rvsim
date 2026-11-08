@@ -7,6 +7,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -78,7 +79,7 @@ fn every_store_reaches_memory_without_a_fence() {
         ctx.run(200);
 
         let word = |ctx: &mut TestContext, offset: u64| {
-            ctx.sim.probe_mem_load(PhysAddr::new(DATA + offset), 4)
+            ctx.sim.probe_mem_load(PhysAddr::new(DATA + offset), ProbeWidth::B4)
         };
         assert_eq!(word(&mut ctx, 0), LOW_VALUE, "{backend:?}");
         assert_eq!(word(&mut ctx, 4), HIGH_VALUE, "{backend:?}");

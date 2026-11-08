@@ -5,6 +5,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -68,7 +69,7 @@ fn config(backend: BackendKind, vector_mem_width: Option<usize>) -> Config {
 fn l1d_accesses(config: &Config, with_load: bool) -> (u64, TestContext) {
     let mut ctx = TestContext::new_with_config(config).load_program(PROGRAM_BASE, &copy(with_load));
     for byte in 0..BYTES {
-        ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, 1);
+        ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     ctx.run(200);
@@ -86,8 +87,9 @@ fn load_accesses(backend: BackendKind, vector_mem_width: Option<usize>) -> u64 {
     let config = config(backend, vector_mem_width);
     let (with_load, mut ctx) = l1d_accesses(&config, true);
     let (without_load, _) = l1d_accesses(&config, false);
-    let copied: Vec<u64> =
-        (0..BYTES).map(|b| ctx.sim.probe_mem_load(PhysAddr::new(DEST + b), 1)).collect();
+    let copied: Vec<u64> = (0..BYTES)
+        .map(|b| ctx.sim.probe_mem_load(PhysAddr::new(DEST + b), ProbeWidth::B1))
+        .collect();
     assert_eq!(copied, (1..=BYTES).collect::<Vec<_>>(), "{backend:?}: the load read every byte");
     with_load - without_load
 }

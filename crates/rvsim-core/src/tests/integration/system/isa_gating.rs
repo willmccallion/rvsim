@@ -4,6 +4,7 @@
 
 use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, Console};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::harness::TestContext;
 
@@ -34,7 +35,11 @@ fn exit_code_of(backend: BackendKind, isa: Option<&str>, instruction: u32) -> Op
     config.isa.string = isa.map(str::to_owned);
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in handler.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(HANDLER + 4 * n as u64), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(HANDLER + 4 * n as u64),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.run(5_000);

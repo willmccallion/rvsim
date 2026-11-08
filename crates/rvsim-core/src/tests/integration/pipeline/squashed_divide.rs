@@ -5,6 +5,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -98,7 +99,11 @@ fn handler_finish_cycle(backend: BackendKind, behind: u32) -> u64 {
     let program = faulting_load_then(behind);
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in dividing_handler().iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(HANDLER + 4 * n as u64), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(HANDLER + 4 * n as u64),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();

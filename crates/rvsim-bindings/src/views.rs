@@ -8,6 +8,7 @@ use pyo3::prelude::*;
 use rvsim_core::common::{PhysAddr, VirtAddr};
 use rvsim_core::isa::csr::CsrAddr;
 use rvsim_core::isa::reg::RegIdx;
+use rvsim_core::system::simulator::ProbeWidth;
 
 use crate::simulator::PySimulator;
 
@@ -254,10 +255,10 @@ pub(crate) enum Width {
 }
 
 impl Width {
-    const fn bytes(self) -> u8 {
+    const fn probe_width(self) -> ProbeWidth {
         match self {
-            Self::Bits32 => 4,
-            Self::Bits64 => 8,
+            Self::Bits32 => ProbeWidth::B4,
+            Self::Bits64 => ProbeWidth::B8,
         }
     }
 
@@ -286,7 +287,7 @@ pub struct Memory {
 impl Memory {
     fn __getitem__(&self, py: Python<'_>, addr: u64) -> u64 {
         let mut cpu = self.cpu.borrow_mut(py);
-        cpu.inner.probe_mem_load(PhysAddr::new(addr), self.width.bytes())
+        cpu.inner.probe_mem_load(PhysAddr::new(addr), self.width.probe_width())
     }
 
     fn __repr__(&self) -> String {
@@ -317,7 +318,7 @@ impl VirtualMemory {
                 "translation failed for VA {addr:#x}: {trap:?}"
             ))
         })?;
-        Ok(cpu.inner.probe_mem_load(paddr, self.width.bytes()))
+        Ok(cpu.inner.probe_mem_load(paddr, self.width.probe_width()))
     }
 
     fn __repr__(&self) -> String {

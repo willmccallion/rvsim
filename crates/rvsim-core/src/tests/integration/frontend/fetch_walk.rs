@@ -8,6 +8,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
 
@@ -27,7 +28,7 @@ const PTE_LEAF_RWX_AD: u64 = 0b1100_1111;
 const PROGRAM: [u32; 3] = [0x051D_4515, 0x0005_0593, 0x0000_006F];
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 /// Identity-maps the code's 2 MiB megapage under Sv39 and runs from it in
@@ -39,7 +40,11 @@ fn run_from_a_cold_tlb(backend: BackendKind, width: usize) -> (u64, u64) {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (i, word) in PROGRAM.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(CODE + (i as u64) * 4), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(CODE + (i as u64) * 4),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (NEXT_PPN << 10) | PTE_V);
     write_pte(&mut ctx, NEXT_PPN, (CODE >> 21) & 0x1ff, ((CODE >> 12) << 10) | PTE_LEAF_RWX_AD);

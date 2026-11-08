@@ -10,6 +10,7 @@ use crate::soc::devices::plic::Plic;
 use crate::soc::devices::uart::Uart;
 use crate::soc::devices::virtio_disk::VirtioBlock;
 use crate::soc::terminal::Terminal;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::build_simulator;
 
 const CLINT_BASE: u64 = 0x0200_0000;
@@ -109,8 +110,8 @@ fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
     config.system.hart_count = std::num::NonZero::new(2).unwrap();
     config.system.console = Console::Quiet;
     let mut sim = build_simulator(&config);
-    sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 0x4008), 1234, 8);
-    sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 4 * 10), 3, 4);
+    sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 0x4008), 1234, ProbeWidth::B8);
+    sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 4 * 10), 3, ProbeWidth::B4);
     for _ in 0..8 {
         sim.tick().unwrap();
     }
@@ -125,6 +126,6 @@ fn a_bus_checkpoint_restores_every_device_into_a_fresh_system() {
         .expect("a fresh system takes every device's state");
 
     assert_eq!(fresh.state.uncore.bus.checkpoint_devices(), before);
-    assert_eq!(fresh.probe_mem_load(PhysAddr::new(CLINT_BASE + 0x4008), 8), 1234);
-    assert_eq!(fresh.probe_mem_load(PhysAddr::new(PLIC_BASE + 4 * 10), 4), 3);
+    assert_eq!(fresh.probe_mem_load(PhysAddr::new(CLINT_BASE + 0x4008), ProbeWidth::B8), 1234);
+    assert_eq!(fresh.probe_mem_load(PhysAddr::new(PLIC_BASE + 4 * 10), ProbeWidth::B4), 3);
 }

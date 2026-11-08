@@ -9,6 +9,7 @@
 //! Sv48 and Sv57 the data lies above Sv39's address range, so the walk uses
 //! nonzero indices at the extra levels.
 
+use crate::system::simulator::ProbeWidth;
 use std::collections::HashMap;
 
 use crate::common::{Asid, LineAddr, PhysAddr, Ppn, VirtAddr, Vpn};
@@ -162,7 +163,7 @@ const fn index_at(va: u64, level: u32) -> u64 {
 }
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 fn program(touch_second_page: bool) -> Vec<u32> {
@@ -240,7 +241,11 @@ pub fn run_system(
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     let code = program(matches!(data, Data::TouchedSecondPage));
     for (n, inst) in code.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(CODE + 4 * n as u64), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(CODE + 4 * n as u64),
+            u64::from(*inst),
+            ProbeWidth::B4,
+        );
     }
     let data_va = mode.data_va();
     let mut tables = PageTables::new(mode.levels());
