@@ -2,11 +2,14 @@
 //! dispatch puts them there.
 
 use super::*;
-use crate::common::{InstSeq, VirtAddr};
+use crate::common::{InstSeq, PhysAddr, VirtAddr};
 use crate::config::{Config, FuConfig};
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
-use crate::isa::op::{AluOp, AmoOp, AtomicOp, DivOp, IntAluOp, VecLoadOp, VectorOp};
+use crate::isa::fence::Fence;
+use crate::isa::op::{
+    AluOp, AmoOp, AtomicOp, DivOp, IntAluOp, MemWidth, SystemOp, VecLoadOp, VectorOp,
+};
 use crate::isa::reg::RegIdx;
 use crate::sim::components::{CacheId, PipelineId};
 use crate::system::SystemState;
@@ -270,6 +273,128 @@ fn select_issues_no_more_loads_and_stores_than_their_ports() {
     assert_eq!(issued_tags(&first), vec![1, 2, 4], "two loads and a store");
     assert_eq!(issued_tags(&second), vec![3, 5]);
     assert!(iq.is_empty());
+}
+
+/// `fence pred, succ` with each set given as its four IORW bits.
+fn fence(pred: u32, succ: u32) -> ControlSignals {
+    let bits = 0x0F | (pred << 24) | (succ << 20);
+    ControlSignals { system_op: SystemOp::Fence(Fence::decode(bits)), ..Default::default() }
+}
+
+/// Retires the oldest instruction.
+fn retire_head(rob: &mut Rob) {
+    let head = rob.peek_head().expect("the ROB holds an instruction").tag;
+    rob.complete(head, 0);
+    let _ = rob.commit_head();
+}
+
+/// What one cycle issues from `iq`, given `rob` and `store_buffer`.
+fn issue_one(iq: &mut IssueQueue, rob: &Rob, store_buffer: &StoreBuffer) -> Vec<u32> {
+    issued_tags(&select(iq, 1, store_buffer, rob, 1, 1))
+}
+
+#[test]
+fn a_csr_access_waits_until_it_is_the_oldest_instruction() {
+    let mut rob = Rob::new(8);
+    let _older = allocate(&mut rob, ControlSignals::default());
+    let csr_access = ControlSignals { system_op: SystemOp::Csr, ..Default::default() };
+    let tag = allocate(&mut rob, csr_access);
+    let mut iq = queue_of(4, [ready_entry(tag.raw(), csr_access)]);
+    let store_buffer = StoreBuffer::new(4);
+
+    let behind_an_older_op = issue_one(&mut iq, &rob, &store_buffer);
+    retire_head(&mut rob);
+    let at_the_head = issue_one(&mut iq, &rob, &store_buffer);
+
+    assert!(behind_an_older_op.is_empty());
+    assert_eq!(at_the_head, [tag.raw()]);
+}
+
+#[test]
+fn an_amo_waits_until_it_is_the_oldest_instruction() {
+    let mut rob = Rob::new(8);
+    let _older = allocate(&mut rob, ControlSignals::default());
+    let amo = ControlSignals {
+        atomic_op: Some(AtomicOp::Amo(AmoOp::Add)),
+        mem_read: true,
+        mem_write: true,
+        ..Default::default()
+    };
+    let tag = allocate(&mut rob, amo);
+    let mut iq = queue_of(4, [ready_entry(tag.raw(), amo)]);
+    let store_buffer = StoreBuffer::new(4);
+
+    let behind_an_older_op = issue_one(&mut iq, &rob, &store_buffer);
+    retire_head(&mut rob);
+    let at_the_head = issue_one(&mut iq, &rob, &store_buffer);
+
+    assert!(behind_an_older_op.is_empty());
+    assert_eq!(at_the_head, [tag.raw()]);
+}
+
+#[test]
+fn a_load_told_to_wait_for_all_stores_waits_for_an_unresolved_older_one() {
+    let mut rob = Rob::new(8);
+    let store = allocate(&mut rob, ControlSignals { mem_write: true, ..Default::default() });
+    let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
+    let load = allocate(&mut rob, load_ctrl);
+    let entry =
+        IssueQueueEntry { mem_dep: MemDepState::WaitAll, ..ready_entry(load.raw(), load_ctrl) };
+    let mut iq = queue_of(4, [entry]);
+    let mut store_buffer = StoreBuffer::new(4);
+    let _ = store_buffer.allocate(store, MemWidth::Word);
+
+    let unresolved = issue_one(&mut iq, &rob, &store_buffer);
+    let address = PhysAddr::new(0x8000_0000);
+    store_buffer.resolve_address(store, VirtAddr::new(0x8000_0000), address);
+    let resolved = issue_one(&mut iq, &rob, &store_buffer);
+
+    assert!(unresolved.is_empty());
+    assert_eq!(resolved, [load.raw()]);
+}
+
+#[test]
+fn a_load_waits_behind_an_older_fence_that_orders_reads() {
+    let mut rob = Rob::new(8);
+    let _fence = allocate(&mut rob, fence(0b0010, 0b0010));
+    let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
+    let load = allocate(&mut rob, load_ctrl);
+    let mut iq = queue_of(4, [ready_entry(load.raw(), load_ctrl)]);
+    let store_buffer = StoreBuffer::new(4);
+
+    let behind_the_fence = issue_one(&mut iq, &rob, &store_buffer);
+    retire_head(&mut rob);
+    let after_it = issue_one(&mut iq, &rob, &store_buffer);
+
+    assert!(behind_the_fence.is_empty());
+    assert_eq!(after_it, [load.raw()]);
+}
+
+#[test]
+fn an_alu_op_passes_an_older_fence() {
+    let mut rob = Rob::new(8);
+    let _fence = allocate(&mut rob, fence(0b0011, 0b0011));
+    let alu = allocate(&mut rob, ControlSignals::default());
+    let mut iq = queue_of(4, [ready_nop(alu.raw())]);
+
+    assert_eq!(issue_one(&mut iq, &rob, &StoreBuffer::new(4)), [alu.raw()]);
+}
+
+#[test]
+fn a_fence_waits_for_the_older_loads_it_orders() {
+    let mut rob = Rob::new(8);
+    let load = allocate(&mut rob, ControlSignals { mem_read: true, ..Default::default() });
+    let fence_ctrl = fence(0b0010, 0b0011);
+    let tag = allocate(&mut rob, fence_ctrl);
+    let mut iq = queue_of(4, [ready_entry(tag.raw(), fence_ctrl)]);
+    let store_buffer = StoreBuffer::new(4);
+
+    let while_the_load_is_out = issue_one(&mut iq, &rob, &store_buffer);
+    rob.complete(load, 0);
+    let once_it_completes = issue_one(&mut iq, &rob, &store_buffer);
+
+    assert!(while_the_load_is_out.is_empty());
+    assert_eq!(once_it_completes, [tag.raw()]);
 }
 
 /// Four tags a ROB hands out across the wrap, oldest first.
