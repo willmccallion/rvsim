@@ -276,7 +276,7 @@ fn idex_builder_full_chain() {
 #[test]
 fn harness_boot_default_pc() {
     let ctx = TestContext::new();
-    assert_eq!(ctx.cpu().harts[0].pc, VirtAddr::new(0x8000_0000), "CPU should start at RAM base");
+    assert_eq!(ctx.state().harts[0].pc, VirtAddr::new(0x8000_0000), "CPU should start at RAM base");
 }
 
 #[test]
@@ -294,7 +294,7 @@ fn harness_load_program_writes_instructions_and_sets_pc() {
 
     let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &program);
 
-    assert_eq!(ctx.cpu().harts[0].pc, VirtAddr::new(0x1000), "PC should be set to program base");
+    assert_eq!(ctx.state().harts[0].pc, VirtAddr::new(0x1000), "PC should be set to program base");
     assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1000), ProbeWidth::B4) as u32, nop);
     assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(0x1004), ProbeWidth::B4) as u32, addi);
 }

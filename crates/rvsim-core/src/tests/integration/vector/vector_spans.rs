@@ -142,9 +142,10 @@ fn a_fault_inside_a_span_reports_the_first_element_that_faults() {
         let mut ctx = TestContext::new_with_config(&config)
             .load_program(PROGRAM_BASE, &load_past_the_end_of_ram());
 
-        ctx.run_until(20_000, |ctx| ctx.cpu().harts[0].csrs.mcause != 0).expect("the load trapped");
+        ctx.run_until(20_000, |ctx| ctx.state().harts[0].csrs.mcause != 0)
+            .expect("the load trapped");
 
-        let csrs = &ctx.cpu().harts[0].csrs;
+        let csrs = &ctx.state().harts[0].csrs;
         assert_eq!(
             (csrs.mcause, csrs.mtval, csrs.vstart),
             (LOAD_ACCESS_FAULT, PROGRAM_BASE + 0x4000, 32),

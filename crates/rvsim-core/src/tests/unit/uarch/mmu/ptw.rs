@@ -111,7 +111,7 @@ fn bare_mode_bypass() {
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &tc.cpu().uncore,
+        &tc.state().uncore,
     );
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
@@ -130,7 +130,7 @@ fn machine_mode_bypass() {
         AccessType::Read,
         PrivilegeMode::Machine,
         &csrs,
-        &tc.cpu().uncore,
+        &tc.state().uncore,
     );
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
@@ -140,7 +140,7 @@ fn machine_mode_bypass() {
 #[test]
 fn sv39_4kb_page_walk() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x4000_1234);
     let l2_idx = (0x4000_1234 >> 30) & 0x1FF; // 1
@@ -173,7 +173,7 @@ fn sv39_4kb_page_walk() {
 #[test]
 fn sv39_megapage_walk() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x4020_0000);
     let l2_idx = (0x4020_0000 >> 30) & 0x1FF; // 1
@@ -202,7 +202,7 @@ fn sv39_megapage_walk() {
 #[test]
 fn sv39_gigapage_walk() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x8000_0000); // VPN[2]=2
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
@@ -222,7 +222,7 @@ fn sv39_gigapage_walk() {
 #[test]
 fn invalid_pte_causes_fault() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x1000);
 
     // ROOT_PPN + VPN[2] is 0 (invalid) by default in MockMemory
@@ -235,7 +235,7 @@ fn invalid_pte_causes_fault() {
 #[test]
 fn pointer_at_level_0_causes_fault() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x1000);
 
     let l2_idx = 0;
@@ -258,7 +258,7 @@ fn pointer_at_level_0_causes_fault() {
 #[test]
 fn misaligned_superpage_causes_fault() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x4000_0000);
 
     let l2_idx = (0x4000_0000 >> 30) & 0x1FF;
@@ -284,7 +284,7 @@ fn misaligned_superpage_causes_fault() {
 #[test]
 fn write_to_clean_page_sets_dirty() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
     let target_ppn = ROOT_PPN + 0x40000; // Aligned 1GB
@@ -311,7 +311,7 @@ fn write_to_clean_page_sets_dirty() {
 #[test]
 fn read_from_unaccessed_page_sets_accessed() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
     let target_ppn = ROOT_PPN + 0x40000; // Aligned 1GB
@@ -333,7 +333,7 @@ fn read_from_unaccessed_page_sets_accessed() {
 #[test]
 fn write_permission_check() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
     let target_ppn = ROOT_PPN + 0x40000;
@@ -355,7 +355,7 @@ fn write_permission_check() {
 #[test]
 fn execute_permission_check() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
     let target_ppn = ROOT_PPN + 0x40000;
@@ -377,7 +377,7 @@ fn execute_permission_check() {
 #[test]
 fn user_cannot_access_supervisor_page() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
     let target_ppn = ROOT_PPN + 0x40000;
@@ -392,7 +392,7 @@ fn user_cannot_access_supervisor_page() {
 #[test]
 fn supervisor_access_user_page_needs_sum() {
     let (mut mmu, mut csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
     let target_ppn = ROOT_PPN + 0x40000;
@@ -422,7 +422,7 @@ fn supervisor_access_user_page_needs_sum() {
 #[test]
 fn an_execute_only_page_is_readable_only_with_mxr() {
     let (mut mmu, mut csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
     write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(ROOT_PPN + 0x40000, X | A | D));
@@ -441,7 +441,7 @@ fn an_execute_only_page_is_readable_only_with_mxr() {
 #[test]
 fn supervisor_cannot_fetch_user_page() {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x8000_0000);
     let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
     let target_ppn = ROOT_PPN + 0x40000;
@@ -474,7 +474,7 @@ fn non_canonical_address_faults() {
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &tc.cpu().uncore,
+        &tc.state().uncore,
     );
 
     // Non-canonical address is unmapped in the virtual address space → PageFault
@@ -504,7 +504,7 @@ fn vpn_index(va: u64, level: u32) -> u64 {
 #[test]
 fn sv48_4kb_page_walk() {
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x4000_1234);
     let l3 = vpn_index(vaddr.val(), 3);
@@ -531,7 +531,7 @@ fn sv48_4kb_page_walk() {
 #[test]
 fn sv48_megapage_walk() {
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x4020_0000);
     let l3 = vpn_index(vaddr.val(), 3);
@@ -555,7 +555,7 @@ fn sv48_megapage_walk() {
 #[test]
 fn sv48_gigapage_walk() {
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x8000_0000);
     let l3 = vpn_index(vaddr.val(), 3);
@@ -577,7 +577,7 @@ fn sv48_gigapage_walk() {
 fn sv48_terapage_walk() {
     // Sv48-specific: 512 GiB superpage at L3 (top of the walk).
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     // VA in the first 512 GiB region; bit 47=0 so canonical.
     let vaddr = VirtAddr::new(0x10_0000_1000);
@@ -599,7 +599,7 @@ fn sv48_terapage_walk() {
 fn sv48_misaligned_superpage_causes_fault() {
     // Mid-walk superpage with non-zero PPN low bits → reserved → page fault.
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x4020_0000);
     let l3 = vpn_index(vaddr.val(), 3);
@@ -622,7 +622,7 @@ fn sv48_misaligned_superpage_causes_fault() {
 #[test]
 fn sv48_pointer_at_level_0_causes_fault() {
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x1000);
 
     let l3 = vpn_index(vaddr.val(), 3);
@@ -657,7 +657,7 @@ fn sv48_non_canonical_address_faults() {
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &tc.cpu().uncore,
+        &tc.state().uncore,
     );
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 
@@ -669,7 +669,7 @@ fn sv48_non_canonical_address_faults() {
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &tc.cpu().uncore,
+        &tc.state().uncore,
     );
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
@@ -677,7 +677,7 @@ fn sv48_non_canonical_address_faults() {
 #[test]
 fn sv48_invalid_pte_causes_fault() {
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x1000);
     // Default-zero memory at the root → V=0 at L3 → fault on the first read.
     let res =
@@ -688,7 +688,7 @@ fn sv48_invalid_pte_causes_fault() {
 #[test]
 fn sv57_4kb_page_walk() {
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV57);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x4000_1234);
     let l4 = vpn_index(vaddr.val(), 4);
@@ -719,7 +719,7 @@ fn sv57_4kb_page_walk() {
 fn sv57_petapage_walk() {
     // Sv57-specific: 256 TiB superpage at L4 (top of the walk).
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV57);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     // VA inside the first 256 TiB region (bit 56 = 0 → canonical).
     let vaddr = VirtAddr::new(0x10_0000_1000);
@@ -740,7 +740,7 @@ fn sv57_petapage_walk() {
 #[test]
 fn sv57_misaligned_superpage_causes_fault() {
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV57);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x10_0000_1000);
     let l4 = vpn_index(vaddr.val(), 4);
@@ -757,7 +757,7 @@ fn sv57_misaligned_superpage_causes_fault() {
 #[test]
 fn sv57_pointer_at_level_0_causes_fault() {
     let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(csr::SATP_MODE_SV57);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x1000);
 
     let l4 = vpn_index(vaddr.val(), 4);
@@ -795,7 +795,7 @@ fn sv57_non_canonical_address_faults() {
         AccessType::Read,
         PrivilegeMode::Supervisor,
         &csrs,
-        &tc.cpu().uncore,
+        &tc.state().uncore,
     );
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
@@ -804,7 +804,7 @@ fn sv57_non_canonical_address_faults() {
 /// set to a 2 MiB leaf with `leaf_extra` set.
 fn walk_with(pointer_extra: u64, leaf_extra: u64) -> TranslationResult {
     let (mut mmu, csrs, mut tc) = setup_mmu();
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let vaddr = VirtAddr::new(0x4000_0000);
     let l1_ppn = ROOT_PPN + 1;
     let leaf_ppn = ROOT_PPN + 0x200;
@@ -858,7 +858,7 @@ fn a_pointer_with_d_a_or_u_set_raises_a_page_fault() {
 fn with_adue_clear_a_write_to_a_clean_page_raises_a_page_fault() {
     let (mut mmu, mut csrs, mut tc) = setup_mmu();
     csrs.write(csr::MENVCFG, 0);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let target_ppn = ROOT_PPN + 0x40000;
     write_pte(
         &mut uncore.kernel.memory,
@@ -884,7 +884,7 @@ fn with_adue_clear_a_write_to_a_clean_page_raises_a_page_fault() {
 fn a_write_that_faults_on_a_clean_page_leaves_its_tlb_entry_in_place() {
     let (mut mmu, mut csrs, mut tc) = setup_mmu();
     csrs.write(csr::MENVCFG, 0);
-    let uncore = &mut tc.cpu_mut().uncore;
+    let uncore = &mut tc.state_mut().uncore;
     let target_ppn = ROOT_PPN + 0x40000;
     write_pte(
         &mut uncore.kernel.memory,
