@@ -24,8 +24,33 @@ pub mod open_flags {
     pub const O_DIRECTORY: u64 = 0o200_000;
 }
 
+/// A guest file descriptor. The kernel reads one as an `int`, so it may be
+/// negative, as `AT_FDCWD` is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fd(i32);
+
 /// `openat`'s "relative to the working directory".
-pub const AT_FDCWD: i64 = -100;
+pub const AT_FDCWD: Fd = Fd(-100);
+
+impl Fd {
+    /// The descriptor a syscall argument holds: its low 32 bits, as the
+    /// kernel reads an `int`.
+    #[must_use]
+    pub const fn from_arg(arg: u64) -> Self {
+        Self(arg as i32)
+    }
+
+    /// What the call that opened it returns.
+    #[must_use]
+    pub const fn return_value(self) -> u64 {
+        self.0 as u64
+    }
+
+    /// Its slot in the table, which a negative descriptor has none of.
+    fn slot_index(self) -> Option<usize> {
+        usize::try_from(self.0).ok()
+    }
+}
 
 /// Linux's `struct stat` on riscv64 (`asm-generic/stat.h`), 128 bytes.
 #[derive(Debug, Clone, Copy, Default)]
@@ -174,16 +199,15 @@ impl FileTable {
     }
 
     /// `ftruncate`.
-    pub fn truncate(&mut self, fd: i64, len: u64) -> Result<(), Errno> {
+    pub fn truncate(&mut self, fd: Fd, len: u64) -> Result<(), Errno> {
         match self.slot(fd)? {
             HostFile::File { file, .. } => file.set_len(len).map_err(Errno::from),
             _ => Err(Errno::EINVAL),
         }
     }
 
-    fn slot(&mut self, fd: i64) -> Result<&mut HostFile, Errno> {
-        usize::try_from(fd)
-            .ok()
+    fn slot(&mut self, fd: Fd) -> Result<&mut HostFile, Errno> {
+        fd.slot_index()
             .and_then(|index| self.slots.get_mut(index))
             .and_then(Option::as_mut)
             .ok_or(Errno::EBADF)
@@ -192,7 +216,7 @@ impl FileTable {
     /// Resolves `path` as the guest gave it, relative to the host's
     /// working directory when relative; `dirfd` other than `AT_FDCWD`
     /// resolves against that descriptor's path.
-    pub fn resolve(&mut self, dirfd: i64, path: &[u8]) -> Result<PathBuf, Errno> {
+    pub fn resolve(&mut self, dirfd: Fd, path: &[u8]) -> Result<PathBuf, Errno> {
         let path = Path::new(std::str::from_utf8(path).map_err(|_| Errno::EINVAL)?);
         if path.is_absolute() || dirfd == AT_FDCWD {
             return Ok(path.to_path_buf());
@@ -203,8 +227,8 @@ impl FileTable {
         }
     }
 
-    /// `openat`: the new descriptor, or `-errno`.
-    pub fn open(&mut self, path: PathBuf, flags: u64, mode: u64) -> Result<i64, Errno> {
+    /// `openat`: the new descriptor.
+    pub fn open(&mut self, path: PathBuf, flags: u64, mode: u64) -> Result<Fd, Errno> {
         let access = flags & open_flags::O_ACCMODE;
         let mut options = std::fs::OpenOptions::new();
         let _ = options
@@ -227,22 +251,23 @@ impl FileTable {
 
     /// Opens a read-only file holding `contents` and returns its
     /// descriptor.
-    pub fn open_generated(&mut self, contents: Vec<u8>) -> Result<i64, Errno> {
+    pub fn open_generated(&mut self, contents: Vec<u8>) -> Result<Fd, Errno> {
         self.install(HostFile::Generated { contents, position: 0 })
     }
 
     /// Puts `file` in the lowest free descriptor and returns it.
-    fn install(&mut self, file: HostFile) -> Result<i64, Errno> {
-        let fd = self.slots.iter().position(Option::is_none).unwrap_or_else(|| {
+    fn install(&mut self, file: HostFile) -> Result<Fd, Errno> {
+        let index = self.slots.iter().position(Option::is_none).unwrap_or(self.slots.len());
+        let fd = Fd(i32::try_from(index).map_err(|_| Errno::EMFILE)?);
+        if index == self.slots.len() {
             self.slots.push(None);
-            self.slots.len() - 1
-        });
-        self.slots[fd] = Some(file);
-        i64::try_from(fd).map_err(|_| Errno::EMFILE)
+        }
+        self.slots[index] = Some(file);
+        Ok(fd)
     }
 
-    pub fn close(&mut self, fd: i64) -> Result<(), Errno> {
-        let index = usize::try_from(fd).map_err(|_| Errno::EBADF)?;
+    pub fn close(&mut self, fd: Fd) -> Result<(), Errno> {
+        let index = fd.slot_index().ok_or(Errno::EBADF)?;
         match self.slots.get_mut(index) {
             Some(slot @ Some(_)) => {
                 *slot = None;
@@ -253,7 +278,7 @@ impl FileTable {
     }
 
     /// Reads up to `len` bytes; the console reads what the host typed.
-    pub fn read(&mut self, fd: i64, len: usize) -> Result<Vec<u8>, Errno> {
+    pub fn read(&mut self, fd: Fd, len: usize) -> Result<Vec<u8>, Errno> {
         let mut buffer = vec![0u8; len];
         let read = match self.slot(fd)? {
             HostFile::Stdin => {
@@ -272,7 +297,7 @@ impl FileTable {
     }
 
     /// Reads up to `len` bytes at `offset` without moving the position.
-    pub fn pread(&mut self, fd: i64, len: usize, offset: u64) -> Result<Vec<u8>, Errno> {
+    pub fn pread(&mut self, fd: Fd, len: usize, offset: u64) -> Result<Vec<u8>, Errno> {
         use std::os::unix::fs::FileExt;
         let mut buffer = vec![0u8; len];
         let read = match self.slot(fd)? {
@@ -285,7 +310,7 @@ impl FileTable {
     }
 
     /// Writes `bytes`; the console's descriptors both print to the console.
-    pub fn write(&mut self, fd: i64, bytes: &[u8]) -> Result<usize, Errno> {
+    pub fn write(&mut self, fd: Fd, bytes: &[u8]) -> Result<usize, Errno> {
         match self.slot(fd)? {
             HostFile::Stdin | HostFile::Generated { .. } => Err(Errno::EBADF),
             HostFile::Stdout | HostFile::Stderr => {
@@ -296,7 +321,7 @@ impl FileTable {
         }
     }
 
-    pub fn pwrite(&mut self, fd: i64, bytes: &[u8], offset: u64) -> Result<usize, Errno> {
+    pub fn pwrite(&mut self, fd: Fd, bytes: &[u8], offset: u64) -> Result<usize, Errno> {
         use std::os::unix::fs::FileExt;
         match self.slot(fd)? {
             HostFile::File { file, .. } => file.write_at(bytes, offset).map_err(Errno::from),
@@ -306,7 +331,7 @@ impl FileTable {
     }
 
     /// `lseek` with Linux's `whence` (0 set, 1 current, 2 end).
-    pub fn seek(&mut self, fd: i64, offset: i64, whence: u64) -> Result<u64, Errno> {
+    pub fn seek(&mut self, fd: Fd, offset: i64, whence: u64) -> Result<u64, Errno> {
         let target = match whence {
             0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| Errno::EINVAL)?),
             1 => SeekFrom::Current(offset),
@@ -328,7 +353,7 @@ impl FileTable {
         }
     }
 
-    pub fn stat(&mut self, fd: i64) -> Result<Stat, Errno> {
+    pub fn stat(&mut self, fd: Fd) -> Result<Stat, Errno> {
         match self.slot(fd)? {
             HostFile::Stdin | HostFile::Stdout | HostFile::Stderr => Ok(Stat::character_device()),
             HostFile::File { file, .. } => {
@@ -341,7 +366,7 @@ impl FileTable {
     }
 
     /// Whether `fd` is one of the console descriptors.
-    pub fn is_console(&mut self, fd: i64) -> bool {
+    pub fn is_console(&mut self, fd: Fd) -> bool {
         matches!(self.slot(fd), Ok(HostFile::Stdin | HostFile::Stdout | HostFile::Stderr))
     }
 }
@@ -353,4 +378,15 @@ fn copy_from(contents: &[u8], offset: u64, buffer: &mut [u8]) -> usize {
     let count = rest.len().min(buffer.len());
     buffer[..count].copy_from_slice(&rest[..count]);
     count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AT_FDCWD, Fd};
+
+    #[test]
+    fn a_descriptor_argument_is_read_as_an_int() {
+        assert_eq!(Fd::from_arg((-100_i64).cast_unsigned()), AT_FDCWD);
+        assert_eq!(Fd::from_arg(1 << 32 | 1), Fd::from_arg(1));
+    }
 }
