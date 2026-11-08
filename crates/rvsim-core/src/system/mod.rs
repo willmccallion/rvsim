@@ -4,17 +4,23 @@
 //! state; this layer also loads programs, generates the device tree, and
 //! saves and restores checkpoints.
 
-pub mod cache_audit;
+pub(crate) mod cache_audit;
 pub mod checkpoint;
-pub mod coherence_audit;
-pub mod dtb;
+pub(crate) mod coherence_audit;
+pub(crate) mod dtb;
 pub mod gdb;
-pub mod host_files;
+pub(crate) mod host_files;
 pub mod loader;
-pub mod process;
+pub(crate) mod process;
 pub mod simulator;
 pub mod snapshot;
 pub(crate) mod state;
 
+pub use self::coherence_audit::{InclusionFault, Violation, ViolationKind};
+pub use self::process::SpaceError;
 pub(crate) use self::state::SystemState;
+pub use crate::sim::components::CacheId;
+pub use crate::sim::packet::MesiState;
+pub use crate::soc::cache::BookkeepingFault;
+pub use crate::soc::coherence::protocol::CoreSet;
 pub use crate::soc::uncore::{StatsDump, StatsEpoch, TraceControl};

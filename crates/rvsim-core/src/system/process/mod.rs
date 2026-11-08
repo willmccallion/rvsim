@@ -9,12 +9,12 @@
 //! hart each ([`Processes`]); the processes share RAM's frames and the
 //! caches below their cores, and the run ends when the last of them exits.
 
-pub(crate) mod errno;
-pub(crate) mod file_calls;
-pub(crate) mod files;
+pub mod errno;
+pub mod file_calls;
+pub mod files;
 pub mod loader;
 mod page_table;
-pub(crate) mod syscall;
+pub mod syscall;
 mod threads;
 
 use std::collections::BTreeMap;
