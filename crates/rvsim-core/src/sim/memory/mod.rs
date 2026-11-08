@@ -74,6 +74,12 @@ impl GlobalMemory {
         Some(u64::from_le_bytes(word))
     }
 
+    /// The `N` bytes at `paddr` in address order; `None` outside RAM.
+    #[must_use]
+    pub fn read_array<const N: usize>(&self, paddr: PhysAddr) -> Option<[u8; N]> {
+        self.ram.as_ref()?.get(paddr, N)?.try_into().ok()
+    }
+
     /// The `len` bytes at `paddr` in address order; `None` outside RAM.
     #[must_use]
     pub fn read_bytes(&self, paddr: PhysAddr, len: usize) -> Option<Box<[u8]>> {

@@ -611,12 +611,10 @@ const fn mask_has(mask: u64, bank_index: usize) -> bool {
     bank_index < 64 && (mask >> bank_index) & 1 == 1
 }
 
-const fn bank_index_u8(idx: usize) -> u8 {
-    (idx & 0xff) as u8
-}
-
-const fn index_to_u8(idx: usize) -> u8 {
-    (idx & 0xff) as u8
+/// A channel, rank, bank group or bank index as its id holds it; the
+/// geometry counts are `u8`, so every index fits.
+fn index_to_u8(idx: usize) -> u8 {
+    u8::try_from(idx).unwrap_or(u8::MAX)
 }
 
 const fn column_lead(t: &crate::config::ddr5::timing::Ddr5Timing, is_read: bool) -> u64 {

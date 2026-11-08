@@ -43,6 +43,13 @@ pub enum AccessSize {
 }
 
 impl AccessSize {
+    /// A vector access's `bytes` (at most a 64-byte line) within one line.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, reason = "a span is at most a line")]
+    pub const fn span(bytes: usize) -> Self {
+        Self::Span(bytes as u8)
+    }
+
     /// Bytes the access moves; a line is the 64-byte line the bus carries.
     #[must_use]
     pub const fn bytes(self) -> usize {

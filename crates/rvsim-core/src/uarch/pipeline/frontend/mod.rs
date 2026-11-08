@@ -183,5 +183,5 @@ impl<E: ExecutionEngine> Frontend<E> {
 /// MMIO returns garbage; the decoded `0` results in an illegal-instruction
 /// trap, which matches what real hardware would do.
 pub(super) fn read_inst_half(state: &StageCtx<'_>, paddr: u64) -> u16 {
-    state.uncore().kernel.memory.read(PhysAddr::new(paddr), 2).unwrap_or(0) as u16
+    state.uncore().kernel.memory.read_array(PhysAddr::new(paddr)).map_or(0, u16::from_le_bytes)
 }

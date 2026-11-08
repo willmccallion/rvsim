@@ -202,7 +202,7 @@ impl Session<'_> {
         };
         let hart = self.selected;
         for n in 1..32usize {
-            self.sim.hart_mut(hart).regs.write(RegIdx::new(n as u8), word_at(&bytes, n));
+            self.sim.hart_mut(hart).regs.write(RegIdx::from(n), word_at(&bytes, n));
         }
         self.sim.set_pc(hart, VirtAddr::new(word_at(&bytes, 32)));
         self.sim.sync_arch_regs();
@@ -221,13 +221,13 @@ impl Session<'_> {
     fn register(&mut self, regnum: u32) -> Option<(u64, usize)> {
         let hart = self.selected;
         if regnum < PC_REGNUM {
-            return Some((self.sim.hart(hart).regs.read(RegIdx::new(regnum as u8)), 8));
+            return Some((self.sim.hart(hart).regs.read(RegIdx::from(regnum as usize)), 8));
         }
         if regnum == PC_REGNUM {
             return Some((self.sim.hart(hart).pc.val(), 8));
         }
         if (FIRST_FP_REGNUM..FIRST_CSR_REGNUM).contains(&regnum) {
-            let f = RegIdx::new((regnum - FIRST_FP_REGNUM) as u8);
+            let f = RegIdx::from((regnum - FIRST_FP_REGNUM) as usize);
             return Some((self.sim.hart(hart).regs.read_f(f), 8));
         }
         let addr = regnum.checked_sub(FIRST_CSR_REGNUM)?;
@@ -250,7 +250,7 @@ impl Session<'_> {
         let hart = self.selected;
         let written = if regnum < PC_REGNUM {
             if regnum != 0 {
-                self.sim.hart_mut(hart).regs.write(RegIdx::new(regnum as u8), value);
+                self.sim.hart_mut(hart).regs.write(RegIdx::from(regnum as usize), value);
             }
             true
         } else if regnum == PC_REGNUM {
@@ -260,7 +260,7 @@ impl Session<'_> {
             self.sim
                 .hart_mut(hart)
                 .regs
-                .write_f(RegIdx::new((regnum - FIRST_FP_REGNUM) as u8), value);
+                .write_f(RegIdx::from((regnum - FIRST_FP_REGNUM) as usize), value);
             true
         } else {
             regnum

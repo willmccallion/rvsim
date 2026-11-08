@@ -111,7 +111,7 @@ impl CoreCtx<'_> {
     pub fn csr_write(&mut self, addr: CsrAddr, val: u64) {
         match addr {
             csr::FFLAGS => {
-                self.hart.csrs.fflags = FpFlags::from_bits(val as u8);
+                self.hart.csrs.fflags = FpFlags::from_csr(val);
                 self.hart.csrs.mark_fs_dirty();
             }
             csr::FRM => {
@@ -241,7 +241,7 @@ impl CoreCtx<'_> {
             // Writable vector CSRs
             csr::VSTART => self.hart.csrs.vstart = val,
             csr::VXSAT => self.hart.csrs.vxsat = val & csr::VXSAT_BIT,
-            csr::VXRM => self.hart.csrs.vxrm = Vxrm::from_bits(val as u8),
+            csr::VXRM => self.hart.csrs.vxrm = Vxrm::from_csr(val),
             csr::VCSR => self.hart.csrs.set_vcsr(val),
             // VL, VTYPE, VLENB are read-only (writes silently ignored)
             // Sdtrig — trigger CSR writes

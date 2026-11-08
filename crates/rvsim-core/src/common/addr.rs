@@ -39,6 +39,15 @@ impl Asid {
         Self(val)
     }
 
+    /// The ASID a register holds in its low 16 bits, as SFENCE.VMA's
+    /// `rs2` does.
+    #[inline(always)]
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, reason = "bits above the ASID are ignored")]
+    pub const fn from_register(val: u64) -> Self {
+        Self(val as u16)
+    }
+
     /// Returns the raw 16-bit value.
     #[inline(always)]
     pub const fn val(self) -> u16 {

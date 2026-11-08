@@ -189,7 +189,7 @@ const CPU_PRESENT: &str = "/sys/devices/system/cpu/present";
 pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
     let number = state.hart.regs.read(reg::REG_A7);
     let args =
-        SyscallArgs::new(std::array::from_fn(|i| state.hart.regs.read(RegIdx::new(10 + i as u8))));
+        SyscallArgs::new(std::array::from_fn(|i| state.hart.regs.read(RegIdx::from(10 + i))));
     let hart = state.hart.hart_id;
     let Some(caller) = state.uncore.host.processes.thread_on(hart) else {
         state.uncore.host.processes.release_stopping(hart);

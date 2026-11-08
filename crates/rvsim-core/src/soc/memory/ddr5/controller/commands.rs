@@ -10,7 +10,7 @@ use super::Ddr5Controller;
 use super::schedule::QueueSlot;
 use super::{
     ACT_CMD_CYCLES, ActivateBounds, BankCmdCtx, COLUMN_CMD_CYCLES, EmittedCommand,
-    PRECHARGE_CMD_CYCLES, ScheduledResponse, bank_index_u8, column_lead, index_to_u8,
+    PRECHARGE_CMD_CYCLES, ScheduledResponse, column_lead, index_to_u8,
 };
 
 impl Ddr5Controller {
@@ -87,7 +87,7 @@ impl Ddr5Controller {
         self.pending_commands.push(EmittedCommand {
             channel: ctx.chan,
             rank: ctx.rank,
-            bank: bank_index_u8(ctx.bank_index),
+            bank: index_to_u8(ctx.bank_index),
             row: open_row,
             kind: DramCmdKind::Precharge,
             fire_at,
@@ -183,7 +183,7 @@ impl Ddr5Controller {
         self.pending_commands.push(EmittedCommand {
             channel: ctx.chan,
             rank: ctx.rank,
-            bank: bank_index_u8(ctx.bank_index),
+            bank: index_to_u8(ctx.bank_index),
             row: ctx.row.val(),
             kind: DramCmdKind::Activate,
             fire_at,
@@ -299,7 +299,7 @@ impl Ddr5Controller {
         self.pending_commands.push(EmittedCommand {
             channel: ctx.chan,
             rank: ctx.rank,
-            bank: bank_index_u8(ctx.bank_index),
+            bank: index_to_u8(ctx.bank_index),
             row: ctx.row.val(),
             kind,
             fire_at: column_cycle,

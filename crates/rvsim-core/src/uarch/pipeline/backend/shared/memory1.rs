@@ -879,7 +879,7 @@ fn emit_span_read<E: ExecutionEngine>(
     let req_id = common.alloc_req_id();
     let target = ComponentId::Cache(common.l1_d_id);
     let pipeline = ComponentId::Pipeline(common.pipeline_id);
-    let size = AccessSize::Span(bytes as u8);
+    let size = AccessSize::span(bytes);
     let pc = ex.op.pc;
     let cycle = state.uncore().kernel.cycle;
     state.events().schedule(

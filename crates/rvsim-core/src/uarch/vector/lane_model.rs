@@ -72,7 +72,7 @@ pub fn compute_reduction_latency(
         vl as u64 * startup_latency
     } else {
         let intra = vl.div_ceil(num_lanes) as u64;
-        let inter = if num_lanes > 1 { (num_lanes as f64).log2().ceil() as u64 } else { 0 };
+        let inter = u64::from(num_lanes.next_power_of_two().trailing_zeros());
         startup_latency + intra + inter
     }
 }

@@ -222,7 +222,7 @@ fn a_drained_entry_keeps_its_slot_until_its_writes_are_acknowledged() {
 fn line_with(line_addr: u64, bytes: std::ops::Range<usize>) -> VsbLine {
     let mut line = VsbLine::new(line_addr);
     for i in bytes {
-        line.data[i] = i as u8;
+        line.data[i] = u8::try_from(i).unwrap();
         line.valid_mask |= 1 << i;
     }
     line

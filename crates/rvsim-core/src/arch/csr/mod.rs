@@ -303,7 +303,7 @@ impl Csrs {
 
     /// Writes `fcsr`, which sets both `frm` and `fflags`.
     pub const fn set_fcsr(&mut self, val: u64) {
-        self.fflags = FpFlags::from_bits(val as u8);
+        self.fflags = FpFlags::from_csr(val);
         self.frm = Frm::from_bits(val >> 5);
     }
 
@@ -322,7 +322,7 @@ impl Csrs {
     /// Writes `vcsr`, which sets both `vxrm` and `vxsat`.
     pub const fn set_vcsr(&mut self, val: u64) {
         self.vxsat = val & VXSAT_BIT;
-        self.vxrm = Vxrm::from_bits((val >> 1) as u8);
+        self.vxrm = Vxrm::from_csr(val >> 1);
     }
 
     /// The rounding modes `vxrm` and `frm` hold. A reserved `frm` reads as
@@ -410,7 +410,7 @@ impl Csrs {
     /// Writes a value to a CSR by its address.
     pub const fn write(&mut self, addr: CsrAddr, val: u64) {
         match addr {
-            FFLAGS => self.fflags = FpFlags::from_bits(val as u8),
+            FFLAGS => self.fflags = FpFlags::from_csr(val),
             FRM => self.frm = Frm::from_bits(val),
             FCSR => self.set_fcsr(val),
             MSTATUS => self.mstatus = val,
@@ -450,7 +450,7 @@ impl Csrs {
             SENVCFG => self.senvcfg = val,
             VSTART => self.vstart = val,
             VXSAT => self.vxsat = val & VXSAT_BIT,
-            VXRM => self.vxrm = Vxrm::from_bits(val as u8),
+            VXRM => self.vxrm = Vxrm::from_csr(val),
             VCSR => self.set_vcsr(val),
             _ => {}
         }

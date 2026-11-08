@@ -89,7 +89,7 @@ fn collect_entries(stats: &Stats) -> Vec<Entry<'_>> {
 
 fn format_value(value: f64, unit: Unit) -> String {
     match unit {
-        Unit::Events | Unit::Cycles | Unit::Bytes => format!("{}", value as u64),
+        Unit::Events | Unit::Cycles | Unit::Bytes => format!("{:.0}", value.trunc()),
         Unit::Ratio => format!("{value:.4}"),
         Unit::Rate => format!("{value:.2}"),
         Unit::Percent => format!("{value:.2}%"),
