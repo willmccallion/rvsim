@@ -63,9 +63,9 @@ pub(super) static REC7_TABLE: [u8; 128] = [
 /// because vfrsqrt7 cannot overflow). Subnormal inputs are normalized
 /// with an extra left-shift, so downstream bit extraction matches.
 pub(super) fn vfrsqrt7_32(bits: u32) -> (u64, FpFlags) {
-    let sign = bits as u64 >> 31;
-    let mut exp = ((bits >> 23) & 0xFF) as u64;
-    let mut sig = (bits & 0x007F_FFFF) as u64;
+    let sign = u64::from(bits) >> 31;
+    let mut exp = u64::from((bits >> 23) & 0xFF);
+    let mut sig = u64::from(bits & 0x007F_FFFF);
 
     if exp == 0xFF && sig != 0 {
         let f = if sig & 0x0040_0000 == 0 { FpFlags::NV } else { FpFlags::NONE };
@@ -95,7 +95,7 @@ pub(super) fn vfrsqrt7_32(bits: u32) -> (u64, FpFlags) {
     }
 
     let idx = (((exp & 1) << 6) | ((sig >> 17) & 0x3F)) as usize;
-    let out_sig = (RSQRT7_TABLE[idx] as u64) << 16;
+    let out_sig = u64::from(RSQRT7_TABLE[idx]) << 16;
     let out_exp = u64::midpoint(3 * 127, !exp);
 
     let result = (sign << 31) | ((out_exp & 0xFF) << 23) | (out_sig & 0x007F_FFFF);
@@ -138,7 +138,7 @@ pub(super) fn vfrsqrt7_64(bits: u64) -> (u64, FpFlags) {
     }
 
     let idx = (((exp & 1) << 6) | ((sig >> 46) & 0x3F)) as usize;
-    let out_sig = (RSQRT7_TABLE[idx] as u64) << 45;
+    let out_sig = u64::from(RSQRT7_TABLE[idx]) << 45;
     let out_exp = u64::midpoint(3 * 1023, !exp);
 
     let result = (sign << 63) | ((out_exp & 0x7FF) << 52) | (out_sig & 0x000F_FFFF_FFFF_FFFF);
@@ -148,8 +148,8 @@ pub(super) fn vfrsqrt7_64(bits: u64) -> (u64, FpFlags) {
 /// Compute vfrsqrt7 for an f16 value. Returns `(f16_result_bits, flags)`.
 pub(super) fn vfrsqrt7_16(bits: u16) -> (u16, FpFlags) {
     let sign = bits >> 15;
-    let mut exp = ((bits >> 10) & 0x1F) as u32;
-    let mut sig = (bits & 0x03FF) as u32;
+    let mut exp = u32::from((bits >> 10) & 0x1F);
+    let mut sig = u32::from(bits & 0x03FF);
 
     if exp == 0x1F && sig != 0 {
         let f = if sig & 0x0200 == 0 { FpFlags::NV } else { FpFlags::NONE };
@@ -183,13 +183,13 @@ pub(super) fn vfrsqrt7_16(bits: u16) -> (u16, FpFlags) {
 
     // idx = {exp[0], sig[s-2:s-p-1]} with p=7, s=10 → top 6 fraction bits.
     let idx = (((exp & 1) << 6) | ((sig >> 4) & 0x3F)) as usize;
-    let out_sig = RSQRT7_TABLE[idx] as u32;
+    let out_sig = u32::from(RSQRT7_TABLE[idx]);
 
     // out_exp = (3*bias - 1 - exp) / 2, computed in u64 to mirror spike's
     // u64 wrap-around arithmetic for negative `exp` values.
     let out_exp = u32::midpoint(3 * 15, !exp) & 0x1F;
 
-    let result = ((sign as u32) << 15) | (out_exp << 10) | (out_sig << 3);
+    let result = (u32::from(sign) << 15) | (out_exp << 10) | (out_sig << 3);
     (result as u16, FpFlags::NONE)
 }
 
@@ -201,9 +201,9 @@ pub(super) fn vfrsqrt7_16(bits: u16) -> (u16, FpFlags) {
 /// adjust `out_sig` for the two narrow subnormal-output cases (`out_exp` == 0
 /// or `out_exp` == −1 in 64-bit unsigned).
 pub(super) fn vfrec7_16(bits: u16, frm: RoundingMode) -> (u16, FpFlags) {
-    let sign = (bits >> 15) as u32;
-    let mut exp = ((bits >> 10) & 0x1F) as u64;
-    let mut sig = (bits & 0x03FF) as u64;
+    let sign = u32::from(bits >> 15);
+    let mut exp = u64::from((bits >> 10) & 0x1F);
+    let mut sig = u64::from(bits & 0x03FF);
 
     if exp == 0x1F && sig != 0 {
         let f = if sig & 0x200 == 0 { FpFlags::NV } else { FpFlags::NONE };
@@ -243,7 +243,7 @@ pub(super) fn vfrec7_16(bits: u16, frm: RoundingMode) -> (u16, FpFlags) {
     }
 
     let idx = ((sig >> 3) & 0x7F) as usize;
-    let mut out_sig = (REC7_TABLE[idx] as u64) << 3;
+    let mut out_sig = u64::from(REC7_TABLE[idx]) << 3;
     // out_exp uses spike's u64 wrap-around: `2*15 + ~exp`.
     let mut out_exp = 30u64.wrapping_add(!exp);
 
@@ -257,7 +257,7 @@ pub(super) fn vfrec7_16(bits: u16, frm: RoundingMode) -> (u16, FpFlags) {
         }
     }
 
-    let result = ((sign as u64) << 15) | ((out_exp & 0x1F) << 10) | (out_sig & 0x3FF);
+    let result = (u64::from(sign) << 15) | ((out_exp & 0x1F) << 10) | (out_sig & 0x3FF);
     (result as u16, FpFlags::NONE)
 }
 
@@ -281,9 +281,9 @@ pub(super) const fn vfrec7_saturate_to_max(sign: u64, frm: RoundingMode) -> bool
 /// represented (exp ∉ {0, −1}), then look up sig[s-2:s-p-1] in the 7-bit
 /// table and adjust `out_sig` for the two narrow subnormal-output cases.
 pub(super) fn vfrec7_32(bits: u32, frm: RoundingMode) -> (u64, FpFlags) {
-    let sign = bits as u64 >> 31;
-    let mut exp = ((bits >> 23) & 0xFF) as u64;
-    let mut sig = (bits & 0x007F_FFFF) as u64;
+    let sign = u64::from(bits) >> 31;
+    let mut exp = u64::from((bits >> 23) & 0xFF);
+    let mut sig = u64::from(bits & 0x007F_FFFF);
 
     if exp == 0xFF && sig != 0 {
         let f = if sig & 0x0040_0000 == 0 { FpFlags::NV } else { FpFlags::NONE };
@@ -311,7 +311,7 @@ pub(super) fn vfrec7_32(bits: u32, frm: RoundingMode) -> (u64, FpFlags) {
     }
 
     let idx = ((sig >> 16) & 0x7F) as usize;
-    let mut out_sig = (REC7_TABLE[idx] as u64) << 16;
+    let mut out_sig = u64::from(REC7_TABLE[idx]) << 16;
     let mut out_exp = 254u64.wrapping_add(!exp);
 
     if out_exp == 0 || out_exp == u64::MAX {
@@ -360,7 +360,7 @@ pub(super) fn vfrec7_64(bits: u64, frm: RoundingMode) -> (u64, FpFlags) {
     }
 
     let idx = ((sig >> 45) & 0x7F) as usize;
-    let mut out_sig = (REC7_TABLE[idx] as u64) << 45;
+    let mut out_sig = u64::from(REC7_TABLE[idx]) << 45;
     let mut out_exp = 2046u64.wrapping_add(!exp);
 
     if out_exp == 0 || out_exp == u64::MAX {

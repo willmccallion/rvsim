@@ -130,7 +130,7 @@ fn build_va(levels: usize, leaf_level: usize, vpn_path: &[u64], page_offset: u64
 
 /// Sign-extends `va` from the mode's top VPN bit so it's canonical.
 fn sign_extend_canonical(va: u64, levels: usize) -> u64 {
-    let top_bit = (PAGE_SHIFT + VPN_BITS * levels as u32) as u64 - 1;
+    let top_bit = u64::from(PAGE_SHIFT + VPN_BITS * levels as u32) - 1;
     let mask = (1u64 << (top_bit + 1)) - 1;
     let mut v = va & mask;
     if (v >> top_bit) & 1 == 1 {
@@ -141,7 +141,7 @@ fn sign_extend_canonical(va: u64, levels: usize) -> u64 {
 
 /// Picks an aligned leaf PPN well clear of `ROOT_PPN..` table region.
 fn aligned_leaf_ppn(leaf_level: usize, raw: u64) -> u64 {
-    let align_shift = (VPN_BITS * leaf_level as u32) as u64;
+    let align_shift = u64::from(VPN_BITS * leaf_level as u32);
     let align = 1u64 << align_shift;
     let base = (ROOT_PPN + 0x100).next_multiple_of(align);
     let span = ((MEM_SIZE as u64 / 4096).saturating_sub(base)) / align;
@@ -194,7 +194,7 @@ proptest! {
     ) {
         let (mode_val, levels) = modes()[mode_idx];
         let top_bit = PAGE_SHIFT + VPN_BITS * levels as u32 - 1;
-        let bit = top_bit as u64 + 1 + stray_bit as u64;
+        let bit = u64::from(top_bit) + 1 + u64::from(stray_bit);
         if bit >= 64 {
             return Ok(());
         }

@@ -74,7 +74,7 @@ fn check(backend: BackendKind) {
     let (mcause, mtval, memory) = run(backend);
 
     assert_eq!(mcause, ILLEGAL_INSTRUCTION, "{backend:?}: the FS=0 fault is the one taken");
-    assert_eq!(mtval, FSW_FT0_A1 as u64, "{backend:?}: tval holds the illegal instruction");
+    assert_eq!(mtval, u64::from(FSW_FT0_A1), "{backend:?}: tval holds the illegal instruction");
     assert_eq!(memory, 0x1234_5678, "{backend:?}: the store never reached memory");
 }
 

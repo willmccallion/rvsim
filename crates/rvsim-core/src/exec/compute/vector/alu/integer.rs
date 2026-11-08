@@ -76,17 +76,17 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
         IntOp::Mul => (vs2.wrapping_mul(op1) & mask, false),
 
         IntOp::Mulh => {
-            let prod = (s2 as i128).wrapping_mul(s1 as i128);
+            let prod = i128::from(s2).wrapping_mul(i128::from(s1));
             let hi = (prod >> bits) as u64;
             (hi & mask, false)
         }
         IntOp::Mulhu => {
-            let prod = (vs2 as u128).wrapping_mul(op1 as u128);
+            let prod = u128::from(vs2).wrapping_mul(u128::from(op1));
             let hi = (prod >> bits) as u64;
             (hi & mask, false)
         }
         IntOp::Mulhsu => {
-            let prod = (s2 as i128).wrapping_mul(op1 as i128);
+            let prod = i128::from(s2).wrapping_mul(i128::from(op1));
             let hi = (prod >> bits) as u64;
             (hi & mask, false)
         }
@@ -136,10 +136,10 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
             if sum < vs2 { (mask, true) } else { (sum, false) }
         }
         IntOp::SAdd => {
-            let sum = s2 as i128 + s1 as i128;
-            if sum > sew.signed_max() as i128 {
+            let sum = i128::from(s2) + i128::from(s1);
+            if sum > i128::from(sew.signed_max()) {
                 ((sew.signed_max() as u64) & mask, true)
-            } else if sum < sew.signed_min() as i128 {
+            } else if sum < i128::from(sew.signed_min()) {
                 ((sew.signed_min() as u64) & mask, true)
             } else {
                 (sum as u64 & mask, false)
@@ -153,10 +153,10 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
             }
         }
         IntOp::SSub => {
-            let diff = s2 as i128 - s1 as i128;
-            if diff > sew.signed_max() as i128 {
+            let diff = i128::from(s2) - i128::from(s1);
+            if diff > i128::from(sew.signed_max()) {
                 ((sew.signed_max() as u64) & mask, true)
-            } else if diff < sew.signed_min() as i128 {
+            } else if diff < i128::from(sew.signed_min()) {
                 ((sew.signed_min() as u64) & mask, true)
             } else {
                 (diff as u64 & mask, false)
@@ -164,42 +164,42 @@ pub(super) fn compute_standard(op: IntOp, vs2: u64, op1: u64, sew: Sew, vxrm: Vx
         }
 
         IntOp::AAddU => {
-            let sum = (vs2 as u128) + (op1 as u128);
+            let sum = u128::from(vs2) + u128::from(op1);
             let r = rounding_incr(sum as u64, 1, vxrm);
             let result = ((sum >> 1) as u64).wrapping_add(r);
             (result & mask, false)
         }
         IntOp::AAdd => {
-            let sum = (s2 as i128) + (s1 as i128);
+            let sum = i128::from(s2) + i128::from(s1);
             let r = rounding_incr(sum as u64, 1, vxrm);
             let result = ((sum >> 1) as u64).wrapping_add(r);
             (result & mask, false)
         }
         IntOp::ASubU => {
-            let diff = (vs2 as i128) - (op1 as i128);
+            let diff = i128::from(vs2) - i128::from(op1);
             let r = rounding_incr(diff as u64, 1, vxrm);
             let result = ((diff >> 1) as u64).wrapping_add(r);
             (result & mask, false)
         }
         IntOp::ASub => {
-            let diff = (s2 as i128) - (s1 as i128);
+            let diff = i128::from(s2) - i128::from(s1);
             let r = rounding_incr(diff as u64, 1, vxrm);
             let result = ((diff >> 1) as u64).wrapping_add(r);
             (result & mask, false)
         }
 
         IntOp::Smul => {
-            let prod = (s2 as i128) * (s1 as i128);
+            let prod = i128::from(s2) * i128::from(s1);
             let shift = bits - 1;
             let r = rounding_incr(prod as u64, shift as u32, vxrm);
-            let result_wide = (prod >> shift) + r as i128;
+            let result_wide = (prod >> shift) + i128::from(r);
             let max_pos = (1i64 << (bits - 1)) - 1;
             let min_neg = -(1i64 << (bits - 1));
             let sat;
-            let clamped = if result_wide > max_pos as i128 {
+            let clamped = if result_wide > i128::from(max_pos) {
                 sat = true;
                 max_pos as u64
-            } else if result_wide < min_neg as i128 {
+            } else if result_wide < i128::from(min_neg) {
                 sat = true;
                 min_neg as u64
             } else {

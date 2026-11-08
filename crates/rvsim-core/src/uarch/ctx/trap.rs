@@ -160,7 +160,7 @@ mod tests {
 
         state.hart.csrs.mepc = 0x2000;
         state.hart.csrs.mstatus =
-            (PrivilegeMode::Supervisor.to_u8() as u64) << csr::MSTATUS_MPP_SHIFT;
+            u64::from(PrivilegeMode::Supervisor.to_u8()) << csr::MSTATUS_MPP_SHIFT;
         state.hart.csrs.mstatus |= csr::MSTATUS_MPIE;
 
         state.do_mret();

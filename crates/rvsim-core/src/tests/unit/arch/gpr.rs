@@ -40,7 +40,7 @@ fn test_gpr_read_write_x31() {
 fn test_gpr_write_all_registers() {
     let mut gpr = Gpr::new();
     for i in 1u8..32 {
-        let value = (i as u64) << 32 | (i as u64);
+        let value = u64::from(i) << 32 | u64::from(i);
         gpr.write(RegIdx::new(i), value);
         assert_eq!(gpr.read(RegIdx::new(i)), value);
     }
@@ -112,11 +112,11 @@ fn test_gpr_alternating_write_read() {
     let mut gpr = Gpr::new();
     for iteration in 0..3 {
         for i in 1u8..32 {
-            let value = (i as u64) + (iteration as u64) * 100;
+            let value = u64::from(i) + (iteration as u64) * 100;
             gpr.write(RegIdx::new(i), value);
         }
         for i in 1u8..32 {
-            let expected = (i as u64) + (iteration as u64) * 100;
+            let expected = u64::from(i) + (iteration as u64) * 100;
             assert_eq!(gpr.read(RegIdx::new(i)), expected);
         }
     }

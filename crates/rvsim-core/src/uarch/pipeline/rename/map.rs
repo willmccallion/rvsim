@@ -105,8 +105,8 @@ mod tests {
     fn test_identity_mapping() {
         let rm = RenameMap::new();
         for i in 0u8..32 {
-            assert_eq!(rm.get(ArchReg::Int(RegIdx::new(i))), PhysReg::new(i as u16));
-            assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(i))), PhysReg::new((32 + i) as u16));
+            assert_eq!(rm.get(ArchReg::Int(RegIdx::new(i))), PhysReg::new(u16::from(i)));
+            assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(i))), PhysReg::new(u16::from(32 + i)));
         }
     }
 
@@ -139,7 +139,7 @@ mod tests {
     fn test_vec_identity_mapping() {
         let rm = RenameMap::new();
         for i in 0u8..32 {
-            assert_eq!(rm.get_vec(VRegIdx::new(i)), VecPhysReg::new(i as u16));
+            assert_eq!(rm.get_vec(VRegIdx::new(i)), VecPhysReg::new(u16::from(i)));
         }
     }
 

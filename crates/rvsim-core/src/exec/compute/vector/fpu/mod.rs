@@ -550,8 +550,8 @@ mod tests {
 
         // Write 2.0f32 to v2 elements and 3.0f32 to v1 elements
         for i in 0..4 {
-            vpr.write_element(v2, ElemIdx::new(i), Sew::E32, 2.0f32.to_bits() as u64);
-            vpr.write_element(v1, ElemIdx::new(i), Sew::E32, 3.0f32.to_bits() as u64);
+            vpr.write_element(v2, ElemIdx::new(i), Sew::E32, u64::from(2.0f32.to_bits()));
+            vpr.write_element(v1, ElemIdx::new(i), Sew::E32, u64::from(3.0f32.to_bits()));
         }
 
         let result = vec_fp_execute(
@@ -579,10 +579,10 @@ mod tests {
         let v2 = VRegIdx::new(2);
 
         // Write: +0.0, -0.0, +inf, qNaN
-        vpr.write_element(v1, ElemIdx::new(0), Sew::E32, 0.0f32.to_bits() as u64);
-        vpr.write_element(v1, ElemIdx::new(1), Sew::E32, (-0.0f32).to_bits() as u64);
-        vpr.write_element(v1, ElemIdx::new(2), Sew::E32, f32::INFINITY.to_bits() as u64);
-        vpr.write_element(v1, ElemIdx::new(3), Sew::E32, f32::NAN.to_bits() as u64);
+        vpr.write_element(v1, ElemIdx::new(0), Sew::E32, u64::from(0.0f32.to_bits()));
+        vpr.write_element(v1, ElemIdx::new(1), Sew::E32, u64::from((-0.0f32).to_bits()));
+        vpr.write_element(v1, ElemIdx::new(2), Sew::E32, u64::from(f32::INFINITY.to_bits()));
+        vpr.write_element(v1, ElemIdx::new(3), Sew::E32, u64::from(f32::NAN.to_bits()));
 
         let _result = vec_fp_execute(
             VecFpOp::Unary(FpUnaryOp::Class),
@@ -605,7 +605,7 @@ mod tests {
         let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
 
-        let scalar = 42.0f32.to_bits() as u64;
+        let scalar = u64::from(42.0f32.to_bits());
         let result = vec_fp_execute(
             VecFpOp::MoveFromScalar,
             &mut vpr,
@@ -626,7 +626,7 @@ mod tests {
         let ctx = VecExecCtx::unmasked(Sew::E32, 4);
         let v1 = VRegIdx::new(1);
 
-        vpr.write_element(v1, ElemIdx::new(0), Sew::E32, 99.5f32.to_bits() as u64);
+        vpr.write_element(v1, ElemIdx::new(0), Sew::E32, u64::from(99.5f32.to_bits()));
 
         let result = vec_fp_execute(
             VecFpOp::MoveToScalar,

@@ -42,7 +42,7 @@ pub fn atomic_alu(op: AmoOp, mem_val: u64, reg_val: u64, width: MemWidth) -> u64
             AmoOp::MinU => (mem_val as u32).min(reg_val as u32) as i32,
             AmoOp::MaxU => (mem_val as u32).max(reg_val as u32) as i32,
         };
-        res as i64 as u64
+        i64::from(res) as u64
     } else {
         let a = mem_val as i64;
         let b = reg_val as i64;

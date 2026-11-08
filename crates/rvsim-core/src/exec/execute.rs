@@ -259,7 +259,7 @@ pub fn csr_access_permitted(state: &impl ArchState, inst: &Inst) -> Result<(), T
         || csr_unit_disabled(state, addr)
         || counter_access_denied(state, inst)
         || !state.hart().is_valid_csr(addr)
-        || u32::from(privilege.to_u8()) < addr.privilege_level() as u32
+        || u32::from(privilege.to_u8()) < u32::from(addr.privilege_level())
         || (addr.is_read_only() && writes)
     {
         return Err(Trap::IllegalInstruction(inst.bits));

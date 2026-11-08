@@ -98,7 +98,6 @@ cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
 cast_possible_wrap = "allow"
-cast_lossless = "allow"
 bool_to_int_with_if = "allow"     # (cond) as u64 is idiomatic for flag extraction
 
 # Execute stages and decode functions are necessarily large in a full ISA impl.

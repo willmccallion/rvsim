@@ -38,7 +38,7 @@ const D: IntWidth = IntWidth::Double;
 
 /// Sign-extend a 32-bit value to 64 bits (what every *W instruction must do).
 fn sext32(val: u32) -> u64 {
-    val as i32 as i64 as u64
+    i64::from(val as i32) as u64
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn mulh_small_values_no_high_bits() {
 #[test]
 fn mulh_max_times_max() {
     // i64::MAX * i64::MAX: high bits of 128-bit result
-    let expected = ((i64::MAX as i128 * i64::MAX as i128) >> 64) as u64;
+    let expected = ((i128::from(i64::MAX) * i128::from(i64::MAX)) >> 64) as u64;
     assert_eq!(alu(MulOp::Mulh, I64_MAX, I64_MAX, D), expected);
 }
 
@@ -291,7 +291,7 @@ fn mulh_neg1_times_positive() {
 
 #[test]
 fn mulh_min_times_min() {
-    let expected = ((i64::MIN as i128 * i64::MIN as i128) >> 64) as u64;
+    let expected = ((i128::from(i64::MIN) * i128::from(i64::MIN)) >> 64) as u64;
     assert_eq!(alu(MulOp::Mulh, I64_MIN, I64_MIN, D), expected);
 }
 
@@ -303,15 +303,15 @@ fn mulhsu_positive_times_positive() {
 #[test]
 fn mulhsu_negative_times_unsigned() {
     let a_s = -1i128;
-    let b_u = u64::MAX as u128 as i128;
+    let b_u = u128::from(u64::MAX) as i128;
     let expected = ((a_s * b_u) >> 64) as u64;
     assert_eq!(alu(MulOp::Mulhsu, NEG1, U64_MAX, D), expected);
 }
 
 #[test]
 fn mulhsu_min_times_max() {
-    let a_s = i64::MIN as i128;
-    let b_u = u64::MAX as u128 as i128;
+    let a_s = i128::from(i64::MIN);
+    let b_u = u128::from(u64::MAX) as i128;
     let expected = ((a_s * b_u) >> 64) as u64;
     assert_eq!(alu(MulOp::Mulhsu, I64_MIN, U64_MAX, D), expected);
 }
@@ -328,7 +328,7 @@ fn mulhu_small_values() {
 
 #[test]
 fn mulhu_max_times_max() {
-    let expected = ((u64::MAX as u128 * u64::MAX as u128) >> 64) as u64;
+    let expected = ((u128::from(u64::MAX) * u128::from(u64::MAX)) >> 64) as u64;
     assert_eq!(alu(MulOp::Mulhu, U64_MAX, U64_MAX, D), expected);
 }
 

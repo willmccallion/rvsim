@@ -70,7 +70,7 @@ pub fn fetch2_stage(
         } else {
             let upper_paddr = f1.upper_paddr.unwrap_or_else(|| PhysAddr::new(phys_addr + 2));
             let upper_half = read_inst_half(state, upper_paddr.val());
-            let full_inst = (upper_half as u32) << 16 | (half_word as u32);
+            let full_inst = u32::from(upper_half) << 16 | u32::from(half_word);
             (full_inst, InstSize::Standard, None)
         };
 

@@ -80,10 +80,10 @@ impl VirtioBlock {
             if self.last_avail_idx == avail_idx {
                 return None;
             }
-            let ring_offset = 4 + (self.last_avail_idx as u64 % self.queue_num as u64) * 2;
+            let ring_offset = 4 + (u64::from(self.last_avail_idx) % u64::from(self.queue_num)) * 2;
             let head_idx = Self::dma_read_u16(memory, avail_addr + ring_offset);
             self.last_avail_idx = self.last_avail_idx.wrapping_add(1);
-            if head_idx as u32 >= self.queue_num {
+            if u32::from(head_idx) >= self.queue_num {
                 tracing::warn!(target: "rvsim::dma", head_idx, queue_num = self.queue_num, "virtio: head descriptor index outside the queue");
                 continue;
             }
@@ -192,7 +192,7 @@ impl VirtioBlock {
         }
         let used_addr = self.used_addr();
         let current_used = Self::dma_read_u16(memory, used_addr + 2);
-        let used_elem = used_addr + 4 + (current_used as u64 % self.queue_num as u64) * 8;
+        let used_elem = used_addr + 4 + (u64::from(current_used) % u64::from(self.queue_num)) * 8;
         completion.push(DmaAccess::write(used_elem, AccessSize::B8));
         completion.push(DmaAccess::write(used_addr + 2, AccessSize::B2));
         VecDeque::from([control, data, completion])
@@ -208,10 +208,10 @@ impl VirtioBlock {
         let mut current_idx = head_idx;
         let mut descriptors = Vec::new();
         loop {
-            if current_idx as u32 >= self.queue_num {
+            if u32::from(current_idx) >= self.queue_num {
                 return Err(current_idx);
             }
-            let addr_offset = desc_addr + (current_idx as u64 * DESC_SIZE);
+            let addr_offset = desc_addr + (u64::from(current_idx) * DESC_SIZE);
             let addr = Self::dma_read_u64(memory, addr_offset + DESC_OFFSET_ADDR);
             let len = Self::dma_read_u32(memory, addr_offset + DESC_OFFSET_LEN);
             let flags = Self::dma_read_u16(memory, addr_offset + DESC_OFFSET_FLAGS);
@@ -292,7 +292,7 @@ impl VirtioBlock {
         let used_addr = self.used_addr();
         let used_idx_addr = used_addr + 2;
         let current_used = Self::dma_read_u16(memory, used_idx_addr);
-        let used_elem = used_addr + 4 + (current_used as u64 % self.queue_num as u64) * 8;
+        let used_elem = used_addr + 4 + (u64::from(current_used) % u64::from(self.queue_num)) * 8;
         Self::dma_write(memory, used_elem, &u32::from(head_idx).to_le_bytes());
         Self::dma_write(memory, used_elem + 4, &len_written.to_le_bytes());
         Self::dma_write(memory, used_idx_addr, &current_used.wrapping_add(1).to_le_bytes());

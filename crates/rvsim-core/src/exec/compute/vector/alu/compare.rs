@@ -93,7 +93,7 @@ pub(super) fn exec_carry(
         let op1_val = read_op1(vpr, &operand1, i, ctx.sew);
         // Carry/borrow comes from v0 mask. For vmadc/vmsbc with vm=1,
         // carry is 0 (no carry input).
-        let carry = if ctx.vm { 0u64 } else { mask_active(vpr, i) as u64 };
+        let carry = if ctx.vm { 0u64 } else { u64::from(mask_active(vpr, i)) };
 
         match op {
             CarryOp::Adc => {
@@ -101,8 +101,8 @@ pub(super) fn exec_carry(
                 vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
             }
             CarryOp::Madc => {
-                let sum = (vs2_val as u128) + (op1_val as u128) + (carry as u128);
-                let cout = sum > mask as u128;
+                let sum = u128::from(vs2_val) + u128::from(op1_val) + u128::from(carry);
+                let cout = sum > u128::from(mask);
                 vpr.write_mask_bit(vd_idx, ElemIdx::new(i), cout);
             }
             CarryOp::Sbc => {
@@ -110,7 +110,7 @@ pub(super) fn exec_carry(
                 vpr.write_element(vd_idx, ElemIdx::new(i), ctx.sew, result);
             }
             CarryOp::Msbc => {
-                let borrow = (vs2_val as u128) < (op1_val as u128) + (carry as u128);
+                let borrow = u128::from(vs2_val) < u128::from(op1_val) + u128::from(carry);
                 vpr.write_mask_bit(vd_idx, ElemIdx::new(i), borrow);
             }
         }

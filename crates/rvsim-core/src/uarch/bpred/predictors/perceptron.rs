@@ -71,11 +71,11 @@ impl PerceptronPredictor {
     /// weight times the matching bit of `ghr` as +1 or -1.
     fn output(&self, row_idx: usize, ghr: u64) -> i32 {
         let base = row_idx * self.row_size;
-        let mut y = self.table[base] as i32;
+        let mut y = i32::from(self.table[base]);
 
         for i in 0..self.history_length {
             let bit = if (ghr >> i) & 1 != 0 { 1 } else { -1 };
-            y += (self.table[base + 1 + i] as i32) * bit;
+            y += i32::from(self.table[base + 1 + i]) * bit;
         }
         y
     }
@@ -131,13 +131,13 @@ impl DirectionPredictor for PerceptronPredictor {
         if y.abs() <= self.threshold || (y >= 0) != retired.taken {
             let base = idx * self.row_size;
 
-            let v = self.table[base] as i32 + t;
+            let v = i32::from(self.table[base]) + t;
             self.table[base] = clamp_weight(v);
 
             for i in 0..self.history_length {
                 let x = if (ghr >> i) & 1 != 0 { 1 } else { -1 };
                 let w_idx = base + 1 + i;
-                let v = self.table[w_idx] as i32 + t * x;
+                let v = i32::from(self.table[w_idx]) + t * x;
                 self.table[w_idx] = clamp_weight(v);
             }
         }

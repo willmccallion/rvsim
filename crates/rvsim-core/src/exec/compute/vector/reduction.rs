@@ -408,7 +408,7 @@ mod tests {
 
         // vs2 = [5, -3, 10, 1] as signed i32
         vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 5);
-        vpr.write_element(vs2, ElemIdx::new(1), Sew::E32, (-3i32 as u32) as u64);
+        vpr.write_element(vs2, ElemIdx::new(1), Sew::E32, u64::from(-3i32 as u32));
         vpr.write_element(vs2, ElemIdx::new(2), Sew::E32, 10);
         vpr.write_element(vs2, ElemIdx::new(3), Sew::E32, 1);
         // accumulator = 100
@@ -430,9 +430,14 @@ mod tests {
 
         // vs2 = [1.0, 2.0, 3.0, 4.0], accum = 10.0
         for i in 0..4 {
-            vpr.write_element(vs2, ElemIdx::new(i), Sew::E32, ((i as f32 + 1.0).to_bits()) as u64);
+            vpr.write_element(
+                vs2,
+                ElemIdx::new(i),
+                Sew::E32,
+                u64::from((i as f32 + 1.0).to_bits()),
+            );
         }
-        vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, 10.0f32.to_bits() as u64);
+        vpr.write_element(vs1, ElemIdx::new(0), Sew::E32, u64::from(10.0f32.to_bits()));
 
         let _result = vec_reduce(ReduceOp::Fp(FpReduceOp::OSum), &mut vpr, vd, vs2, vs1, &ctx);
         let val = f32::from_bits(vpr.read_element(vd, ElemIdx::new(0), Sew::E32) as u32);

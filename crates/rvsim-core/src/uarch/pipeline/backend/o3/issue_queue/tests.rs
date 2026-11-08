@@ -16,7 +16,7 @@ fn make_entry(rob_tag: u32) -> O3Entry {
     RenameIssueEntry {
         // NOP
         inst: Inst {
-            pc: VirtAddr::new(0x1000 + (rob_tag as u64) * 4),
+            pc: VirtAddr::new(0x1000 + u64::from(rob_tag) * 4),
             bits: 0x13,
             size: InstSize::Standard,
             rs1: RegIdx::new(0),
@@ -216,7 +216,7 @@ fn test_oldest_first_select() {
     for (slot, tag) in [(2, 3u32), (0, 1), (1, 2)] {
         iq.slots[slot] = Some(IssueQueueEntry {
             entry: make_entry(tag),
-            src1: ready_operand(tag as u64),
+            src1: ready_operand(u64::from(tag)),
             src2: ready_operand(0),
             src3: ready_operand(0),
             vec_src1: VecOperandState::default(),
