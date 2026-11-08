@@ -57,7 +57,7 @@ pub const fn refetch_after<R: IssueRegisters>(issued: &RenameIssueEntry<R>) -> R
 #[derive(Debug)]
 pub enum SystemExecution {
     /// Executed alike on both backends.
-    Done(ExMem1Entry, Option<Redirect>),
+    Done(ExMem1Entry),
     /// FENCE.I, MRET, SRET or WFI, which take effect at commit.
     AtRetire,
     /// A CSR access.
@@ -73,18 +73,18 @@ pub fn execute_system<R: IssueRegisters>(
 ) -> Option<SystemExecution> {
     Some(match system_effect(state, &issued.inst) {
         SystemEffect::NotSystem => return None,
-        SystemEffect::Trap(trap) => SystemExecution::Done(fault(state, issued, trap), None),
+        SystemEffect::Trap(trap) => SystemExecution::Done(fault(state, issued, trap)),
         SystemEffect::AtRetire => SystemExecution::AtRetire,
         // Commit drains the store buffer, flushes the TLBs and squashes.
         SystemEffect::SfenceVma(sfence_vma) => {
             let mut result = ExMem1Entry::from_issue(issued, 0, issued.inst.rv2);
             result.op.sfence_vma = Some(sfence_vma);
-            SystemExecution::Done(result, None)
+            SystemExecution::Done(result)
         }
         // A CBO passes its operand to memory1, which translates the block;
         // commit performs it. Younger loads wait for it in issue.
         SystemEffect::Cbo => {
-            SystemExecution::Done(ExMem1Entry::from_issue(issued, issued.inst.rv1, 0), None)
+            SystemExecution::Done(ExMem1Entry::from_issue(issued, issued.inst.rv1, 0))
         }
         SystemEffect::Csr(request) => SystemExecution::Csr(request),
     })
