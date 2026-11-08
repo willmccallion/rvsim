@@ -11,9 +11,11 @@ use crate::config::{
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::extension::Extension;
 use crate::isa::privileged::PagingMode;
+use crate::isa::privileged::cause::{CAUSE_INTERRUPT_BIT, interrupt};
+use crate::soc::devices::{GoldfishRtc, SysCon, Uart, VirtioBlock};
 
-// FDT constants
 const FDT_MAGIC: u32 = 0xd00dfeed;
+
 /// Bytes in the flattened device tree header.
 const FDT_HEADER_BYTES: u32 = 40;
 /// Bytes in a memory reservation block holding only its terminating entry.
@@ -24,6 +26,13 @@ const FDT_BEGIN_NODE: u32 = 1;
 const FDT_END_NODE: u32 = 2;
 const FDT_PROP: u32 = 3;
 const FDT_END: u32 = 9;
+
+/// The PLIC sources the device tree advertises, as QEMU's virt machine
+/// does; every device's source is below it.
+const PLIC_ADVERTISED_SOURCES: u32 = 0x35;
+
+/// The UART's input clock the device tree reports.
+const UART_CLOCK_HZ: u32 = 10_000_000;
 
 /// Builder for constructing FDT binary blobs.
 struct FdtBuilder {
@@ -334,8 +343,16 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.begin_node(&node_name);
         b.prop_string("compatible", "riscv,clint0");
         b.prop_reg_2_2(clint_base, CLINT_REGION_BYTES);
-        // Per hart: <&intc 3> (M-mode software), <&intc 7> (M-mode timer).
-        b.prop_bytes("interrupts-extended", &interrupts_extended(&phandles, &[3, 7]));
+        b.prop_bytes(
+            "interrupts-extended",
+            &interrupts_extended(
+                &phandles,
+                &[
+                    interrupt_code(interrupt::MACHINE_SOFTWARE),
+                    interrupt_code(interrupt::MACHINE_TIMER),
+                ],
+            ),
+        );
         b.end_node();
     }
 
@@ -345,9 +362,9 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.begin_node(&node_name);
         b.prop_string("compatible", "ns16550a");
         b.prop_reg_2_2(uart_base, UART_REGION_BYTES);
-        b.prop_u32("clock-frequency", 10_000_000);
+        b.prop_u32("clock-frequency", UART_CLOCK_HZ);
         b.prop_u32("interrupt-parent", plic_phandle);
-        b.prop_bytes("interrupts", &10u32.to_be_bytes());
+        b.prop_bytes("interrupts", &Uart::IRQ.val().to_be_bytes());
         b.prop_string("status", "okay");
         b.end_node();
     }
@@ -359,7 +376,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.prop_string("compatible", "virtio,mmio");
         b.prop_reg_2_2(disk_base, VIRTIO_REGION_BYTES);
         b.prop_u32("interrupt-parent", plic_phandle);
-        b.prop_bytes("interrupts", &1u32.to_be_bytes());
+        b.prop_bytes("interrupts", &VirtioBlock::IRQ.val().to_be_bytes());
         b.end_node();
     }
 
@@ -371,9 +388,17 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.prop_reg_2_2(plic_base, PLIC_REGION_BYTES);
         b.prop_u32("#interrupt-cells", 1);
         b.prop_empty("interrupt-controller");
-        // Per hart: <&intc 11> (M-mode external), <&intc 9> (S-mode external).
-        b.prop_bytes("interrupts-extended", &interrupts_extended(&phandles, &[11, 9]));
-        b.prop_u32("riscv,ndev", 0x35);
+        b.prop_bytes(
+            "interrupts-extended",
+            &interrupts_extended(
+                &phandles,
+                &[
+                    interrupt_code(interrupt::MACHINE_EXTERNAL),
+                    interrupt_code(interrupt::SUPERVISOR_EXTERNAL),
+                ],
+            ),
+        );
+        b.prop_u32("riscv,ndev", PLIC_ADVERTISED_SOURCES);
         b.prop_u32("phandle", plic_phandle);
         b.end_node();
     }
@@ -389,23 +414,23 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.end_node();
     }
 
-    // /soc/poweroff — writes 0x5555 to syscon offset 0x00
+    // /soc/poweroff: SysCon::POWER_OFF to syscon offset 0
     {
         b.begin_node("poweroff");
         b.prop_string("compatible", "syscon-poweroff");
         b.prop_u32("regmap", syscon_phandle);
         b.prop_u32("offset", 0x00);
-        b.prop_u32("value", 0x5555);
+        b.prop_u32("value", SysCon::POWER_OFF);
         b.end_node();
     }
 
-    // /soc/reboot — writes 0x7777 to syscon offset 0x00
+    // /soc/reboot: SysCon::RESET to syscon offset 0
     {
         b.begin_node("reboot");
         b.prop_string("compatible", "syscon-reboot");
         b.prop_u32("regmap", syscon_phandle);
         b.prop_u32("offset", 0x00);
-        b.prop_u32("value", 0x7777);
+        b.prop_u32("value", SysCon::RESET);
         b.end_node();
     }
 
@@ -416,7 +441,7 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
         b.prop_string("compatible", "google,goldfish-rtc");
         b.prop_reg_2_2(rtc_base, RTC_REGION_BYTES);
         b.prop_u32("interrupt-parent", plic_phandle);
-        b.prop_bytes("interrupts", &11u32.to_be_bytes());
+        b.prop_bytes("interrupts", &GoldfishRtc::IRQ.val().to_be_bytes());
         b.end_node();
     }
 
@@ -424,6 +449,11 @@ pub fn generate_dtb(config: &Config) -> Vec<u8> {
     b.end_node(); // root
 
     b.finalize()
+}
+
+/// The interrupt number of `cause`, an interrupt's `mcause`.
+const fn interrupt_code(cause: u64) -> u32 {
+    (cause & !CAUSE_INTERRUPT_BIT) as u32
 }
 
 /// `interrupts-extended` cells naming every hart's interrupt controller once
