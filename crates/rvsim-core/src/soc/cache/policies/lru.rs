@@ -15,8 +15,8 @@
 //! - **Best Case:** Sequential/streaming accesses with good temporal locality
 //! - **Worst Case:** Scanning patterns larger than cache capacity (thrashing)
 
-use super::ReplacementPolicy;
 use super::recency::RecencyStacks;
+use super::{ReplacementPolicy, SetIdx, WayIdx};
 
 /// LRU Policy state.
 #[derive(Debug)]
@@ -36,14 +36,16 @@ impl ReplacementPolicy for LruPolicy {
     ///
     /// Moves the accessed `way` to the front of the usage stack (MRU position),
     /// shifting other elements down.
-    fn update(&mut self, set: usize, way: usize) {
+    fn update(&mut self, set: SetIdx, way: WayIdx) {
+        let (set, way) = (set.index(), way.index());
         self.usage.touch(set, way);
     }
 
     /// Identifies the victim way to evict.
     ///
     /// Returns the way at the bottom of the usage stack (LRU position).
-    fn get_victim(&mut self, set: usize) -> usize {
-        self.usage.least_recent(set)
+    fn get_victim(&mut self, set: SetIdx) -> WayIdx {
+        let set = set.index();
+        WayIdx::new(self.usage.least_recent(set))
     }
 }

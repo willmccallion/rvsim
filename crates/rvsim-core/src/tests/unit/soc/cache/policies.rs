@@ -7,14 +7,14 @@
 //! Reference: Phase 3 — Memory Subsystem Verification.
 
 use crate::soc::cache::policies::{
-    FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy,
+    FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy, SetIdx, WayIdx,
 };
 
 /// Initial stack is [0,1,2,3] with index 0 = MRU, so the LRU victim is way 3.
 #[test]
 fn lru_initial_victim_is_last_way() {
     let mut policy = LruPolicy::new(1, 4);
-    assert_eq!(policy.get_victim(0), 3);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 3);
 }
 
 /// Accessing ways in order 0,1,2,3 makes 0 the LRU.
@@ -22,12 +22,12 @@ fn lru_initial_victim_is_last_way() {
 fn lru_sequential_access_reorders() {
     let mut policy = LruPolicy::new(1, 4);
 
-    policy.update(0, 0);
-    policy.update(0, 1);
-    policy.update(0, 2);
-    policy.update(0, 3);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
+    policy.update(SetIdx::new(0), WayIdx::new(1));
+    policy.update(SetIdx::new(0), WayIdx::new(2));
+    policy.update(SetIdx::new(0), WayIdx::new(3));
     // Stack: [3, 2, 1, 0]. LRU = 0.
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 }
 
 /// Classic LRU scenario: access 0,1,2,3 then re-access 0 → LRU becomes 1.
@@ -35,22 +35,22 @@ fn lru_sequential_access_reorders() {
 fn lru_evicts_true_lru_after_reaccess() {
     let mut policy = LruPolicy::new(1, 4);
 
-    policy.update(0, 0);
-    policy.update(0, 1);
-    policy.update(0, 2);
-    policy.update(0, 3);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
+    policy.update(SetIdx::new(0), WayIdx::new(1));
+    policy.update(SetIdx::new(0), WayIdx::new(2));
+    policy.update(SetIdx::new(0), WayIdx::new(3));
     // Stack: [3, 2, 1, 0]. LRU = 0.
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 
     // Re-access 0 → promotes to MRU.
-    policy.update(0, 0);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
     // Stack: [0, 3, 2, 1]. LRU = 1.
-    assert_eq!(policy.get_victim(0), 1);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 1);
 
     // Re-access 1 → promotes to MRU.
-    policy.update(0, 1);
+    policy.update(SetIdx::new(0), WayIdx::new(1));
     // Stack: [1, 0, 3, 2]. LRU = 2.
-    assert_eq!(policy.get_victim(0), 2);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 2);
 }
 
 /// Multiple accesses to the same way should not change victim.
@@ -58,17 +58,17 @@ fn lru_evicts_true_lru_after_reaccess() {
 fn lru_repeated_access_same_way() {
     let mut policy = LruPolicy::new(1, 4);
 
-    policy.update(0, 0);
-    policy.update(0, 1);
-    policy.update(0, 2);
-    policy.update(0, 3);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
+    policy.update(SetIdx::new(0), WayIdx::new(1));
+    policy.update(SetIdx::new(0), WayIdx::new(2));
+    policy.update(SetIdx::new(0), WayIdx::new(3));
     // LRU = 0.
 
     // Repeated access to way 3 (already MRU) should keep victim the same.
-    policy.update(0, 3);
-    assert_eq!(policy.get_victim(0), 0);
-    policy.update(0, 3);
-    assert_eq!(policy.get_victim(0), 0);
+    policy.update(SetIdx::new(0), WayIdx::new(3));
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
+    policy.update(SetIdx::new(0), WayIdx::new(3));
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 }
 
 /// LRU operates independently across sets.
@@ -78,18 +78,18 @@ fn lru_independent_sets() {
 
     // Touch set 0 ways 0..3
     for w in 0..4 {
-        policy.update(0, w);
+        policy.update(SetIdx::new(0), WayIdx::new(w));
     }
     // Set 0: LRU = 0, Set 1: LRU = 3 (initial).
-    assert_eq!(policy.get_victim(0), 0);
-    assert_eq!(policy.get_victim(1), 3);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(1)).index(), 3);
 
     // Touch set 1 ways in reverse order
     for w in (0..4).rev() {
-        policy.update(1, w);
+        policy.update(SetIdx::new(1), WayIdx::new(w));
     }
     // Set 1: Stack [0, 1, 2, 3], LRU = 3.
-    assert_eq!(policy.get_victim(1), 3);
+    assert_eq!(policy.get_victim(SetIdx::new(1)).index(), 3);
 }
 
 /// 2-way LRU: simplest case.
@@ -98,15 +98,15 @@ fn lru_two_way() {
     let mut policy = LruPolicy::new(1, 2);
 
     // Initial: [0, 1]. LRU = 1.
-    assert_eq!(policy.get_victim(0), 1);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 1);
 
-    policy.update(0, 1);
+    policy.update(SetIdx::new(0), WayIdx::new(1));
     // Stack: [1, 0]. LRU = 0.
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 
-    policy.update(0, 0);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
     // Stack: [0, 1]. LRU = 1.
-    assert_eq!(policy.get_victim(0), 1);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 1);
 }
 
 /// Filling every way in order evicts them in the same order.
@@ -116,9 +116,9 @@ fn fifo_evicts_in_insertion_order() {
     let mut victims = Vec::new();
 
     for _ in 0..5 {
-        let victim = policy.get_victim(0);
+        let victim = policy.get_victim(SetIdx::new(0)).index();
         victims.push(victim);
-        policy.insert(0, victim);
+        policy.insert(SetIdx::new(0), WayIdx::new(victim));
     }
 
     assert_eq!(victims, [0, 1, 2, 3, 0]);
@@ -128,12 +128,12 @@ fn fifo_evicts_in_insertion_order() {
 #[test]
 fn fifo_ignores_hits() {
     let mut policy = FifoPolicy::new(1, 2);
-    policy.insert(0, 0);
-    policy.insert(0, 1);
+    policy.insert(SetIdx::new(0), WayIdx::new(0));
+    policy.insert(SetIdx::new(0), WayIdx::new(1));
 
-    policy.update(0, 0);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
 
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 }
 
 /// A way refilled out of turn, as after an invalidation, becomes the newest.
@@ -141,19 +141,19 @@ fn fifo_ignores_hits() {
 fn fifo_counts_a_refilled_way_as_newest() {
     let mut policy = FifoPolicy::new(1, 3);
     for way in 0..3 {
-        policy.insert(0, way);
+        policy.insert(SetIdx::new(0), WayIdx::new(way));
     }
 
-    policy.insert(0, 0);
+    policy.insert(SetIdx::new(0), WayIdx::new(0));
 
-    assert_eq!(policy.get_victim(0), 1);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 1);
 }
 
 /// PLRU: initial state has all bits 0, so victim is way 0 (first unset bit).
 #[test]
 fn plru_initial_victim_is_zero() {
     let mut policy = PlruPolicy::new(1, 4);
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 }
 
 /// PLRU: after accessing way 0, its bit is set; victim shifts to way 1.
@@ -161,17 +161,17 @@ fn plru_initial_victim_is_zero() {
 fn plru_access_protects_way() {
     let mut policy = PlruPolicy::new(1, 4);
 
-    policy.update(0, 0);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
     // Bits: 0001. First unset bit is at position 1.
-    assert_eq!(policy.get_victim(0), 1);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 1);
 
-    policy.update(0, 1);
+    policy.update(SetIdx::new(0), WayIdx::new(1));
     // Bits: 0011. First unset bit is at position 2.
-    assert_eq!(policy.get_victim(0), 2);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 2);
 
-    policy.update(0, 2);
+    policy.update(SetIdx::new(0), WayIdx::new(2));
     // Bits: 0111. First unset bit is at position 3.
-    assert_eq!(policy.get_victim(0), 3);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 3);
 }
 
 /// PLRU: when all bits are set (all accessed), reset to only the last-accessed
@@ -180,16 +180,16 @@ fn plru_access_protects_way() {
 fn plru_wraps_when_all_bits_set() {
     let mut policy = PlruPolicy::new(1, 4);
 
-    policy.update(0, 0);
-    policy.update(0, 1);
-    policy.update(0, 2);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
+    policy.update(SetIdx::new(0), WayIdx::new(1));
+    policy.update(SetIdx::new(0), WayIdx::new(2));
     // Bits: 0111. Victim = 3.
-    assert_eq!(policy.get_victim(0), 3);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 3);
 
     // Access way 3 → bits would be 1111; implementation resets to 1000.
-    policy.update(0, 3);
+    policy.update(SetIdx::new(0), WayIdx::new(3));
     // Bits after reset: 1000. First unset = 0.
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 }
 
 /// PLRU: accessing a previously-accessed way still works correctly.
@@ -197,14 +197,14 @@ fn plru_wraps_when_all_bits_set() {
 fn plru_reaccess_way() {
     let mut policy = PlruPolicy::new(1, 4);
 
-    policy.update(0, 0);
-    policy.update(0, 1);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
+    policy.update(SetIdx::new(0), WayIdx::new(1));
     // Bits: 0011. Victim = 2.
 
     // Re-access way 0. Bit 0 was already set, no change.
-    policy.update(0, 0);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
     // Bits: 0011. Victim = 2.
-    assert_eq!(policy.get_victim(0), 2);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 2);
 }
 
 /// PLRU with 2 ways: toggle behavior.
@@ -213,15 +213,15 @@ fn plru_two_way() {
     let mut policy = PlruPolicy::new(1, 2);
 
     // Initial: bits=00, victim=0.
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 
-    policy.update(0, 0);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
     // Bits=01. Victim=1.
-    assert_eq!(policy.get_victim(0), 1);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 1);
 
-    policy.update(0, 1);
+    policy.update(SetIdx::new(0), WayIdx::new(1));
     // All bits set (11) → reset to just bit 1 → bits=10. Victim=0.
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 }
 
 /// MRU: initial victim is way 0 (first in the MRU-ordered stack).
@@ -229,7 +229,7 @@ fn plru_two_way() {
 fn mru_initial_victim() {
     let mut policy = MruPolicy::new(1, 4);
     // Stack: [0, 1, 2, 3]. MRU = 0.
-    assert_eq!(policy.get_victim(0), 0);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 }
 
 /// MRU: after accessing a way, it becomes the victim.
@@ -237,14 +237,18 @@ fn mru_initial_victim() {
 fn mru_evicts_most_recently_used() {
     let mut policy = MruPolicy::new(1, 4);
 
-    policy.update(0, 2);
-    assert_eq!(policy.get_victim(0), 2, "MRU should evict the most recently used way");
+    policy.update(SetIdx::new(0), WayIdx::new(2));
+    assert_eq!(
+        policy.get_victim(SetIdx::new(0)).index(),
+        2,
+        "MRU should evict the most recently used way"
+    );
 
-    policy.update(0, 1);
-    assert_eq!(policy.get_victim(0), 1);
+    policy.update(SetIdx::new(0), WayIdx::new(1));
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 1);
 
-    policy.update(0, 3);
-    assert_eq!(policy.get_victim(0), 3);
+    policy.update(SetIdx::new(0), WayIdx::new(3));
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 3);
 }
 
 /// MRU: sequential accesses always evict the last-touched way.
@@ -253,8 +257,8 @@ fn mru_sequential_access() {
     let mut policy = MruPolicy::new(1, 4);
 
     for w in 0..4 {
-        policy.update(0, w);
-        assert_eq!(policy.get_victim(0), w);
+        policy.update(SetIdx::new(0), WayIdx::new(w));
+        assert_eq!(policy.get_victim(SetIdx::new(0)).index(), w);
     }
 }
 
@@ -263,16 +267,16 @@ fn mru_sequential_access() {
 fn mru_opposite_of_lru() {
     let mut policy = MruPolicy::new(1, 4);
 
-    policy.update(0, 0);
-    policy.update(0, 1);
-    policy.update(0, 2);
-    policy.update(0, 3);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
+    policy.update(SetIdx::new(0), WayIdx::new(1));
+    policy.update(SetIdx::new(0), WayIdx::new(2));
+    policy.update(SetIdx::new(0), WayIdx::new(3));
     // MRU = 3.
-    assert_eq!(policy.get_victim(0), 3);
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 3);
 
     // Re-access 0. MRU = 0.
-    policy.update(0, 0);
-    assert_eq!(policy.get_victim(0), 0);
+    policy.update(SetIdx::new(0), WayIdx::new(0));
+    assert_eq!(policy.get_victim(SetIdx::new(0)).index(), 0);
 }
 
 /// Random: all victims must be in range [0, ways).
@@ -282,7 +286,7 @@ fn random_victim_always_in_range() {
     let mut policy = RandomPolicy::new(ways);
 
     for _ in 0..200 {
-        let victim = policy.get_victim(0);
+        let victim = policy.get_victim(SetIdx::new(0)).index();
         assert!(victim < ways, "Victim {} out of range [0, {})", victim, ways);
     }
 }
@@ -293,7 +297,7 @@ fn random_victim_various_way_counts() {
     for ways in [1, 2, 3, 4, 8, 16] {
         let mut policy = RandomPolicy::new(ways);
         for _ in 0..50 {
-            let victim = policy.get_victim(0);
+            let victim = policy.get_victim(SetIdx::new(0)).index();
             assert!(victim < ways, "ways={}, victim {} out of range", ways, victim);
         }
     }
@@ -304,9 +308,9 @@ fn random_victim_various_way_counts() {
 fn random_update_is_noop() {
     let mut policy = RandomPolicy::new(4);
 
-    let v1 = policy.get_victim(0);
-    policy.update(0, v1);
-    let v2 = policy.get_victim(0);
+    let v1 = policy.get_victim(SetIdx::new(0)).index();
+    policy.update(SetIdx::new(0), WayIdx::new(v1));
+    let v2 = policy.get_victim(SetIdx::new(0)).index();
     assert!(v1 < 4);
     assert!(v2 < 4);
 }
@@ -317,7 +321,7 @@ fn random_not_stuck() {
     let mut policy = RandomPolicy::new(8);
     let mut seen = std::collections::HashSet::new();
     for _ in 0..100 {
-        seen.insert(policy.get_victim(0));
+        seen.insert(policy.get_victim(SetIdx::new(0)).index());
     }
     assert!(
         seen.len() > 1,

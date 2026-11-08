@@ -15,7 +15,7 @@
 //! - **Best Case:** Streaming accesses where all lines have equal importance
 //! - **Worst Case:** Workloads with strong temporal locality (may evict frequently-used lines)
 
-use super::ReplacementPolicy;
+use super::{ReplacementPolicy, SetIdx, WayIdx};
 
 /// FIFO Policy state.
 #[derive(Debug)]
@@ -38,18 +38,20 @@ impl FifoPolicy {
 
 impl ReplacementPolicy for FifoPolicy {
     /// A hit leaves the insertion order as it is.
-    fn update(&mut self, _set: usize, _way: usize) {}
+    fn update(&mut self, _set: SetIdx, _way: WayIdx) {}
 
     /// Makes `way`'s line the newest of its set.
-    fn insert(&mut self, set: usize, way: usize) {
+    fn insert(&mut self, set: SetIdx, way: WayIdx) {
+        let (set, way) = (set.index(), way.index());
         self.inserted_at[set * self.ways + way] = self.next_stamp;
         self.next_stamp += 1;
     }
 
     /// Identifies the victim way to evict: the one installed longest ago,
     /// the lowest-numbered among ways never filled.
-    fn get_victim(&mut self, set: usize) -> usize {
+    fn get_victim(&mut self, set: SetIdx) -> WayIdx {
+        let set = set.index();
         let stamps = &self.inserted_at[set * self.ways..(set + 1) * self.ways];
-        (0..self.ways).min_by_key(|&way| stamps[way]).unwrap_or(0)
+        WayIdx::new((0..self.ways).min_by_key(|&way| stamps[way]).unwrap_or(0))
     }
 }
