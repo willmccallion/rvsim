@@ -6,7 +6,7 @@ use crate::common::{CoreId, LineAddr, PhysAddr};
 use crate::config::{Config, Console, InclusionPolicy};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::packet::{AccessSize, MemOp, MesiState};
-use crate::soc::cache::mshr::{Mshr, MshrTarget};
+use crate::soc::cache::mshr::{FetchOrigin, Mshr, MshrTarget};
 use crate::soc::cache::writeback_buffer::{Writeback, WritebackCause};
 use crate::soc::cache::{BookkeepingFault, Cache};
 use crate::soc::coherence::protocol::CoreSet;
@@ -249,7 +249,7 @@ fn mshr(cache: &Cache, seq: u64, addr: u64, targets: usize) -> Mshr {
         targets: vec![target; targets],
         deferred: Vec::new(),
         write: false,
-        prefetch: false,
+        origin: FetchOrigin::Demand,
         issued_at: 0,
         upgrade: false,
     }
