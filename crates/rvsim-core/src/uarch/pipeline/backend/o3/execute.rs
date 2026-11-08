@@ -102,7 +102,7 @@ fn execute_system_o3(
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
     Some(match execute_system(state, issued)? {
-        SystemExecution::Done(result, redirect) => (result, redirect),
+        SystemExecution::Done(result) => (result, None),
         SystemExecution::AtRetire => {
             if matches!(issued.inst.ctrl.system_op, SystemOp::Mret | SystemOp::Sret) {
                 trace_trap!(state.config.general.trace_instructions;

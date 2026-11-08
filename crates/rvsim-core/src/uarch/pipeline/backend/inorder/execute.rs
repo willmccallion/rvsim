@@ -133,7 +133,7 @@ fn execute_system_inorder(
     rob: &mut Rob,
 ) -> Option<(ExMem1Entry, Option<Redirect>)> {
     Some(match execute_system(state, issued)? {
-        SystemExecution::Done(result, redirect) => (result, redirect),
+        SystemExecution::Done(result) => (result, None),
         SystemExecution::AtRetire => (ExMem1Entry::from_issue(issued, 0, 0), None),
         SystemExecution::Csr(request) => {
             rob.defer_csr(issued.rob_tag, request);
