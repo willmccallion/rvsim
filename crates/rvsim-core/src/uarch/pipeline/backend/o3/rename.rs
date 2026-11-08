@@ -226,7 +226,7 @@ const fn renamed_entry(
     vector: VectorContext,
 ) -> O3Entry {
     RenameIssueEntry {
-        inst: Inst { rv1: 0, rv2: 0, rv3: 0, ..decoded.inst },
+        inst: decoded.inst,
         rob_tag: dests.rob_tag,
         trap: decoded.trap,
         predicted_target: decoded.predicted_target,
