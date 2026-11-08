@@ -1,7 +1,7 @@
-//! Comprehensive disassembler tests covering all RV64GC instructions.
-//! Tests use flexible assertions to handle format variations.
+//! Disassembler tests covering all RV64GC instructions.
 
 use crate::exec::disasm::disassemble;
+use crate::isa::reg::RegIdx;
 
 #[test]
 fn rv64i_register_arithmetic_disassembles_to_its_mnemonics() {
@@ -169,13 +169,10 @@ fn single_word_conversions_disassemble_to_their_mnemonics() {
 }
 
 #[test]
-fn single_precision_compares_disassemble_to_an_f_dot_s_mnemonic() {
-    let feq = disassemble(0xA0B52553);
-    let flt = disassemble(0xA0B51553);
-    let fle = disassemble(0xA0B50553);
-    assert!(feq.contains("f") && feq.contains(".s"));
-    assert!(flt.contains("f") && flt.contains(".s"));
-    assert!(fle.contains("f") && fle.contains(".s"));
+fn single_precision_compares_disassemble_with_their_operands() {
+    assert_eq!(disassemble(0xA0B52553), "feq.s a0, fa0, fa1");
+    assert_eq!(disassemble(0xA0B51553), "flt.s a0, fa0, fa1");
+    assert_eq!(disassemble(0xA0B50553), "fle.s a0, fa0, fa1");
 }
 
 #[test]
@@ -262,24 +259,20 @@ fn the_largest_addi_immediate_is_printed_as_2047() {
 }
 
 #[test]
-fn addi_disassembles_with_every_destination_register() {
-    // Test disassembly includes all register names
-    for i in 0..32_u32 {
-        let inst = 0x00050513 | (i << 7); // addi xi, a0, 0
-        let result = disassemble(inst);
-        assert!(!result.is_empty());
-        assert!(result.contains("addi"));
+fn addi_names_every_destination_register_by_its_abi_name() {
+    for rd in RegIdx::all() {
+        let addi = 0x0005_0013 | (u32::from(rd.as_u8()) << 7);
+
+        assert_eq!(disassemble(addi), format!("addi {}, a0, 0", rd.int_abi_name()));
     }
 }
 
 #[test]
-fn flw_disassembles_with_every_destination_register() {
-    // Test floating-point register names
-    for i in 0..32_u32 {
-        let inst = 0x00052507 | (i << 7); // flw fi, 0(a0)
-        let result = disassemble(inst);
-        assert!(!result.is_empty());
-        assert!(result.contains("flw") || result.contains("f"));
+fn flw_names_every_destination_register_by_its_abi_name() {
+    for rd in RegIdx::all() {
+        let flw = 0x0005_2007 | (u32::from(rd.as_u8()) << 7);
+
+        assert_eq!(disassemble(flw), format!("flw {}, 0(a0)", rd.fp_abi_name()));
     }
 }
 

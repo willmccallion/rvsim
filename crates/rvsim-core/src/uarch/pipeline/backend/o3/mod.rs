@@ -458,21 +458,24 @@ mod tests {
     use crate::isa::reg::RegIdx;
 
     #[test]
-    fn a_new_engine_has_the_configured_rename_width_and_flushes_cleanly() {
+    fn flush_empties_the_memory_stage_latches() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
-
         let mut engine = O3Engine::new(
             &config,
             crate::sim::components::PipelineId::new(0),
             crate::sim::components::CacheId::new(0),
             crate::sim::components::CacheId::new(1),
         );
-        assert_eq!(engine.rename_width, config.pipeline.rename_width());
+        engine.execute_mem1.push(ExMem1Entry::default());
+        engine.mem1_mem2.push(Mem1Mem2Entry::default());
+        engine.mem2_wb.push(Mem2WbEntry::default());
 
         engine.flush(&mut state);
-        assert_eq!(engine.execute_mem1.len(), 0);
+
+        let lengths = (engine.execute_mem1.len(), engine.mem1_mem2.len(), engine.mem2_wb.len());
+        assert_eq!(lengths, (0, 0, 0));
     }
 
     #[test]
