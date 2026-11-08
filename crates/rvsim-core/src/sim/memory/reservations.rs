@@ -5,7 +5,8 @@
 //! on the hart because a store from *any* hart to the reserved line must
 //! break it: that is what makes LR/SC spinlocks work across cores.
 
-use crate::common::{HartId, PhysAddr};
+use super::write_log::Writer;
+use crate::common::{HartId, PhysAddr, PhysRange};
 
 /// Cache line size for reservation granularity; the SC-success granule is
 /// implementation-defined and 64 bytes matches the L1D line.
@@ -50,23 +51,14 @@ impl ReservationSet {
         self.slots[hart.as_index()] = None;
     }
 
-    /// Breaks every other hart's reservation on the line containing `addr`,
-    /// as a store by `writer` does.
-    pub fn invalidate_others(&mut self, writer: HartId, addr: PhysAddr) {
-        let line = Self::align(addr);
+    /// Breaks the reservation of every hart but `writer` on a granule the
+    /// bytes `written` touch, as a write does.
+    pub fn break_on_write(&mut self, writer: Writer, written: PhysRange) {
         for (index, slot) in self.slots.iter_mut().enumerate() {
-            if index != writer.as_index() && *slot == Some(line) {
-                *slot = None;
-            }
-        }
-    }
-
-    /// Breaks every hart's reservation on the line containing `addr`, as a
-    /// write by an agent that is not a hart does.
-    pub fn invalidate_all(&mut self, addr: PhysAddr) {
-        let line = Self::align(addr);
-        for slot in &mut self.slots {
-            if *slot == Some(line) {
+            let is_writer = matches!(writer, Writer::Hart(hart) if hart.as_index() == index);
+            let is_touched =
+                slot.is_some_and(|granule| written.overlaps(granule, RESERVATION_GRANULE));
+            if is_touched && !is_writer {
                 *slot = None;
             }
         }
@@ -85,9 +77,9 @@ mod tests {
         set.set(h0, PhysAddr::new(0x1008));
         assert!(set.check(h0, PhysAddr::new(0x1000)));
         assert!(!set.check(h0, PhysAddr::new(0x1040)));
-        set.invalidate_others(h0, PhysAddr::new(0x1010));
+        set.break_on_write(Writer::Hart(h0), PhysRange::new(0x1010, 8));
         assert!(set.check(h0, PhysAddr::new(0x1000)), "the writer keeps its own reservation");
-        set.invalidate_others(h1, PhysAddr::new(0x1010));
+        set.break_on_write(Writer::Hart(h1), PhysRange::new(0x1010, 8));
         assert!(!set.check(h0, PhysAddr::new(0x1000)));
         set.set(h1, PhysAddr::new(0x2000));
         set.clear(h1);

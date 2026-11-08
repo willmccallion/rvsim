@@ -14,7 +14,8 @@
 //! this line since?" exactly: the reader's own later write to the line
 //! must not hide another hart's earlier one.
 
-use crate::common::{HartId, PhysAddr};
+use crate::common::{HartId, PhysAddr, PhysRange};
+use std::ops::Range;
 
 /// Position in the global order of RAM writes. `WriteSeq::default()`
 /// precedes every write.
@@ -60,6 +61,16 @@ impl Write {
 struct LineWrites {
     latest: Write,
     latest_by_other: Write,
+}
+
+impl LineWrites {
+    /// Makes `write` the line's latest.
+    fn note(&mut self, write: Write) {
+        if self.latest != Write::NONE && self.latest.tag() != write.tag() {
+            self.latest_by_other = self.latest;
+        }
+        self.latest = write;
+    }
 }
 
 /// Most recent writes per cache line.
@@ -114,18 +125,28 @@ impl WriteLog {
         }
     }
 
-    /// Records a write to the line containing `paddr`. Addresses outside
-    /// RAM are ignored.
-    pub fn record(&mut self, paddr: PhysAddr, writer: Writer) {
-        let Some(index) = self.line_index(paddr) else { return };
-        let seq = self.next;
+    /// Records one write on every line the bytes `written` touch. Lines
+    /// outside RAM are ignored.
+    pub fn record(&mut self, written: PhysRange, writer: Writer) {
+        let Some(touched) = self.lines_touched(written) else { return };
+        let write = Write::new(self.next, writer);
         self.next += 1;
-        let write = Write::new(seq, writer);
-        let line = &mut self.lines[index];
-        if line.latest != Write::NONE && line.latest.tag() != write.tag() {
-            line.latest_by_other = line.latest;
+        for line in &mut self.lines[touched] {
+            line.note(write);
         }
-        line.latest = write;
+    }
+
+    /// The indexes of the lines in RAM the bytes `written` touch, if any.
+    fn lines_touched(&self, written: PhysRange) -> Option<Range<usize>> {
+        let ram_end = self.ram_base + ((self.lines.len() as u64) << self.line_shift);
+        let start = written.base.val().max(self.ram_base);
+        let end = written.end().min(ram_end);
+        if start >= end {
+            return None;
+        }
+        let first = usize::try_from((start - self.ram_base) >> self.line_shift).ok()?;
+        let last = usize::try_from((end - 1 - self.ram_base) >> self.line_shift).ok()?;
+        Some(first..last + 1)
     }
 
     /// True when a writer other than `reader` has written the line
@@ -156,7 +177,7 @@ mod tests {
     fn a_write_after_the_stamp_by_another_hart_is_seen() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysAddr::new(0x8000_0008), Writer::Hart(H1));
+        log.record(PhysRange::new(0x8000_0008, 8), Writer::Hart(H1));
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp));
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_003F), H0, stamp), "same line");
         assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0040), H0, stamp), "next line");
@@ -165,7 +186,7 @@ mod tests {
     #[test]
     fn a_write_before_the_stamp_is_not_seen() {
         let mut log = log();
-        log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H1));
+        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H1));
         let stamp = log.now();
         assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp));
     }
@@ -174,7 +195,7 @@ mod tests {
     fn the_readers_own_writes_do_not_count() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H0));
+        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H0));
         assert!(!log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp));
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp));
     }
@@ -183,7 +204,7 @@ mod tests {
     fn external_writes_count_for_every_hart() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysAddr::new(0x8000_0000), Writer::External);
+        log.record(PhysRange::new(0x8000_0000, 8), Writer::External);
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp));
         assert!(log.written_by_other_since(PhysAddr::new(0x8000_0000), H1, stamp));
     }
@@ -192,8 +213,8 @@ mod tests {
     fn the_readers_own_later_write_does_not_hide_anothers() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H1));
-        log.record(PhysAddr::new(0x8000_0008), Writer::Hart(H0));
+        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H1));
+        log.record(PhysRange::new(0x8000_0008, 8), Writer::Hart(H0));
         assert!(
             log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp),
             "hart 1 wrote after the stamp"
@@ -207,10 +228,10 @@ mod tests {
     #[test]
     fn only_writes_after_the_stamp_count_whoever_wrote_last() {
         let mut log = log();
-        log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H1));
+        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H1));
         let stamp = log.now();
-        log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H0));
-        log.record(PhysAddr::new(0x8000_0000), Writer::Hart(H0));
+        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H0));
+        log.record(PhysRange::new(0x8000_0000, 8), Writer::Hart(H0));
         assert!(
             !log.written_by_other_since(PhysAddr::new(0x8000_0000), H0, stamp),
             "hart 1's write predates the stamp"
@@ -222,7 +243,7 @@ mod tests {
     fn addresses_outside_ram_are_ignored() {
         let mut log = log();
         let stamp = log.now();
-        log.record(PhysAddr::new(0x1000_0000), Writer::Hart(H1));
+        log.record(PhysRange::new(0x1000_0000, 8), Writer::Hart(H1));
         assert_eq!(log.now(), stamp);
         assert!(!log.written_by_other_since(PhysAddr::new(0x1000_0000), H0, stamp));
     }
