@@ -95,7 +95,10 @@ fn a_guest_reset_starts_the_dumped_window_at_the_region() {
     assert_eq!(dumps.len(), 1);
     assert_eq!(dumps[0].label, 42);
     assert!(is_the_loop(dumps[0].instructions_retired), "{}", dumps[0].instructions_retired);
-    assert!(dumps[0].cycles < ctx.sim.state.uncore.cycle, "the window starts after the run did");
+    assert!(
+        dumps[0].cycles < ctx.sim.state.uncore.kernel.cycle,
+        "the window starts after the run did"
+    );
 }
 
 /// Runs `program` on `backend` until it exits and returns the exit code.

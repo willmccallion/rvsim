@@ -15,6 +15,7 @@ use crate::config::{Config, InclusionPolicy, MemoryControllerKind, ValidConfig};
 use crate::isa::privileged::PrivilegeMode;
 use crate::sim::components::{ComponentId, MemCtrlId};
 use crate::sim::events::EventQueue;
+use crate::sim::kernel::SimKernel;
 use crate::sim::memory::{GlobalMemory, Ram};
 use crate::sim::packet::CacheLevel;
 use crate::sim::stats::paths::HartPaths;
@@ -94,7 +95,7 @@ impl SystemState {
 
     /// Zeroes every stat and starts a new window here.
     pub fn reset_stats(&mut self) {
-        self.uncore.stats.reset();
+        self.uncore.kernel.stats.reset();
         self.uncore.stats_epoch = StatsEpoch {
             cycle: self.uncore.reported_cycle(),
             instructions_retired: self.instructions_retired(),
@@ -107,7 +108,7 @@ impl SystemState {
             SimOp::ResetStats => self.reset_stats(),
             SimOp::DumpStats { label } => {
                 let (cycles, instructions_retired) = self.stats_window();
-                let stats = self.uncore.stats.clone();
+                let stats = self.uncore.kernel.stats.clone();
                 let epoch = self.uncore.stats_epoch;
                 self.uncore.stats_dumps.push(StatsDump {
                     label,
@@ -322,14 +323,18 @@ impl SystemState {
                     ..TraceControl::default()
                 },
                 topology,
-                cycle: 0,
+                kernel: SimKernel {
+                    cycle: 0,
+                    event_queue: EventQueue::new(),
+                    stats,
+                    memory: GlobalMemory::new(Some(ram), hart_count, write_log_line_bytes),
+                    config: Config::clone(config),
+                },
                 exited_at: None,
                 bus,
                 mem_controller,
                 l3_cache,
                 coherence,
-                memory: GlobalMemory::new(Some(ram), hart_count, write_log_line_bytes),
-                config: Config::clone(config),
                 per_hart_debug: (0..hart_count).map(|_| HartDebug::default()).collect(),
                 panic_detected_at_cycle: None,
                 #[cfg(feature = "commit-log")]
@@ -339,8 +344,6 @@ impl SystemState {
                 host_files: HostFiles::default(),
                 terminal,
                 pipeline_trace: None,
-                event_queue: EventQueue::new(),
-                stats,
                 stats_epoch: StatsEpoch::default(),
                 stats_dumps: Vec::new(),
                 pending_break: None,

@@ -44,7 +44,7 @@ fn committed_mispredicts(backend: BackendKind) -> u64 {
         .load_program(PROGRAM_BASE, &alternating_indirect_jump());
     ctx.run_until(20_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
     let path = ctx.sim.state.cores[0].units.stat_paths.bp.committed_mispredicts;
-    ctx.sim.state.uncore.stats.get(path).unwrap_or(0.0) as u64
+    ctx.sim.state.uncore.kernel.stats.get(path).unwrap_or(0.0) as u64
 }
 
 #[test]

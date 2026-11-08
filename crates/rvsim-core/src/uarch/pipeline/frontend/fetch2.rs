@@ -93,7 +93,7 @@ pub fn fetch2_stage(
             break;
         }
 
-        trace_fetch!(state.config.general.trace_instructions;
+        trace_fetch!(state.kernel.config.general.trace_instructions;
             pc         = %Hex(f1.pc.val()),
             inst       = inst,
             inst_size  = step.as_u64(),

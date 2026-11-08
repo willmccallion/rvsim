@@ -198,11 +198,11 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
     state.uncore.processes.count_syscall(caller.tgid, number);
     let mut call = ThreadCall {
         processes: &mut state.uncore.processes,
-        memory: &mut state.uncore.memory,
+        memory: &mut state.uncore.kernel.memory,
         caller,
         hart: state.hart,
         pc,
-        cycle: state.uncore.cycle,
+        cycle: state.uncore.kernel.cycle,
     };
     let result =
         call.dispatch(number, args).unwrap_or_else(|| process_call(state, caller, number, args));
@@ -229,10 +229,10 @@ fn process_call(
     number: u64,
     args: SyscallArgs,
 ) -> SysResult {
-    let cycle = state.uncore.cycle;
-    let ram_bytes = state.uncore.config.memory.ram_size as u64;
+    let cycle = state.uncore.kernel.cycle;
+    let ram_bytes = state.uncore.kernel.config.memory.ram_size as u64;
     let isa = state.core.isa;
-    let misaligned_traps = state.uncore.config.memory.misaligned_access_trap;
+    let misaligned_traps = state.uncore.kernel.config.memory.misaligned_access_trap;
     let uncore = &mut *state.uncore;
     let threads_alive = uncore.processes.live_threads() as u64;
     let hart_count = uncore.processes.hart_count();
@@ -243,7 +243,7 @@ fn process_call(
     let mut sys = Sys {
         process,
         frames,
-        memory: &mut uncore.memory,
+        memory: &mut uncore.kernel.memory,
         cycle,
         ram_bytes,
         threads_alive,

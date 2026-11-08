@@ -103,7 +103,7 @@ impl TestContext {
     pub fn run_until(&mut self, max_cycles: u64, done: impl Fn(&Self) -> bool) -> Option<u64> {
         for _ in 0..max_cycles {
             if done(self) {
-                return Some(self.sim.state.uncore.cycle);
+                return Some(self.sim.state.uncore.kernel.cycle);
             }
             self.tick();
         }
@@ -123,7 +123,7 @@ impl TestContext {
     /// Advances one cycle, failing the test at the cycle a simulator error occurs.
     fn tick(&mut self) {
         if let Err(e) = self.sim.tick() {
-            panic!("tick failed at cycle {}: {e}", self.sim.state.uncore.cycle);
+            panic!("tick failed at cycle {}: {e}", self.sim.state.uncore.kernel.cycle);
         }
     }
 }

@@ -111,7 +111,7 @@ pub fn memory1_stage<E: ExecutionEngine>(
     input: &mut Vec<ExMem1Entry>,
 ) -> Memory1Outcome {
     let mut outcome = Memory1Outcome::default();
-    let now = state.cycle;
+    let now = state.kernel.cycle;
     let mut entries = std::mem::take(&mut engine.common_mut().memory.mem1_replay);
     entries.append(input);
     let delayed = &mut engine.common_mut().memory.mem1_delayed;
@@ -234,7 +234,7 @@ fn pass_on_fault<E: ExecutionEngine>(engine: &mut E, mut ex: ExMem1Entry) -> Opt
 /// breakpoint's tval is the address.
 fn check_access(state: &StageCtx<'_>, ex: &ExMem1Entry) -> Result<(), Trap> {
     let is_atomic = ex.op.ctrl.atomic_op.is_some();
-    let traps_misaligned = state.config.memory.misaligned_access_trap || is_atomic;
+    let traps_misaligned = state.kernel.config.memory.misaligned_access_trap || is_atomic;
     if traps_misaligned && !misaligned::is_aligned(ex.op.alu, ex.op.ctrl.width.bytes()) {
         return Err(misaligned_trap(ex));
     }
@@ -384,7 +384,7 @@ fn wait_for_l2_tlb(
     cycles: u64,
 ) -> EntryOutcome {
     EntryOutcome::Delayed(DelayedAccess {
-        ready_cycle: state.cycle + cycles,
+        ready_cycle: state.kernel.cycle + cycles,
         entry: ex,
         translations,
     })
@@ -767,7 +767,7 @@ fn resolve_store<E: ExecutionEngine>(
     if let Some(found) = violation
         && found.precedes(outcome.violation)
     {
-        trace_fwd!(state.config.general.trace_instructions;
+        trace_fwd!(state.kernel.config.general.trace_instructions;
             event           = "violation",
             store_pc        = %Hex(ex.op.pc.val()),
             store_tag       = %ex.op.rob_tag,
@@ -777,7 +777,7 @@ fn resolve_store<E: ExecutionEngine>(
         );
         outcome.violation = Some(found);
     }
-    trace_mem!(state.config.general.trace_instructions;
+    trace_mem!(state.kernel.config.general.trace_instructions;
         stage      = "M1",
         rob_tag    = %ex.op.rob_tag,
         pc         = %Hex(ex.op.pc.val()),
@@ -805,7 +805,7 @@ fn push_resolved_store<E: ExecutionEngine>(
 /// Cycles a forwarded load's data takes to reach writeback: the configured
 /// store-forward latency, else the L1D hit latency it would have paid.
 fn forward_latency(state: &StageCtx<'_>) -> u64 {
-    state.config.pipeline.store_forward_latency.unwrap_or_else(|| {
+    state.kernel.config.pipeline.store_forward_latency.unwrap_or_else(|| {
         let l1_d = &state.core().l1_d_cache;
         if l1_d.is_enabled() { l1_d.latency.max(1) } else { 1 }
     })
@@ -839,7 +839,7 @@ fn push_sb_forwarded_load<E: ExecutionEngine>(
         .common_mut()
         .memory
         .forwarded_loads
-        .push(ForwardedLoad { ready_cycle: state.cycle + latency, entry });
+        .push(ForwardedLoad { ready_cycle: state.kernel.cycle + latency, entry });
 }
 
 /// Parks a vector span a store forwarded, which arrives after the
@@ -863,7 +863,7 @@ fn push_forwarded_span<E: ExecutionEngine>(
         .common_mut()
         .memory
         .forwarded_loads
-        .push(ForwardedLoad { ready_cycle: state.cycle + latency, entry });
+        .push(ForwardedLoad { ready_cycle: state.kernel.cycle + latency, entry });
 }
 
 /// Issues a vector span's read of its `bytes` bytes to the L1D and parks it.
@@ -881,7 +881,7 @@ fn emit_span_read<E: ExecutionEngine>(
     let pipeline = ComponentId::Pipeline(common.pipeline_id);
     let size = AccessSize::Span(bytes as u8);
     let pc = ex.op.pc;
-    let cycle = state.cycle;
+    let cycle = state.kernel.cycle;
     state.events().schedule(
         cycle,
         target,
@@ -932,7 +932,7 @@ fn emit_load_req<E: ExecutionEngine>(
     let req_id = common.alloc_req_id();
     let pipeline_id = common.pipeline_id;
 
-    let cycle = state.cycle;
+    let cycle = state.kernel.cycle;
     let first_size = low_bytes.map_or(access_size, |low| AccessSize::of_bytes(low as usize));
     let pc = ex.op.pc;
     state.events().schedule(
@@ -984,7 +984,7 @@ fn send_load_prefetches<E: ExecutionEngine>(
     paddr: PhysAddr,
 ) {
     let prefetches = state.train_load_prefetcher(pc, vaddr, paddr);
-    let cycle = state.cycle;
+    let cycle = state.kernel.cycle;
     for prefetch in prefetches {
         let common = engine.common_mut();
         let req_id = common.alloc_req_id();
@@ -1032,7 +1032,7 @@ fn park_walk<E: ExecutionEngine>(
         },
     );
 
-    let cycle = state.cycle;
+    let cycle = state.kernel.cycle;
     state.events().schedule(
         cycle,
         ComponentId::Cache(l1_d_id),

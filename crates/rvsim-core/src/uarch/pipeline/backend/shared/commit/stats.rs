@@ -14,23 +14,23 @@ pub(super) fn update_instruction_stats(state: &mut CoreCtx<'_>, entry: &RobEntry
     }
 
     if entry.ctrl.atomic_op.is_some() {
-        state.uncore.stats.counter(state.core.stat_paths.commit.op_atomic).inc();
+        state.uncore.kernel.stats.counter(state.core.stat_paths.commit.op_atomic).inc();
     } else if entry.ctrl.mem_read {
         if entry.ctrl.fp_reg_write {
-            state.uncore.stats.counter(state.core.stat_paths.commit.fp_load).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.commit.fp_load).inc();
         } else {
-            state.uncore.stats.counter(state.core.stat_paths.commit.op_load).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.commit.op_load).inc();
         }
     } else if entry.ctrl.mem_write {
         if entry.ctrl.rs2_fp {
-            state.uncore.stats.counter(state.core.stat_paths.commit.fp_store).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.commit.fp_store).inc();
         } else {
-            state.uncore.stats.counter(state.core.stat_paths.commit.op_store).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.commit.op_store).inc();
         }
     } else if matches!(entry.ctrl.control_flow, ControlFlow::Branch(_) | ControlFlow::Jump(_)) {
-        state.uncore.stats.counter(state.core.stat_paths.commit.op_branch).inc();
+        state.uncore.kernel.stats.counter(state.core.stat_paths.commit.op_branch).inc();
     } else if !matches!(entry.ctrl.system_op, SystemOp::None) {
-        state.uncore.stats.counter(state.core.stat_paths.commit.op_system).inc();
+        state.uncore.kernel.stats.counter(state.core.stat_paths.commit.op_system).inc();
     } else {
         let paths = &state.core.stat_paths.commit;
         let counter = match entry.ctrl.alu.group() {
@@ -39,7 +39,7 @@ pub(super) fn update_instruction_stats(state: &mut CoreCtx<'_>, entry: &RobEntry
             AluOpGroup::FpFma => paths.fp_fma,
             AluOpGroup::IntAlu | AluOpGroup::IntMul | AluOpGroup::IntDiv => paths.op_alu,
         };
-        state.uncore.stats.counter(counter).inc();
+        state.uncore.kernel.stats.counter(counter).inc();
     }
 }
 
@@ -56,5 +56,5 @@ pub(super) fn update_vec_instruction_stats(state: &mut CoreCtx<'_>, op: VectorOp
         VecOpGroup::Config | VecOpGroup::Permute => paths.vec_misc,
         VecOpGroup::Crypto => paths.vec_crypto,
     };
-    state.uncore.stats.counter(counter).inc();
+    state.uncore.kernel.stats.counter(counter).inc();
 }

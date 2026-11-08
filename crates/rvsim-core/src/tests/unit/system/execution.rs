@@ -23,12 +23,12 @@ fn test_tick_returns_ok() {
 #[test]
 fn test_tick_increments_cycles() {
     let mut sim = create_test_sim();
-    let initial_cycles = sim.state.uncore.cycle;
+    let initial_cycles = sim.state.uncore.kernel.cycle;
 
     sim.tick().unwrap();
 
     // Cycles should increase
-    assert!(sim.state.uncore.cycle >= initial_cycles);
+    assert!(sim.state.uncore.kernel.cycle >= initial_cycles);
 }
 
 #[test]

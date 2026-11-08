@@ -191,16 +191,16 @@ impl Simulator {
         }
         self.drain();
         let state = &self.state;
-        let ram = state.uncore.memory.ram();
-        let reservations = state.uncore.memory.reservations();
+        let ram = state.uncore.kernel.memory.ram();
+        let reservations = state.uncore.kernel.memory.reservations();
         let header = Header {
             magic: MAGIC.into(),
             version: VERSION,
-            cycle: state.uncore.cycle,
+            cycle: state.uncore.kernel.cycle,
             trace: state.uncore.trace.armed,
             ram_base: ram.map_or(0, Ram::base),
             ram_size: ram.map_or(0, Ram::size),
-            vlen_bits: state.uncore.config.pipeline.vlen.bits() as u64,
+            vlen_bits: state.uncore.kernel.config.pipeline.vlen.bits() as u64,
             harts: state
                 .harts
                 .iter()
@@ -238,11 +238,15 @@ impl Simulator {
         if header.version != VERSION {
             return Err(CheckpointError::Version { found: header.version });
         }
-        let ram = self.state.uncore.memory.ram();
+        let ram = self.state.uncore.kernel.memory.ram();
         mismatch("harts", header.harts.len() as u64, self.state.harts.len() as u64)?;
         mismatch("RAM bytes", header.ram_size, ram.map_or(0, Ram::size))?;
         mismatch("RAM base", header.ram_base, ram.map_or(0, Ram::base))?;
-        mismatch("VLEN", header.vlen_bits, self.state.uncore.config.pipeline.vlen.bits() as u64)?;
+        mismatch(
+            "VLEN",
+            header.vlen_bits,
+            self.state.uncore.kernel.config.pipeline.vlen.bits() as u64,
+        )?;
         self.state
             .uncore
             .bus
@@ -250,7 +254,7 @@ impl Simulator {
             .map_err(CheckpointError::Device)?;
 
         self.drain();
-        if let Some(ram) = self.state.uncore.memory.ram_mut() {
+        if let Some(ram) = self.state.uncore.kernel.memory.ram_mut() {
             read_pages(input, ram.bytes_mut())?;
         }
         self.apply_header(&header)
@@ -258,13 +262,13 @@ impl Simulator {
 
     fn apply_header(&mut self, header: &Header) -> Result<(), CheckpointError> {
         let state = &mut self.state;
-        state.uncore.cycle = header.cycle;
+        state.uncore.kernel.cycle = header.cycle;
         state.uncore.trace.armed = header.trace;
         for (hart, saved) in state.harts.iter_mut().zip(&header.harts) {
             saved.apply(hart);
         }
         for (hart, saved) in state.harts.iter().zip(&header.harts) {
-            let reservations = state.uncore.memory.reservations_mut();
+            let reservations = state.uncore.kernel.memory.reservations_mut();
             match saved.reservation {
                 Some(line) => reservations.set(hart.hart_id, PhysAddr::new(line)),
                 None => reservations.clear(hart.hart_id),
@@ -275,14 +279,14 @@ impl Simulator {
         state.uncore.processes = Processes::from_checkpoint(header.processes.clone(), &terminal);
         for core in &mut state.cores {
             let units = &mut core.units;
-            units.l1_i_cache.invalidate_all(&mut state.uncore.stats);
-            units.l1_d_cache.invalidate_all(&mut state.uncore.stats);
-            units.l2_cache.invalidate_all(&mut state.uncore.stats);
+            units.l1_i_cache.invalidate_all(&mut state.uncore.kernel.stats);
+            units.l1_d_cache.invalidate_all(&mut state.uncore.kernel.stats);
+            units.l2_cache.invalidate_all(&mut state.uncore.kernel.stats);
             units.mmu.dtlb.flush();
             units.mmu.itlb.flush();
             units.mmu.l2_tlb.flush();
         }
-        state.uncore.l3_cache.invalidate_all(&mut state.uncore.stats);
+        state.uncore.l3_cache.invalidate_all(&mut state.uncore.kernel.stats);
         state.uncore.mem_controller.resume_at(header.cycle);
         if let Some(coherence) = &mut state.uncore.coherence {
             coherence.forget_cached_lines();

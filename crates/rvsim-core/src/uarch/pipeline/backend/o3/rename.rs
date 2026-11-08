@@ -44,7 +44,7 @@ impl O3Engine {
         state: &mut StageCtx<'_>,
         decoded: IdExEntry,
     ) -> Renamed<RenamedRegisters> {
-        if !self.serialization.admits(state.cycle) {
+        if !self.serialization.admits(state.kernel.cycle) {
             state.counter(state.core().stat_paths.pipeline.stalls_serialize).inc();
             return Renamed::Stalled(Box::new(decoded));
         }
@@ -276,7 +276,7 @@ impl IssueRegisters for RenamedRegisters {
 pub type O3Entry = RenameIssueEntry<RenamedRegisters>;
 
 fn trace_renamed(state: &StageCtx<'_>, entry: &O3Entry, old_phys_dst: PhysReg) {
-    trace_rename!(state.config.general.trace_instructions;
+    trace_rename!(state.kernel.config.general.trace_instructions;
         pc         = %Hex(entry.inst.pc.val()),
         rob_tag    = %entry.rob_tag,
         rd         = entry.inst.rd.as_usize(),
@@ -326,7 +326,7 @@ impl O3Engine {
         if !is_vec_load(decoded.inst.ctrl.vec_op) {
             return if decoded.inst.ctrl.mem_read { LoadSlots::Scalar } else { LoadSlots::None };
         }
-        let pipeline = &state.config.pipeline;
+        let pipeline = &state.kernel.config.pipeline;
         let expected = expected_load_micro_ops(
             &decoded.inst.ctrl,
             vector,

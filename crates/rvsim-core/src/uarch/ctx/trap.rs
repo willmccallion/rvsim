@@ -68,11 +68,12 @@ impl CoreCtx<'_> {
 
         #[cfg(feature = "commit-log")]
         if let Some(log) = self.uncore.commit_log.as_mut() {
-            let _ = write_trap(log, cause.mcause_code(), epc, cause.tval(), self.uncore.cycle);
+            let _ =
+                write_trap(log, cause.mcause_code(), epc, cause.tval(), self.uncore.kernel.cycle);
         }
 
         let hart_paths = self.hart_paths();
-        self.stats.counter(hart_paths.traps).inc();
+        self.kernel.stats.counter(hart_paths.traps).inc();
     }
 
     /// An SE-mode program has no kernel to take its trap: it dies as it

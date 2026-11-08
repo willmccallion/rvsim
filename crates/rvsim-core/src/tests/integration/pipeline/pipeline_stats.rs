@@ -45,7 +45,7 @@ fn flushes_by_cause_add_up_to_all_flushes() {
 
     let core_paths = &ctx.sim.state.cores[0].units.stat_paths;
     let paths = &core_paths.pipeline;
-    let stats = &ctx.sim.state.uncore.stats;
+    let stats = &ctx.sim.state.uncore.kernel.stats;
     let count = |path| stats.get(path).unwrap_or(0.0);
     let by_cause = count(paths.flushes_branch)
         + count(paths.flushes_system)
@@ -77,7 +77,7 @@ fn fu_structural_stalls_are_counted_in_cycles() {
     ctx.run(60);
 
     let paths = &ctx.sim.state.cores[0].units.stat_paths.pipeline;
-    let stats = &ctx.sim.state.uncore.stats;
+    let stats = &ctx.sim.state.uncore.kernel.stats;
     let stalls = stats.get(paths.stalls_fu_structural).unwrap_or(0.0);
     let cycles = stats.get(paths.cycles_total).unwrap_or(0.0);
     assert!(stalls > 0.0, "the divides wait for the divider");

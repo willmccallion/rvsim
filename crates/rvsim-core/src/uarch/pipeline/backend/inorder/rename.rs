@@ -73,7 +73,7 @@ impl InOrderEngine {
             regs: ProducerTags { rs1: rs1_tag, rs2: rs2_tag, rs3: rs3_tag },
         };
 
-        trace_rename!(state.config.general.trace_instructions;
+        trace_rename!(state.kernel.config.general.trace_instructions;
             pc         = %Hex(entry.inst.pc.val()),
             rob_tag    = %entry.rob_tag,
             rd         = entry.inst.rd.as_usize(),

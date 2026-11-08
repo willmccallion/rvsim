@@ -149,7 +149,7 @@ impl InOrderEngine {
         self.store_buffer.squash(scope);
         self.vec_store_buffer.squash(scope);
         self.common.squash(scope);
-        self.fu_pool.release_squashed(state.cycle, |tag| !scope.keeps(tag));
+        self.fu_pool.release_squashed(state.kernel.cycle, |tag| !scope.keeps(tag));
         self.vec_mem_inflight.retain(|m| scope.keeps(m.rob_tag));
         self.pending.retain(|p| scope.keeps(p.entry.op.rob_tag));
         self.execute_mem1.retain(|e| scope.keeps(e.op.rob_tag));
@@ -173,7 +173,7 @@ impl InOrderEngine {
         self.squash_in_flight(state, scope);
 
         *redirect = Some(squash.redirect.target);
-        let now = state.cycle;
+        let now = state.kernel.cycle;
         self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
     }
 
@@ -229,7 +229,7 @@ impl InOrderEngine {
             return;
         }
         let parent = ExMem1Entry::from_issue(entry, entry.inst.rv1, entry.inst.rv2);
-        let width = state.config.pipeline.vector_mem_width_bytes();
+        let width = state.kernel.config.pipeline.vector_mem_width_bytes();
         // Element writes land in the architectural registers at commit, so
         // there is no physical destination group to wake.
         self.vec_mem_inflight.push(VecMemInflight::plan(
@@ -243,8 +243,8 @@ impl InOrderEngine {
     /// Moves vector memory micro-ops into the memory pipeline, as many per cycle
     /// as the load and store ports allow.
     fn issue_vec_mem_elements(&mut self, state: &CoreCtx<'_>) {
-        let mut loads_left = state.config.pipeline.load_ports;
-        let mut stores_left = state.config.pipeline.store_ports;
+        let mut loads_left = state.kernel.config.pipeline.load_ports;
+        let mut stores_left = state.kernel.config.pipeline.store_ports;
         for inflight in &mut self.vec_mem_inflight {
             while let Some(front) = inflight.pending_micro_ops.front() {
                 let ports_left = if front.is_store { &mut stores_left } else { &mut loads_left };
@@ -391,7 +391,12 @@ impl InOrderEngine {
     fn note_memory_backpressure(&self, state: &mut CoreCtx<'_>) -> bool {
         let is_backpressured = !self.execute_mem1.is_empty();
         if is_backpressured {
-            state.uncore.stats.counter(state.core.stat_paths.pipeline.stalls_backpressure).inc();
+            state
+                .uncore
+                .kernel
+                .stats
+                .counter(state.core.stat_paths.pipeline.stalls_backpressure)
+                .inc();
         }
         is_backpressured
     }
@@ -413,7 +418,7 @@ impl InOrderEngine {
         count_issue_stalls(state, held == Some(IssueHold::Unit), !issued.is_empty(), held);
         for unit in &units {
             let stat = state.core.stat_paths.fu.all[unit.fu_type as usize];
-            state.uncore.stats.counter(stat).add(unit.busy_cycles);
+            state.uncore.kernel.stats.counter(stat).add(unit.busy_cycles);
         }
         let (vec_mem, issued): (Vec<_>, Vec<_>) = issued.into_iter().partition(|entry| {
             is_vec_load(entry.inst.ctrl.vec_op) || is_vec_store(entry.inst.ctrl.vec_op)
@@ -444,7 +449,7 @@ impl ExecutionEngine for InOrderEngine {
         rename_output: &mut Vec<InOrderEntry>,
         redirect: &mut Option<VirtAddr>,
     ) {
-        let now = state.cycle;
+        let now = state.kernel.cycle;
         self.redirected_at_commit = false;
 
         if let Some(squash) = self.common.take_due_squash(now) {

@@ -191,7 +191,9 @@ fn idle_ranks_power_down_and_a_patrol_scrubs_when_configured(rec: &mut Recorder)
         let (entries, exits) =
             (total(rec, &both, "power_down_entries"), total(rec, &both, "power_down_exits"));
         let ranks = subchannel_paths(&both, "clocks").len() as u64
-            * u64::from(both.sim.state.uncore.config.memory.ddr5.to_config().ranks_per_channel);
+            * u64::from(
+                both.sim.state.uncore.kernel.config.memory.ddr5.to_config().ranks_per_channel,
+            );
         assert!(
             exits > 0 && (exits..=exits + ranks).contains(&entries),
             "{context}: {entries} in, {exits} out"

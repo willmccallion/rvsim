@@ -84,6 +84,7 @@ fn run(backend: BackendKind, first: RobTag) -> Outcome {
         .sim
         .state
         .uncore
+        .kernel
         .stats
         .query("**")
         .iter()

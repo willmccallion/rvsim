@@ -21,8 +21,8 @@ impl CoreCtx<'_> {
     /// pipeline: the commit stage's zero-retire and WFI counts.
     pub fn count_idle_cycle(&mut self) {
         let paths = &self.core.stat_paths;
-        self.uncore.stats.counter(paths.commit.retire_hist_zero).inc();
-        self.uncore.stats.counter(paths.pipeline.cycles_wfi).inc();
+        self.uncore.kernel.stats.counter(paths.commit.retire_hist_zero).inc();
+        self.uncore.kernel.stats.counter(paths.pipeline.cycles_wfi).inc();
     }
 
     /// Credits `cycles` cycles an idle core spends waiting with the whole
@@ -41,7 +41,7 @@ impl CoreCtx<'_> {
             PrivilegeMode::Machine => hart_paths.cycles_machine,
         };
         let paths = &self.core.stat_paths;
-        let stats = &mut self.uncore.stats;
+        let stats = &mut self.uncore.kernel.stats;
         stats.counter(mode_cycles).add(cycles);
         stats.counter(paths.pipeline.cycles_total).add(cycles);
         stats.counter(paths.commit.retire_hist_zero).add(cycles);
@@ -79,15 +79,15 @@ impl CoreCtx<'_> {
         } else {
             self.hart.pc.val()
         };
-        let inst = self.memory.read(PhysAddr::new(paddr_raw), 4).unwrap_or(0) as u32;
+        let inst = self.kernel.memory.read(PhysAddr::new(paddr_raw), 4).unwrap_or(0) as u32;
         if inst == WFI {
-            trace_trap!(self.config.general.trace_instructions;
+            trace_trap!(self.kernel.config.general.trace_instructions;
                 event = "wfi-wait",
                 pc    = %Hex(self.hart.pc.val()),
                 "CPU stuck in WFI — waiting for interrupt"
             );
         } else {
-            trace_trap!(self.config.general.trace_instructions;
+            trace_trap!(self.kernel.config.general.trace_instructions;
                 event = "potential-hang",
                 pc    = %Hex(self.hart.pc.val()),
                 inst  = inst,
@@ -123,9 +123,9 @@ impl CoreCtx<'_> {
     pub fn post_tick(&mut self, prev_priv: PrivilegeMode) {
         self.hart.regs.write(reg::REG_ZERO, 0);
 
-        if self.config.general.trace_instructions {
+        if self.kernel.config.general.trace_instructions {
             if self.hart.privilege != prev_priv {
-                trace_trap!(self.config.general.trace_instructions;
+                trace_trap!(self.kernel.config.general.trace_instructions;
                     event      = "mode-switch",
                     from_mode  = prev_priv.name(),
                     to_mode    = self.hart.privilege.name(),
@@ -134,10 +134,10 @@ impl CoreCtx<'_> {
                 );
             }
 
-            if self.cycle.is_multiple_of(STATUS_UPDATE_INTERVAL) {
+            if self.kernel.cycle.is_multiple_of(STATUS_UPDATE_INTERVAL) {
                 ::tracing::debug!(
                     target: "rvsim::cpu",
-                    cycles = self.cycle,
+                    cycles = self.kernel.cycle,
                     pc     = %Hex(self.hart.pc.val()),
                     mode   = self.hart.privilege.name(),
                     "CPU status"
@@ -152,11 +152,11 @@ impl CoreCtx<'_> {
         self.hart.csrs.count_cycle();
         let hart_paths = self.hart_paths();
         let core_cycles = self.core.stat_paths.pipeline.cycles_total;
-        self.stats.counter(core_cycles).inc();
+        self.kernel.stats.counter(core_cycles).inc();
         match self.hart.privilege {
-            PrivilegeMode::User => self.stats.counter(hart_paths.cycles_user).inc(),
-            PrivilegeMode::Supervisor => self.stats.counter(hart_paths.cycles_kernel).inc(),
-            PrivilegeMode::Machine => self.stats.counter(hart_paths.cycles_machine).inc(),
+            PrivilegeMode::User => self.kernel.stats.counter(hart_paths.cycles_user).inc(),
+            PrivilegeMode::Supervisor => self.kernel.stats.counter(hart_paths.cycles_kernel).inc(),
+            PrivilegeMode::Machine => self.kernel.stats.counter(hart_paths.cycles_machine).inc(),
         }
     }
 }
@@ -184,17 +184,18 @@ mod tests {
         let paths = state.hart_paths();
         state.hart.privilege = PrivilegeMode::User;
         state.track_mode_cycles();
-        assert_eq!(state.stats.get(paths.cycles_user).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.kernel.stats.get(paths.cycles_user).unwrap_or(0.0) as u64, 1);
 
         state.hart.privilege = PrivilegeMode::Supervisor;
         state.track_mode_cycles();
-        assert_eq!(state.stats.get(paths.cycles_kernel).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.kernel.stats.get(paths.cycles_kernel).unwrap_or(0.0) as u64, 1);
 
         state.hart.privilege = PrivilegeMode::Machine;
         state.track_mode_cycles();
-        assert_eq!(state.stats.get(paths.cycles_machine).unwrap_or(0.0) as u64, 1);
+        assert_eq!(state.kernel.stats.get(paths.cycles_machine).unwrap_or(0.0) as u64, 1);
         assert_eq!(
-            state.stats.get(state.core.stat_paths.pipeline.cycles_total).unwrap_or(0.0) as u64,
+            state.kernel.stats.get(state.core.stat_paths.pipeline.cycles_total).unwrap_or(0.0)
+                as u64,
             3
         );
     }

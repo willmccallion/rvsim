@@ -35,8 +35,8 @@ pub(super) fn trap_or_interrupt(
     rob: &Rob,
 ) -> CommitFlow {
     if let TrapProgress::Pending(pending) = &common.commit.trap {
-        state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
-        if state.cycle < pending.taken_at {
+        state.uncore.kernel.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+        if state.kernel.cycle < pending.taken_at {
             return CommitFlow::Stop(None);
         }
         let pending = pending.clone();
@@ -47,7 +47,7 @@ pub(super) fn trap_or_interrupt(
     if !state.hart.wfi_waiting
         && let Some(notice) = state.uncore.processes.take_notice(state.hart.hart_id)
     {
-        state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+        state.uncore.kernel.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
         return CommitFlow::Stop(Some(take_thread_notice(state, notice)));
     }
 
@@ -72,7 +72,7 @@ pub(super) fn trap_or_interrupt(
                 priv_mode  = ?state.hart.privilege,
                 "CM: interrupt detected — pipeline drained"
             );
-            state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
             return CommitFlow::Stop(schedule_trap(state, common, interrupt_trap, epc));
         }
         return CommitFlow::Continue;
@@ -84,12 +84,12 @@ pub(super) fn trap_or_interrupt(
     }
     // Commit stops while the WFI waits; what was fetched behind it is
     // refetched when it wakes.
-    state.uncore.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+    state.uncore.kernel.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
     if state.hart.csrs.mip & state.hart.csrs.mie != 0 {
         state.hart.wfi_waiting = false;
         return CommitFlow::Stop(Some(CommitEvent::SquashAfter(state.hart.pc)));
     }
-    state.uncore.stats.counter(state.core.stat_paths.pipeline.cycles_wfi).inc();
+    state.uncore.kernel.stats.counter(state.core.stat_paths.pipeline.cycles_wfi).inc();
     CommitFlow::Stop(None)
 }
 
@@ -137,8 +137,8 @@ pub(super) fn gate_head(
     }
 
     if head.state == RobState::Completed && lr_read_a_stale_line(state, head) {
-        state.uncore.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
-        trace_trap!(state.config.general.trace_instructions;
+        state.uncore.kernel.stats.counter(state.core.stat_paths.lsq.coherence_replays).inc();
+        trace_trap!(state.kernel.config.general.trace_instructions;
             event   = "coherence-reexecute",
             pc      = %Hex(head.pc.val()),
             rob_tag = %head.tag,
@@ -151,7 +151,7 @@ pub(super) fn gate_head(
     if head.state == RobState::Completed
         && head.dirty_updates.iter().any(|update| updated_pte(state, update).is_none())
     {
-        trace_trap!(state.config.general.trace_instructions;
+        trace_trap!(state.kernel.config.general.trace_instructions;
             event   = "pte-changed-reexecute",
             pc      = %Hex(head.pc.val()),
             rob_tag = %head.tag,
@@ -168,7 +168,7 @@ pub(super) fn gate_head(
     }
 
     if head.ctrl.system_op == SystemOp::FenceI
-        && state.config.cache.fence_i_flushes_l1_d()
+        && state.kernel.config.cache.fence_i_flushes_l1_d()
         && !advance_data_cache_flush(state, common)
     {
         return CommitFlow::Stop(None);
@@ -209,8 +209,13 @@ fn take_fault(
                 | Trap::InstructionAddressMisaligned(_)
         );
         if !fetch_fault {
-            let _ =
-                write_faulted(log, entry.pc, entry.bits, state.hart.privilege, state.uncore.cycle);
+            let _ = write_faulted(
+                log,
+                entry.pc,
+                entry.bits,
+                state.hart.privilege,
+                state.uncore.kernel.cycle,
+            );
         }
     }
     trace_trap!(state.trace_trap_enabled(the_trap);
@@ -249,7 +254,7 @@ fn as_fetched(trap: &Trap, size: InstSize) -> Trap {
 /// wrote it, so the reservation it would set is already broken. Plain loads
 /// are not checked: RVWMO lets them keep the earlier value.
 fn lr_read_a_stale_line(state: &CoreCtx<'_>, head: &RobEntry) -> bool {
-    let Some(log) = state.memory.write_log() else { return false };
+    let Some(log) = state.kernel.memory.write_log() else { return false };
     let (Some(observed), Some(LrScRecord::Lr { paddr })) = (head.observed, head.lr_sc) else {
         return false;
     };
@@ -268,7 +273,7 @@ fn read_ram_word(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> Optio
     if width == MemWidth::Nop || !state.bus.is_ram(paddr, width.bytes()) {
         return None;
     }
-    state.memory.read(paddr, width.bytes() as usize)
+    state.kernel.memory.read(paddr, width.bytes() as usize)
 }
 
 /// Takes `trap` now when there is no trap latency, else parks it for
@@ -279,12 +284,12 @@ fn schedule_trap(
     trap: Trap,
     epc: VirtAddr,
 ) -> Option<CommitEvent> {
-    let latency = state.config.pipeline.trap_latency;
+    let latency = state.kernel.config.pipeline.trap_latency;
     if latency == 0 {
         return Some(CommitEvent::Trap(trap, epc));
     }
     common.commit.trap =
-        TrapProgress::Pending(PendingTrap { trap, epc, taken_at: state.cycle + latency });
+        TrapProgress::Pending(PendingTrap { trap, epc, taken_at: state.kernel.cycle + latency });
     None
 }
 

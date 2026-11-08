@@ -31,6 +31,6 @@ pub fn count_issue_stalls(
     };
     let structural = unit_stalled.then_some(paths.stalls_fu_structural);
     for stat in [structural, idle].into_iter().flatten() {
-        state.uncore.stats.counter(stat).inc();
+        state.uncore.kernel.stats.counter(stat).inc();
     }
 }

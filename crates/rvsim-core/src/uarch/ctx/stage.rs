@@ -69,7 +69,7 @@ impl ArchState for StageCtx<'_> {
     }
 
     fn tracing(&self) -> bool {
-        self.uncore.config.general.trace_instructions
+        self.uncore.kernel.config.general.trace_instructions
     }
 
     fn serves_syscalls(&self) -> bool {
@@ -117,7 +117,7 @@ impl<'a> StageCtx<'a> {
     /// The stat counter `stat`.
     #[inline]
     pub fn counter(&mut self, stat: StatId) -> &mut Counter {
-        self.uncore.stats.counter(stat)
+        self.uncore.kernel.stats.counter(stat)
     }
 
     /// The event queue, to schedule a packet.
@@ -138,7 +138,7 @@ impl<'a> StageCtx<'a> {
     }
 
     pub const fn events(&mut self) -> &mut EventQueue {
-        &mut self.uncore.event_queue
+        &mut self.uncore.kernel.event_queue
     }
 
     /// Begins (or completes) translation of a virtual address.
@@ -188,13 +188,13 @@ impl<'a> StageCtx<'a> {
                     PrefetchDrop::Denied => paths.denied,
                     PrefetchDrop::NotRam => paths.not_ram,
                 };
-                uncore.stats.counter(stat).inc();
+                uncore.kernel.stats.counter(stat).inc();
             }
             placed
         });
         for prefetch in &prefetches {
             let stat = if prefetch.into == CacheLevel::L1D { paths.l1 } else { paths.l2 };
-            uncore.stats.counter(stat).inc();
+            uncore.kernel.stats.counter(stat).inc();
         }
         prefetches
     }
@@ -222,7 +222,7 @@ impl<'a> StageCtx<'a> {
     /// Sets a leaf PTE's A/D bits as the hardware does, atomically with
     /// the check that the PTE still holds the value its walk found.
     pub fn apply_pte_update(&mut self, update: &PteUpdate) -> PteUpdateOutcome {
-        let Some(current) = self.uncore.memory.read(update.pte_addr, 8) else {
+        let Some(current) = self.uncore.kernel.memory.read(update.pte_addr, 8) else {
             return PteUpdateOutcome::Changed;
         };
         match update.applied_to(current) {

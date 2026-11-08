@@ -64,7 +64,7 @@ pub(super) fn send_data_store(
     // MMIO, including the HTIF window over RAM, bypasses the WCB so its
     // device sees each store.
     let via_wcb = !state.core.wcb.is_disabled() && is_pure_ram(state, paddr, width);
-    trace_commit!(state.config.general.trace_instructions;
+    trace_commit!(state.kernel.config.general.trace_instructions;
         paddr      = %Hex(paddr.val()),
         data       = %Hex(data),
         width      = ?width,
@@ -80,7 +80,7 @@ pub(super) fn send_data_store(
     for (part_paddr, part_data, part_bytes) in span_parts(paddr, data, width.bytes() as usize, span)
     {
         if state.core.wcb.holds_entry_for(part_paddr) {
-            state.uncore.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
         }
         if let Some(evicted) = state.core.wcb.merge_store(part_paddr, part_data, part_bytes) {
             send_wcb_line(state, common, &evicted);
@@ -115,8 +115,8 @@ pub(super) fn send_block_op(
         .memory
         .outstanding_stores
         .insert(req_id, OutstandingStore { owner: StoreOwner::StoreBuffer });
-    let cycle = state.cycle;
-    state.event_queue.schedule(
+    let cycle = state.kernel.cycle;
+    state.kernel.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),
         ComponentId::Pipeline(common.pipeline_id),
@@ -131,8 +131,8 @@ pub(super) fn send_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut Backen
     let req_id = common.alloc_req_id();
     let owner = StoreOwner::DataCacheFlush;
     let _ = common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner });
-    let cycle = state.cycle;
-    state.event_queue.schedule(
+    let cycle = state.kernel.cycle;
+    state.kernel.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),
         ComponentId::Pipeline(common.pipeline_id),
@@ -195,7 +195,7 @@ pub(super) fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon,
         StoreOwner::WriteCombining,
     );
     state.core.wcb.sent(req_id, line.clone());
-    state.uncore.stats.counter(state.core.stat_paths.wcb.drains).inc();
+    state.uncore.kernel.stats.counter(state.core.stat_paths.wcb.drains).inc();
 }
 
 /// Writes the next line of a committed vector store: to RAM as one masked
@@ -243,8 +243,8 @@ pub(super) fn emit_line_write(
     let req_id = common.alloc_req_id();
     let _ = common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner });
     let origin = WriteOrigin::Hart(state.hart.hart_id);
-    let cycle = state.cycle;
-    state.event_queue.schedule(
+    let cycle = state.kernel.cycle;
+    state.kernel.event_queue.schedule(
         cycle,
         ComponentId::Cache(common.l1_d_id),
         ComponentId::Pipeline(common.pipeline_id),
@@ -376,8 +376,8 @@ pub(super) fn emit_store_write_packet_to(
     let pipeline_id = common.pipeline_id;
     let _ =
         common.memory.outstanding_stores.insert(req_id, OutstandingStore { owner: write.owner });
-    let cycle = state.cycle;
-    state.event_queue.schedule(
+    let cycle = state.kernel.cycle;
+    state.kernel.event_queue.schedule(
         cycle,
         target,
         ComponentId::Pipeline(pipeline_id),

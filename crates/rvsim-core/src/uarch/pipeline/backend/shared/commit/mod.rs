@@ -187,7 +187,7 @@ impl CommitRegisters<'_> {
 pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option<CommitEvent> {
     let CommitResources { common, rob, store_buffer, vec_store_buffer, width, mut registers } = res;
     let width = if state.core.single_step { 1 } else { width };
-    let now = state.cycle;
+    let now = state.kernel.cycle;
     common.deliver_commit_notices(&mut state.core.branch_predictor, now);
     if let CommitFlow::Stop(event) = trap_or_interrupt(state, common, rob) {
         return event;
@@ -227,7 +227,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
     }
 
     if let Some(seq) = youngest_retired {
-        common.note_committed(seq, state.cycle);
+        common.note_committed(seq, state.kernel.cycle);
     }
     count_retire_width(state, retired_count, rob_empty_at_start);
     send_one_write(state, common, store_buffer, vec_store_buffer);
@@ -239,7 +239,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
 fn count_retire_width(state: &mut CoreCtx<'_>, retired: usize, rob_empty_at_start: bool) {
     let paths = &state.core.stat_paths;
     if retired == 0 && rob_empty_at_start {
-        state.uncore.stats.counter(paths.pipeline.cycles_rob_empty).inc();
+        state.uncore.kernel.stats.counter(paths.pipeline.cycles_rob_empty).inc();
     }
     let bucket = match retired.min(3) {
         0 => paths.commit.retire_hist_zero,
@@ -247,7 +247,7 @@ fn count_retire_width(state: &mut CoreCtx<'_>, retired: usize, rob_empty_at_star
         2 => paths.commit.retire_hist_two,
         _ => paths.commit.retire_hist_three_plus,
     };
-    state.uncore.stats.counter(bucket).inc();
+    state.uncore.kernel.stats.counter(bucket).inc();
 }
 
 /// True when `[paddr, paddr + width)` is RAM with no MMIO overlay, i.e. a

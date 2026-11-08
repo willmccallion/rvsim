@@ -118,6 +118,7 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
         .sim
         .state
         .uncore
+        .kernel
         .memory
         .reservations_mut()
         .set(HartId::new(0), PhysAddr::new(0x8000_2040));
@@ -132,7 +133,7 @@ fn every_csr_pmp_entry_vector_register_and_reservation_survives_a_checkpoint() {
     assert_eq!(hart.pmp.entries(), source.sim.state.harts[0].pmp.entries());
     assert_eq!(hart.privilege, PrivilegeMode::Supervisor);
     assert_eq!(hart.regs.vpr().bytes(), vector.as_slice());
-    let reservations = restored.sim.state.uncore.memory.reservations();
+    let reservations = restored.sim.state.uncore.kernel.memory.reservations();
     assert_eq!(reservations.reserved(HartId::new(0)), Some(PhysAddr::new(0x8000_2040)));
 }
 
@@ -201,7 +202,8 @@ fn ram_that_was_zero_at_the_save_is_zero_after_a_restore_and_costs_no_space() {
 
     assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(far), 8), 0);
     assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(PROGRAM_BASE), 4), 0x0000_1297);
-    let ram = restored.sim.state.uncore.memory.ram().expect("the system has RAM").size() as usize;
+    let ram =
+        restored.sim.state.uncore.kernel.memory.ram().expect("the system has RAM").size() as usize;
     assert!(
         checkpoint.len() < ram / 100,
         "a {}-byte checkpoint of {ram} bytes of RAM",

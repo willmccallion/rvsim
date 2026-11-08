@@ -9,11 +9,9 @@ pub mod debug;
 use crate::soc::exit::ExitSignal;
 
 use crate::common::{HartId, InstSeq, PhysAddr, SimError, VirtAddr};
-use crate::config::Config;
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
-use crate::sim::events::EventQueue;
-use crate::sim::memory::GlobalMemory;
+use crate::sim::kernel::SimKernel;
 use crate::sim::memory::write_log::Writer;
 use crate::sim::stats::Stats;
 use crate::sim::stats::paths::HartPaths;
@@ -100,8 +98,9 @@ pub struct Uncore {
     pub trace: TraceControl,
     /// Component identifiers for the whole system.
     pub topology: Topology,
-    /// Master clock; every subsystem reads from this.
-    pub cycle: u64,
+    /// The clock, event queue, stats, memory and config the components
+    /// run against.
+    pub kernel: SimKernel,
     /// The cycle the guest's exit took effect at, while the run stays
     /// ended; the clock runs past it finishing the committed stores.
     pub exited_at: Option<u64>,
@@ -114,11 +113,6 @@ pub struct Uncore {
     /// Home agent and interconnect between the private L2s and the LLC;
     /// present only when more than one core shares memory.
     pub coherence: Option<CoherenceFabric>,
-    /// RAM with the LR/SC reservations and the log of RAM writes.
-    pub memory: GlobalMemory,
-    /// Simulator parameters (cache sizes, ISA capability flags, pipeline
-    /// knobs, system layout).
-    pub config: Config,
     /// Sim-side per-hart debug bookkeeping (hang detection, retire trace),
     /// indexed by `HartId`.
     pub per_hart_debug: Vec<HartDebug>,
@@ -142,10 +136,6 @@ pub struct Uncore {
     /// Where the pipeline reports each instruction's progress, when a
     /// trace is open.
     pub pipeline_trace: Option<Box<dyn PipelineTrace>>,
-    /// Global event queue: every inter-component message lands here.
-    pub event_queue: EventQueue,
-    /// Hierarchical statistics tree; sim-side perf observability counters.
-    pub stats: Stats,
     /// Where the current stats window began.
     pub stats_epoch: StatsEpoch,
     /// Stats the guest dumped, oldest first.
@@ -208,14 +198,14 @@ impl Uncore {
         if width_bytes == 0 || !self.bus.is_ram(paddr, width_bytes) {
             return;
         }
-        self.memory.write(writer, paddr, data, width_bytes as usize);
+        self.kernel.memory.write(writer, paddr, data, width_bytes as usize);
     }
 
     /// Whether a trace event about `trap` prints under the current
     /// [`TraceControl`] settings.
     #[must_use]
     pub fn trace_trap_enabled(&self, trap: &Trap) -> bool {
-        self.config.general.trace_instructions
+        self.kernel.config.general.trace_instructions
             && self.trace.trap_visible(trap.mcause_code(), trap.is_routine())
     }
 
@@ -225,7 +215,7 @@ impl Uncore {
     pub const fn reported_cycle(&self) -> u64 {
         match self.exited_at {
             Some(cycle) => cycle,
-            None => self.cycle,
+            None => self.kernel.cycle,
         }
     }
 
@@ -263,28 +253,28 @@ impl Uncore {
     /// fetched from `pc`.
     pub fn trace_fetched(&mut self, hart: HartId, seq: InstSeq, pc: VirtAddr) {
         if let Some(trace) = &mut self.pipeline_trace {
-            trace.fetched(self.cycle, hart, seq, pc.val());
+            trace.fetched(self.kernel.cycle, hart, seq, pc.val());
         }
     }
 
     /// Tells the open pipeline trace, if any, `seq`'s encoding.
     pub fn trace_decoded(&mut self, hart: HartId, seq: InstSeq, inst: u32) {
         if let Some(trace) = &mut self.pipeline_trace {
-            trace.decoded(self.cycle, hart, seq, inst);
+            trace.decoded(self.kernel.cycle, hart, seq, inst);
         }
     }
 
     /// Tells the open pipeline trace, if any, that `seq` entered `stage`.
     pub fn trace_stage(&mut self, hart: HartId, seq: InstSeq, stage: Stage) {
         if let Some(trace) = &mut self.pipeline_trace {
-            trace.entered(self.cycle, hart, seq, stage);
+            trace.entered(self.kernel.cycle, hart, seq, stage);
         }
     }
 
     /// Tells the open pipeline trace, if any, that `seq` left the pipeline.
     pub fn trace_left(&mut self, hart: HartId, seq: InstSeq, how: Departure) {
         if let Some(trace) = &mut self.pipeline_trace {
-            trace.left(self.cycle, hart, seq, how);
+            trace.left(self.kernel.cycle, hart, seq, how);
         }
     }
 
@@ -304,7 +294,7 @@ impl Uncore {
 
     /// Places `image` in RAM at `addr` before the system runs.
     pub fn load_binary_at(&mut self, image: &[u8], addr: PhysAddr) {
-        self.memory.load(addr, image);
+        self.kernel.memory.load(addr, image);
     }
 
     /// Opens a commit log file for writing retired instruction traces, in
@@ -342,8 +332,8 @@ impl Uncore {
         }
 
         if self.bus.check_kernel_panic() {
-            let detected_at = *self.panic_detected_at_cycle.get_or_insert(self.cycle);
-            if self.cycle.saturating_sub(detected_at) >= KERNEL_PANIC_GRACE_CYCLES {
+            let detected_at = *self.panic_detected_at_cycle.get_or_insert(self.kernel.cycle);
+            if self.kernel.cycle.saturating_sub(detected_at) >= KERNEL_PANIC_GRACE_CYCLES {
                 return Err(SimError::KernelPanic { cycle: detected_at });
             }
         }
@@ -354,6 +344,6 @@ impl Uncore {
 
     /// Advances the master clock by one cycle.
     pub const fn advance_cycle(&mut self) {
-        self.cycle += 1;
+        self.kernel.cycle += 1;
     }
 }

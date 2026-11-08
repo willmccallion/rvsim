@@ -93,7 +93,7 @@ fn run_straddling_jump(backend: BackendKind) -> (u64, f64) {
     ctx.run(2_000);
 
     let path = ctx.sim.state.cores[0].units.stat_paths.bp.spec_mispredicts;
-    (ctx.get_reg(A1), ctx.sim.state.uncore.stats.get(path).unwrap_or(0.0))
+    (ctx.get_reg(A1), ctx.sim.state.uncore.kernel.stats.get(path).unwrap_or(0.0))
 }
 
 #[test]

@@ -59,7 +59,7 @@ fn run_until(backend: BackendKind, program: &[u32], marker: u64) -> (u64, u64) {
         assert!(cycles < 10_000, "program never reached its marker");
     }
     let misses = tc.sim.state.cores[0].units.l1_i_cache.stat_paths.misses;
-    (cycles, tc.sim.state.uncore.stats.get(misses).unwrap_or(0.0) as u64)
+    (cycles, tc.sim.state.uncore.kernel.stats.get(misses).unwrap_or(0.0) as u64)
 }
 
 fn assert_same_line_groups_skip_the_icache(backend: BackendKind) {

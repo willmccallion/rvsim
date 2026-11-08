@@ -127,7 +127,7 @@ fn retire_and_device_read_cycles(backend: BackendKind) -> (u64, u64) {
 
     for _ in 0..400 {
         ctx.run(1);
-        let cycle = ctx.sim.state.uncore.cycle;
+        let cycle = ctx.sim.state.uncore.kernel.cycle;
         if older_retired.is_none() && ctx.sim.state.harts[0].instructions_retired == older_than_load
         {
             older_retired = Some(cycle);

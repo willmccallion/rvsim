@@ -45,7 +45,7 @@ fn an_amo_on_a_mispredicted_path_never_reaches_memory() {
 
         let paths = ctx.sim.state.cores[0].units.stat_paths.bp;
         let mispredicts =
-            ctx.sim.state.uncore.stats.get(paths.committed_mispredicts).unwrap_or(0.0);
+            ctx.sim.state.uncore.kernel.stats.get(paths.committed_mispredicts).unwrap_or(0.0);
         assert!(mispredicts >= 1.0, "{backend:?}: the branch was predicted not taken");
         assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(DATA), 8), 0, "{backend:?}");
     }

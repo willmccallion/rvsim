@@ -73,7 +73,7 @@ impl O3Engine {
         }
         for data in selection.store_data {
             self.store_buffer.resolve_data(data.rob_tag, data.value);
-            state.uncore.stats.counter(state.core.stat_paths.lsq.split_stores).inc();
+            state.uncore.kernel.stats.counter(state.core.stat_paths.lsq.split_stores).inc();
         }
     }
 
@@ -106,7 +106,7 @@ impl O3Engine {
             self.fu_pool.acquire(unit, now, entry.rob_tag)
         };
         let busy = self.fu_pool.busy_cycles(unit, now);
-        state.uncore.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).add(busy);
+        state.uncore.kernel.stats.counter(state.core.stat_paths.fu.all[fu_type as usize]).add(busy);
 
         let (mut result, redirect) =
             execute::execute_one(&mut state.stage(), &entry, &mut self.rob);
@@ -181,7 +181,7 @@ impl O3Engine {
             &mut recorder,
             entry.vector_config,
             entry.vector_rounding,
-            state.config.isa.vector.elen,
+            state.kernel.config.isa.vector.elen,
             state.core.isa.extensions.contains(Extension::Zvfh),
             &entry.inst,
         );
@@ -272,7 +272,7 @@ impl O3Engine {
             });
             return;
         }
-        let width = state.config.pipeline.vector_mem_width_bytes();
+        let width = state.kernel.config.pipeline.vector_mem_width_bytes();
         self.vec_mem_inflight.push(VecMemInflight::plan(&result, micro_ops, width, vd));
     }
 
@@ -298,7 +298,7 @@ impl O3Engine {
             (paths.predictions_wait_for, counted.predictions_wait_for),
             (paths.violations, counted.violations),
         ] {
-            state.uncore.stats.counter(stat).add(value);
+            state.uncore.kernel.stats.counter(stat).add(value);
         }
     }
 }
