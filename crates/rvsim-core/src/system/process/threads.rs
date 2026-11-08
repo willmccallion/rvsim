@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::files::errno;
+use super::errno::Errno;
 use super::loader::UserContext;
 use super::{FrameAllocator, Process, ProcessState};
 use crate::common::{HartId, VirtAddr};
@@ -424,7 +424,7 @@ impl Processes {
         if self.next_deadline.is_none_or(|deadline| deadline > now) {
             return;
         }
-        let timed_out = (-errno::ETIMEDOUT).cast_unsigned();
+        let timed_out = Errno::ETIMEDOUT.return_value();
         let Self { groups, wakeups, .. } = self;
         for (&tgid, group) in groups.iter_mut() {
             for thread in &mut group.threads {

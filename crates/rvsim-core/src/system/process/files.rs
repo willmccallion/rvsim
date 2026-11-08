@@ -1,53 +1,15 @@
 //! The process's file descriptors, served by the host's filesystem as
 //! gem5's SE mode serves them.
 
+use super::errno::Errno;
 use crate::soc::terminal::SharedTerminal;
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 /// The longest path a guest may pass, as Linux's `PATH_MAX`.
 pub const PATH_MAX: usize = 4096;
-
-/// Linux `errno` values (`asm-generic/errno-base.h` and `errno.h`), which
-/// a syscall returns negated.
-pub mod errno {
-    pub const EPERM: i64 = 1;
-    pub const ENOENT: i64 = 2;
-    pub const ESRCH: i64 = 3;
-    pub const EINTR: i64 = 4;
-    pub const EIO: i64 = 5;
-    pub const EBADF: i64 = 9;
-    pub const EAGAIN: i64 = 11;
-    pub const ENOMEM: i64 = 12;
-    pub const EACCES: i64 = 13;
-    pub const EFAULT: i64 = 14;
-    pub const EBUSY: i64 = 16;
-    pub const EEXIST: i64 = 17;
-    pub const EXDEV: i64 = 18;
-    pub const ENOTDIR: i64 = 20;
-    pub const EISDIR: i64 = 21;
-    pub const EINVAL: i64 = 22;
-    pub const ENFILE: i64 = 23;
-    pub const EMFILE: i64 = 24;
-    pub const ENOTTY: i64 = 25;
-    pub const ETXTBSY: i64 = 26;
-    pub const EFBIG: i64 = 27;
-    pub const ENOSPC: i64 = 28;
-    pub const ESPIPE: i64 = 29;
-    pub const EROFS: i64 = 30;
-    pub const EMLINK: i64 = 31;
-    pub const EPIPE: i64 = 32;
-    pub const ERANGE: i64 = 34;
-    pub const ENAMETOOLONG: i64 = 36;
-    pub const ENOSYS: i64 = 38;
-    pub const ENOTEMPTY: i64 = 39;
-    pub const ELOOP: i64 = 40;
-    pub const EOVERFLOW: i64 = 75;
-    pub const ETIMEDOUT: i64 = 110;
-    pub const EDQUOT: i64 = 122;
-}
 
 /// Linux `open` flags on riscv64 (`asm-generic/fcntl.h`).
 pub mod open_flags {
@@ -212,37 +174,37 @@ impl FileTable {
     }
 
     /// `ftruncate`.
-    pub fn truncate(&mut self, fd: i64, len: u64) -> Result<(), i64> {
+    pub fn truncate(&mut self, fd: i64, len: u64) -> Result<(), Errno> {
         match self.slot(fd)? {
-            HostFile::File { file, .. } => file.set_len(len).map_err(|e| io_errno(&e)),
-            _ => Err(-errno::EINVAL),
+            HostFile::File { file, .. } => file.set_len(len).map_err(Errno::from),
+            _ => Err(Errno::EINVAL),
         }
     }
 
-    fn slot(&mut self, fd: i64) -> Result<&mut HostFile, i64> {
+    fn slot(&mut self, fd: i64) -> Result<&mut HostFile, Errno> {
         usize::try_from(fd)
             .ok()
             .and_then(|index| self.slots.get_mut(index))
             .and_then(Option::as_mut)
-            .ok_or(-errno::EBADF)
+            .ok_or(Errno::EBADF)
     }
 
     /// Resolves `path` as the guest gave it, relative to the host's
     /// working directory when relative; `dirfd` other than `AT_FDCWD`
     /// resolves against that descriptor's path.
-    pub fn resolve(&mut self, dirfd: i64, path: &[u8]) -> Result<PathBuf, i64> {
-        let path = Path::new(std::str::from_utf8(path).map_err(|_| -errno::EINVAL)?);
+    pub fn resolve(&mut self, dirfd: i64, path: &[u8]) -> Result<PathBuf, Errno> {
+        let path = Path::new(std::str::from_utf8(path).map_err(|_| Errno::EINVAL)?);
         if path.is_absolute() || dirfd == AT_FDCWD {
             return Ok(path.to_path_buf());
         }
         match self.slot(dirfd)? {
             HostFile::File { path: dir, .. } => Ok(dir.join(path)),
-            _ => Err(-errno::ENOTDIR),
+            _ => Err(Errno::ENOTDIR),
         }
     }
 
     /// `openat`: the new descriptor, or `-errno`.
-    pub fn open(&mut self, path: PathBuf, flags: u64, mode: u64) -> Result<i64, i64> {
+    pub fn open(&mut self, path: PathBuf, flags: u64, mode: u64) -> Result<i64, Errno> {
         let access = flags & open_flags::O_ACCMODE;
         let mut options = std::fs::OpenOptions::new();
         let _ = options
@@ -257,52 +219,48 @@ impl FileTable {
             let _ = options.mode(u32::try_from(mode & 0o7777).unwrap_or(0o644));
         }
         if flags & open_flags::O_DIRECTORY != 0 && !path.is_dir() {
-            return Err(-errno::ENOTDIR);
+            return Err(Errno::ENOTDIR);
         }
-        let file = options.open(&path).map_err(|e| io_errno(&e))?;
+        let file = options.open(&path)?;
         self.install(HostFile::File { path, file })
     }
 
     /// Opens a read-only file holding `contents` and returns its
     /// descriptor.
-    pub fn open_generated(&mut self, contents: Vec<u8>) -> Result<i64, i64> {
+    pub fn open_generated(&mut self, contents: Vec<u8>) -> Result<i64, Errno> {
         self.install(HostFile::Generated { contents, position: 0 })
     }
 
     /// Puts `file` in the lowest free descriptor and returns it.
-    fn install(&mut self, file: HostFile) -> Result<i64, i64> {
+    fn install(&mut self, file: HostFile) -> Result<i64, Errno> {
         let fd = self.slots.iter().position(Option::is_none).unwrap_or_else(|| {
             self.slots.push(None);
             self.slots.len() - 1
         });
         self.slots[fd] = Some(file);
-        i64::try_from(fd).map_err(|_| -errno::EMFILE)
+        i64::try_from(fd).map_err(|_| Errno::EMFILE)
     }
 
-    pub fn close(&mut self, fd: i64) -> Result<(), i64> {
-        let index = usize::try_from(fd).map_err(|_| -errno::EBADF)?;
+    pub fn close(&mut self, fd: i64) -> Result<(), Errno> {
+        let index = usize::try_from(fd).map_err(|_| Errno::EBADF)?;
         match self.slots.get_mut(index) {
             Some(slot @ Some(_)) => {
                 *slot = None;
                 Ok(())
             }
-            _ => Err(-errno::EBADF),
+            _ => Err(Errno::EBADF),
         }
     }
 
     /// Reads up to `len` bytes; the console reads what the host typed.
-    pub fn read(&mut self, fd: i64, len: usize) -> Result<Vec<u8>, i64> {
+    pub fn read(&mut self, fd: i64, len: usize) -> Result<Vec<u8>, Errno> {
         let mut buffer = vec![0u8; len];
         let read = match self.slot(fd)? {
             HostFile::Stdin => {
-                return self
-                    .terminal
-                    .lock()
-                    .map(|mut t| t.read_input(len))
-                    .map_err(|_| -errno::EIO);
+                return self.terminal.lock().map(|mut t| t.read_input(len)).map_err(|_| Errno::EIO);
             }
-            HostFile::Stdout | HostFile::Stderr => return Err(-errno::EBADF),
-            HostFile::File { file, .. } => file.read(&mut buffer).map_err(|e| io_errno(&e))?,
+            HostFile::Stdout | HostFile::Stderr => return Err(Errno::EBADF),
+            HostFile::File { file, .. } => file.read(&mut buffer)?,
             HostFile::Generated { contents, position } => {
                 let read = copy_from(contents, *position, &mut buffer);
                 *position += read as u64;
@@ -314,73 +272,67 @@ impl FileTable {
     }
 
     /// Reads up to `len` bytes at `offset` without moving the position.
-    pub fn pread(&mut self, fd: i64, len: usize, offset: u64) -> Result<Vec<u8>, i64> {
+    pub fn pread(&mut self, fd: i64, len: usize, offset: u64) -> Result<Vec<u8>, Errno> {
         use std::os::unix::fs::FileExt;
         let mut buffer = vec![0u8; len];
         let read = match self.slot(fd)? {
-            HostFile::File { file, .. } => {
-                file.read_at(&mut buffer, offset).map_err(|e| io_errno(&e))?
-            }
+            HostFile::File { file, .. } => file.read_at(&mut buffer, offset)?,
             HostFile::Generated { contents, .. } => copy_from(contents, offset, &mut buffer),
-            _ => return Err(-errno::ESPIPE),
+            _ => return Err(Errno::ESPIPE),
         };
         buffer.truncate(read);
         Ok(buffer)
     }
 
     /// Writes `bytes`; the console's descriptors both print to the console.
-    pub fn write(&mut self, fd: i64, bytes: &[u8]) -> Result<usize, i64> {
+    pub fn write(&mut self, fd: i64, bytes: &[u8]) -> Result<usize, Errno> {
         match self.slot(fd)? {
-            HostFile::Stdin | HostFile::Generated { .. } => Err(-errno::EBADF),
+            HostFile::Stdin | HostFile::Generated { .. } => Err(Errno::EBADF),
             HostFile::Stdout | HostFile::Stderr => {
-                self.terminal
-                    .lock()
-                    .map_err(|_| -errno::EIO)?
-                    .write(bytes)
-                    .map_err(|e| io_errno(&e))?;
+                self.terminal.lock().map_err(|_| Errno::EIO)?.write(bytes)?;
                 Ok(bytes.len())
             }
-            HostFile::File { file, .. } => file.write(bytes).map_err(|e| io_errno(&e)),
+            HostFile::File { file, .. } => file.write(bytes).map_err(Errno::from),
         }
     }
 
-    pub fn pwrite(&mut self, fd: i64, bytes: &[u8], offset: u64) -> Result<usize, i64> {
+    pub fn pwrite(&mut self, fd: i64, bytes: &[u8], offset: u64) -> Result<usize, Errno> {
         use std::os::unix::fs::FileExt;
         match self.slot(fd)? {
-            HostFile::File { file, .. } => file.write_at(bytes, offset).map_err(|e| io_errno(&e)),
-            HostFile::Generated { .. } => Err(-errno::EBADF),
-            _ => Err(-errno::ESPIPE),
+            HostFile::File { file, .. } => file.write_at(bytes, offset).map_err(Errno::from),
+            HostFile::Generated { .. } => Err(Errno::EBADF),
+            _ => Err(Errno::ESPIPE),
         }
     }
 
     /// `lseek` with Linux's `whence` (0 set, 1 current, 2 end).
-    pub fn seek(&mut self, fd: i64, offset: i64, whence: u64) -> Result<u64, i64> {
+    pub fn seek(&mut self, fd: i64, offset: i64, whence: u64) -> Result<u64, Errno> {
         let target = match whence {
-            0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| -errno::EINVAL)?),
+            0 => SeekFrom::Start(u64::try_from(offset).map_err(|_| Errno::EINVAL)?),
             1 => SeekFrom::Current(offset),
             2 => SeekFrom::End(offset),
-            _ => return Err(-errno::EINVAL),
+            _ => return Err(Errno::EINVAL),
         };
         match self.slot(fd)? {
-            HostFile::File { file, .. } => file.seek(target).map_err(|e| io_errno(&e)),
+            HostFile::File { file, .. } => file.seek(target).map_err(Errno::from),
             HostFile::Generated { contents, position } => {
                 let moved = match target {
                     SeekFrom::Start(offset) => Some(offset),
                     SeekFrom::Current(offset) => position.checked_add_signed(offset),
                     SeekFrom::End(offset) => (contents.len() as u64).checked_add_signed(offset),
                 };
-                *position = moved.ok_or(-errno::EINVAL)?;
+                *position = moved.ok_or(Errno::EINVAL)?;
                 Ok(*position)
             }
-            _ => Err(-errno::ESPIPE),
+            _ => Err(Errno::ESPIPE),
         }
     }
 
-    pub fn stat(&mut self, fd: i64) -> Result<Stat, i64> {
+    pub fn stat(&mut self, fd: i64) -> Result<Stat, Errno> {
         match self.slot(fd)? {
             HostFile::Stdin | HostFile::Stdout | HostFile::Stderr => Ok(Stat::character_device()),
             HostFile::File { file, .. } => {
-                file.metadata().map(|meta| Stat::from_metadata(&meta)).map_err(|e| io_errno(&e))
+                file.metadata().map(|meta| Stat::from_metadata(&meta)).map_err(Errno::from)
             }
             HostFile::Generated { contents, .. } => {
                 Ok(Stat::read_only_file(i64::try_from(contents.len()).unwrap_or(i64::MAX)))
@@ -401,91 +353,4 @@ fn copy_from(contents: &[u8], offset: u64, buffer: &mut [u8]) -> usize {
     let count = rest.len().min(buffer.len());
     buffer[..count].copy_from_slice(&rest[..count]);
     count
-}
-
-/// A host I/O error as the guest's negated Linux `errno`.
-pub fn io_errno(error: &io::Error) -> i64 {
-    -error.raw_os_error().map_or_else(
-        || match error.kind() {
-            io::ErrorKind::NotFound => errno::ENOENT,
-            io::ErrorKind::PermissionDenied => errno::EACCES,
-            io::ErrorKind::AlreadyExists => errno::EEXIST,
-            _ => errno::EINVAL,
-        },
-        linux_errno,
-    )
-}
-
-/// The Linux number of the host's `errno` `code`. The host numbers its
-/// errors its own way (macOS's `EAGAIN` is 35, Linux's 11), so each is
-/// translated by name; one a file syscall cannot raise reads as `EIO`.
-const fn linux_errno(code: i32) -> i64 {
-    match code {
-        libc::EPERM => errno::EPERM,
-        libc::ENOENT => errno::ENOENT,
-        libc::ESRCH => errno::ESRCH,
-        libc::EINTR => errno::EINTR,
-        libc::EBADF => errno::EBADF,
-        libc::EAGAIN => errno::EAGAIN,
-        libc::ENOMEM => errno::ENOMEM,
-        libc::EACCES => errno::EACCES,
-        libc::EFAULT => errno::EFAULT,
-        libc::EBUSY => errno::EBUSY,
-        libc::EEXIST => errno::EEXIST,
-        libc::EXDEV => errno::EXDEV,
-        libc::ENOTDIR => errno::ENOTDIR,
-        libc::EISDIR => errno::EISDIR,
-        libc::EINVAL => errno::EINVAL,
-        libc::ENFILE => errno::ENFILE,
-        libc::EMFILE => errno::EMFILE,
-        libc::ENOTTY => errno::ENOTTY,
-        libc::ETXTBSY => errno::ETXTBSY,
-        libc::EFBIG => errno::EFBIG,
-        libc::ENOSPC => errno::ENOSPC,
-        libc::ESPIPE => errno::ESPIPE,
-        libc::EROFS => errno::EROFS,
-        libc::EMLINK => errno::EMLINK,
-        libc::EPIPE => errno::EPIPE,
-        libc::ERANGE => errno::ERANGE,
-        libc::ENAMETOOLONG => errno::ENAMETOOLONG,
-        libc::ENOSYS => errno::ENOSYS,
-        libc::ENOTEMPTY => errno::ENOTEMPTY,
-        libc::ELOOP => errno::ELOOP,
-        libc::EOVERFLOW => errno::EOVERFLOW,
-        libc::ETIMEDOUT => errno::ETIMEDOUT,
-        libc::EDQUOT => errno::EDQUOT,
-        _ => errno::EIO,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{errno, io_errno};
-    use std::io;
-
-    fn guest_errno(host_code: i32) -> i64 {
-        io_errno(&io::Error::from_raw_os_error(host_code))
-    }
-
-    #[test]
-    fn host_errors_reach_the_guest_under_their_linux_numbers() {
-        assert_eq!(guest_errno(libc::EAGAIN), -11);
-        assert_eq!(guest_errno(libc::ENAMETOOLONG), -36);
-        assert_eq!(guest_errno(libc::ENOSYS), -38);
-        assert_eq!(guest_errno(libc::ENOTEMPTY), -39);
-        assert_eq!(guest_errno(libc::ELOOP), -40);
-        assert_eq!(guest_errno(libc::ETIMEDOUT), -110);
-        assert_eq!(guest_errno(libc::EDQUOT), -122);
-    }
-
-    #[test]
-    fn a_host_error_no_file_syscall_raises_reads_as_eio() {
-        assert_eq!(guest_errno(libc::EHOSTUNREACH), -errno::EIO);
-    }
-
-    #[test]
-    fn an_error_without_an_os_code_maps_by_kind() {
-        let missing = io::Error::new(io::ErrorKind::NotFound, "gone");
-        assert_eq!(io_errno(&missing), -errno::ENOENT);
-    }
 }

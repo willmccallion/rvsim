@@ -9,6 +9,7 @@
 //! hart each ([`Processes`]); the processes share RAM's frames and the
 //! caches below their cores, and the run ends when the last of them exits.
 
+pub(crate) mod errno;
 pub(crate) mod files;
 pub mod loader;
 mod page_table;

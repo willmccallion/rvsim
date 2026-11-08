@@ -15,7 +15,7 @@ use crate::config::{BackendKind, Config, Console};
 use crate::isa::csr;
 use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::privileged::PrivilegeMode;
-use crate::system::process::files::errno;
+use crate::system::process::errno::Errno;
 use crate::system::simulator::{ProcessArgs, StopAt, StopReason};
 use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::harness::TestContext;
@@ -310,7 +310,7 @@ fn readfile_into_an_unmapped_buffer_fails_with_efault() {
 
         let (_, exit) = run_paged(backend, &host, &read_into_the_next_page_program());
 
-        assert_eq!(exit, Some((-errno::EFAULT) as u64), "{backend:?}");
+        assert_eq!(exit, Some(Errno::EFAULT.return_value()), "{backend:?}");
     }
 }
 
