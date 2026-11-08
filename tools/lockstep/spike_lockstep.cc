@@ -322,8 +322,14 @@ class Platform : public simif_t {
 
   char* addr_to_mem(reg_t paddr) override {
     if (paddr < ram_base_ || paddr - ram_base_ >= ram_.size()) return nullptr;
+    if (std::find(device_pages_.begin(), device_pages_.end(), paddr & ~page_mask) != device_pages_.end())
+      return nullptr;
     return &ram_[paddr - ram_base_];
   }
+
+  // Serves the page holding `paddr` as a device: rvsim's HTIF answers at
+  // tohost, so spike takes the page's loads from rvsim's log.
+  void add_device_page(uint64_t paddr) { device_pages_.push_back(paddr & ~page_mask); }
 
   bool mmio_fetch(reg_t, size_t, uint8_t*) override { return false; }
 
@@ -371,12 +377,32 @@ class Platform : public simif_t {
   uint64_t ram_base_;
   std::vector<char> ram_;
   std::map<size_t, processor_t*> harts_;
+  static constexpr uint64_t page_mask = 0xfff;
+  std::vector<uint64_t> device_pages_;
   std::optional<MemAccess> expected_load_;
   std::vector<MemAccess> device_writes_;
   std::optional<std::string> unexpected_device_access_;
   uint64_t device_reads_ = 0;
 };
 
+// The value of ELF symbol `name` in `image`, if it has one.
+std::optional<uint64_t> elf_symbol(const std::vector<char>& image, const char* name) {
+  const auto* header = reinterpret_cast<const Elf64_Ehdr*>(image.data());
+  for (unsigned i = 0; i < header->e_shnum; ++i) {
+    const auto* section = reinterpret_cast<const Elf64_Shdr*>(image.data() + header->e_shoff +
+                                                              i * header->e_shentsize);
+    if (section->sh_type != SHT_SYMTAB) continue;
+    const auto* strings = reinterpret_cast<const Elf64_Shdr*>(image.data() + header->e_shoff +
+                                                              section->sh_link * header->e_shentsize);
+    const auto* symbols = reinterpret_cast<const Elf64_Sym*>(image.data() + section->sh_offset);
+    for (size_t j = 0; j < section->sh_size / sizeof(Elf64_Sym); ++j)
+      if (std::strcmp(image.data() + strings->sh_offset + symbols[j].st_name, name) == 0)
+        return symbols[j].st_value;
+  }
+  return std::nullopt;
+}
+
+// Loads the ELF at `path` into RAM and serves its HTIF page as a device.
 void load_elf(Platform& platform, const std::string& path) {
   std::ifstream file(path, std::ios::binary);
   if (!file) throw std::runtime_error("cannot open " + path);
@@ -393,6 +419,7 @@ void load_elf(Platform& platform, const std::string& path) {
     std::memcpy(contents.data(), image.data() + segment->p_offset, segment->p_filesz);
     platform.write_ram(segment->p_paddr, contents.data(), contents.size());
   }
+  if (auto tohost = elf_symbol(image, "tohost")) platform.add_device_page(*tohost);
 }
 
 void load_raw(Platform& platform, const std::string& spec) {

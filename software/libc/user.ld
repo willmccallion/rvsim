@@ -24,11 +24,15 @@ SECTIONS {
     *(.sdata .sdata.*)
   }
 
-  /* BSS Section: Must be zeroed by crt0.s */
-  .tohost : ALIGN(16) {
+  /* HTIF's tohost and fromhost on a page of their own, as riscv-tests lay
+     them out, so a lockstep checker can serve the page as the device. */
+  . = ALIGN(0x1000);
+  .tohost : {
     *(.tohost)
   }
+  . = ALIGN(0x1000);
 
+  /* BSS Section: Must be zeroed by crt0.s */
   .bss : ALIGN(8) {
     . = ALIGN(8);
     _bss_start = .;
