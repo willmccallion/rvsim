@@ -4,6 +4,7 @@
 
 use super::program::{BACKENDS, config, ending_in_spin, run_to_pc, system_with_configured_latency};
 use super::{Recorder, accounting_checks};
+use crate::config::PrefetcherKind;
 use crate::config::{BackendKind, Config, MemoryControllerKind};
 use crate::soc::memory::ddr5::controller::ClockRatio;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -208,7 +209,7 @@ fn requests_wait_for_a_queue_slot_only_when_the_queues_are_full(rec: &mut Record
     for (n, params) in ["{}", tiny].into_iter().enumerate() {
         let mut config = ddr5_system(BackendKind::OutOfOrder, params);
         config.pipeline.width = 4;
-        config.cache.l3.prefetcher = crate::config::PrefetcherKind::NextLine;
+        config.cache.l3.prefetcher = PrefetcherKind::NextLine;
 
         let ctx = run_settled(&config, read_modify_write_lines(512), context);
 

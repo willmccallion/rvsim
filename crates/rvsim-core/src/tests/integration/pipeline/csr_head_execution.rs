@@ -4,6 +4,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, T1, X0};
@@ -23,7 +24,7 @@ fn instret_seen(backend: BackendKind) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);

@@ -7,6 +7,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::common::PhysAddr;
 use crate::soc::devices::Device;
 use crate::soc::devices::goldfish_rtc::GoldfishRtc;
+use crate::tests::support::probe;
 
 /// 2026-01-01T00:00:00Z.
 const EPOCH_NS: u64 = 1_767_225_600 * 1_000_000_000;
@@ -39,16 +40,8 @@ fn goldfish_rtc_address_range() {
 fn goldfish_rtc_read_time_low_nonzero() {
     let mut rtc =
         GoldfishRtc::new(PhysAddr::new(0), EPOCH_NS, std::num::NonZero::new(CLOCK_MHZ).unwrap());
-    let time_low = crate::tests::support::probe::read(
-        &mut rtc,
-        crate::common::PhysAddr::new(0x0),
-        ProbeWidth::B4,
-    ) as u32;
-    let _time_high = crate::tests::support::probe::read(
-        &mut rtc,
-        crate::common::PhysAddr::new(0x4),
-        ProbeWidth::B4,
-    ) as u32;
+    let time_low = probe::read(&mut rtc, PhysAddr::new(0x0), ProbeWidth::B4) as u32;
+    let _time_high = probe::read(&mut rtc, PhysAddr::new(0x4), ProbeWidth::B4) as u32;
     let time_ns = (u64::from(_time_high) << 32) | u64::from(time_low);
     assert!(time_ns > 0, "Time since epoch should be > 0");
 }

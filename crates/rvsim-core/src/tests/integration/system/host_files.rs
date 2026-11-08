@@ -268,7 +268,7 @@ fn a_user_program_exchanges_files_with_the_host() {
         assert_eq!(exit, Some(script_length()), "{backend:?}");
         assert_eq!(host.output().as_deref(), Some(SCRIPT), "{backend:?}");
         let buffer = sim
-            .translate_now(0, crate::common::VirtAddr::new(SE_PROGRAM_BASE + BUFFER_OFFSET as u64))
+            .translate_now(0, VirtAddr::new(SE_PROGRAM_BASE + BUFFER_OFFSET as u64))
             .expect("the buffer is mapped");
         let first_word = sim.probe_mem_load(buffer, ProbeWidth::B4);
         assert_eq!(

@@ -8,6 +8,7 @@ use proptest::prelude::*;
 use crate::exec::compute::fpu::exact::{self, Exact};
 use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
 use crate::isa::fp::{FpFlags, FpFormat, RoundingMode};
+use crate::tests::support;
 
 fn single(value: f32) -> Exact {
     Exact::of(u64::from(value.to_bits()), FpFormat::Single)
@@ -102,7 +103,7 @@ fn nearest_ties_away(exact: f64) -> f32 {
 }
 
 proptest! {
-    #![proptest_config(crate::tests::support::seeded_cases(4096))]
+    #![proptest_config(support::seeded_cases(4096))]
 
     #[test]
     fn a_single_precision_product_rounds_to_nearest_ties_away(a in any::<u32>(), b in any::<u32>()) {

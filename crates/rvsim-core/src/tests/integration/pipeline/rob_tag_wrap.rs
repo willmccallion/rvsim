@@ -4,6 +4,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, A1, A2, A3, A4, A5, A6, S0, S1, S2, T0, T1, T2, X0};
@@ -62,7 +63,7 @@ fn run(backend: BackendKind, first: RobTag) -> Outcome {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.state.cores[0].pipeline.start_rob_tags_at(first);
 

@@ -2,6 +2,7 @@
 
 use crate::Simulator;
 use crate::common::VirtAddr;
+use crate::config::Console;
 use crate::config::{BackendKind, Config};
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
 use crate::system::SystemState;
@@ -21,7 +22,7 @@ pub const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOf
 pub fn config(backend: BackendKind) -> Config {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     config
 }
 

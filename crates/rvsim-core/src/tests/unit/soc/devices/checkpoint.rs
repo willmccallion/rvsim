@@ -12,6 +12,7 @@ use crate::soc::devices::virtio_disk::VirtioBlock;
 use crate::soc::terminal::Terminal;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::build_simulator;
+use crate::tests::support::probe;
 
 const CLINT_BASE: u64 = 0x0200_0000;
 const PLIC_BASE: u64 = 0x0c00_0000;
@@ -19,11 +20,11 @@ const UART_BASE: u64 = 0x1000_0000;
 const VIRTIO_BASE: u64 = 0x1000_1000;
 
 fn write(device: &mut impl Device, addr: u64, value: u64, width: ProbeWidth) {
-    crate::tests::support::probe::write(device, PhysAddr::new(addr), value, width);
+    probe::write(device, PhysAddr::new(addr), value, width);
 }
 
 fn read(device: &mut impl Device, addr: u64, width: ProbeWidth) -> u64 {
-    crate::tests::support::probe::read(device, PhysAddr::new(addr), width)
+    probe::read(device, PhysAddr::new(addr), width)
 }
 
 /// Moves `device`'s checkpoint into a fresh `blank` and returns it.

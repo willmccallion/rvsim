@@ -6,6 +6,7 @@ use super::program::{
 };
 use super::{Recorder, accounting_checks};
 use crate::common::VirtAddr;
+use crate::config::Config;
 use crate::config::{BackendKind, LoadPrefetcherConfig, MemDepPredictorKind, PageBoundary};
 use crate::tests::integration::translation::load_prefetch_paging::{Data, Mode, run_system};
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -263,7 +264,7 @@ fn line_stride() -> Vec<u32> {
     program
 }
 
-fn prefetching(backend: BackendKind, page_boundary: PageBoundary) -> crate::config::Config {
+fn prefetching(backend: BackendKind, page_boundary: PageBoundary) -> Config {
     let mut config = config(backend);
     config.cache.l1_d.enabled = true;
     config.cache.l1_d.size_bytes = std::num::NonZero::new(32 * 1024).unwrap();

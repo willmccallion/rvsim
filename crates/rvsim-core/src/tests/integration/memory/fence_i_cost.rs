@@ -5,6 +5,7 @@
 //! L1D on an instruction fetch instead, and FENCE.I costs the same however
 //! much the L1D holds dirty.
 
+use crate::config::Console;
 use crate::config::{BackendKind, Config};
 use crate::tests::support::builder::instruction::{FENCE_I, FENCE_IORW, InstructionBuilder};
 use crate::tests::support::count;
@@ -53,7 +54,7 @@ fn program(l1d: L1d) -> Vec<u32> {
 fn config(backend: BackendKind, with_l2: bool) -> Config {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let l1_d = &mut config.cache.l1_d;
     l1_d.enabled = true;
     l1_d.size_bytes = std::num::NonZero::new(1024).unwrap();

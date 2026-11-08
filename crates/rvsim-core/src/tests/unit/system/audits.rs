@@ -10,6 +10,7 @@ use crate::soc::cache::mshr::{FetchOrigin, Mshr, MshrTarget};
 use crate::soc::cache::writeback_buffer::{Writeback, WritebackCause};
 use crate::soc::cache::{BookkeepingFault, Cache};
 use crate::soc::coherence::protocol::CoreSet;
+use crate::system::coherence_audit::Violation;
 use crate::system::coherence_audit::{InclusionFault, ViolationKind};
 use crate::tests::support::harness::build_simulator;
 
@@ -58,10 +59,7 @@ fn line_of(sim: &Simulator, addr: u64) -> LineAddr {
 }
 
 /// The kinds of `violations`, each checked to concern `ADDR`'s line.
-fn kinds_at_addr(
-    sim: &Simulator,
-    violations: Vec<crate::system::coherence_audit::Violation>,
-) -> Vec<ViolationKind> {
+fn kinds_at_addr(sim: &Simulator, violations: Vec<Violation>) -> Vec<ViolationKind> {
     let line = line_of(sim, ADDR);
     violations
         .into_iter()

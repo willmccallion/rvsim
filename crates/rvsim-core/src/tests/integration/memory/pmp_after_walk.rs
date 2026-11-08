@@ -2,6 +2,7 @@
 //! over exactly its own bytes: a `cbo.zero` over 64 bytes, a word load
 //! over four.
 
+use crate::arch::pmp::Pmp;
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::defaults::RAM_BASE;
 use crate::config::{BackendKind, Config, Console};
@@ -54,11 +55,7 @@ const fn napot(base: u64, size: u64) -> u64 {
 
 /// Runs `program` in supervisor mode from `CODE_VA`, with the data page
 /// mapped and not yet in the TLB, after `pmp` sets up the PMP entries.
-fn run(
-    backend: BackendKind,
-    program: &[u32],
-    pmp: impl Fn(&mut crate::arch::pmp::Pmp),
-) -> TestContext {
+fn run(backend: BackendKind, program: &[u32], pmp: impl Fn(&mut Pmp)) -> TestContext {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = Console::Quiet;
@@ -89,7 +86,7 @@ fn run(
 
 /// PMP denies supervisor access to four bytes inside the block and allows
 /// everything else.
-fn protect_four_bytes_of_the_block(pmp: &mut crate::arch::pmp::Pmp) {
+fn protect_four_bytes_of_the_block(pmp: &mut Pmp) {
     pmp.set_addr(pmp_entry(0), (DATA_PA + PROTECTED) >> 2);
     pmp.set_cfg(pmp_entry(0), PMP_NA4_NONE);
     pmp.set_addr(pmp_entry(1), u64::MAX >> 10);
@@ -117,7 +114,7 @@ fn cbo_zero_after_a_walk_cannot_zero_pmp_protected_bytes_of_its_block() {
 
 /// PMP grants the code page, the page tables and the data page, and
 /// nothing past the data page.
-fn grant_only_the_pages_in_use(pmp: &mut crate::arch::pmp::Pmp) {
+fn grant_only_the_pages_in_use(pmp: &mut Pmp) {
     pmp.set_addr(pmp_entry(0), napot(DATA_PA, PAGE));
     pmp.set_cfg(pmp_entry(0), PMP_NAPOT_RWX);
     pmp.set_addr(pmp_entry(1), napot(CODE_PA, PAGE));

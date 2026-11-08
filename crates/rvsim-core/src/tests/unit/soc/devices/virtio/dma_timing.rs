@@ -18,6 +18,7 @@ use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Pa
 use crate::sim::stats::Stats;
 use crate::soc::devices::Device;
 use crate::soc::devices::virtio_disk::VirtioBlock;
+use crate::tests::support::probe;
 
 pub(super) const MMIO: u64 = 0x1000_1000;
 const DESC: u64 = 0x1000;
@@ -107,12 +108,7 @@ pub(super) fn device_with_a_queued(request: Request) -> (VirtioBlock, GlobalMemo
         (0x38, 8),
         (0x44, 1),
     ] {
-        crate::tests::support::probe::write(
-            &mut device,
-            PhysAddr::new(MMIO + register),
-            value,
-            ProbeWidth::B4,
-        );
+        probe::write(&mut device, PhysAddr::new(MMIO + register), value, ProbeWidth::B4);
     }
     (device, memory)
 }

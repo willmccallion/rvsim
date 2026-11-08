@@ -7,6 +7,7 @@
 use crate::common::VirtAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, T1, X0};
@@ -28,7 +29,7 @@ fn retire_and_issue_cycles(backend: BackendKind) -> (Option<u64>, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     let csr_pc = PROGRAM_BASE + 4 * ADDS;
     let (mut last_add_retired, mut queued) = (None, false);

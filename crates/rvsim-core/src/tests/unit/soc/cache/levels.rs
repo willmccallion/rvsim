@@ -4,6 +4,7 @@
 //! A test cache is 256 bytes with 64-byte lines and 2 ways: two sets,
 //! set = (addr / 64) % 2, tag = addr / 128.
 
+use crate::common::SimError;
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::config::{CacheConfig, Config, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind};
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
@@ -17,6 +18,7 @@ use crate::sim::packet::{
 };
 use crate::sim::stats::{StatSource, Stats};
 use crate::soc::cache::Cache;
+use crate::soc::cache::prefetch::StoreStreamPrefetcher;
 use crate::tests::support::count;
 
 const LATENCY: u64 = 2;
@@ -920,7 +922,7 @@ fn a_run_of_store_misses_sends_exclusive_prefetches_to_the_l2() {
     let mut config = test_config();
     config.mshr_count = count(8);
     let mut cache = cache_with(&config);
-    cache.set_store_prefetcher(crate::soc::cache::prefetch::StoreStreamPrefetcher::new(
+    cache.set_store_prefetcher(StoreStreamPrefetcher::new(
         64,
         std::num::NonZero::new(4).unwrap(),
         2,
@@ -1943,7 +1945,7 @@ fn a_cache_refuses_more_upstreams_than_a_line_tracks() {
     let ninth = cache.add_upstream(ComponentId::Cache(CacheId::new(9)));
 
     assert!(
-        matches!(ninth, Err(crate::common::SimError::TooManyUpstreams { cache }) if cache == CacheId::new(0)),
+        matches!(ninth, Err(SimError::TooManyUpstreams { cache }) if cache == CacheId::new(0)),
         "{ninth:?}"
     );
 }

@@ -5,6 +5,7 @@
 //! access on a different line, so only a prefetcher that tracks the load
 //! itself can learn the stride.
 
+use crate::config::Console;
 use crate::config::{BackendKind, Config, LoadPrefetcherConfig, PageBoundary, PrefetcherKind};
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -70,7 +71,7 @@ fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
     // The harness gives memory one cycle; a slow L2 makes a miss cost.
     config.cache.l2.enabled = true;
     config.cache.l2.latency = 60;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx =
         TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &strided_loop());
 

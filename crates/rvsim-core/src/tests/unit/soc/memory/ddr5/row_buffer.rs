@@ -1,6 +1,7 @@
 //! Row-hit and row-miss timing on a single bank.
 
 use crate::config::ddr5::Ddr5Timing;
+use crate::sim::packet::DramCmdKind;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, controller_latency, read_op, tiny_config,
 };
@@ -67,7 +68,7 @@ fn back_to_back_same_bank_group_reads_honor_ccd_l() {
     let id2 = h.issue(a2, 0, read_op());
     let _ = h.response_at(id1);
     let _ = h.response_at(id2);
-    let reads = h.commands_of(crate::sim::packet::DramCmdKind::Read);
+    let reads = h.commands_of(DramCmdKind::Read);
     assert_eq!(reads.len(), 2);
     assert!(
         reads[1].fire_at >= reads[0].fire_at + t.t_ccd_l,

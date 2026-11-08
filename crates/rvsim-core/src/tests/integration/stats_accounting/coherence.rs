@@ -4,8 +4,10 @@
 
 use super::{Recorder, accounting_checks};
 use crate::common::VirtAddr;
+use crate::config::Console;
 use crate::config::{BackendKind, Config, HomeAgentConfig, InterconnectConfig};
 use crate::system::simulator::StopAt;
+use crate::system::simulator::StopReason;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
 use crate::tests::support::harness::PROGRAM_BASE;
 use crate::tests::support::multihart::MultiHart;
@@ -21,7 +23,7 @@ const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrde
 fn two_cached_harts(backend: BackendKind) -> Config {
     let mut config = Config::minimal();
     config.system.hart_count = std::num::NonZero::new(2).unwrap();
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     config.pipeline.backend = backend;
     for cache in [&mut config.cache.l1_i, &mut config.cache.l1_d] {
         cache.enabled = true;
@@ -70,7 +72,7 @@ fn run_settled(config: &Config, (program, end): (Vec<u32>, u64), context: &str) 
     let stop =
         StopAt { pcs: vec![VirtAddr::new(end)], cycles: Some(2_000_000), ..StopAt::default() };
     let reason = system.sim.run_to(&stop).expect("the run ticks");
-    assert_eq!(reason, crate::system::simulator::StopReason::Pc { hart: 0 }, "{context}");
+    assert_eq!(reason, StopReason::Pc { hart: 0 }, "{context}");
     for _ in 0..SETTLE {
         system.sim.tick().expect("tick");
     }

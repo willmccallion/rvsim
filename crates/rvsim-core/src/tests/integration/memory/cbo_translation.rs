@@ -5,6 +5,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
@@ -49,7 +50,7 @@ const fn cbo(imm: i64, rs1: RegIdx) -> u32 {
 fn run(backend: BackendKind, cbo_imm: i64, data_pte_flags: u64) -> TestContext {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     let i = InstructionBuilder::new;
     let program = [

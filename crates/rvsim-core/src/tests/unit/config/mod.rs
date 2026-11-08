@@ -7,7 +7,12 @@ pub mod serde_defaults;
 pub mod validation;
 
 use crate::common::PhysAddr;
+use crate::config::Console;
+use crate::config::Timer;
 use crate::config::*;
+use crate::isa::csr::MISA_DEFAULT_RV64GCB;
+use crate::isa::csr::MISA_EXT_V;
+use crate::isa::extension::Extension;
 
 #[test]
 fn the_minimal_config_starts_untraced_at_0x8000_0000() {
@@ -34,9 +39,9 @@ fn the_default_system_config_has_the_standard_memory_map() {
     assert_eq!(system.kernel_offset, 0x0020_0000);
     assert_eq!(system.bus_width, 8);
     assert_eq!(system.bus_latency, 4);
-    assert_eq!(system.timer, crate::config::Timer::RealTime);
+    assert_eq!(system.timer, Timer::RealTime);
     assert_eq!(system.timebase_hz, std::num::NonZero::new(10_000_000).unwrap());
-    assert_eq!(system.console, crate::config::Console::Stdout);
+    assert_eq!(system.console, Console::Stdout);
 }
 
 #[test]
@@ -599,8 +604,8 @@ fn an_isa_string_sets_misa_and_leaves_out_unnamed_extensions() {
     }"#;
 
     let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(config.misa().bits(), crate::isa::csr::MISA_DEFAULT_RV64GCB);
-    assert!(!config.extensions().contains(crate::isa::extension::Extension::Zbc));
+    assert_eq!(config.misa().bits(), MISA_DEFAULT_RV64GCB);
+    assert!(!config.extensions().contains(Extension::Zbc));
 }
 
 #[test]
@@ -722,7 +727,7 @@ fn a_captured_console_is_read_from_json() {
     }"#;
 
     let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(config.system.console, crate::config::Console::Captured);
+    assert_eq!(config.system.console, Console::Captured);
 }
 
 #[test]
@@ -945,7 +950,7 @@ fn custom_dram_timings_are_read_from_json() {
 fn the_default_hart_reports_v_when_it_implements_the_full_vector_extension() {
     let config = Config::minimal();
 
-    assert_eq!(config.misa().bits() & crate::isa::csr::MISA_EXT_V, crate::isa::csr::MISA_EXT_V);
+    assert_eq!(config.misa().bits() & MISA_EXT_V, MISA_EXT_V);
 }
 
 #[test]
@@ -953,7 +958,7 @@ fn a_hart_below_v_s_minimum_elen_does_not_report_v() {
     let mut narrow = Config::minimal();
     narrow.isa.vector.elen = 32;
 
-    assert_eq!(narrow.misa().bits() & crate::isa::csr::MISA_EXT_V, 0);
+    assert_eq!(narrow.misa().bits() & MISA_EXT_V, 0);
 }
 
 #[test]

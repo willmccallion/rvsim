@@ -3,6 +3,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
@@ -32,7 +33,7 @@ fn violating_program() -> Vec<u32> {
 fn flushes_by_cause_add_up_to_all_flushes() {
     let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx =
         TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &violating_program());
 
@@ -65,7 +66,7 @@ fn divide_bound_program() -> Vec<u32> {
 fn fu_structural_stalls_are_counted_in_cycles() {
     let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx =
         TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &divide_bound_program());
 

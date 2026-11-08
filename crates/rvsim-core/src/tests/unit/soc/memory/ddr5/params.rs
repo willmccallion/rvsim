@@ -1,6 +1,8 @@
 //! Configuration parameters: JSON deserialization, timing overrides, and
 //! validation of the DDR5 parameter block.
 
+use crate::config::ddr5::Ddr5Config;
+use crate::config::ddr5::Ddr5SpeedBin;
 use crate::config::ddr5::{
     Ddr5Params, Ddr5Timing, EccKind, PowerDownPolicy, RefreshKind, SchedulerKind,
 };
@@ -10,7 +12,7 @@ use crate::config::{Config, MemoryConfig, MemoryControllerKind};
 fn defaults_match_the_built_in_ddr5_4800_configuration() {
     let params: Ddr5Params = serde_json::from_str("{}").unwrap();
     let config = params.to_config();
-    assert_eq!(config, crate::config::ddr5::Ddr5Config::default());
+    assert_eq!(config, Ddr5Config::default());
 }
 
 #[test]
@@ -30,7 +32,7 @@ fn a_config_file_selects_bin_policies_and_timing_overrides() {
     }"#;
     let params: Ddr5Params = serde_json::from_str(json).unwrap();
     let config = params.to_config();
-    let bin = Ddr5Timing::from_bin(&crate::config::ddr5::Ddr5SpeedBin::DDR5_5600B);
+    let bin = Ddr5Timing::from_bin(&Ddr5SpeedBin::DDR5_5600B);
     assert_eq!(config.timing.data_rate_mts, 5600);
     assert_eq!(config.timing.t_cas, bin.t_cas);
     assert_eq!(config.timing.t_rcd, 50, "override applied");

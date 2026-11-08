@@ -1,6 +1,8 @@
 //! The memory map the configuration describes is the one the bus builds.
 
+use crate::Simulator;
 use crate::common::PhysAddr;
+use crate::common::SimError;
 use crate::config::Config;
 use crate::system::SystemState;
 use crate::tests::support::harness::valid;
@@ -38,23 +40,19 @@ fn a_ram_the_host_cannot_map_fails_the_build() {
     config.system.ram_base = PhysAddr::new(HUGE);
     config.memory.ram_size = HUGE;
 
-    let built = crate::Simulator::build(&valid(&config), None);
+    let built = Simulator::build(&valid(&config), None);
 
-    assert!(
-        matches!(built, Err(crate::common::SimError::RamAllocation { bytes: HUGE, .. })),
-        "{:?}",
-        built.err()
-    );
+    assert!(matches!(built, Err(SimError::RamAllocation { bytes: HUGE, .. })), "{:?}", built.err());
 }
 
 #[test]
 fn a_disk_image_that_cannot_be_read_fails_the_build() {
     const MISSING: &str = "/nonexistent/rvsim-test-disk.img";
 
-    let built = crate::Simulator::build(&valid(&Config::minimal()), Some(MISSING));
+    let built = Simulator::build(&valid(&Config::minimal()), Some(MISSING));
 
     assert!(
-        matches!(&built, Err(crate::common::SimError::FileRead { path, .. }) if path == MISSING),
+        matches!(&built, Err(SimError::FileRead { path, .. }) if path == MISSING),
         "{:?}",
         built.err()
     );

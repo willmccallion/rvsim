@@ -3,6 +3,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::{InstructionBuilder, trap_recorder};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A1, A2, A3, T0, X0};
@@ -27,7 +28,7 @@ fn access(store: bool) -> Vec<u32> {
 fn trap_of_data_trigger(backend: BackendKind, store: bool, tdata1: u64) -> (u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &access(store));
     store_words(&mut ctx.sim, HANDLER, &trap_recorder());
     let csrs = &mut ctx.sim.state.harts[0].csrs;

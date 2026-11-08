@@ -3,6 +3,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, T0, X0};
@@ -32,7 +33,7 @@ fn cycles_to_finish(bus_width: u64) -> u64 {
     // Memory must not serialise the fills.
     config.memory.simple_bandwidth_gib_s = 1e6;
     config.system.bus_width = bus_width;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let program = program();
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     let all_but_spin = program.len() as u64 - 1;

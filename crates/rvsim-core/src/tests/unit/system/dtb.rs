@@ -2,6 +2,7 @@
 
 use crate::common::PhysRange;
 use crate::config::{Config, DeviceKind};
+use crate::isa::privileged::PagingMode;
 use crate::system::SystemState;
 use crate::system::dtb::generate_dtb;
 use std::collections::BTreeMap;
@@ -249,7 +250,7 @@ fn the_cache_block_sizes_are_the_block_the_operations_act_on() {
 #[test]
 fn the_mmu_type_is_the_strongest_paging_mode() {
     let mut config = Config::minimal();
-    config.memory.paging_mode_max = crate::isa::privileged::PagingMode::Sv39;
+    config.memory.paging_mode_max = PagingMode::Sv39;
 
     let (default_mmu, sv39) = (
         string_prop(&cpu0(&Config::minimal()), "mmu-type"),

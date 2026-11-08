@@ -6,6 +6,7 @@
 
 use crate::common::{InstSeq, VirtAddr};
 use crate::config::BackendKind;
+use crate::config::Console;
 use crate::config::{BranchPredictorKind, Config};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
@@ -37,7 +38,7 @@ fn a_wrong_path_indirect_jump_leaves_the_btb_alone() {
     let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.pipeline.branch_predictor = BranchPredictorKind::Static;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(200);

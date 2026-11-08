@@ -11,6 +11,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::system::simulator::ProbeWidth;
@@ -91,7 +92,7 @@ fn run(backend: BackendKind, width: usize) -> (u64, u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
     store_words(&mut ctx.sim, CODE, &machine_code());
     store_words(&mut ctx.sim, TARGET_PA, &target_code());

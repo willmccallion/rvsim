@@ -5,7 +5,12 @@ use super::program::{
     system_with, system_with_configured_latency, three_handled_ecalls,
 };
 use super::{Recorder, accounting_checks};
+use crate::Simulator;
+use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config};
+use crate::isa::csr::MIE_MTIE;
+use crate::isa::csr::MIP_MTIP;
+use crate::isa::encoding::privileged::WFI;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
@@ -20,7 +25,7 @@ const CAUSES: [&str; 5] = ["branch", "system", "mem_violations", "coherence", "t
 
 /// The flush counts by cause, in `CAUSES` order, asserting they sum to the
 /// total.
-fn flushes_by_cause(rec: &mut Recorder, sim: &crate::Simulator, context: &str) -> [u64; 5] {
+fn flushes_by_cause(rec: &mut Recorder, sim: &Simulator, context: &str) -> [u64; 5] {
     let counts = CAUSES.map(|cause| rec.read(sim, &format!("core0.pipeline.flushes.{cause}")));
     let total = rec.read(sim, "core0.pipeline.flushes.total");
     assert_eq!(counts.iter().sum::<u64>(), total, "{context}: {counts:?}");
@@ -378,11 +383,7 @@ fn supervisor_loads(backend: BackendKind, paged: bool) -> (TestContext, u64) {
     let mut ctx = system_with(&config, &program, &[]);
     let gigapage = PROGRAM_BASE >> 30;
     let pte = ((PROGRAM_BASE >> 12) << 10) | LEAF_RWXAD;
-    ctx.sim.probe_mem_store(
-        crate::common::PhysAddr::new(PAGE_TABLE + 8 * gigapage),
-        pte,
-        ProbeWidth::B8,
-    );
+    ctx.sim.probe_mem_store(PhysAddr::new(PAGE_TABLE + 8 * gigapage), pte, ProbeWidth::B8);
     let hart = &mut ctx.sim.state.harts[0];
     let supervisor = u64::from(PrivilegeMode::Supervisor.to_u8()) << 11;
     hart.csrs.mstatus = (hart.csrs.mstatus & !MSTATUS_MPP) | supervisor;
@@ -424,11 +425,11 @@ fn wait_for_the_timer(clint_base: u64) -> (Vec<u32>, u64) {
         i().addi(T1, X0, WAKE_AT as i32).build(),
         i().sd(T0, T1, 0).build(),
         i().csrrs(T2, MIP, X0).build(),
-        i().andi(T2, T2, crate::isa::csr::MIP_MTIP as i32).build(),
+        i().andi(T2, T2, MIP_MTIP as i32).build(),
         i().bne(T2, X0, -8).build(),
-        i().addi(T2, X0, crate::isa::csr::MIE_MTIE as i32).build(),
+        i().addi(T2, X0, MIE_MTIE as i32).build(),
         i().csrrs(X0, MIE, T2).build(),
-        crate::isa::encoding::privileged::WFI,
+        WFI,
         // A waiting hart's PC is already past the WFI; the run stops after
         // this, which runs once it wakes.
         i().addi(T2, X0, 0).build(),

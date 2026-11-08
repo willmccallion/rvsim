@@ -5,6 +5,7 @@ use crate::Simulator;
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::{PROGRAM_BASE, build_simulator, store_words};
 
@@ -21,7 +22,7 @@ impl MultiHart {
     pub fn new(hart_count: usize, backend: BackendKind, program: &[u32]) -> Self {
         let mut config = Config::minimal();
         config.system.hart_count = std::num::NonZero::new(hart_count).unwrap();
-        config.system.console = crate::config::Console::Quiet;
+        config.system.console = Console::Quiet;
         config.pipeline.backend = backend;
         Self::with_config(&config, program)
     }

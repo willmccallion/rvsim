@@ -4,6 +4,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, T1, T2, X0};
@@ -25,7 +26,7 @@ fn swap_then_read_back(backend: BackendKind, width: usize) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);
@@ -55,7 +56,7 @@ fn an_o3_csr_read_sees_the_preceding_write() {
 fn o3_holds_rename_behind_a_csr_access_instead_of_squashing() {
     let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
     ctx.run(400);

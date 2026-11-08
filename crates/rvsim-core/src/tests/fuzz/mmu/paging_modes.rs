@@ -13,6 +13,7 @@ use crate::common::{AccessType, PhysAddr, VirtAddr};
 use crate::isa::csr;
 use crate::isa::privileged::{PagingMode, PrivilegeMode, Trap};
 use crate::system::simulator::ProbeWidth;
+use crate::tests::support;
 use crate::tests::support::harness::TestContext;
 use crate::uarch::mmu::tlb::TlbGeometry;
 use crate::uarch::mmu::{Mmu, TranslateOutcome};
@@ -150,7 +151,7 @@ fn aligned_leaf_ppn(leaf_level: usize, raw: u64) -> u64 {
 }
 
 proptest! {
-    #![proptest_config(crate::tests::support::seeded_cases(64))]
+    #![proptest_config(support::seeded_cases(64))]
 
     /// Picking any supported mode and any allowed leaf level, an installed
     /// translation must round-trip through `Mmu::translate`.

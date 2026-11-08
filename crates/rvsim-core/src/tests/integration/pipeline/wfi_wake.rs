@@ -4,6 +4,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
@@ -41,7 +42,7 @@ fn check(backend: BackendKind, width: usize) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = width;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.sim.probe_mem_store(
         PhysAddr::new(HANDLER),

@@ -3,6 +3,7 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::Console;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, X0, X31, after};
@@ -28,7 +29,7 @@ fn warm_iteration_cycles(backend: BackendKind, narrow: impl Fn(&mut Config)) -> 
     config.pipeline.backend = backend;
     config.pipeline.width = 4;
     config.cache.l1_i.enabled = true;
-    config.system.console = crate::config::Console::Quiet;
+    config.system.console = Console::Quiet;
     narrow(&mut config);
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
 
