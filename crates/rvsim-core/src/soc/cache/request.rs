@@ -165,10 +165,7 @@ impl Cache {
         };
         if let Some(mshr) = self.mshrs.find_line_mut(line) {
             ctx.stats.counter(self.stat_paths.mshr_hits).inc();
-            if mshr.origin == FetchOrigin::Prefetch
-                && mshr.targets.is_empty()
-                && mshr.deferred.is_empty()
-            {
+            if mshr.is_unrequested_prefetch() {
                 ctx.stats.counter(self.stat_paths.prefetches_late).inc();
             }
             if (is_write && !mshr.write) || !mshr.deferred.is_empty() {
@@ -572,10 +569,7 @@ impl Cache {
         let state = if self.lines[index].dirty() { MesiState::Modified } else { state };
         let kept = self.lines[index].valid().then_some(self.lines[index]);
         let upper = kept.map_or(0, |line| line.upper);
-        let unrequested_prefetch = mshr.origin == FetchOrigin::Prefetch
-            && mshr.targets.is_empty()
-            && mshr.deferred.is_empty();
-        let prefetched = unrequested_prefetch || kept.is_some_and(|line| line.prefetched);
+        let prefetched = mshr.is_unrequested_prefetch() || kept.is_some_and(|line| line.prefetched);
         self.lines[index] = CacheLine { tag, state, upper, prefetched };
         self.policy.insert(set_index, way);
         state
