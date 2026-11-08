@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
-use crate::common::{InstSeq, PhysAddr, VirtAddr};
+use crate::common::{InstSeq, PhysAddr, VirtAddr, usize_of};
 use crate::exec::compute::vector::mem::ElementAccess;
 use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, ControlSignals};
@@ -208,13 +208,13 @@ impl VecMemSpan {
         else {
             return 0;
         };
-        (last.vaddr.val() - first.vaddr.val()) as usize + last.eew.bytes()
+        usize_of(last.vaddr.val() - first.vaddr.val()) + last.eew.bytes()
     }
 
     /// Where an element access's bytes start within the span.
     #[must_use]
     pub fn offset_of(&self, element: &ElementAccess) -> usize {
-        (element.vaddr.val() - self.vaddr().val()) as usize
+        usize_of(element.vaddr.val() - self.vaddr().val())
     }
 }
 

@@ -9,7 +9,7 @@
 //! its page number above the page offset selects, and a lookup probes the
 //! set of each page size.
 
-use crate::common::{Asid, PAGE_SHIFT, Ppn, Vpn};
+use crate::common::{Asid, PAGE_SHIFT, Ppn, Vpn, usize_of};
 use crate::uarch::mmu::perms::PagePerms;
 
 /// Bits of a VPN one page-table level translates.
@@ -225,7 +225,7 @@ impl Tlb {
     /// The slots of the set a page of `size` containing `vpn` lives in.
     const fn set_of(&self, vpn: Vpn, size: PageSize) -> std::ops::Range<usize> {
         let page_number = vpn.val() >> size.vpn_offset_bits();
-        let base = ((page_number as usize) & self.set_mask) * self.ways;
+        let base = (usize_of(page_number) & self.set_mask) * self.ways;
         base..base + self.ways
     }
 

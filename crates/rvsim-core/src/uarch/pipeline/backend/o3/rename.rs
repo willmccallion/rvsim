@@ -8,6 +8,7 @@
 
 use super::{O3Engine, RenameView};
 use crate::common::trace::Hex;
+use crate::common::usize_of;
 use crate::exec::compute::vector::mem::{
     is_vec_load, is_vec_store, vec_mem_dst_count, vec_mem_emul_regs,
 };
@@ -185,7 +186,7 @@ impl O3Engine {
         };
         let load_slot_allocated = match load_slots {
             LoadSlots::None => true,
-            LoadSlots::Scalar => self.load_queue.allocate(rob_tag, ctrl.width.bytes() as usize),
+            LoadSlots::Scalar => self.load_queue.allocate(rob_tag, usize_of(ctrl.width.bytes())),
             LoadSlots::Vector(count) => self.load_queue.reserve(rob_tag, count),
         };
         debug_assert!(

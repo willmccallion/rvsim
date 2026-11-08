@@ -16,7 +16,7 @@
 
 use std::collections::VecDeque;
 
-use crate::common::{PhysAddr, VirtAddr};
+use crate::common::{PhysAddr, VirtAddr, usize_of};
 use crate::exec::cbo::CboEffect;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
 use crate::isa::op::MemWidth;
@@ -338,7 +338,7 @@ impl StoreBuffer {
         let Some(store) = self.youngest_older_overlap(paddr, width, load_rob_tag) else {
             return ForwardResult::Miss;
         };
-        let load_size = width.bytes() as usize;
+        let load_size = usize_of(width.bytes());
         let load_start = paddr.val();
         let load_end = load_start + load_size as u64;
         let covers = store.start <= load_start && store.end >= load_end;

@@ -5,7 +5,7 @@
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::PteUpdate;
 use crate::common::trace::Hex;
-use crate::common::{PhysAddr, VirtAddr};
+use crate::common::{PhysAddr, VirtAddr, usize_of};
 use crate::exec::retire;
 use crate::isa::instruction::InstSize;
 use crate::isa::op::{MemWidth, SystemOp};
@@ -273,7 +273,7 @@ fn read_ram_word(state: &CoreCtx<'_>, paddr: PhysAddr, width: MemWidth) -> Optio
     if width == MemWidth::Nop || !state.uncore.bus.is_ram(paddr, width.bytes()) {
         return None;
     }
-    state.uncore.kernel.memory.read(paddr, width.bytes() as usize)
+    state.uncore.kernel.memory.read(paddr, usize_of(width.bytes()))
 }
 
 /// Takes `trap` now when there is no trap latency, else parks it for

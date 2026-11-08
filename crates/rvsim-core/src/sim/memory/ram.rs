@@ -5,7 +5,7 @@ use std::fmt;
 use std::io;
 use std::ptr::NonNull;
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, usize_of};
 
 /// `size` zeroed bytes of RAM at `base`.
 ///
@@ -77,7 +77,7 @@ impl Ram {
     }
 
     fn offset(&self, addr: PhysAddr, len: usize) -> Option<usize> {
-        self.contains(addr, len as u64).then(|| (addr.val() - self.base.val()) as usize)
+        self.contains(addr, len as u64).then(|| usize_of(addr.val() - self.base.val()))
     }
 }
 

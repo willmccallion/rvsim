@@ -38,7 +38,7 @@ use std::ops::ControlFlow;
 
 use crate::arch::translation::{DirtyUpdates, PteUpdate, TranslationResult};
 use crate::common::trace::Hex;
-use crate::common::{AccessType, PhysAddr, VirtAddr, crosses_cache_line};
+use crate::common::{AccessType, PhysAddr, VirtAddr, crosses_cache_line, usize_of};
 use crate::exec::cbo;
 use crate::exec::compute::misaligned;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
@@ -461,7 +461,7 @@ fn perform_load<E: ExecutionEngine>(
         send_load_prefetches(state, engine, pc, vaddr, paddr);
         return EntryOutcome::Done;
     }
-    match forward_from_pending_stores(state, engine, &ex, paddr, size as usize) {
+    match forward_from_pending_stores(state, engine, &ex, paddr, usize_of(size)) {
         ForwardResult::Hit(raw_val) => {
             push_sb_forwarded_load(state, engine, ex, paddr, vaddr, dirty_updates, raw_val);
         }
@@ -674,8 +674,8 @@ fn older_store_unwritten<E: ExecutionEngine>(
     size: u64,
 ) -> bool {
     engine.store_buffer().has_older_store_to(paddr, ex.op.ctrl.width, ex.op.rob_tag)
-        || engine.vec_store_buffer().has_older_store_to(paddr, size as usize, ex.op.rob_tag)
-        || state.core_mut().wcb.request_send(paddr, size as usize)
+        || engine.vec_store_buffer().has_older_store_to(paddr, usize_of(size), ex.op.rob_tag)
+        || state.core_mut().wcb.request_send(paddr, usize_of(size))
 }
 
 /// True while a committed store has yet to finish writing.
@@ -933,7 +933,7 @@ fn emit_load_req<E: ExecutionEngine>(
     let pipeline_id = common.pipeline_id;
 
     let cycle = state.uncore().kernel.cycle;
-    let first_size = low_bytes.map_or(access_size, |low| AccessSize::of_bytes(low as usize));
+    let first_size = low_bytes.map_or(access_size, |low| AccessSize::of_bytes(usize_of(low)));
     let pc = ex.op.pc;
     state.events().schedule(
         cycle,
@@ -955,7 +955,7 @@ fn emit_load_req<E: ExecutionEngine>(
                 paddr: second,
                 vaddr: Some(vaddr),
                 pc: Some(pc),
-                size: AccessSize::of_bytes((width_bytes - low) as usize),
+                size: AccessSize::of_bytes(usize_of(width_bytes - low)),
                 op: MemOp::Read,
             },
         );

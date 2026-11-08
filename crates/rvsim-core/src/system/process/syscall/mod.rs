@@ -13,7 +13,7 @@ use super::file_calls::{self, FileCalls, UserMemory};
 use super::files::{Fd, PATH_MAX, open_flags};
 use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, ThreadRef, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
-use crate::common::{PhysAddr, VirtAddr};
+use crate::common::{PhysAddr, VirtAddr, usize_of};
 use crate::isa::extension::{Extension, Isa};
 use crate::isa::reg::{self, RegIdx};
 use crate::sim::memory::GlobalMemory;
@@ -372,7 +372,7 @@ impl Sys<'_> {
             SYS_MADVISE => self.madvise(args.vaddr(0), args.raw(1), args.raw(2)),
             SYS_RT_SIGACTION => self.zero_if_given(user_pointer(args.raw(2)), 24),
             SYS_RT_SIGPROCMASK => {
-                self.zero_if_given(user_pointer(args.raw(2)), args.raw(3) as usize)
+                self.zero_if_given(user_pointer(args.raw(2)), usize_of(args.raw(3)))
             }
             SYS_CLOCK_GETTIME => self.clock_gettime(args.raw(0), args.vaddr(1)),
             SYS_CLOCK_GETRES => self.write_timespec(args.vaddr(1), 0, 1),
@@ -705,7 +705,7 @@ impl Sys<'_> {
                 }
                 _ => (HWPROBE_KEY_UNKNOWN, 0),
             };
-            let mut bytes = [0u8; HWPROBE_PAIR_BYTES as usize];
+            let mut bytes = [0u8; usize_of(HWPROBE_PAIR_BYTES)];
             bytes[..8].copy_from_slice(&key.to_le_bytes());
             bytes[8..].copy_from_slice(&value.to_le_bytes());
             self.write_user(addr, &bytes)?;

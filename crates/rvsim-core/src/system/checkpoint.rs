@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::arch::Hart;
 use crate::arch::csr::Csrs;
 use crate::arch::pmp::PmpEntry;
-use crate::common::{PhysAddr, VirtAddr};
+use crate::common::{PhysAddr, VirtAddr, usize_of};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 use crate::sim::memory::Ram;
@@ -229,7 +229,7 @@ impl Simulator {
     pub fn restore_checkpoint(&mut self, input: &mut impl Read) -> Result<(), CheckpointError> {
         let mut length = [0u8; 8];
         input.read_exact(&mut length)?;
-        let mut header = vec![0u8; u64::from_le_bytes(length) as usize];
+        let mut header = vec![0u8; usize_of(u64::from_le_bytes(length))];
         input.read_exact(&mut header)?;
         let header: Header = serde_json::from_slice(&header)?;
         if header.magic != MAGIC {

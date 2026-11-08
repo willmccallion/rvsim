@@ -5,6 +5,7 @@
 //! avoiding the overhead of a complex RNG.
 
 use super::{ReplacementPolicy, SetIdx, WayIdx};
+use crate::common::usize_of;
 
 /// Random Policy state.
 #[derive(Debug)]
@@ -38,6 +39,6 @@ impl ReplacementPolicy for RandomPolicy {
         x ^= x >> 7;
         x ^= x << 17;
         self.state = x;
-        WayIdx::new((x as usize) % self.ways)
+        WayIdx::new(usize_of(x) % self.ways)
     }
 }

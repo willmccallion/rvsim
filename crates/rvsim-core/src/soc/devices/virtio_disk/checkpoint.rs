@@ -3,6 +3,7 @@
 
 use super::VirtioBlock;
 use super::{SECTOR_SIZE, VirtioBlockState, WrittenSector, from_hex, to_hex};
+use crate::common::usize_of;
 use crate::soc::traits::RestoreError;
 
 impl VirtioBlock {
@@ -30,8 +31,8 @@ impl VirtioBlock {
                 .written
                 .iter()
                 .map(|&sector| {
-                    let start = (sector * SECTOR_SIZE) as usize;
-                    let end = (start + SECTOR_SIZE as usize).min(self.disk_image.len());
+                    let start = usize_of(sector * SECTOR_SIZE);
+                    let end = (start + usize_of(SECTOR_SIZE)).min(self.disk_image.len());
                     WrittenSector { sector, data: to_hex(&self.disk_image[start..end]) }
                 })
                 .collect(),
@@ -96,7 +97,7 @@ impl VirtioBlock {
         let data = from_hex(&written.data).ok_or(RestoreError::WrittenSectorNotHex)?;
         let start = usize::try_from(written.sector * SECTOR_SIZE)
             .map_err(|_| RestoreError::WrittenSectorPastDisk)?;
-        if data.len() > SECTOR_SIZE as usize || start + data.len() > self.disk_image.len() {
+        if data.len() > usize_of(SECTOR_SIZE) || start + data.len() > self.disk_image.len() {
             return Err(RestoreError::WrittenSectorPastDisk);
         }
         Ok((start, data))

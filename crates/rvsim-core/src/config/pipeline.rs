@@ -2,6 +2,7 @@
 //! dependence prediction.
 
 use super::defaults;
+use crate::common::usize_of;
 use crate::config::{
     BhtConfig, BranchPredictorKind, IttageConfig, LoopConfig, PerceptronConfig, ScConfig,
     TageConfig, TournamentConfig,
@@ -12,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 /// The widest unit-stride vector access: one 64-byte line, the smallest
 /// line every cache level must have.
-pub const MAX_VECTOR_MEM_WIDTH: usize = CBOZ_BLOCK_SIZE as usize;
+pub const MAX_VECTOR_MEM_WIDTH: usize = usize_of(CBOZ_BLOCK_SIZE);
 
 /// Specifies the memory dependence prediction algorithm used to determine
 /// whether loads can bypass older unresolved stores at issue time.

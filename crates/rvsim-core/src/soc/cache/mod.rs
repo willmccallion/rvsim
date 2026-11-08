@@ -33,7 +33,7 @@ use self::policies::{
 };
 use self::stats::CacheStatPaths;
 use self::writeback_buffer::WritebackBuffer;
-use crate::common::{CoreId, LineAddr, PhysAddr, SimError, VirtAddr};
+use crate::common::{CoreId, LineAddr, PhysAddr, SimError, VirtAddr, usize_of};
 use crate::config::{CacheConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind};
 use crate::sim::components::{CacheId, ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
@@ -514,7 +514,7 @@ impl Cache {
     }
 
     const fn set_index(&self, line: LineAddr) -> SetIdx {
-        SetIdx::new(((line.val() as usize) / self.line_bytes) % self.num_sets)
+        SetIdx::new((usize_of(line.val()) / self.line_bytes) % self.num_sets)
     }
 
     const fn tag_of(&self, line: LineAddr) -> u64 {

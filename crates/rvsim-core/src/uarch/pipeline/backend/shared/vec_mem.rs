@@ -9,6 +9,7 @@
 //! and a span that meets a fault, a trigger or a device go element by
 //! element.
 
+use crate::common::usize_of;
 use std::collections::VecDeque;
 
 use crate::exec::compute::vector::mem::{ElementAccess, is_vec_store};
@@ -150,9 +151,9 @@ pub fn expected_load_micro_ops(
     if parse_vtype(config.vtype).vill && ctrl.vec_op.is_some_and(VectorOp::depends_on_vtype) {
         return 1;
     }
-    let body = config.vl.saturating_sub(config.vstart) as usize;
+    let body = usize_of(config.vl.saturating_sub(config.vstart));
     let elements = match ctrl.vec_op {
-        Some(VectorOp::Load(VecLoadOp::Mask)) => (config.vl as usize).div_ceil(8),
+        Some(VectorOp::Load(VecLoadOp::Mask)) => usize_of(config.vl).div_ceil(8),
         Some(VectorOp::Load(VecLoadOp::WholeRegister)) => (ctrl.vec_nf as usize + 1) * vlen.bytes(),
         _ => body * Nf::from_encoding(ctrl.vec_nf).fields_usize(),
     };

@@ -14,7 +14,7 @@ pub use run::{RunControl, SimOp, StatsDump, StatsEpoch};
 
 use crate::soc::exit::ExitSignal;
 
-use crate::common::{HartId, InstSeq, PhysAddr, SimError, VirtAddr};
+use crate::common::{HartId, InstSeq, PhysAddr, SimError, VirtAddr, usize_of};
 use crate::isa::op::MemWidth;
 use crate::isa::privileged::Trap;
 use crate::sim::kernel::SimKernel;
@@ -133,7 +133,7 @@ impl Uncore {
         if width_bytes == 0 || !self.bus.is_ram(paddr, width_bytes) {
             return;
         }
-        self.kernel.memory.write(writer, paddr, data, width_bytes as usize);
+        self.kernel.memory.write(writer, paddr, data, usize_of(width_bytes));
     }
 
     /// Whether a trace event about `trap` prints under the current

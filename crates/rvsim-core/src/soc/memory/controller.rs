@@ -9,7 +9,7 @@
 
 use std::num::NonZeroU64;
 
-use crate::common::{LineAddr, PhysAddr};
+use crate::common::{LineAddr, PhysAddr, usize_of};
 use crate::config::MemoryConfig;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
@@ -186,7 +186,7 @@ impl DramController {
 
     #[inline]
     const fn bank_index(&self, addr: u64) -> usize {
-        ((addr >> self.row_shift) as usize) % self.num_banks
+        usize_of(addr >> self.row_shift) % self.num_banks
     }
 
     #[inline]
@@ -389,8 +389,8 @@ const fn is_dataless_maintenance(op: &MemOp) -> bool {
 pub fn read_response(memory: &GlobalMemory, paddr: PhysAddr, size: AccessSize) -> MemRespData {
     if size == AccessSize::Line {
         let line = memory
-            .read_bytes(paddr, CACHE_LINE_BYTES as usize)
-            .unwrap_or_else(|| vec![0; CACHE_LINE_BYTES as usize].into_boxed_slice());
+            .read_bytes(paddr, usize_of(CACHE_LINE_BYTES))
+            .unwrap_or_else(|| vec![0; usize_of(CACHE_LINE_BYTES)].into_boxed_slice());
         return MemRespData::Line(line);
     }
     MemRespData::Small(memory.read(paddr, size.bytes()).unwrap_or(0))

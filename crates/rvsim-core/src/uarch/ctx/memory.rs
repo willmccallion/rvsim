@@ -9,7 +9,7 @@ use super::CoreCtx;
 use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
 use crate::arch::translation::TranslationResult;
-use crate::common::{AccessType, PAGE_SHIFT, PhysAddr, VirtAddr};
+use crate::common::{AccessType, PAGE_SHIFT, PhysAddr, VirtAddr, usize_of};
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::memory::write_log::Writer;
 use crate::soc::uncore::Uncore;
@@ -20,7 +20,7 @@ use crate::uarch::mmu::{self, TranslateOutcome};
 /// How many bytes lie between `vaddr` and the end of its page.
 const fn bytes_to_page_end(vaddr: u64) -> usize {
     const PAGE_SIZE: u64 = 1 << PAGE_SHIFT;
-    (PAGE_SIZE - (vaddr & (PAGE_SIZE - 1))) as usize
+    usize_of(PAGE_SIZE - (vaddr & (PAGE_SIZE - 1)))
 }
 
 /// Begins (or completes) translation of a virtual address.
