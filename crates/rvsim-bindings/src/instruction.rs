@@ -10,16 +10,16 @@ use pyo3::prelude::*;
 pub struct PyInstruction {
     /// The address it retired from.
     #[pyo3(get)]
-    pub(crate) pc: u64,
+    pub pc: u64,
     /// Its encoding.
     #[pyo3(get)]
-    pub(crate) raw: u32,
+    pub raw: u32,
     /// Its disassembly.
     #[pyo3(get)]
-    pub(crate) asm: String,
+    pub asm: String,
     /// Cycles `step` ran to retire it.
     #[pyo3(get)]
-    pub(crate) cycles: u64,
+    pub cycles: u64,
 }
 
 #[pymethods]

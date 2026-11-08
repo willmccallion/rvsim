@@ -6,7 +6,6 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rvsim_core::config::{Config, ValidConfig};
-use serde_json;
 
 /// The configuration a Python dict describes, read through JSON and
 /// checked by the core.

@@ -73,9 +73,9 @@ fn csr_name_to_addr(name: &str) -> Option<u32> {
 #[derive(Debug)]
 pub struct Registers {
     /// The simulator the registers belong to.
-    pub(crate) sim: Py<PySimulator>,
+    pub sim: Py<PySimulator>,
     /// The hart whose registers these are.
-    pub(crate) hart: usize,
+    pub hart: usize,
 }
 
 /// The integer register Python's `idx` names, or an `IndexError`.
@@ -121,9 +121,9 @@ impl Registers {
 #[derive(Debug)]
 pub struct Csrs {
     /// The simulator the CSRs belong to.
-    pub(crate) sim: Py<PySimulator>,
+    pub sim: Py<PySimulator>,
     /// The hart whose CSRs these are.
-    pub(crate) hart: usize,
+    pub hart: usize,
 }
 
 #[pymethods]
@@ -154,9 +154,9 @@ impl Csrs {
 #[derive(Debug)]
 pub struct Hart {
     /// The simulator the hart belongs to.
-    pub(crate) sim: Py<PySimulator>,
+    pub sim: Py<PySimulator>,
     /// The hart's index.
-    pub(crate) index: usize,
+    pub index: usize,
 }
 
 #[pymethods]
@@ -220,7 +220,7 @@ impl Hart {
 #[derive(Debug)]
 pub struct Harts {
     /// The simulator the harts belong to.
-    pub(crate) sim: Py<PySimulator>,
+    pub sim: Py<PySimulator>,
 }
 
 #[pymethods]
@@ -248,7 +248,7 @@ impl Harts {
 
 /// How many bits one memory read returns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Width {
+pub enum Width {
     /// A 32-bit read.
     Bits32,
     /// A 64-bit read.
@@ -279,9 +279,9 @@ impl Width {
 #[derive(Debug)]
 pub struct Memory {
     /// The simulator whose memory this reads.
-    pub(crate) sim: Py<PySimulator>,
+    pub sim: Py<PySimulator>,
     /// Bits per read.
-    pub(crate) width: Width,
+    pub width: Width,
 }
 
 #[pymethods]
@@ -305,9 +305,9 @@ impl Memory {
 #[derive(Debug)]
 pub struct VirtualMemory {
     /// The simulator whose memory this reads.
-    pub(crate) sim: Py<PySimulator>,
+    pub sim: Py<PySimulator>,
     /// Bits per read.
-    pub(crate) width: Width,
+    pub width: Width,
 }
 
 #[pymethods]
