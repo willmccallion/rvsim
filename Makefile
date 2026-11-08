@@ -1,12 +1,15 @@
 # Run from the repo root; `make help` lists the targets.
-# Override tools: CARGO=cargo MATURIN=maturin PYTHON=python3
+# Python runs from .venv, which `make python` creates; override a tool with
+# CARGO=…, PYTHON=…, MATURIN=… or FLAMEGRAPH=….
 
 SHELL           := $(shell command -v bash)
 .DEFAULT_GOAL   := help
 
+VENV            := .venv
 CARGO           ?= cargo
-MATURIN         ?= $(shell [ -f .venv/bin/maturin ] && echo .venv/bin/maturin || echo maturin)
-PYTHON          ?= $(shell [ -f .venv/bin/python3 ] && echo .venv/bin/python3 || echo python3)
+PYTHON          ?= $(VENV)/bin/python
+MATURIN         ?= $(VENV)/bin/maturin
+FLAMEGRAPH      ?= flamegraph
 
 # Centralized build directory
 BUILD_DIR       := target
@@ -27,7 +30,7 @@ else
   RESET  :=
 endif
 
-.PHONY: help build software examples linux python python-wheel
+.PHONY: help software examples linux python python-wheel
 .PHONY: check test test-python test-coverage clippy fmt fmt-check lint prerelease
 .PHONY: compare-gem5
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
@@ -43,7 +46,6 @@ HELP_W := 28
 help:
 	@printf "\n$(BOLD)rvsim$(RESET) — RISC-V cycle-level simulator\n\n"
 	@printf "  $(CYAN)Build$(RESET)\n"
-	@printf "    %-$(HELP_W)s  Build Python bindings (editable, maturin)\n" "make build"
 	@printf "    %-$(HELP_W)s  Install Python bindings (editable, maturin)\n" "make python"
 	@printf "    %-$(HELP_W)s  Build distributable Python wheel\n" "make python-wheel"
 	@printf "    %-$(HELP_W)s  Build libc and example RISC-V programs\n" "make software"
@@ -88,8 +90,6 @@ help:
 	@printf "    %-$(HELP_W)s  Remove software artifacts only\n" "make clean-software"
 	@printf "\n"
 
-build: python
-
 software:
 	@printf "$(GREEN)Building libc and example programs…$(RESET)\n"
 	$(MAKE) -C software
@@ -104,18 +104,22 @@ else
 	$(MAKE) -C software linux
 endif
 
+# The venv with the development tools; remade when their pins change.
+VENV_STAMP := $(VENV)/.requirements-dev
+
+$(VENV_STAMP): requirements-dev.txt
+	@printf "$(GREEN)Installing the development tools into $(VENV)…$(RESET)\n"
+	@[ -x $(VENV)/bin/python ] || python3 -m venv $(VENV)
+	$(VENV)/bin/pip install --quiet -r requirements-dev.txt
+	@touch $@
+
 # Install Python bindings in editable/dev mode via maturin
-python:
+python: $(VENV_STAMP)
 	@printf "$(GREEN)Installing Python bindings (editable)…$(RESET)\n"
-	@if [ ! -d .venv ]; then \
-		printf "$(GREEN)Creating .venv…$(RESET)\n"; \
-		python3 -m venv .venv; \
-	fi
-	@.venv/bin/pip install --quiet -r requirements-dev.txt
-	.venv/bin/maturin develop --release
+	$(MATURIN) develop --release
 
 # Build a distributable wheel into target/wheels
-python-wheel:
+python-wheel: $(VENV_STAMP)
 	@printf "$(GREEN)Building Python wheel into $(BUILD_DIR)/wheels…$(RESET)\n"
 	$(MATURIN) build --release --out $(BUILD_DIR)/wheels
 
@@ -129,9 +133,9 @@ test:
 
 test-python: python
 	@printf "$(GREEN)Running Python API tests…$(RESET)\n"
-	.venv/bin/python -m unittest discover -s tests/python
+	$(PYTHON) -m unittest discover -s tests/python
 	@printf "$(GREEN)Checking rvsim/_core.pyi against the extension…$(RESET)\n"
-	.venv/bin/python -m mypy.stubtest rvsim._core
+	$(PYTHON) -m mypy.stubtest rvsim._core
 
 # Runs gem5 only when it is available; otherwise compares with the stored
 # tools/gem5_compare/results/gem5.json.
@@ -150,11 +154,6 @@ compare-gem5: python
 
 test-coverage:
 	@printf "$(GREEN)Running cargo llvm-cov…$(RESET)\n"
-	@command -v cargo-llvm-cov >/dev/null 2>&1 || { \
-		printf "$(BOLD)Error: cargo-llvm-cov not installed.$(RESET)\n"; \
-		printf "Install with: $(CYAN)cargo install cargo-llvm-cov$(RESET)\n"; \
-		exit 1; \
-	}
 	$(CARGO) llvm-cov --workspace --exclude rvsim-bindings
 
 clippy:
@@ -162,17 +161,19 @@ clippy:
 	$(CARGO) clippy --workspace --all-targets -- -D warnings
 	$(CARGO) clippy --workspace --all-targets --features rvsim-core/commit-log -- -D warnings
 
-fmt:
+PYTHON_SOURCES := rvsim tests examples tools docs
+
+fmt: $(VENV_STAMP)
 	@printf "$(GREEN)Formatting Rust code…$(RESET)\n"
 	$(CARGO) fmt --all
 	@printf "$(GREEN)Formatting Python code…$(RESET)\n"
-	$(PYTHON) -m ruff format rvsim tests examples tools docs
+	$(PYTHON) -m ruff format $(PYTHON_SOURCES)
 
-fmt-check:
+fmt-check: $(VENV_STAMP)
 	@printf "$(GREEN)Checking Rust formatting…$(RESET)\n"
 	$(CARGO) fmt --all -- --check
 	@printf "$(GREEN)Checking Python formatting…$(RESET)\n"
-	$(PYTHON) -m ruff format --check rvsim tests examples tools docs
+	$(PYTHON) -m ruff format --check $(PYTHON_SOURCES)
 
 lint: fmt-check clippy
 
@@ -225,7 +226,7 @@ $(RISCV_TESTS_STAMP): $(TEST_BUILDS)/riscv-tests
 
 riscv-tests: riscv-tests-build python
 	@printf "$(GREEN)Running riscv-tests across all PIPELINES…$(RESET)\n"
-	.venv/bin/python tests/conformance/riscv_tests.py
+	$(PYTHON) tests/conformance/riscv_tests.py
 
 # Vector tests (chipsalliance generator + spike cosim)
 vector-test-build: $(SPIKE_LOCAL)
@@ -234,7 +235,7 @@ vector-test-build: $(SPIKE_LOCAL)
 
 vector-test: vector-test-build python
 	@printf "$(GREEN)Running RVV cosim suite (rvsim vs spike)…$(RESET)\n"
-	.venv/bin/python tests/conformance/vector/run_vector_tests.py --vlen $(VECTOR_VLEN)
+	$(PYTHON) tests/conformance/vector/run_vector_tests.py --vlen $(VECTOR_VLEN)
 
 # The smoke sample builds into its own directory, so it leaves a full build
 # in place.
@@ -245,7 +246,7 @@ vector-smoke-build: $(SPIKE_LOCAL)
 
 vector-test-smoke: vector-smoke-build python
 	@printf "$(GREEN)Running the RVV smoke sample (rvsim vs spike)…$(RESET)\n"
-	.venv/bin/python tests/conformance/vector/run_vector_tests.py --vlen $(VECTOR_VLEN) \
+	$(PYTHON) tests/conformance/vector/run_vector_tests.py --vlen $(VECTOR_VLEN) \
 		--build-dir $(VECTOR_SMOKE_BUILD)
 
 # Multi-config runners
@@ -254,7 +255,7 @@ vector-test-smoke: vector-smoke-build python
 
 vector-test-multi: vector-test-build python
 	@printf "$(GREEN)Running RVV tests across all PIPELINES (this is slow)…$(RESET)\n"
-	.venv/bin/python tests/conformance/vector_tests.py --vlen $(VECTOR_VLEN)
+	$(PYTHON) tests/conformance/vector_tests.py --vlen $(VECTOR_VLEN)
 
 # Spike lockstep: tools/lockstep/spike_lockstep replays rvsim's commit log on
 # spike's library, built against the local spike.
@@ -270,10 +271,10 @@ $(LOCKSTEP_DRIVER): tools/lockstep/spike_lockstep.cc $(SPIKE_LOCAL)
 lockstep-build: $(LOCKSTEP_DRIVER)
 
 lockstep: lockstep-build riscv-tests-build software python
-	.venv/bin/python tests/conformance/lockstep.py
+	$(PYTHON) tests/conformance/lockstep.py
 
 lockstep-smoke: lockstep-build riscv-tests-build software python
-	.venv/bin/python tests/conformance/lockstep.py --smoke
+	$(PYTHON) tests/conformance/lockstep.py --smoke
 
 # RTL comparison: Chipyard's Rocket and BOOM as Verilator simulators
 # (tools/rtl/build.sh, pinned in tests/conformance/sources.mk), run on the
@@ -285,7 +286,7 @@ rtl-build: $(SPIKE_LOCAL)
 	RISCV=$(abspath $(SPIKE_INSTALL)) bash tools/rtl/build.sh
 
 rtl-compare: rtl-build software python
-	.venv/bin/python tools/diag/rtl_compare.py --core $(RTL_CORE)
+	$(PYTHON) tools/diag/rtl_compare.py --core $(RTL_CORE)
 
 # Embench-IoT as static riscv64 Linux programs (tools/embench/build.sh,
 # pinned in tests/conformance/sources.mk), for SE mode and its
@@ -312,19 +313,19 @@ $(SE_PROGRAMS_STAMP): $(wildcard tools/se/programs/*.c) tools/se/programs/build.
 
 EMBENCH ?=
 se-verify: se-programs $(if $(EMBENCH),embench-build) $(if $(BUNDLED),software) python
-	.venv/bin/python tools/se/verify.py $(if $(EMBENCH),--embench) $(if $(BUNDLED),--bundled) $(if $(SLOW),--slow)
+	$(PYTHON) tools/se/verify.py $(if $(EMBENCH),--embench) $(if $(BUNDLED),--bundled) $(if $(SLOW),--slow)
 
 # The big one
 # Builds everything, runs every suite × every PIPELINES config, prints unified
 # summary, exits non-zero on any failure. Several CPU-hours.
 test-all: riscv-tests-build vector-test-build lockstep-build software python
 	@printf "$(GREEN)Running ALL tests across ALL pipeline configs…$(RESET)\n"
-	.venv/bin/python tests/run_all.py
+	$(PYTHON) tests/run_all.py
 
 # The conformance suites' smoke subsets: every riscv-test on the smoke
 # configs, the RVV sample against spike, and the multi-hart programs.
 conformance-smoke: riscv-tests-build vector-smoke-build software python
-	.venv/bin/python tests/run_all.py --smoke
+	$(PYTHON) tests/run_all.py --smoke
 
 # What CI requires before a merge: Rust and Python tests, then the
 # conformance smoke.
@@ -340,22 +341,22 @@ prerelease:
 
 run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
-	.venv/bin/rvsim -f software/bin/benchmarks/qsort.elf
+	$(PYTHON) -m rvsim -f software/bin/benchmarks/qsort.elf
 
 HARTS ?= 8
 run-linux:
-	@test -x .venv/bin/rvsim || $(MAKE) python
+	@$(PYTHON) -c 'import rvsim' 2>/dev/null || $(MAKE) python
 	@test -f software/linux/output/Image -a -f software/linux/output/fw_jump.bin || $(MAKE) linux
 	@printf "$(GREEN)Booting Linux on $(HARTS) hart(s) with DDR5-5600 over a mesh…$(RESET)\n"
-	.venv/bin/rvsim tools/boot_linux.py --no-build --harts $(HARTS)
+	$(PYTHON) -m rvsim tools/boot_linux.py --no-build --harts $(HARTS)
 
-profile-build:
+profile-build: $(VENV_STAMP)
 	@printf "$(GREEN)Building with profiling symbols…$(RESET)\n"
-	.venv/bin/maturin develop --profile profiling
+	$(MATURIN) develop --profile profiling
 
 flamegraph:
 	@printf "$(GREEN)Recording flamegraph…$(RESET)\n"
-	$$HOME/.cargo/bin/flamegraph -o flamegraph.svg -F 99 -- .venv/bin/rvsim $(ARGS)
+	$(FLAMEGRAPH) -o flamegraph.svg -F 99 -- $(PYTHON) -m rvsim $(ARGS)
 
 clean:
 	@printf "$(GREEN)Cleaning all artifacts (removing $(BUILD_DIR))…$(RESET)\n"
