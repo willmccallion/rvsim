@@ -1,137 +1,53 @@
-//! # Simulator Execution Tests
-//!
-//! Tests for the main execution loop and pipeline coordination.
+//! What one tick of the simulator does to the state around the pipeline.
 
 use crate::Simulator;
 use crate::config::Config;
 use crate::isa::privileged::PrivilegeMode;
-use crate::isa::reg::RegIdx;
 use crate::tests::support::harness::build_simulator;
+use crate::tests::support::regs::T0;
 
-fn create_test_sim() -> Simulator {
-    let config = Config::minimal();
-    build_simulator(&config)
+fn minimal_simulator() -> Simulator {
+    build_simulator(&Config::minimal())
 }
 
 #[test]
-fn test_tick_returns_ok() {
-    let mut sim = create_test_sim();
-    let result = sim.tick();
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_tick_increments_cycles() {
-    let mut sim = create_test_sim();
-    let initial_cycles = sim.state.uncore.kernel.cycle;
-
-    sim.tick().unwrap();
-
-    // Cycles should increase
-    assert!(sim.state.uncore.kernel.cycle >= initial_cycles);
-}
-
-#[test]
-fn test_multiple_ticks() {
-    let mut sim = create_test_sim();
+fn each_tick_advances_the_cycle_by_one() {
+    let mut sim = minimal_simulator();
+    let start = sim.state.uncore.kernel.cycle;
 
     for _ in 0..5 {
-        let result = sim.tick();
-        assert!(result.is_ok());
+        sim.tick().expect("tick");
     }
+
+    assert_eq!(sim.state.uncore.kernel.cycle, start + 5);
 }
 
 #[test]
-fn test_exit_code_none_initially() {
-    let sim = create_test_sim();
+fn a_fresh_simulator_has_no_exit_code() {
+    let sim = minimal_simulator();
+
     assert_eq!(sim.state.uncore.peek_exit(), None);
 }
 
 #[test]
-fn test_last_pc_updates() {
-    let mut sim = create_test_sim();
+fn a_tick_that_retires_nothing_leaves_the_registers_alone() {
+    let mut sim = minimal_simulator();
+    sim.state.harts[0].regs.write(T0, 0x1234_5678);
 
-    sim.tick().unwrap();
+    sim.tick().expect("tick");
 
-    // PC is always set to a valid address
-    let _ = sim.state.harts[0].pc;
+    assert_eq!(sim.state.instructions_retired(), 0);
+    assert_eq!(sim.state.harts[0].regs.read(T0), 0x1234_5678);
 }
 
 #[test]
-fn test_same_pc_counter() {
-    let mut sim = create_test_sim();
-    let idx = sim.state.harts[0].hart_id.as_index();
-    let initial_count = sim.state.uncore.per_hart_debug[idx].same_pc_count;
-    sim.state.uncore.per_hart_debug[idx].same_pc_count = 0;
+fn a_tick_that_retires_nothing_keeps_the_privilege_mode() {
+    for mode in [PrivilegeMode::Machine, PrivilegeMode::Supervisor, PrivilegeMode::User] {
+        let mut sim = minimal_simulator();
+        sim.state.harts[0].privilege = mode;
 
-    sim.tick().unwrap();
+        sim.tick().expect("tick");
 
-    let count = sim.state.uncore.per_hart_debug[idx].same_pc_count;
-    assert!(count != initial_count || count == 0);
-}
-
-#[test]
-fn test_privilege_preserved_across_tick() {
-    let mut sim = create_test_sim();
-
-    sim.tick().unwrap();
-
-    // Privilege should be set to something valid
-    assert!(
-        sim.state.harts[0].privilege == PrivilegeMode::User
-            || sim.state.harts[0].privilege == PrivilegeMode::Supervisor
-            || sim.state.harts[0].privilege == PrivilegeMode::Machine
-    );
-}
-
-#[test]
-fn test_bus_interaction_tick() {
-    let mut sim = create_test_sim();
-
-    // Should not panic when calling tick which accesses bus
-    let result = sim.tick();
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_stats_updated() {
-    let mut sim = create_test_sim();
-    let initial_instructions = sim.state.instructions_retired();
-
-    sim.tick().unwrap();
-
-    assert!(sim.state.instructions_retired() >= initial_instructions);
-}
-
-#[test]
-fn test_tick_does_not_corrupt_state() {
-    let mut sim = create_test_sim();
-    sim.state.harts[0].regs.write(RegIdx::new(5), 0x1234_5678);
-
-    sim.tick().unwrap();
-
-    let _ = sim.state.harts[0].regs.read(RegIdx::new(5));
-}
-
-#[test]
-fn test_rapid_ticks() {
-    let mut sim = create_test_sim();
-
-    for _ in 0..100 {
-        let result = sim.tick();
-        assert!(result.is_ok());
-    }
-
-    // Should complete without panicking
-}
-
-#[test]
-fn test_tick_with_different_privileges() {
-    for priv_level in [PrivilegeMode::Machine, PrivilegeMode::Supervisor, PrivilegeMode::User] {
-        let mut sim = create_test_sim();
-        sim.state.harts[0].privilege = priv_level;
-
-        let result = sim.tick();
-        assert!(result.is_ok());
+        assert_eq!(sim.state.harts[0].privilege, mode);
     }
 }
