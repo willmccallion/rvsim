@@ -86,8 +86,14 @@ fn load_kernel(state: &mut SystemState, boot: &KernelBoot, addr: PhysAddr) -> Re
     Ok(())
 }
 
-/// Where a kernel boot places the device tree, from RAM base.
+/// Where a kernel boot places the device tree, from RAM base. `OpenSBI`'s
+/// generic `fw_jump` reads the tree from here (`FW_JUMP_FDT_ADDR`) and
+/// ignores `a1`, so unlike a bare-metal image's it cannot go at the top of
+/// RAM.
 const DTB_OFFSET: u64 = 0x0220_0000;
+
+/// How far below the device tree `fw_dynamic`'s info block goes.
+const FW_DYNAMIC_INFO_GAP: u64 = 0x200;
 
 /// Sets up kernel loading: places `OpenSBI`, kernel image, and DTB in RAM and initializes CPU state.
 ///
@@ -138,7 +144,7 @@ pub(crate) fn setup_kernel_load(
             const FW_DYNAMIC_INFO_MAGIC: u64 = 0x4942534f;
             const FW_DYNAMIC_INFO_VERSION: u64 = 2;
             const NEXT_MODE_S: u64 = 1;
-            let info_addr = dtb_addr - 0x200;
+            let info_addr = dtb_addr - FW_DYNAMIC_INFO_GAP;
             let fields: [u64; 7] = [
                 FW_DYNAMIC_INFO_MAGIC,
                 FW_DYNAMIC_INFO_VERSION,
