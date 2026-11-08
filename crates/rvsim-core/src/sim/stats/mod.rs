@@ -7,7 +7,7 @@
 //! ## What this module gives you
 //!
 //! - Path-addressed [`Counter`]s and [`Histogram`]s ([`Stats::counter`]).
-//! - Per-stat [`Meta`] with unit + aggregation kind ([`Stats::register`]).
+//! - Per-stat [`Unit`] ([`Stats::register`]).
 //! - Derived metrics with formulas ([`Stats::derive`]), evaluated on read.
 //! - Wildcard queries ([`Stats::query`]) with `*` (one segment) and `**`
 //!   (any depth).
@@ -19,13 +19,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write};
 use std::sync::{LazyLock, RwLock};
 
-pub mod meta;
 pub mod paths;
 pub mod query;
 pub mod summary;
+pub mod unit;
 
-pub use meta::{Kind, Meta, Unit};
 pub use query::QueryResult;
+pub use unit::Unit;
 
 use crate::common::{CoreId, HartId};
 use paths::{CorePaths, HartPaths, SystemPaths};
@@ -325,8 +325,8 @@ pub enum Formula {
 pub struct Stats {
     counters: Store<Counter>,
     histograms: Store<Histogram>,
-    /// Per-registered-stat metadata.
-    pub(crate) meta: BTreeMap<StatId, Meta>,
+    /// The unit of every registered stat.
+    pub(crate) units: BTreeMap<StatId, Unit>,
     /// Registered derived stats and the formulas that compute them.
     pub(crate) derived: BTreeMap<StatId, Formula>,
 }
@@ -399,29 +399,29 @@ impl Stats {
         self.histograms.get(stat.stat_id()?)
     }
 
-    /// Registers metadata for a counter path. Idempotent — a repeat
-    /// registration overwrites the previous [`Meta`].
+    /// Registers a counter path in `unit`. Idempotent — a repeat
+    /// registration overwrites the previous unit.
     ///
     /// Registering also allocates the underlying [`Counter`] so the path
     /// appears in queries even before any writer has incremented it.
-    pub fn register(&mut self, stat: impl Into<StatId>, meta: Meta) {
+    pub fn register(&mut self, stat: impl Into<StatId>, unit: Unit) {
         let stat = stat.into();
         let _ = self.counters.get_or_insert(stat);
-        let _ = self.meta.insert(stat, meta);
+        let _ = self.units.insert(stat, unit);
     }
 
     /// Describes a histogram. It holds nothing, and queries do not list it,
     /// until it records its first sample.
-    pub fn register_histogram(&mut self, stat: impl Into<StatId>, meta: Meta) {
-        let _ = self.meta.insert(stat.into(), meta);
+    pub fn register_histogram(&mut self, stat: impl Into<StatId>, unit: Unit) {
+        let _ = self.units.insert(stat.into(), unit);
     }
 
     /// Registers a derived stat with a formula. The value is computed on read
     /// via [`Stats::get`] and included in [`Stats::summary`].
-    pub fn derive(&mut self, stat: impl Into<StatId>, formula: Formula, meta: Meta) {
+    pub fn derive(&mut self, stat: impl Into<StatId>, formula: Formula, unit: Unit) {
         let stat = stat.into();
         let _ = self.derived.insert(stat, formula);
-        let _ = self.meta.insert(stat, meta);
+        let _ = self.units.insert(stat, unit);
     }
 
     /// Reads a stat value by path. Works for both raw counters and derived
@@ -457,7 +457,7 @@ impl Stats {
     }
 
     /// Returns an auto-generated multi-section summary of the stats tree,
-    /// grouped by subject and formatted according to each stat's [`Meta`].
+    /// grouped by subject and formatted according to each stat's [`Unit`].
     #[must_use]
     pub fn summary(&self, cycles: u64, instructions_retired: u64) -> String {
         summary::format(self, cycles, instructions_retired)
@@ -481,7 +481,7 @@ impl Stats {
     #[must_use]
     pub fn subjects(&self) -> Vec<&'static str> {
         let mut out: Vec<&'static str> = self
-            .meta
+            .units
             .keys()
             .map(|id| id.path())
             .map(|p| p.split_once('.').map_or(p, |(head, _)| head))
@@ -503,7 +503,7 @@ impl Stats {
             histograms: self
                 .histograms
                 .map_since(&earlier.histograms, |h, e| e.map_or_else(|| h.clone(), |e| h.since(e))),
-            meta: self.meta.clone(),
+            units: self.units.clone(),
             derived: self.derived.clone(),
         }
     }
@@ -573,133 +573,105 @@ impl Stats {
 
 /// Registers a hart's counters.
 fn register_hart(s: &mut Stats, h: &HartPaths) {
-    s.register(h.retired_insts, Meta::events("instructions retired"));
-    s.register(h.traps, Meta::events("trap-taken events"));
-    s.register(h.cycles_user, Meta::cycles("cycles spent in user (U) privilege"));
-    s.register(h.cycles_kernel, Meta::cycles("cycles spent in supervisor (S) privilege"));
-    s.register(h.cycles_machine, Meta::cycles("cycles spent in machine (M) privilege"));
+    s.register(h.retired_insts, Unit::Events);
+    s.register(h.traps, Unit::Events);
+    s.register(h.cycles_user, Unit::Cycles);
+    s.register(h.cycles_kernel, Unit::Cycles);
+    s.register(h.cycles_machine, Unit::Cycles);
 }
 
 /// Registers a core's counters and its derived rates (BP accuracies,
 /// IPC/CPI against `first_hart`'s retired instructions).
 fn register_core(s: &mut Stats, c: &CorePaths, first_hart: &HartPaths) {
     let commit = &c.commit;
-    s.register(commit.op_load, Meta::events("integer load retired"));
-    s.register(commit.op_store, Meta::events("integer store retired"));
-    s.register(commit.op_branch, Meta::events("branch/jump retired"));
-    s.register(commit.op_alu, Meta::events("integer ALU retired"));
-    s.register(commit.op_system, Meta::events("system / CSR / ECALL retired"));
-    s.register(commit.op_atomic, Meta::events("LR, SC or AMO retired"));
-    s.register(commit.fp_load, Meta::events("FP load retired"));
-    s.register(commit.fp_store, Meta::events("FP store retired"));
-    s.register(commit.fp_arith, Meta::events("FP arithmetic retired"));
-    s.register(commit.fp_fma, Meta::events("FP fused multiply-add retired"));
-    s.register(commit.fp_div_sqrt, Meta::events("FP divide/sqrt retired"));
-    s.register(commit.vec_int, Meta::events("vector integer op retired"));
-    s.register(commit.vec_fp, Meta::events("vector FP op retired"));
-    s.register(commit.vec_load, Meta::events("vector load retired"));
-    s.register(commit.vec_store, Meta::events("vector store retired"));
-    s.register(commit.vec_misc, Meta::events("vector misc (permute/mask/config) retired"));
-    s.register(commit.vec_crypto, Meta::events("vector crypto (Zvk*) retired"));
-    s.register(commit.retire_hist_zero, Meta::cycles("cycles where 0 insts retired"));
-    s.register(commit.retire_hist_one, Meta::cycles("cycles where exactly 1 inst retired"));
-    s.register(commit.retire_hist_two, Meta::cycles("cycles where exactly 2 insts retired"));
-    s.register(commit.retire_hist_three_plus, Meta::cycles("cycles where 3+ insts retired"));
+    s.register(commit.op_load, Unit::Events);
+    s.register(commit.op_store, Unit::Events);
+    s.register(commit.op_branch, Unit::Events);
+    s.register(commit.op_alu, Unit::Events);
+    s.register(commit.op_system, Unit::Events);
+    s.register(commit.op_atomic, Unit::Events);
+    s.register(commit.fp_load, Unit::Events);
+    s.register(commit.fp_store, Unit::Events);
+    s.register(commit.fp_arith, Unit::Events);
+    s.register(commit.fp_fma, Unit::Events);
+    s.register(commit.fp_div_sqrt, Unit::Events);
+    s.register(commit.vec_int, Unit::Events);
+    s.register(commit.vec_fp, Unit::Events);
+    s.register(commit.vec_load, Unit::Events);
+    s.register(commit.vec_store, Unit::Events);
+    s.register(commit.vec_misc, Unit::Events);
+    s.register(commit.vec_crypto, Unit::Events);
+    s.register(commit.retire_hist_zero, Unit::Cycles);
+    s.register(commit.retire_hist_one, Unit::Cycles);
+    s.register(commit.retire_hist_two, Unit::Cycles);
+    s.register(commit.retire_hist_three_plus, Unit::Cycles);
 
     let pipe = &c.pipeline;
-    s.register(pipe.cycles_total, Meta::cycles("cycles the core was ticked"));
-    s.register(pipe.cycles_wfi, Meta::cycles("cycles in WFI"));
-    s.register(pipe.cycles_rob_empty, Meta::cycles("cycles with empty ROB"));
-    s.register(pipe.stalls_control, Meta::cycles("recovering from a backend redirect"));
-    s.register(pipe.stalls_fetch_wait, Meta::cycles("Fetch waited on an in-flight fetch"));
-    s.register(pipe.stalls_data, Meta::cycles("issue stalled on data hazard"));
-    s.register(pipe.stalls_ordering, Meta::cycles("issue held for program order"));
-    s.register(pipe.stalls_fu_structural, Meta::cycles("issue stalled on FU structural"));
-    s.register(pipe.stalls_backpressure, Meta::cycles("downstream backpressure stalls"));
-    s.register(pipe.stalls_dispatch, Meta::cycles("dispatch stalls"));
-    s.register(pipe.stalls_checkpoint, Meta::cycles("checkpoint allocation stalls"));
-    s.register(
-        pipe.stalls_serialize,
-        Meta::cycles("rename stalls behind a serializing instruction"),
-    );
-    s.register(pipe.stalls_squash, Meta::cycles("squash-recovery cycles"));
-    s.register(pipe.flushes_total, Meta::events("total pipeline flushes"));
-    s.register(pipe.flushes_branch, Meta::events("flushes: branch mispredict"));
-    s.register(pipe.flushes_system, Meta::events("flushes: system serialization"));
-    s.register(pipe.flushes_mem_violations, Meta::events("flushes: memory ordering violations"));
-    s.register(pipe.flushes_coherence, Meta::events("flushes: a value another hart overwrote"));
-    s.register(pipe.flushes_trap, Meta::events("flushes: exceptions and interrupts at commit"));
-    s.register(pipe.flushes_squashed_insns, Meta::events("ROB entries dropped by flushes"));
+    s.register(pipe.cycles_total, Unit::Cycles);
+    s.register(pipe.cycles_wfi, Unit::Cycles);
+    s.register(pipe.cycles_rob_empty, Unit::Cycles);
+    s.register(pipe.stalls_control, Unit::Cycles);
+    s.register(pipe.stalls_fetch_wait, Unit::Cycles);
+    s.register(pipe.stalls_data, Unit::Cycles);
+    s.register(pipe.stalls_ordering, Unit::Cycles);
+    s.register(pipe.stalls_fu_structural, Unit::Cycles);
+    s.register(pipe.stalls_backpressure, Unit::Cycles);
+    s.register(pipe.stalls_dispatch, Unit::Cycles);
+    s.register(pipe.stalls_checkpoint, Unit::Cycles);
+    s.register(pipe.stalls_serialize, Unit::Cycles);
+    s.register(pipe.stalls_squash, Unit::Cycles);
+    s.register(pipe.flushes_total, Unit::Events);
+    s.register(pipe.flushes_branch, Unit::Events);
+    s.register(pipe.flushes_system, Unit::Events);
+    s.register(pipe.flushes_mem_violations, Unit::Events);
+    s.register(pipe.flushes_coherence, Unit::Events);
+    s.register(pipe.flushes_trap, Unit::Events);
+    s.register(pipe.flushes_squashed_insns, Unit::Events);
 
     let bp = &c.bp;
-    s.register(bp.committed_hits, Meta::events("branch and jump predictions correct (committed)"));
-    s.register(
-        bp.committed_mispredicts,
-        Meta::events("branch and jump predictions wrong (committed)"),
-    );
-    s.register(bp.spec_hits, Meta::events("branch predictions correct (speculative)"));
-    s.register(bp.spec_mispredicts, Meta::events("branch predictions wrong (speculative)"));
-    s.register(bp.decode_redirects, Meta::events("fetch redirects from decode"));
+    s.register(bp.committed_hits, Unit::Events);
+    s.register(bp.committed_mispredicts, Unit::Events);
+    s.register(bp.spec_hits, Unit::Events);
+    s.register(bp.spec_mispredicts, Unit::Events);
+    s.register(bp.decode_redirects, Unit::Events);
 
     let mdp = &c.mdp;
-    s.register(mdp.predictions_bypass, Meta::events("loads predicted independent of older stores"));
-    s.register(mdp.predictions_wait_all, Meta::events("loads made to wait for every older store"));
-    s.register(
-        mdp.predictions_wait_for,
-        Meta::events("loads and stores made to wait for one store"),
-    );
-    s.register(mdp.violations, Meta::events("loads that read past an aliasing older store"));
+    s.register(mdp.predictions_bypass, Unit::Events);
+    s.register(mdp.predictions_wait_all, Unit::Events);
+    s.register(mdp.predictions_wait_for, Unit::Events);
+    s.register(mdp.violations, Unit::Events);
 
     let lsq = &c.lsq;
-    s.register(
-        lsq.rescheduled_mem_ops,
-        Meta::events(
-            "memory ops that waited in memory1 for an older store, a device or the ROB head",
-        ),
-    );
-    s.register(lsq.split_stores, Meta::events("Stores whose data issued after their address"));
-    s.register(
-        lsq.coherence_replays,
-        Meta::events("LRs re-executed after a remote write to their line"),
-    );
-    s.register(
-        lsq.coherence_violations,
-        Meta::events("Loads squashed for reading a line before a remote write an older load saw"),
-    );
+    s.register(lsq.rescheduled_mem_ops, Unit::Events);
+    s.register(lsq.split_stores, Unit::Events);
+    s.register(lsq.coherence_replays, Unit::Events);
+    s.register(lsq.coherence_violations, Unit::Events);
 
-    s.register(c.wcb.coalesces, Meta::events("stores merged into a line the WCB already held"));
-    s.register(c.wcb.drains, Meta::events("WCB lines written to the L1D"));
+    s.register(c.wcb.coalesces, Unit::Events);
+    s.register(c.wcb.drains, Unit::Events);
     let pf = &c.load_prefetch;
-    s.register(pf.l1, Meta::events("load prefetches sent to fill the L1D"));
-    s.register(pf.l2, Meta::events("load prefetches sent to fill the L2 alone"));
-    s.register(pf.page_boundary, Meta::events("load prefetches stopped at the page boundary"));
-    s.register(pf.tlb_miss, Meta::events("load prefetches whose next page missed the DTLB"));
-    s.register(pf.denied, Meta::events("load prefetches to a page the load may not read"));
-    s.register(pf.not_ram, Meta::events("load prefetches to a line outside RAM"));
+    s.register(pf.l1, Unit::Events);
+    s.register(pf.l2, Unit::Events);
+    s.register(pf.page_boundary, Unit::Events);
+    s.register(pf.tlb_miss, Unit::Events);
+    s.register(pf.denied, Unit::Events);
+    s.register(pf.not_ram, Unit::Events);
     for path in c.fu.all {
-        s.register(path, Meta::cycles("cycles units of this type could take no other op"));
+        s.register(path, Unit::Cycles);
     }
 
     s.derive(
         bp.committed_accuracy,
         Formula::Ratio { numerator: bp.committed_hits, other: bp.committed_mispredicts },
-        Meta::ratio("branch-prediction accuracy (committed)"),
+        Unit::Ratio,
     );
     s.derive(
         bp.spec_accuracy,
         Formula::Ratio { numerator: bp.spec_hits, other: bp.spec_mispredicts },
-        Meta::ratio("branch-prediction accuracy (speculative)"),
+        Unit::Ratio,
     );
-    s.derive(
-        c.ipc,
-        Formula::Div(first_hart.retired_insts, pipe.cycles_total),
-        Meta::ratio("instructions per cycle"),
-    );
-    s.derive(
-        c.cpi,
-        Formula::Div(pipe.cycles_total, first_hart.retired_insts),
-        Meta::ratio("cycles per instruction"),
-    );
+    s.derive(c.ipc, Formula::Div(first_hart.retired_insts, pipe.cycles_total), Unit::Ratio);
+    s.derive(c.cpi, Formula::Div(pipe.cycles_total, first_hart.retired_insts), Unit::Ratio);
 }
 
 /// Registers the `system.*` sums over every hart.
@@ -707,12 +679,8 @@ fn register_system(s: &mut Stats, harts: &[HartPaths]) {
     let system = SystemPaths::new();
     let retired: Vec<StatId> = harts.iter().map(|h| h.retired_insts).collect();
     let traps: Vec<StatId> = harts.iter().map(|h| h.traps).collect();
-    s.derive(
-        system.retired_insts,
-        Formula::Sum(retired),
-        Meta::events("instructions retired by all harts"),
-    );
-    s.derive(system.traps, Formula::Sum(traps), Meta::events("traps taken by all harts"));
+    s.derive(system.retired_insts, Formula::Sum(retired), Unit::Events);
+    s.derive(system.traps, Formula::Sum(traps), Unit::Events);
 }
 
 #[cfg(test)]
@@ -764,11 +732,7 @@ mod tests {
     #[test]
     fn a_window_recomputes_ratios_from_the_counts_it_holds() {
         let mut s = Stats::new();
-        s.derive(
-            "core.ipc",
-            Formula::Div("core.insts".into(), "core.cycles".into()),
-            Meta::events("ipc"),
-        );
+        s.derive("core.ipc", Formula::Div("core.insts".into(), "core.cycles".into()), Unit::Events);
         s.counter("core.insts").add(100);
         s.counter("core.cycles").add(400);
         let start = s.clone();

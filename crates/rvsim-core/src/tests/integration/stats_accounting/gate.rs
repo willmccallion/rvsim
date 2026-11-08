@@ -61,7 +61,7 @@ fn registered() -> BTreeSet<String> {
         .into_iter()
         .flat_map(|harts| {
             let sim = build_simulator(&every_component(harts));
-            sim.stats().meta.keys().map(|id| normalized(id.path())).collect::<Vec<_>>()
+            sim.stats().units.keys().map(|id| normalized(id.path())).collect::<Vec<_>>()
         })
         .collect()
 }

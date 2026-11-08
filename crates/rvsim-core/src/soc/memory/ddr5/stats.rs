@@ -11,7 +11,7 @@
 
 use crate::sim::stats::StatId;
 
-use crate::sim::stats::{Formula, Meta, Stats};
+use crate::sim::stats::{Formula, Stats, Unit};
 use crate::soc::memory::ddr5::state::{Bank, Subchannel};
 
 /// Counters for one subchannel.
@@ -186,56 +186,35 @@ impl ControllerStatPaths {
     /// Registers metadata and derived stats for every subchannel.
     pub fn register(&self, stats: &mut Stats) {
         for sc in &self.subchannels {
-            stats.register(sc.reads, Meta::events("demand reads admitted"));
-            stats.register(sc.writes, Meta::events("writes admitted"));
-            stats.register(sc.writes_merged, Meta::events("writes merged into a queued write"));
-            stats.register(
-                sc.reads_hit_write_queue,
-                Meta::events("reads served from the write queue"),
-            );
-            stats.register(sc.scrub_reads, Meta::events("patrol-scrub reads"));
-            stats.register(sc.activates, Meta::events("ACTIVATE commands"));
-            stats.register(sc.precharges, Meta::events("PRECHARGE commands"));
-            stats.register(sc.precharge_alls, Meta::events("PRECHARGE-ALL commands"));
-            stats.register(sc.refreshes, Meta::events("REFRESH commands"));
-            stats.register(sc.row_hits, Meta::events("column commands hitting an open row"));
-            stats.register(sc.row_misses, Meta::events("column commands needing an ACTIVATE"));
-            stats.register(sc.power_down_entries, Meta::events("power-down entries"));
-            stats.register(sc.power_down_exits, Meta::events("power-down exits"));
-            stats.register(
-                sc.bus_busy_clocks,
-                Meta::cycles("DRAM clocks with a burst on the data bus"),
-            );
-            stats.register(sc.clocks, Meta::cycles("DRAM clocks elapsed"));
-            stats.register(
-                sc.read_admission_stalls,
-                Meta::cycles("clocks a read waited for a queue slot"),
-            );
-            stats.register(
-                sc.write_admission_stalls,
-                Meta::cycles("clocks a write waited for a queue slot"),
-            );
-            stats.register_histogram(
-                sc.read_latency,
-                Meta::cycles("DRAM clocks from a demand read's arrival to its last data"),
-            );
-            stats.register_histogram(
-                sc.read_queue_depth,
-                Meta::events("reads already queued when a read was admitted"),
-            );
-            stats.register_histogram(
-                sc.write_queue_depth,
-                Meta::events("writes already queued when a write was admitted"),
-            );
+            stats.register(sc.reads, Unit::Events);
+            stats.register(sc.writes, Unit::Events);
+            stats.register(sc.writes_merged, Unit::Events);
+            stats.register(sc.reads_hit_write_queue, Unit::Events);
+            stats.register(sc.scrub_reads, Unit::Events);
+            stats.register(sc.activates, Unit::Events);
+            stats.register(sc.precharges, Unit::Events);
+            stats.register(sc.precharge_alls, Unit::Events);
+            stats.register(sc.refreshes, Unit::Events);
+            stats.register(sc.row_hits, Unit::Events);
+            stats.register(sc.row_misses, Unit::Events);
+            stats.register(sc.power_down_entries, Unit::Events);
+            stats.register(sc.power_down_exits, Unit::Events);
+            stats.register(sc.bus_busy_clocks, Unit::Cycles);
+            stats.register(sc.clocks, Unit::Cycles);
+            stats.register(sc.read_admission_stalls, Unit::Cycles);
+            stats.register(sc.write_admission_stalls, Unit::Cycles);
+            stats.register_histogram(sc.read_latency, Unit::Cycles);
+            stats.register_histogram(sc.read_queue_depth, Unit::Events);
+            stats.register_histogram(sc.write_queue_depth, Unit::Events);
             stats.derive(
                 sc.row_hit_rate,
                 Formula::Ratio { numerator: sc.row_hits, other: sc.row_misses },
-                Meta::ratio("row-buffer hit rate"),
+                Unit::Ratio,
             );
             stats.derive(
                 sc.data_bus_utilization,
                 Formula::Div(sc.bus_busy_clocks, sc.clocks),
-                Meta::ratio("fraction of DRAM clocks the data bus was busy"),
+                Unit::Ratio,
             );
         }
     }
