@@ -6,7 +6,7 @@
 
 use crate::common::{CoreId, HartId};
 use crate::sim::stats::paths::{CorePaths, HartPaths};
-use crate::sim::stats::{Formula, Meta, Stats};
+use crate::sim::stats::{Formula, Stats, Unit};
 
 fn hart0() -> HartPaths {
     HartPaths::new(HartId::new(0))
@@ -157,13 +157,9 @@ fn double_star_matches_zero_segments() {
 #[test]
 fn divide_by_zero_yields_zero_not_nan() {
     let mut s = Stats::new();
-    s.register("a.numerator", Meta::events(""));
-    s.register("a.denominator", Meta::events(""));
-    s.derive(
-        "a.ratio",
-        Formula::Div("a.numerator".into(), "a.denominator".into()),
-        Meta::ratio(""),
-    );
+    s.register("a.numerator", Unit::Events);
+    s.register("a.denominator", Unit::Events);
+    s.derive("a.ratio", Formula::Div("a.numerator".into(), "a.denominator".into()), Unit::Ratio);
     // Both counters are zero: divide-by-zero must yield 0.0.
     assert_eq!(s.get("a.ratio"), Some(0.0));
 }

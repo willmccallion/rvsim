@@ -1,6 +1,6 @@
 //! Stat paths for one cache, allocated when the cache is built.
 
-use crate::sim::stats::{Formula, Meta, StatId, StatSource, Stats};
+use crate::sim::stats::{Formula, StatId, StatSource, Stats, Unit};
 
 /// Counters one cache writes, rooted at its subject (`core0.cache.l1d`,
 /// `llc`, ...).
@@ -115,76 +115,46 @@ impl CacheStatPaths {
 
 impl StatSource for CacheStatPaths {
     fn register(&self, s: &mut Stats) {
-        s.register(self.hits, Meta::events("requests answered from the tag array"));
-        s.register(self.misses, Meta::events("requests that started or joined a line fetch"));
-        s.register(self.mshr_hits, Meta::events("misses that joined an in-flight fetch"));
-        s.register(
-            self.blocked_requests,
-            Meta::events("requests queued while MSHRs or writeback buffer were full"),
-        );
-        s.register(self.fills, Meta::events("lines installed"));
-        s.register(self.evictions, Meta::events("valid lines replaced"));
-        s.register(self.writebacks, Meta::events("lines written to the next level"));
-        s.register(
-            self.back_invalidations,
-            Meta::events("lines dropped at the next level's request"),
-        );
-        s.register(self.maintenance, Meta::events("cache-maintenance operations passed through"));
-        s.register(self.probes, Meta::events("probes received from the level below"));
-        s.register(
-            self.fetch_probes,
-            Meta::events("instruction fetches that probed a data cache above"),
-        );
-        s.register(self.fetch_probes_dirty, Meta::events("fetch probes that found the line dirty"));
-        s.register(self.flushes, Meta::events("whole-cache flushes for FENCE.I"));
-        s.register(self.flushed_lines, Meta::events("valid lines whole-cache flushes invalidated"));
-        s.register(self.snoops, Meta::events("snoops received from the home agent"));
-        s.register(self.snoop_invalidations, Meta::events("snoops that took the line away"));
-        s.register(self.snoop_downgrades, Meta::events("snoops that left a shared copy"));
-        s.register(self.upgrades, Meta::events("permission requests for lines held Shared"));
-        s.register(
-            self.upgrade_retries,
-            Meta::events("permission grants that arrived after a snoop took the line"),
-        );
-        s.register(self.prefetches_issued, Meta::events("prefetch fetches started"));
-        s.register(
-            self.prefetches_late,
-            Meta::events("prefetch fetches a request joined before the fill"),
-        );
-        s.register(
-            self.prefetches_useful,
-            Meta::events("prefetched lines a request found once installed"),
-        );
-        s.register(
-            self.prefetches_unused,
-            Meta::events("prefetched lines dropped before any request found them"),
-        );
-        s.register(
-            self.prefetches_page_crossing,
-            Meta::events("prefetch candidates dropped at a 4 KiB page boundary"),
-        );
-        s.register(
-            self.prefetches_dropped,
-            Meta::events("prefetch requests dropped for want of an MSHR"),
-        );
-        s.register(
-            self.store_prefetches,
-            Meta::events("store-miss prefetches sent to the next level"),
-        );
+        s.register(self.hits, Unit::Events);
+        s.register(self.misses, Unit::Events);
+        s.register(self.mshr_hits, Unit::Events);
+        s.register(self.blocked_requests, Unit::Events);
+        s.register(self.fills, Unit::Events);
+        s.register(self.evictions, Unit::Events);
+        s.register(self.writebacks, Unit::Events);
+        s.register(self.back_invalidations, Unit::Events);
+        s.register(self.maintenance, Unit::Events);
+        s.register(self.probes, Unit::Events);
+        s.register(self.fetch_probes, Unit::Events);
+        s.register(self.fetch_probes_dirty, Unit::Events);
+        s.register(self.flushes, Unit::Events);
+        s.register(self.flushed_lines, Unit::Events);
+        s.register(self.snoops, Unit::Events);
+        s.register(self.snoop_invalidations, Unit::Events);
+        s.register(self.snoop_downgrades, Unit::Events);
+        s.register(self.upgrades, Unit::Events);
+        s.register(self.upgrade_retries, Unit::Events);
+        s.register(self.prefetches_issued, Unit::Events);
+        s.register(self.prefetches_late, Unit::Events);
+        s.register(self.prefetches_useful, Unit::Events);
+        s.register(self.prefetches_unused, Unit::Events);
+        s.register(self.prefetches_page_crossing, Unit::Events);
+        s.register(self.prefetches_dropped, Unit::Events);
+        s.register(self.store_prefetches, Unit::Events);
         s.derive(
             self.prefetches_used,
             Formula::Sum(vec![self.prefetches_useful, self.prefetches_late]),
-            Meta::events("prefetches a request used, late or not"),
+            Unit::Events,
         );
         s.derive(
             self.prefetches_accuracy,
             Formula::Div(self.prefetches_used, self.prefetches_issued),
-            Meta::ratio("share of issued prefetches a request used"),
+            Unit::Ratio,
         );
         s.derive(
             self.miss_rate,
             Formula::Ratio { numerator: self.misses, other: self.hits },
-            Meta::ratio("miss rate"),
+            Unit::Ratio,
         );
     }
 }

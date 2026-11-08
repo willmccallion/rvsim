@@ -1,6 +1,6 @@
 //! Stat paths for the coherence fabric, allocated once when it is built.
 
-use crate::sim::stats::{Meta, StatId, StatSource, Stats};
+use crate::sim::stats::{StatId, StatSource, Stats, Unit};
 
 /// Counters the home agent writes, under `coherence.ha`.
 #[derive(Clone, Copy, Debug)]
@@ -121,41 +121,26 @@ impl Default for CoherenceStatPaths {
 impl StatSource for CoherenceStatPaths {
     fn register(&self, s: &mut Stats) {
         let h = &self.home;
-        s.register(h.read_shared, Meta::events("ReadShared requests"));
-        s.register(h.read_unique, Meta::events("ReadUnique requests"));
-        s.register(h.clean_unique, Meta::events("CleanUnique (upgrade) requests"));
-        s.register(h.writebacks, Meta::events("writebacks from private caches"));
-        s.register(h.evicts, Meta::events("silent evictions reported by private caches"));
-        s.register(h.maintenance, Meta::events("cache-maintenance requests from private caches"));
-        s.register(
-            h.stale_writebacks,
-            Meta::events("writebacks whose line a snoop had already collected"),
-        );
-        s.register(h.non_coherent, Meta::events("accesses carried to memory without snooping"));
-        s.register(h.snoops_sent, Meta::events("snoops sent"));
-        s.register(
-            h.c2c_transfers,
-            Meta::events("requests served from another core's modified copy"),
-        );
-        s.register(h.recalls, Meta::events("lines recalled to free tracking room"));
-        s.register(
-            h.serialised,
-            Meta::events("requests that waited for an earlier transaction on their line"),
-        );
-        s.register(h.txn_full_stalls, Meta::events("requests that waited for a transaction entry"));
-        s.register(h.filter_hits, Meta::events("tracking lookups that found the line"));
-        s.register(h.filter_misses, Meta::events("tracking lookups that found nothing"));
-        s.register_histogram(
-            h.txn_latency,
-            Meta::cycles("cycles from a request's arrival at the home to its completion"),
-        );
+        s.register(h.read_shared, Unit::Events);
+        s.register(h.read_unique, Unit::Events);
+        s.register(h.clean_unique, Unit::Events);
+        s.register(h.writebacks, Unit::Events);
+        s.register(h.evicts, Unit::Events);
+        s.register(h.maintenance, Unit::Events);
+        s.register(h.stale_writebacks, Unit::Events);
+        s.register(h.non_coherent, Unit::Events);
+        s.register(h.snoops_sent, Unit::Events);
+        s.register(h.c2c_transfers, Unit::Events);
+        s.register(h.recalls, Unit::Events);
+        s.register(h.serialised, Unit::Events);
+        s.register(h.txn_full_stalls, Unit::Events);
+        s.register(h.filter_hits, Unit::Events);
+        s.register(h.filter_misses, Unit::Events);
+        s.register_histogram(h.txn_latency, Unit::Cycles);
         let i = &self.interconnect;
-        s.register(i.messages, Meta::events("messages transferred"));
-        s.register(i.bytes, Meta::events("bytes transferred"));
-        s.register(
-            i.blocked_cycles,
-            Meta::cycles("message-cycles spent waiting for a busy link or port"),
-        );
-        s.register(i.busy_cycles, Meta::cycles("port-class-cycles spent transferring"));
+        s.register(i.messages, Unit::Events);
+        s.register(i.bytes, Unit::Events);
+        s.register(i.blocked_cycles, Unit::Cycles);
+        s.register(i.busy_cycles, Unit::Cycles);
     }
 }

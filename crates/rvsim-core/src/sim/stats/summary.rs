@@ -1,4 +1,4 @@
-//! Auto-generated summary formatting driven by registered [`Meta`].
+//! Auto-generated summary formatting driven by each stat's registered [`Unit`].
 //!
 //! Walks the tree once, groups counters by their top-level subject
 //! (`core0`, `hart0`, ...), and emits an aligned, unit-annotated report.
@@ -8,8 +8,7 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use super::meta::Unit;
-use super::{Meta, Stats};
+use super::{Stats, Unit};
 
 /// Renders the stats tree as a human-readable summary string.
 ///
@@ -61,7 +60,7 @@ pub fn format_sections(
         let _ = writeln!(out);
         let _ = writeln!(out, "[{subject}]");
         for row in rows {
-            let value_str = format_value(row.value, row.meta.unit);
+            let value_str = format_value(row.value, row.unit);
             let _ = writeln!(out, "  {:<name_width$}  {value_str}", row.tail);
         }
     }
@@ -74,16 +73,16 @@ struct Entry<'a> {
     subject: &'a str,
     tail: &'a str,
     value: f64,
-    meta: Meta,
+    unit: Unit,
 }
 
 fn collect_entries(stats: &Stats) -> Vec<Entry<'_>> {
     let mut entries = Vec::new();
-    for (&stat, meta) in &stats.meta {
+    for (&stat, &unit) in &stats.units {
         let Some(value) = stats.get(stat) else { continue };
         let path = stat.path();
         let (subject, tail) = path.split_once('.').unwrap_or((path, ""));
-        entries.push(Entry { subject, tail, value, meta: *meta });
+        entries.push(Entry { subject, tail, value, unit });
     }
     entries
 }
@@ -99,7 +98,7 @@ fn format_value(value: f64, unit: Unit) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Formula, Meta};
+    use super::super::{Formula, Unit};
     use super::*;
 
     #[test]
@@ -113,12 +112,12 @@ mod tests {
     #[test]
     fn groups_by_subject_and_includes_derived() {
         let mut stats = Stats::new();
-        stats.register("core0.commit.op.load", Meta::events("integer load retired"));
-        stats.register("core0.commit.op.store", Meta::events("integer store retired"));
+        stats.register("core0.commit.op.load", Unit::Events);
+        stats.register("core0.commit.op.store", Unit::Events);
         stats.derive(
             "core0.ipc",
             Formula::Div("core0.commit.op.load".into(), "core0.commit.op.store".into()),
-            Meta::ratio("instructions per cycle"),
+            Unit::Ratio,
         );
         stats.counter("core0.commit.op.load").add(10);
         stats.counter("core0.commit.op.store").add(5);
