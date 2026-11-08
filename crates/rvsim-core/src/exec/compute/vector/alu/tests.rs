@@ -3,7 +3,10 @@
 use super::*;
 use crate::arch::regs::vpr::Vpr;
 use crate::exec::compute::vector::context::{VecExecResult, VecOperand};
-use crate::isa::op::{IntOp, VecAluOp, VecClass, VectorOp};
+use crate::isa::op::{
+    CarryOp, CompareOp, ExtendFactor, ExtendOp, IntOp, MaccOp, NarrowOp, Signedness, VecAluOp,
+    WidenMaccOp, WidenOp,
+};
 use crate::isa::rvv::{ElemIdx, TailPolicy, Vlen, Vlmul, Vxrm};
 
 /// Helper: create a 128-bit VLEN VPR.
@@ -11,18 +14,10 @@ fn make_vpr() -> Vpr {
     Vpr::new(Vlen::new_unchecked(128))
 }
 
-/// The ALU operation `op` decodes to.
-fn alu(op: VectorOp) -> VecAluOp {
-    match op.class() {
-        VecClass::Alu(op) => op,
-        other => panic!("{op:?} is not an ALU op: {other:?}"),
-    }
-}
-
 /// Helper: execute with common defaults (LMUL=1, unmasked, vstart=0,
 /// undisturbed policies).
 fn run(
-    op: VectorOp,
+    op: VecAluOp,
     vpr: &mut Vpr,
     vd: VRegIdx,
     vs2: VRegIdx,
@@ -30,7 +25,7 @@ fn run(
     sew: Sew,
     vl: usize,
 ) -> VecExecResult {
-    vec_execute(alu(op), vpr, vd, vs2, operand1, &VecExecCtx::unmasked(sew, vl))
+    vec_execute(op, vpr, vd, vs2, operand1, &VecExecCtx::unmasked(sew, vl))
 }
 
 #[test]
@@ -40,7 +35,7 @@ fn test_vadd_e8() {
     let vs2 = VRegIdx::new(2);
     // Write 100 to vs2[0], operate with scalar 55
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 100);
-    let _ = run(VectorOp::VAdd, &mut vpr, vd, vs2, VecOperand::Scalar(55), Sew::E8, 1);
+    let _ = run(VecAluOp::Int(IntOp::Add), &mut vpr, vd, vs2, VecOperand::Scalar(55), Sew::E8, 1);
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E8), 155);
 }
 
@@ -54,7 +49,15 @@ fn test_vwmaccus_vx_signed_vs2() {
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0x80);
     let rs1: u64 = (-8_i64) as u64;
-    let _ = run(VectorOp::VWMaccUS, &mut vpr, vd, vs2, VecOperand::Scalar(rs1), Sew::E8, 1);
+    let _ = run(
+        VecAluOp::WidenMacc(WidenMaccOp::MaccUS),
+        &mut vpr,
+        vd,
+        vs2,
+        VecOperand::Scalar(rs1),
+        Sew::E8,
+        1,
+    );
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E16), 0x8400);
 }
 
@@ -68,7 +71,15 @@ fn test_vwmaccsu_vv_signed_unsigned() {
     let vs2 = VRegIdx::new(3);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0x80);
     vpr.write_element(vs1, ElemIdx::new(0), Sew::E8, 0x80);
-    let _ = run(VectorOp::VWMaccSU, &mut vpr, vd, vs2, VecOperand::Vector(vs1), Sew::E8, 1);
+    let _ = run(
+        VecAluOp::WidenMacc(WidenMaccOp::MaccSU),
+        &mut vpr,
+        vd,
+        vs2,
+        VecOperand::Vector(vs1),
+        Sew::E8,
+        1,
+    );
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E16), 0xc000);
 }
 
@@ -78,7 +89,8 @@ fn test_vadd_e16() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E16, 1000);
-    let _ = run(VectorOp::VAdd, &mut vpr, vd, vs2, VecOperand::Scalar(2345), Sew::E16, 1);
+    let _ =
+        run(VecAluOp::Int(IntOp::Add), &mut vpr, vd, vs2, VecOperand::Scalar(2345), Sew::E16, 1);
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E16), 3345);
 }
 
@@ -88,7 +100,15 @@ fn test_vadd_e32() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 0x8000_0000);
-    let _ = run(VectorOp::VAdd, &mut vpr, vd, vs2, VecOperand::Scalar(0x8000_0000), Sew::E32, 1);
+    let _ = run(
+        VecAluOp::Int(IntOp::Add),
+        &mut vpr,
+        vd,
+        vs2,
+        VecOperand::Scalar(0x8000_0000),
+        Sew::E32,
+        1,
+    );
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 0);
 }
 
@@ -98,7 +118,7 @@ fn test_vadd_e64() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E64, 0xFFFF_FFFF_FFFF_FFFE);
-    let _ = run(VectorOp::VAdd, &mut vpr, vd, vs2, VecOperand::Scalar(3), Sew::E64, 1);
+    let _ = run(VecAluOp::Int(IntOp::Add), &mut vpr, vd, vs2, VecOperand::Scalar(3), Sew::E64, 1);
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E64), 1);
 }
 
@@ -113,7 +133,7 @@ fn test_vadd_vv_multiple_elements() {
         vpr.write_element(vs2, ElemIdx::new(i), Sew::E32, (i as u64) * 10);
         vpr.write_element(vs1, ElemIdx::new(i), Sew::E32, (i as u64) + 1);
     }
-    let _ = run(VectorOp::VAdd, &mut vpr, vd, vs2, VecOperand::Vector(vs1), Sew::E32, 4);
+    let _ = run(VecAluOp::Int(IntOp::Add), &mut vpr, vd, vs2, VecOperand::Vector(vs1), Sew::E32, 4);
     for i in 0..4 {
         let expected = (i as u64) * 10 + (i as u64) + 1;
         assert_eq!(vpr.read_element(vd, ElemIdx::new(i), Sew::E32), expected);
@@ -127,7 +147,8 @@ fn test_vmslt_signed() {
     let vs2 = VRegIdx::new(2);
     // Write -1 (0xFF) to vs2[0] at E8, compare with 1
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0xFF);
-    let _ = run(VectorOp::VMSlt, &mut vpr, vd, vs2, VecOperand::Scalar(1), Sew::E8, 1);
+    let _ =
+        run(VecAluOp::Compare(CompareOp::Lt), &mut vpr, vd, vs2, VecOperand::Scalar(1), Sew::E8, 1);
     // -1 < 1 should be true
     assert!(vpr.read_mask_bit(vd, ElemIdx::new(0)));
 }
@@ -139,7 +160,15 @@ fn test_vmseq() {
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 42);
     vpr.write_element(vs2, ElemIdx::new(1), Sew::E32, 43);
-    let _ = run(VectorOp::VMSeq, &mut vpr, vd, vs2, VecOperand::Scalar(42), Sew::E32, 2);
+    let _ = run(
+        VecAluOp::Compare(CompareOp::Eq),
+        &mut vpr,
+        vd,
+        vs2,
+        VecOperand::Scalar(42),
+        Sew::E32,
+        2,
+    );
     assert!(vpr.read_mask_bit(vd, ElemIdx::new(0)));
     assert!(!vpr.read_mask_bit(vd, ElemIdx::new(1)));
 }
@@ -150,7 +179,7 @@ fn test_vdivu_by_zero() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 42);
-    let _ = run(VectorOp::VDivU, &mut vpr, vd, vs2, VecOperand::Scalar(0), Sew::E32, 1);
+    let _ = run(VecAluOp::Int(IntOp::DivU), &mut vpr, vd, vs2, VecOperand::Scalar(0), Sew::E32, 1);
     // div by zero → all-1s
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 0xFFFF_FFFF);
 }
@@ -161,7 +190,7 @@ fn test_vdiv_by_zero() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E16, 100);
-    let _ = run(VectorOp::VDiv, &mut vpr, vd, vs2, VecOperand::Scalar(0), Sew::E16, 1);
+    let _ = run(VecAluOp::Int(IntOp::Div), &mut vpr, vd, vs2, VecOperand::Scalar(0), Sew::E16, 1);
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E16), 0xFFFF);
 }
 
@@ -171,7 +200,7 @@ fn test_vremu_by_zero() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 42);
-    let _ = run(VectorOp::VRemU, &mut vpr, vd, vs2, VecOperand::Scalar(0), Sew::E32, 1);
+    let _ = run(VecAluOp::Int(IntOp::RemU), &mut vpr, vd, vs2, VecOperand::Scalar(0), Sew::E32, 1);
     // rem by zero → dividend
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 42);
 }
@@ -183,7 +212,15 @@ fn test_vdiv_signed_overflow() {
     let vs2 = VRegIdx::new(2);
     // MIN_INT(E32) = 0x80000000, -1 = 0xFFFFFFFF
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E32, 0x8000_0000);
-    let _ = run(VectorOp::VDiv, &mut vpr, vd, vs2, VecOperand::Scalar(0xFFFF_FFFF), Sew::E32, 1);
+    let _ = run(
+        VecAluOp::Int(IntOp::Div),
+        &mut vpr,
+        vd,
+        vs2,
+        VecOperand::Scalar(0xFFFF_FFFF),
+        Sew::E32,
+        1,
+    );
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 0x8000_0000);
 }
 
@@ -195,7 +232,7 @@ fn test_vwaddu() {
     // E16 + E16 → E32
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E16, 0xFFFF);
     let res = vec_execute(
-        alu(VectorOp::VWAddU),
+        VecAluOp::Widen(WidenOp::AddU),
         &mut vpr,
         vd,
         vs2,
@@ -224,7 +261,7 @@ fn test_vwaddu_mf8_widen() {
     }
 
     let _ = vec_execute(
-        alu(VectorOp::VWAddU),
+        VecAluOp::Widen(WidenOp::AddU),
         &mut vpr,
         vd,
         vs2,
@@ -248,7 +285,7 @@ fn test_vwadd_signed() {
     // -1 at E8 (0xFF) + -2 at E8 (0xFE) → -3 at E16 (0xFFFD)
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0xFF);
     let _ = vec_execute(
-        alu(VectorOp::VWAdd),
+        VecAluOp::Widen(WidenOp::Add),
         &mut vpr,
         vd,
         vs2,
@@ -267,7 +304,8 @@ fn test_vsaddu_saturation() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 200);
-    let res = run(VectorOp::VSAddU, &mut vpr, vd, vs2, VecOperand::Scalar(100), Sew::E8, 1);
+    let res =
+        run(VecAluOp::Int(IntOp::SAddU), &mut vpr, vd, vs2, VecOperand::Scalar(100), Sew::E8, 1);
     // 200 + 100 = 300, saturates to 255
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E8), 0xFF);
     assert!(res.vxsat);
@@ -279,7 +317,8 @@ fn test_vsaddu_no_saturation() {
     let vd = VRegIdx::new(1);
     let vs2 = VRegIdx::new(2);
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 100);
-    let res = run(VectorOp::VSAddU, &mut vpr, vd, vs2, VecOperand::Scalar(50), Sew::E8, 1);
+    let res =
+        run(VecAluOp::Int(IntOp::SAddU), &mut vpr, vd, vs2, VecOperand::Scalar(50), Sew::E8, 1);
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E8), 150);
     assert!(!res.vxsat);
 }
@@ -303,7 +342,7 @@ fn test_masked_operation() {
     vpr.write_element(vd, ElemIdx::new(1), Sew::E32, 0xBEEF);
 
     let _ = vec_execute(
-        alu(VectorOp::VAdd),
+        VecAluOp::Int(IntOp::Add),
         &mut vpr,
         vd,
         vs2,
@@ -329,7 +368,7 @@ fn test_tail_agnostic() {
 
     // vl = 1, so element 1 is tail.
     let _ = vec_execute(
-        alu(VectorOp::VAdd),
+        VecAluOp::Int(IntOp::Add),
         &mut vpr,
         vd,
         vs2,
@@ -356,7 +395,7 @@ fn test_vmerge() {
     vpr.write_element(vs2, ElemIdx::new(1), Sew::E32, 0xBBBB);
 
     let _ = vec_execute(
-        alu(VectorOp::VMerge),
+        VecAluOp::Merge,
         &mut vpr,
         vd,
         vs2,
@@ -380,7 +419,8 @@ fn test_vmacc() {
     vpr.write_element(vd, ElemIdx::new(0), Sew::E32, 100);
 
     // vmacc: vd = vs1 * vs2 + vd = 3 * 7 + 100 = 121
-    let _ = run(VectorOp::VMacc, &mut vpr, vd, vs2, VecOperand::Scalar(3), Sew::E32, 1);
+    let _ =
+        run(VecAluOp::Macc(MaccOp::Macc), &mut vpr, vd, vs2, VecOperand::Scalar(3), Sew::E32, 1);
     assert_eq!(vpr.read_element(vd, ElemIdx::new(0), Sew::E32), 121);
 }
 
@@ -393,7 +433,7 @@ fn test_vsext_vf2() {
     // Write -1 as E8 (0xFF), sign-extend to E16 should be 0xFFFF
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0xFF);
     let _ = vec_execute(
-        alu(VectorOp::VSextVf2),
+        VecAluOp::Extend(ExtendOp { signedness: Signedness::Signed, factor: ExtendFactor::Vf2 }),
         &mut vpr,
         vd,
         vs2,
@@ -411,7 +451,7 @@ fn test_vzext_vf2() {
 
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E8, 0xFF);
     let _ = vec_execute(
-        alu(VectorOp::VZextVf2),
+        VecAluOp::Extend(ExtendOp { signedness: Signedness::Unsigned, factor: ExtendFactor::Vf2 }),
         &mut vpr,
         vd,
         vs2,
@@ -432,7 +472,7 @@ fn test_vadc() {
     vpr.write_mask_bit(v0, ElemIdx::new(0), true); // carry = 1
 
     let _ = vec_execute(
-        alu(VectorOp::VAdc),
+        VecAluOp::Carry(CarryOp::Adc),
         &mut vpr,
         vd,
         vs2,
@@ -453,7 +493,7 @@ fn test_vnsrl() {
     // Write 0x1234 at E16, narrow to E8 with shift right by 8
     vpr.write_element(vs2, ElemIdx::new(0), Sew::E16, 0x1234);
     let _ = vec_execute(
-        alu(VectorOp::VNSrl),
+        VecAluOp::Narrow(NarrowOp::Srl),
         &mut vpr,
         vd,
         vs2,

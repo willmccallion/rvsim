@@ -146,8 +146,8 @@ pub struct ControlSignals {
     /// An atomic with the `rl` bit: every older access, stores included,
     /// must be performed before it is.
     pub release: bool,
-    /// Vector operation type.
-    pub vec_op: VectorOp,
+    /// The vector operation, if this is a vector instruction.
+    pub vec_op: Option<VectorOp>,
     /// Vector destination register.
     pub vd: VRegIdx,
     /// Vector source register 1.
@@ -208,10 +208,15 @@ impl ControlSignals {
         }
     }
 
+    /// True for `vsetvli`, `vsetivli` and `vsetvl`.
+    pub const fn is_vector_config(&self) -> bool {
+        matches!(self.vec_op, Some(VectorOp::Config(_)))
+    }
+
     /// True for a vector instruction masked by v0 (`vm` clear); the
     /// configuration instructions have no mask.
     pub const fn is_masked_vector_op(&self) -> bool {
-        !self.vm && !matches!(self.vec_op, VectorOp::None) && !self.vec_op.is_config()
+        !self.vm && matches!(self.vec_op, Some(op) if !op.is_config())
     }
 
     /// The memory accesses this instruction makes, as a FENCE names them.
@@ -227,13 +232,13 @@ impl ControlSignals {
     /// True for anything that reads memory: a scalar load, LR, an AMO, or a
     /// vector load, which decodes without `mem_read`.
     pub const fn reads_memory(&self) -> bool {
-        self.mem_read || crate::exec::compute::vector::mem::is_vec_load(self.vec_op)
+        self.mem_read || matches!(self.vec_op, Some(VectorOp::Load(_)))
     }
 
     /// True for anything that writes memory: a scalar store, SC, an AMO, or
     /// a vector store, which decodes without `mem_write`.
     pub const fn writes_memory(&self) -> bool {
-        self.mem_write || crate::exec::compute::vector::mem::is_vec_store(self.vec_op)
+        self.mem_write || matches!(self.vec_op, Some(VectorOp::Store(_)))
     }
 
     /// True for an atomic that executes only as the oldest instruction,
@@ -256,7 +261,7 @@ impl ControlSignals {
         self.mem_write
             && self.atomic_op.is_none()
             && !self.system_op.is_cbo()
-            && matches!(self.vec_op, VectorOp::None)
+            && self.vec_op.is_none()
     }
 
     /// True for an instruction that takes a store-buffer slot: a store, an

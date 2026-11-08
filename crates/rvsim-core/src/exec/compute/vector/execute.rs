@@ -12,7 +12,10 @@ use crate::exec::compute::vector::context::{VecExecCtx, VecExecResult, VecOperan
 use crate::exec::compute::vector::regfile::VectorRegFile;
 use crate::exec::compute::vector::{crypto, fpu, mask, permute, reduction};
 use crate::exec::inst::Inst;
-use crate::isa::op::{VecClass, VecSrcEncoding, VectorOp};
+use crate::isa::op::{
+    FpNarrowConvertOp, FpWidenConvertOp, IntConvert, ReduceOp, VecAluOp, VecFpOp, VecSrcEncoding,
+    VectorOp,
+};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{Sew, VectorConfig, VectorRounding, Vlmul, parse_vtype_with_elen};
 
@@ -33,10 +36,10 @@ const fn build_operand1(inst: &Inst) -> VecOperand {
 /// vector instruction that depends on vtype will raise an illegal-instruction
 /// exception."
 #[inline]
-const fn check_vill(inst: &Inst, vtype_bits: u64, elen: usize) -> Result<(), Trap> {
+const fn check_vill(op: VectorOp, inst: u32, vtype_bits: u64, elen: usize) -> Result<(), Trap> {
     let vtype = parse_vtype_with_elen(vtype_bits, elen);
-    if vtype.vill && inst.ctrl.vec_op.depends_on_vtype() {
-        return Err(Trap::IllegalInstruction(inst.bits));
+    if vtype.vill && op.depends_on_vtype() {
+        return Err(Trap::IllegalInstruction(inst));
     }
     Ok(())
 }
@@ -46,26 +49,13 @@ const fn check_vill(inst: &Inst, vtype_bits: u64, elen: usize) -> Result<(), Tra
 const fn op_uses_widened_emul(op: VectorOp) -> bool {
     matches!(
         op,
-        // Integer/Zvbb widening
-        VectorOp::VWAddU | VectorOp::VWAdd | VectorOp::VWSubU | VectorOp::VWSub
-        | VectorOp::VWAddUW | VectorOp::VWAddW | VectorOp::VWSubUW | VectorOp::VWSubW
-        | VectorOp::VWMulU | VectorOp::VWMul | VectorOp::VWMulSU
-        | VectorOp::VWMaccU | VectorOp::VWMacc | VectorOp::VWMaccSU | VectorOp::VWMaccUS
-        | VectorOp::VWsll
-        // FP widening arithmetic + FMA
-        | VectorOp::VFWAdd | VectorOp::VFWSub | VectorOp::VFWMul
-        | VectorOp::VFWAddW | VectorOp::VFWSubW
-        | VectorOp::VFWMacc | VectorOp::VFWNMacc | VectorOp::VFWMSac | VectorOp::VFWNMSac
-        // FP widening conversions
-        | VectorOp::VFWCvtXuF | VectorOp::VFWCvtXF
-        | VectorOp::VFWCvtFXu | VectorOp::VFWCvtFX | VectorOp::VFWCvtFF
-        | VectorOp::VFWCvtRtzXuF | VectorOp::VFWCvtRtzXF
-        // Narrowing reads vs2 at 2×SEW
-        | VectorOp::VNSrl | VectorOp::VNSra | VectorOp::VNClipU | VectorOp::VNClip
-        | VectorOp::VFNCvtXuF | VectorOp::VFNCvtXF
-        | VectorOp::VFNCvtFXu | VectorOp::VFNCvtFX | VectorOp::VFNCvtFF
-        | VectorOp::VFNCvtRodFF
-        | VectorOp::VFNCvtRtzXuF | VectorOp::VFNCvtRtzXF
+        VectorOp::Alu(VecAluOp::Widen(_) | VecAluOp::WidenMacc(_) | VecAluOp::Narrow(_))
+            | VectorOp::Fp(
+                VecFpOp::Widen(_)
+                    | VecFpOp::WidenFma(_)
+                    | VecFpOp::WidenConvert(_)
+                    | VecFpOp::NarrowConvert(_)
+            )
     )
 }
 
@@ -95,36 +85,22 @@ fn fp_widths_supported(op: VectorOp, sew: Sew, zvfh: bool, elen: usize) -> bool 
     let int = |width: Option<Sew>| width.is_some_and(|w| w.bits() <= elen);
     let wide = widen_sew(sew);
     match op {
-        VectorOp::VFWCvtXuF
-        | VectorOp::VFWCvtXF
-        | VectorOp::VFWCvtRtzXuF
-        | VectorOp::VFWCvtRtzXF
-        | VectorOp::VFNCvtFXu
-        | VectorOp::VFNCvtFX => fp(Some(sew)) && int(wide),
-        VectorOp::VFWCvtFXu
-        | VectorOp::VFWCvtFX
-        | VectorOp::VFNCvtXuF
-        | VectorOp::VFNCvtXF
-        | VectorOp::VFNCvtRtzXuF
-        | VectorOp::VFNCvtRtzXF => fp(wide),
-        VectorOp::VFWAdd
-        | VectorOp::VFWSub
-        | VectorOp::VFWMul
-        | VectorOp::VFWAddW
-        | VectorOp::VFWSubW
-        | VectorOp::VFWMacc
-        | VectorOp::VFWNMacc
-        | VectorOp::VFWMSac
-        | VectorOp::VFWNMSac
-        | VectorOp::VFWCvtFF
-        | VectorOp::VFWRedOSum
-        | VectorOp::VFWRedUSum
-        | VectorOp::VFNCvtFF
-        | VectorOp::VFNCvtRodFF => fp(Some(sew)) && fp(wide),
-        VectorOp::VFRedMax | VectorOp::VFRedMin | VectorOp::VFRedOSum | VectorOp::VFRedUSum => {
-            fp(Some(sew))
-        }
-        _ if fpu::is_vec_fp(op) => fp(Some(sew)),
+        VectorOp::Fp(
+            VecFpOp::WidenConvert(FpWidenConvertOp::Int(IntConvert::ToInt(_, _)))
+            | VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(IntConvert::FromInt(_))),
+        ) => fp(Some(sew)) && int(wide),
+        VectorOp::Fp(
+            VecFpOp::WidenConvert(FpWidenConvertOp::Int(IntConvert::FromInt(_)))
+            | VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(IntConvert::ToInt(_, _))),
+        ) => fp(wide),
+        VectorOp::Fp(
+            VecFpOp::Widen(_)
+            | VecFpOp::WidenFma(_)
+            | VecFpOp::WidenConvert(FpWidenConvertOp::Float)
+            | VecFpOp::NarrowConvert(FpNarrowConvertOp::Float | FpNarrowConvertOp::FloatRoundToOdd),
+        )
+        | VectorOp::Reduce(ReduceOp::FpWiden(_)) => fp(Some(sew)) && fp(wide),
+        VectorOp::Fp(_) | VectorOp::Reduce(ReduceOp::Fp(_)) => fp(Some(sew)),
         _ => true,
     }
 }
@@ -169,40 +145,43 @@ pub fn execute_vec_op_on<V: VectorRegFile>(
     zvfh: bool,
     inst: &Inst,
 ) -> Result<VecExecResult, Trap> {
-    check_vill(inst, config.vtype, elen)?;
+    let Some(vec_op) = inst.ctrl.vec_op else {
+        debug_assert!(false, "execute_vec_op_on called with a scalar op");
+        return Ok(VecExecResult::default());
+    };
+    check_vill(vec_op, inst.bits, config.vtype, elen)?;
     let vtype = parse_vtype_with_elen(config.vtype, elen);
-    check_widening_lmul(inst.bits, inst.ctrl.vec_op, vtype.vlmul)?;
-    if !fp_widths_supported(inst.ctrl.vec_op, vtype.vsew, zvfh, elen) {
+    check_widening_lmul(inst.bits, vec_op, vtype.vlmul)?;
+    if !fp_widths_supported(vec_op, vtype.vsew, zvfh, elen) {
         return Err(Trap::IllegalInstruction(inst.bits));
     }
 
     let mut ctx = build_ctx_from_csrs(config, rounding, elen, zvfh);
     ctx.vm = inst.ctrl.vm;
-    if ctx.vstart >= ctx.vl && !inst.ctrl.vec_op.executes_without_body() {
+    if ctx.vstart >= ctx.vl && !vec_op.executes_without_body() {
         return Ok(VecExecResult::default());
     }
     let operand1 = build_operand1(inst);
-    let vec_op = inst.ctrl.vec_op;
     let (vd, vs2, vs1) = (inst.ctrl.vd, inst.ctrl.vs2, inst.ctrl.vs1);
 
-    let result = match vec_op.class() {
-        VecClass::Fp(op) => fpu::vec_fp_execute(op, vpr, vd, vs2, operand1, &ctx),
-        VecClass::Reduce(op) => reduction::vec_reduce(op, vpr, vd, vs2, vs1, &ctx),
-        VecClass::Mask(op) => {
+    let result = match vec_op {
+        VectorOp::Fp(op) => fpu::vec_fp_execute(op, vpr, vd, vs2, operand1, &ctx),
+        VectorOp::Reduce(op) => reduction::vec_reduce(op, vpr, vd, vs2, vs1, &ctx),
+        VectorOp::Mask(op) => {
             let result = mask::vec_mask_execute(op, vpr, vd, vs2, vs1, &ctx);
             VecExecResult { scalar_result: result.scalar_result, ..VecExecResult::default() }
         }
-        VecClass::Permute(op) => {
+        VectorOp::Permute(op) => {
             let sources = permute::PermuteSources { operand1, vs1, rs1: inst.rv1 };
             let result = permute::vec_permute_execute(op, vpr, vd, vs2, sources, &ctx);
             VecExecResult { scalar_result: result.scalar_result, ..VecExecResult::default() }
         }
-        VecClass::Crypto(op) => {
+        VectorOp::Crypto(op) => {
             crypto::execute_crypto(op, vpr, &inst.ctrl, &ctx);
             VecExecResult::default()
         }
-        VecClass::Alu(op) => vec_execute(op, vpr, vd, vs2, operand1, &ctx),
-        VecClass::None | VecClass::Config | VecClass::Load | VecClass::Store => {
+        VectorOp::Alu(op) => vec_execute(op, vpr, vd, vs2, operand1, &ctx),
+        VectorOp::Config(_) | VectorOp::Load(_) | VectorOp::Store(_) => {
             debug_assert!(false, "execute_vec_op_on called with a config or memory op");
             VecExecResult::default()
         }
@@ -215,6 +194,10 @@ mod tests {
     use super::*;
     use crate::arch::regs::vpr::Vpr;
     use crate::exec::signals::ControlSignals;
+    use crate::isa::op::{
+        FpBinaryOp, FpWidenOp, IntOp, IntReduceOp, IntRounding, PermuteOp, Signedness,
+        WholeRegisters,
+    };
     use crate::isa::rvv::{ElemIdx, Sew, VRegIdx, Vlen};
 
     const E32_M1_TAIL_AGNOSTIC: u64 = 0x50;
@@ -223,7 +206,7 @@ mod tests {
 
     fn vector_inst(vec_op: VectorOp) -> Inst {
         let ctrl = ControlSignals {
-            vec_op,
+            vec_op: Some(vec_op),
             vd: VRegIdx::new(1),
             vs2: VRegIdx::new(2),
             vs1: VRegIdx::new(3),
@@ -259,7 +242,7 @@ mod tests {
     fn a_reduction_with_vl_zero_leaves_its_destination_alone() {
         let mut vpr = registers();
 
-        let _result = run(&mut vpr, VectorOp::VRedSum, 0, 0);
+        let _result = run(&mut vpr, VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Sum)), 0, 0);
 
         assert_eq!(vd_elements(&vpr), vec![VD_BEFORE; 4]);
     }
@@ -268,7 +251,7 @@ mod tests {
     fn a_tail_agnostic_op_with_vstart_at_vl_fills_no_tail_element() {
         let mut vpr = registers();
 
-        let _result = run(&mut vpr, VectorOp::VAdd, 2, 2);
+        let _result = run(&mut vpr, VectorOp::Alu(VecAluOp::Int(IntOp::Add)), 2, 2);
 
         assert_eq!(vd_elements(&vpr), vec![VD_BEFORE; 4]);
     }
@@ -277,7 +260,7 @@ mod tests {
     fn vmv_x_s_reads_element_zero_when_vl_is_zero() {
         let mut vpr = registers();
 
-        let result = run(&mut vpr, VectorOp::VMvXS, 0, 0);
+        let result = run(&mut vpr, VectorOp::Permute(PermuteOp::MvXS), 0, 0);
 
         assert_eq!(result.scalar_result, Some(7));
     }
@@ -286,7 +269,8 @@ mod tests {
     fn a_whole_register_move_copies_when_vl_is_zero() {
         let mut vpr = registers();
 
-        let _result = run(&mut vpr, VectorOp::VMv1r, 0, 0);
+        let _result =
+            run(&mut vpr, VectorOp::Permute(PermuteOp::WholeMove(WholeRegisters::One)), 0, 0);
 
         assert_eq!(vd_elements(&vpr), vec![7, 0, 0, 0]);
     }
@@ -303,38 +287,67 @@ mod tests {
 
     #[test]
     fn floating_point_arithmetic_at_sew_8_is_illegal() {
-        assert!(!legal(VectorOp::VFAdd, Sew::E8, true, ELEN));
+        assert!(!legal(VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Add)), Sew::E8, true, ELEN));
     }
 
     #[test]
     fn half_precision_arithmetic_needs_zvfh() {
-        let legality = [false, true].map(|zvfh| legal(VectorOp::VFAdd, Sew::E16, zvfh, ELEN));
+        let legality = [false, true].map(|zvfh| {
+            legal(VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Add)), Sew::E16, zvfh, ELEN)
+        });
 
         assert_eq!(legality, [false, true], "[without Zvfh, with Zvfh]");
     }
 
     #[test]
     fn an_8_bit_integer_widens_to_half_precision_with_zvfh() {
-        let legality = [false, true].map(|zvfh| legal(VectorOp::VFWCvtFX, Sew::E8, zvfh, ELEN));
+        let legality = [false, true].map(|zvfh| {
+            legal(
+                VectorOp::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(IntConvert::FromInt(
+                    Signedness::Signed,
+                )))),
+                Sew::E8,
+                zvfh,
+                ELEN,
+            )
+        });
 
         assert_eq!(legality, [false, true], "[without Zvfh, with Zvfh]");
     }
 
     #[test]
     fn half_precision_narrows_to_an_8_bit_integer_with_zvfh() {
-        let legality = [false, true].map(|zvfh| legal(VectorOp::VFNCvtXF, Sew::E8, zvfh, ELEN));
+        let legality = [false, true].map(|zvfh| {
+            legal(
+                VectorOp::Fp(VecFpOp::NarrowConvert(FpNarrowConvertOp::Int(IntConvert::ToInt(
+                    Signedness::Signed,
+                    IntRounding::Dynamic,
+                )))),
+                Sew::E8,
+                zvfh,
+                ELEN,
+            )
+        });
 
         assert_eq!(legality, [false, true], "[without Zvfh, with Zvfh]");
     }
 
     #[test]
     fn a_16_bit_integer_widens_to_single_precision_without_zvfh() {
-        assert!(legal(VectorOp::VFWCvtFX, Sew::E16, false, ELEN));
+        assert!(legal(
+            VectorOp::Fp(VecFpOp::WidenConvert(FpWidenConvertOp::Int(IntConvert::FromInt(
+                Signedness::Signed
+            )))),
+            Sew::E16,
+            false,
+            ELEN
+        ));
     }
 
     #[test]
     fn widening_single_precision_needs_an_elen_of_64() {
-        let legality = [32, 64].map(|elen| legal(VectorOp::VFWAdd, Sew::E32, true, elen));
+        let legality = [32, 64]
+            .map(|elen| legal(VectorOp::Fp(VecFpOp::Widen(FpWidenOp::Add)), Sew::E32, true, elen));
 
         assert_eq!(legality, [false, true], "[ELEN 32, ELEN 64]");
     }

@@ -11,7 +11,6 @@
 //! the unit when it issues, and the unit reports when the result is ready.
 
 use crate::common::trace::Hex;
-use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::isa::op::VectorOp;
 use crate::isa::reg::ArchReg;
 use crate::trace_issue;
@@ -201,7 +200,7 @@ fn is_held_by_ordering(entry: &InOrderEntry, ctx: &IssueContext<'_>) -> bool {
     let ctrl = &entry.inst.ctrl;
     let tag = entry.rob_tag;
     let waits_for_head =
-        (ctrl.vec_op != VectorOp::None && !ctrl.vec_op.is_config()) || ctrl.performs_at_rob_head();
+        matches!(ctrl.vec_op, Some(op) if !op.is_config()) || ctrl.performs_at_rob_head();
     (waits_for_head && !ctx.head.is(tag))
         || held_by_fence(ctx.rob, tag, &entry.inst)
         || (ctrl.mem_read
@@ -263,8 +262,8 @@ fn take_unit(
 
 /// A vector op that computes in a vector unit rather than setting the
 /// configuration or moving memory.
-const fn is_vector_arithmetic(op: VectorOp) -> bool {
-    !matches!(op, VectorOp::None) && !op.is_config() && !is_vec_load(op) && !is_vec_store(op)
+const fn is_vector_arithmetic(op: Option<VectorOp>) -> bool {
+    !matches!(op, None | Some(VectorOp::Config(_) | VectorOp::Load(_) | VectorOp::Store(_)))
 }
 
 /// Read a single operand value using the tag captured at rename time.

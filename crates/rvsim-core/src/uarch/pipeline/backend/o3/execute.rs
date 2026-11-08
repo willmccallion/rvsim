@@ -8,7 +8,7 @@ use super::O3Entry;
 use crate::common::trace::Hex;
 use crate::common::trace::Hex32;
 use crate::exec::execute::{evaluate, illegal_in_current_state, operands, perform_csr_access};
-use crate::isa::op::{SystemOp, VectorOp};
+use crate::isa::op::SystemOp;
 use crate::isa::privileged::Trap;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::execute::{
@@ -72,8 +72,8 @@ pub fn execute_one(
     let inst = &issued.inst;
     let (op_a, op_b) = operands(inst);
 
-    if issued.inst.ctrl.vec_op != VectorOp::None {
-        if issued.inst.ctrl.vec_op.is_config() {
+    if issued.inst.ctrl.vec_op.is_some() {
+        if issued.inst.ctrl.is_vector_config() {
             let vl = set_vector_config(state, issued, issued.inst.rv1, issued.inst.rv2, rob);
             return (ExMem1Entry::from_issue(issued, vl, 0), None);
         }

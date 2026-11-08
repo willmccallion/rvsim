@@ -16,9 +16,9 @@ pub use format::{IntWidth, OperandFormat, Signedness};
 pub use memory::{AmoOp, AtomicOp, MemWidth};
 pub use system::{CsrOp, SystemOp};
 pub use vector::{
-    CarryOp, CompareOp, CryptoOp, ExtendOp, FmaAddend, FpBinaryOp, FpNarrowConvertOp, FpReduceOp,
-    FpUnaryOp, FpWidenConvertOp, FpWidenOp, FpWidenReduceOp, IntConvert, IntOp, IntReduceOp,
-    IntRounding, MaccOp, MaskLogicalOp, MaskOp, MaskSetOp, NarrowOp, PermuteOp, ReduceOp,
-    SlideOffset, VecAluOp, VecClass, VecFpOp, VecOpGroup, VecOperandGroups, VecSrcEncoding,
-    VectorOp, WidenIntReduceOp, WidenMaccOp, WidenOp,
+    CarryOp, CompareOp, CryptoOp, ExtendFactor, ExtendOp, FmaAddend, FpBinaryOp, FpNarrowConvertOp,
+    FpReduceOp, FpUnaryOp, FpWidenConvertOp, FpWidenOp, FpWidenReduceOp, IntConvert, IntOp,
+    IntReduceOp, IntRounding, MaccOp, MaskLogicalOp, MaskOp, MaskSetOp, NarrowOp, PermuteOp,
+    ReduceOp, SlideOffset, VecAluOp, VecConfigOp, VecFpOp, VecLoadOp, VecOpGroup, VecOperandGroups,
+    VecSrcEncoding, VecStoreOp, VectorOp, WholeRegisters, WidenIntReduceOp, WidenMaccOp, WidenOp,
 };

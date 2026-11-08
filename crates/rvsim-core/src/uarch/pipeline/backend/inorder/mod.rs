@@ -186,7 +186,7 @@ impl InOrderEngine {
             let is_mem = entry.op.ctrl.uses_memory_pipeline();
             let unit = units.iter().find(|u| u.tag == entry.op.rob_tag);
             match unit {
-                Some(unit) if !is_mem && !entry.op.ctrl.vec_op.is_config() => {
+                Some(unit) if !is_mem && !entry.op.ctrl.is_vector_config() => {
                     self.pending.push(PendingResult {
                         complete_cycle: unit.complete_cycle.max(now + 1),
                         entry,
@@ -470,7 +470,7 @@ impl ExecutionEngine for InOrderEngine {
         // Issue would overwrite the entries memory1 still holds.
         let (results, units) =
             if is_backpressured { (Vec::new(), Vec::new()) } else { self.issue(state, now) };
-        if results.iter().any(|r| r.op.ctrl.vec_op.is_config()) {
+        if results.iter().any(|r| r.op.ctrl.is_vector_config()) {
             self.common.vector_config_unresolved = false;
         }
         self.hold_results(results, &units, now);

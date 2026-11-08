@@ -87,7 +87,7 @@ impl O3Engine {
         }
 
         // vsetvl* run synchronously in execute_one; exclude from deferred VecPrfView.
-        let is_vec_config = entry.inst.ctrl.vec_op.is_config();
+        let is_vec_config = entry.inst.ctrl.is_vector_config();
         let is_vec_arith = fu_type.is_vector() && fu_type != FuType::VecMem && !is_vec_config;
         let is_vec_mem = fu_type == FuType::VecMem;
         let dest = vector_dest(&entry);

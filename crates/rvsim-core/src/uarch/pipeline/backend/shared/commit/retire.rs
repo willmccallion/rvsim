@@ -12,7 +12,7 @@ use crate::exec::retire;
 use crate::exec::signals::ControlFlow;
 use crate::isa::csr;
 use crate::isa::op::pseudo::PseudoOp;
-use crate::isa::op::{MemWidth, SystemOp, VectorOp};
+use crate::isa::op::{MemWidth, SystemOp};
 use crate::isa::reg::REG_A0;
 use crate::isa::reg::REG_A1;
 use crate::isa::reg::{ArchReg, RegIdx};
@@ -282,7 +282,7 @@ fn write_destinations(
         }
         retire::mark_vector_retired(state.hart);
     }
-    if entry.ctrl.vec_op != VectorOp::None {
+    if entry.ctrl.vec_op.is_some() {
         retire::finish_vector_instruction(state.hart);
     }
 }

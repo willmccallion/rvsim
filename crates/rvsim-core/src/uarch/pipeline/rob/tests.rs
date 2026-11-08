@@ -5,7 +5,7 @@
 use super::*;
 use crate::exec::signals::ControlSignals;
 use crate::isa::csr::CsrAddr;
-use crate::isa::op::AmoOp;
+use crate::isa::op::{AmoOp, VecLoadOp, VecStoreOp};
 use crate::isa::reg::RegIdx;
 
 fn make_ctrl(reg_write: bool, fp_reg_write: bool) -> ControlSignals {
@@ -254,8 +254,10 @@ fn an_acquire_atomic_holds_younger_loads_until_it_completes() {
 #[test]
 fn a_fence_waits_for_an_older_vector_store() {
     let mut rob = Rob::new(8);
-    let vector_store =
-        ControlSignals { vec_op: crate::isa::op::VectorOp::VStoreUnit, ..Default::default() };
+    let vector_store = ControlSignals {
+        vec_op: Some(crate::isa::op::VectorOp::Store(VecStoreOp::Unit)),
+        ..Default::default()
+    };
     let t_store = alloc_with_inst(&mut rob, 0, vector_store).unwrap();
     let t_fence = alloc_fence(&mut rob, 0b0001, 0b0001).unwrap();
 
@@ -267,10 +269,14 @@ fn a_fence_waits_for_an_older_vector_store() {
 #[test]
 fn an_older_vector_store_is_a_memory_access_in_flight() {
     let mut rob = Rob::new(8);
-    let vector_store =
-        ControlSignals { vec_op: crate::isa::op::VectorOp::VStoreUnit, ..Default::default() };
-    let vector_load =
-        ControlSignals { vec_op: crate::isa::op::VectorOp::VLoadUnit, ..Default::default() };
+    let vector_store = ControlSignals {
+        vec_op: Some(crate::isa::op::VectorOp::Store(VecStoreOp::Unit)),
+        ..Default::default()
+    };
+    let vector_load = ControlSignals {
+        vec_op: Some(crate::isa::op::VectorOp::Load(VecLoadOp::Unit)),
+        ..Default::default()
+    };
     let t_store = alloc(&mut rob, 0, 0, vector_store).unwrap();
     let t_load = alloc(&mut rob, 4, 0, vector_load).unwrap();
 
@@ -281,8 +287,10 @@ fn an_older_vector_store_is_a_memory_access_in_flight() {
 #[test]
 fn an_older_arithmetic_instruction_is_no_memory_access() {
     let mut rob = Rob::new(8);
-    let vector_load =
-        ControlSignals { vec_op: crate::isa::op::VectorOp::VLoadUnit, ..Default::default() };
+    let vector_load = ControlSignals {
+        vec_op: Some(crate::isa::op::VectorOp::Load(VecLoadOp::Unit)),
+        ..Default::default()
+    };
     alloc(&mut rob, 0, 1, make_ctrl(true, false)).unwrap();
     let t_load = alloc(&mut rob, 4, 0, vector_load).unwrap();
 

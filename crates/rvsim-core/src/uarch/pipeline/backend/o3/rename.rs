@@ -13,7 +13,7 @@ use crate::exec::compute::vector::mem::{
 };
 use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, ControlSignals};
-use crate::isa::op::VecOperandGroups;
+use crate::isa::op::{VecOperandGroups, VectorOp};
 use crate::isa::rvv::MAX_GROUP_REGS;
 use crate::isa::rvv::{VRegIdx, VectorConfig, VectorRounding, parse_vtype};
 use crate::trace_rename;
@@ -373,19 +373,21 @@ impl BackendSlots<'_> {
 /// the current SEW and LMUL, which `operand_groups` doesn't see, so they
 /// are sized here.
 fn vector_operand_groups(ctrl: &ControlSignals, vector: &VectorConfig) -> VecOperandGroups {
-    let mut groups = ctrl.vec_op.operand_groups(
+    let Some(op) = ctrl.vec_op else {
+        return VecOperandGroups::NONE;
+    };
+    let mut groups = op.operand_groups(
         ctrl.vec_lmul_regs,
         ctrl.vec_lmul_is_fractional,
         ctrl.vec_src_encoding,
         ctrl.vec_nf,
         ctrl.vec_broadcast_vs2,
     );
-    let is_mem = is_vec_load(ctrl.vec_op) || is_vec_store(ctrl.vec_op);
+    let is_mem = matches!(op, VectorOp::Load(_) | VectorOp::Store(_));
     let vtype = parse_vtype(vector.vtype);
-    if is_mem && (!vtype.vill || !ctrl.vec_op.depends_on_vtype()) {
-        groups.vd =
-            vec_mem_dst_count(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
-        groups.vs2 = vec_mem_emul_regs(ctrl.vec_op, ctrl.vec_eew, vtype.vsew, vtype.vlmul).1;
+    if is_mem && (!vtype.vill || !op.depends_on_vtype()) {
+        groups.vd = vec_mem_dst_count(op, ctrl.vec_eew, vtype.vsew, vtype.vlmul, ctrl.vec_nf);
+        groups.vs2 = vec_mem_emul_regs(op, ctrl.vec_eew, vtype.vsew, vtype.vlmul).1;
     }
     groups
 }
