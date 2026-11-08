@@ -1,7 +1,7 @@
 //! The system's address map and devices.
 
 use super::defaults;
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, PhysRange};
 use crate::config::Console;
 use serde::{Deserialize, Serialize};
 
@@ -69,24 +69,8 @@ impl DeviceKind {
 pub struct DeviceRegion {
     /// The device's name, as its statistics and latency overrides spell it.
     pub name: &'static str,
-    /// The window's first address.
-    pub base: PhysAddr,
-    /// The window's length in bytes.
-    pub size: u64,
-}
-
-impl DeviceRegion {
-    /// One past the window's last address.
-    #[must_use]
-    pub const fn end(self) -> u64 {
-        self.base.val().saturating_add(self.size)
-    }
-
-    /// True when the two windows share an address.
-    #[must_use]
-    pub const fn overlaps(self, other: Self) -> bool {
-        self.base.val() < other.end() && other.base.val() < self.end()
-    }
+    /// The window.
+    pub range: PhysRange,
 }
 
 /// The UART's register window in bytes.
@@ -194,33 +178,27 @@ impl SystemConfig {
         [
             DeviceRegion {
                 name: DeviceKind::Uart.name(),
-                base: self.uart_base,
-                size: UART_REGION_BYTES,
+                range: PhysRange::new(self.uart_base, UART_REGION_BYTES),
             },
             DeviceRegion {
                 name: DeviceKind::VirtioBlk.name(),
-                base: self.disk_base,
-                size: VIRTIO_REGION_BYTES,
+                range: PhysRange::new(self.disk_base, VIRTIO_REGION_BYTES),
             },
             DeviceRegion {
                 name: DeviceKind::Clint.name(),
-                base: self.clint_base,
-                size: CLINT_REGION_BYTES,
+                range: PhysRange::new(self.clint_base, CLINT_REGION_BYTES),
             },
             DeviceRegion {
                 name: DeviceKind::Plic.name(),
-                base: PLIC_BASE,
-                size: PLIC_REGION_BYTES,
+                range: PhysRange::new(PLIC_BASE, PLIC_REGION_BYTES),
             },
             DeviceRegion {
                 name: DeviceKind::SysCon.name(),
-                base: self.syscon_base,
-                size: SYSCON_REGION_BYTES,
+                range: PhysRange::new(self.syscon_base, SYSCON_REGION_BYTES),
             },
             DeviceRegion {
                 name: DeviceKind::GoldfishRtc.name(),
-                base: RTC_BASE,
-                size: RTC_REGION_BYTES,
+                range: PhysRange::new(RTC_BASE, RTC_REGION_BYTES),
             },
         ]
     }
