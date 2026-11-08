@@ -191,106 +191,39 @@ pub fn element_accesses<V: VectorRegFile>(
 
     let is_store = matches!(vec_op, VectorOp::Store(_));
     let eew = ctrl.vec_eew;
-    let vm = ctrl.vm;
     let vd = ctrl.vd;
     let nf = Nf::from_encoding(ctrl.vec_nf);
     let vlen = vrf.vlen();
+    let fields = |width: Sew, emul: Emul| FieldWalk {
+        vd,
+        nf,
+        active: vstart..vl,
+        vm: ctrl.vm,
+        is_store,
+        width,
+        emul,
+        elements_per_reg: vlen.bits() / (width.bytes() * 8),
+    };
 
     match vec_op {
         VectorOp::Load(VecLoadOp::Unit | VecLoadOp::FaultOnlyFirst)
         | VectorOp::Store(VecStoreOp::Unit) => {
-            let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
-            let eew_bytes = eew.bytes() as u64;
-            let elements_per_reg = vlen.bits() / (eew.bytes() * 8);
-            let emul_regs = emul.regs() as usize;
-            let mut ops = Vec::with_capacity(vl * nf.fields_usize());
-            for i in vstart..vl {
-                if !is_element_active_vrf(vrf, i, vm) {
-                    continue;
-                }
-                for seg in 0..nf.fields_usize() {
-                    let addr = base_addr.wrapping_add(
-                        ((i * nf.fields_usize() + seg) as u64).wrapping_mul(eew_bytes),
-                    );
-                    let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
-                    let store_data =
-                        if is_store { vrf.read_element(dest, ElemIdx::new(i), eew) } else { 0 };
-                    let slot = dest_slot(i, seg, emul_regs, elements_per_reg);
-                    ops.push(ElementAccess {
-                        vaddr: VirtAddr::new(addr),
-                        store_data,
-                        elem_idx: ElemIdx::new(i),
-                        eew,
-                        dest_slot: slot,
-                    });
-                }
-            }
-            ops
+            let field_bytes = (nf.fields_usize() * eew.bytes()) as u64;
+            fields(eew, Emul::compute(eew, vtype.vsew, vtype.vlmul))
+                .accesses(vrf, |i| base_addr.wrapping_add((i as u64).wrapping_mul(field_bytes)))
         }
         VectorOp::Load(VecLoadOp::Strided) | VectorOp::Store(VecStoreOp::Strided) => {
-            let emul = Emul::compute(eew, vtype.vsew, vtype.vlmul);
-            let eew_bytes = eew.bytes() as u64;
-            let elements_per_reg = vlen.bits() / (eew.bytes() * 8);
-            let emul_regs = emul.regs() as usize;
-            let mut ops = Vec::with_capacity(vl * nf.fields_usize());
-            for i in vstart..vl {
-                if !is_element_active_vrf(vrf, i, vm) {
-                    continue;
-                }
-                let elem_base =
-                    base_addr.wrapping_add((i as i64).wrapping_mul(stride).cast_unsigned());
-                for seg in 0..nf.fields_usize() {
-                    let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(eew_bytes));
-                    let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * emul.regs());
-                    let store_data =
-                        if is_store { vrf.read_element(dest, ElemIdx::new(i), eew) } else { 0 };
-                    let slot = dest_slot(i, seg, emul_regs, elements_per_reg);
-                    ops.push(ElementAccess {
-                        vaddr: VirtAddr::new(addr),
-                        store_data,
-                        elem_idx: ElemIdx::new(i),
-                        eew,
-                        dest_slot: slot,
-                    });
-                }
-            }
-            ops
+            fields(eew, Emul::compute(eew, vtype.vsew, vtype.vlmul)).accesses(vrf, |i| {
+                base_addr.wrapping_add((i as i64).wrapping_mul(stride).cast_unsigned())
+            })
         }
         VectorOp::Load(VecLoadOp::IndexedOrdered | VecLoadOp::IndexedUnordered)
         | VectorOp::Store(VecStoreOp::IndexedOrdered | VecStoreOp::IndexedUnordered) => {
-            let vs2 = ctrl.vs2;
-            let data_sew = vtype.vsew;
-            let idx_eew = eew;
-            let data_bytes = data_sew.bytes() as u64;
-            let data_emul = Emul::compute(data_sew, data_sew, vtype.vlmul);
-            let elements_per_reg = vlen.bits() / (data_sew.bytes() * 8);
-            let emul_regs = data_emul.regs() as usize;
-            let mut ops = Vec::with_capacity(vl * nf.fields_usize());
-            for i in vstart..vl {
-                if !is_element_active_vrf(vrf, i, vm) {
-                    continue;
-                }
-                let offset = vrf.read_element(vs2, ElemIdx::new(i), idx_eew);
-                let elem_base = base_addr.wrapping_add(offset);
-                for seg in 0..nf.fields_usize() {
-                    let addr = elem_base.wrapping_add((seg as u64).wrapping_mul(data_bytes));
-                    let dest = VRegIdx::new(vd.as_u8() + (seg as u8) * data_emul.regs());
-                    let store_data = if is_store {
-                        vrf.read_element(dest, ElemIdx::new(i), data_sew)
-                    } else {
-                        0
-                    };
-                    let slot = dest_slot(i, seg, emul_regs, elements_per_reg);
-                    ops.push(ElementAccess {
-                        vaddr: VirtAddr::new(addr),
-                        store_data,
-                        elem_idx: ElemIdx::new(i),
-                        eew: data_sew,
-                        dest_slot: slot,
-                    });
-                }
-            }
-            ops
+            // The index is eew wide; the data has the configured SEW.
+            let data = vtype.vsew;
+            fields(data, Emul::compute(data, data, vtype.vlmul)).accesses(vrf, |i| {
+                base_addr.wrapping_add(vrf.read_element(ctrl.vs2, ElemIdx::new(i), eew))
+            })
         }
         VectorOp::Load(VecLoadOp::Mask) | VectorOp::Store(VecStoreOp::Mask) => {
             let num_bytes = vl.div_ceil(8);
@@ -337,6 +270,54 @@ pub fn element_accesses<V: VectorRegFile>(
             ops
         }
         _ => Vec::new(),
+    }
+}
+
+/// The element walk the unit-stride, strided and indexed forms share:
+/// each active element's `nf` fields lie `width` apart in memory, and
+/// field `seg` belongs to the register group `seg * emul` past `vd`.
+struct FieldWalk {
+    vd: VRegIdx,
+    nf: Nf,
+    active: std::ops::Range<usize>,
+    vm: bool,
+    is_store: bool,
+    width: Sew,
+    emul: Emul,
+    elements_per_reg: usize,
+}
+
+impl FieldWalk {
+    /// The accesses of the active elements, element `i`'s fields starting
+    /// at `element_base(i)`.
+    fn accesses<V: VectorRegFile>(
+        &self,
+        vrf: &V,
+        element_base: impl Fn(usize) -> u64,
+    ) -> Vec<ElementAccess> {
+        let fields = self.nf.fields_usize();
+        let width_bytes = self.width.bytes() as u64;
+        let emul_regs = self.emul.regs() as usize;
+        let mut ops = Vec::with_capacity(self.active.len() * fields);
+        for i in self.active.clone().filter(|&i| is_element_active_vrf(vrf, i, self.vm)) {
+            let base = element_base(i);
+            for seg in 0..fields {
+                let dest = VRegIdx::new(self.vd.as_u8() + (seg as u8) * self.emul.regs());
+                let store_data = if self.is_store {
+                    vrf.read_element(dest, ElemIdx::new(i), self.width)
+                } else {
+                    0
+                };
+                ops.push(ElementAccess {
+                    vaddr: VirtAddr::new(base.wrapping_add((seg as u64).wrapping_mul(width_bytes))),
+                    store_data,
+                    elem_idx: ElemIdx::new(i),
+                    eew: self.width,
+                    dest_slot: dest_slot(i, seg, emul_regs, self.elements_per_reg),
+                });
+            }
+        }
+        ops
     }
 }
 
