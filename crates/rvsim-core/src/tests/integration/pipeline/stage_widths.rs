@@ -5,10 +5,10 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{T0, X0, X31, after};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const ADDS: u64 = 32;
-const X31: usize = 31;
 
 type Narrowing = fn(&mut Config);
 
@@ -17,9 +17,9 @@ type Narrowing = fn(&mut Config);
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> =
-        (0..ADDS).map(|n| i().addi(5 + (n % 8) as u32, 0, 1).build()).collect();
-    program.push(i().addi(X31 as u32, X31 as u32, 1).build());
-    program.push(i().jal(0, -(program.len() as i32) * 4).build());
+        (0..ADDS).map(|n| i().addi(after(T0, (n % 8) as usize), X0, 1).build()).collect();
+    program.push(i().addi(X31, X31, 1).build());
+    program.push(i().jal(X0, -(program.len() as i32) * 4).build());
     program
 }
 

@@ -2,6 +2,7 @@
 //! squash, in stage order, on both backends; the Kanata writer turns it
 //! into the log Konata reads.
 
+use crate::tests::support::regs::{A0, T0, T1, X0};
 use std::sync::{Arc, Mutex};
 
 use crate::common::{HartId, InstSeq, SimError};
@@ -12,9 +13,6 @@ use crate::uarch::pipeline::trace::kanata::KanataWriter;
 use crate::uarch::pipeline::trace::{Departure, PipelineTrace, Stage};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
-const T0: u32 = 5;
-const T1: u32 = 6;
-const A0: u32 = 10;
 
 /// What the trace was told about one instruction.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -91,12 +89,12 @@ impl PipelineTrace for Recording {
 fn straight_line() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T0, 0, 1).build(),
+        i().addi(T0, X0, 1).build(),
         i().addi(T0, T0, 2).build(),
         i().addi(T1, T0, 3).build(),
         i().auipc(A0, 0).build(),
         i().ld(A0, A0, 0).build(),
-        i().addi(A0, 0, 0).build(),
+        i().addi(A0, X0, 0).build(),
     ];
     program.extend(exit_with_a0());
     program
@@ -107,10 +105,10 @@ fn straight_line() -> Vec<u32> {
 fn mispredicted_loop() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T0, 0, 20).build(),
+        i().addi(T0, X0, 20).build(),
         i().addi(T0, T0, -1).build(),
-        i().bne(T0, 0, -4).build(),
-        i().addi(A0, 0, 0).build(),
+        i().bne(T0, X0, -4).build(),
+        i().addi(A0, X0, 0).build(),
     ];
     program.extend(exit_with_a0());
     program

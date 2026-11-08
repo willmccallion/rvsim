@@ -4,15 +4,16 @@
 
 use crate::Simulator;
 use crate::config::{BackendKind, Config, Console};
+use crate::isa::reg::RegIdx;
 use crate::system::SystemState;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::{InstructionBuilder, exit_with_a0};
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
-const UART: u32 = 5;
-const VALUE: u32 = 6;
-const A0: u32 = 10;
+const UART: RegIdx = RegIdx::new(5);
+const VALUE: RegIdx = RegIdx::new(6);
 const UART_BASE_UPPER: i32 = 0x1_0000;
 const MESSAGE: &[u8] = b"fib(20)=6765\n";
 const EXIT_CODE: i32 = 7;
@@ -24,10 +25,10 @@ fn printing_then_exiting() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![i().lui(UART, UART_BASE_UPPER).build()];
     for &byte in MESSAGE {
-        program.push(i().addi(VALUE, 0, i32::from(byte)).build());
+        program.push(i().addi(VALUE, X0, i32::from(byte)).build());
         program.push(i().sb(UART, VALUE, 0).build());
     }
-    program.push(i().addi(A0, 0, EXIT_CODE).build());
+    program.push(i().addi(A0, X0, EXIT_CODE).build());
     program.extend(exit_with_a0());
     program
 }

@@ -10,6 +10,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{X0, X10, X11};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -36,8 +37,8 @@ fn one_walk_of_a_megapage_translates_every_page_in_it() {
         config.pipeline.backend = backend;
         let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
         let i = InstructionBuilder::new;
-        let program = [i().lui(10, (DATA_VA >> 12) as i32).build(), i().ld(11, 10, 0).build()];
-        for (n, inst) in program.iter().chain(&[i().jal(0, 0).build()]).enumerate() {
+        let program = [i().lui(X10, (DATA_VA >> 12) as i32).build(), i().ld(X11, X10, 0).build()];
+        for (n, inst) in program.iter().chain(&[i().jal(X0, 0).build()]).enumerate() {
             ctx.sim.probe_mem_store(
                 PhysAddr::new(CODE + 4 * n as u64),
                 u64::from(*inst),

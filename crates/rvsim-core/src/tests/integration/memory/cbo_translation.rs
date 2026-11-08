@@ -9,10 +9,12 @@ use crate::isa::csr;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{CBO_CLEAN_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE};
 use crate::isa::privileged::PrivilegeMode;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::X10;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -30,7 +32,6 @@ const PTE_RWX_AD: u64 = 0b1100_1111;
 const PTE_RW_AD: u64 = 0b1100_0111;
 const PTE_X_A: u64 = 0b0100_1001;
 const JAL_SELF: u32 = 0x0000_006F;
-const X10: u32 = 10;
 /// The CBO's operand: inside the data page's second block, not aligned.
 const OPERAND: u64 = DATA_VA + 0x48;
 const STORE_PAGE_FAULT: u64 = 15;
@@ -40,8 +41,8 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u6
     ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
-const fn cbo(imm: i64, rs1: u32) -> u32 {
-    ((imm as u32 & 0xFFF) << 20) | (rs1 << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM
+const fn cbo(imm: i64, rs1: RegIdx) -> u32 {
+    ((imm as u32 & 0xFFF) << 20) | (rs1.field() << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM
 }
 
 /// Runs `x10 = OPERAND; <cbo> x10; j .` in supervisor mode with the data

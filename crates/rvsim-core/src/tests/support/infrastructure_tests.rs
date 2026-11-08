@@ -9,10 +9,11 @@ use crate::isa::encoding::rv64i::opcodes::*;
 use crate::isa::reg::RegIdx;
 use crate::soc::uncore::KERNEL_PANIC_GRACE_CYCLES;
 use crate::system::simulator::ProbeWidth;
+use crate::tests::support::regs::{X0, X1, X2, X3, X5, X6};
 
 #[test]
 fn builder_add_encodes_r_type() {
-    let inst = InstructionBuilder::new().add(1, 2, 3).build();
+    let inst = InstructionBuilder::new().add(X1, X2, X3).build();
     assert_eq!(inst & 0x7F, OP_REG);
     assert_eq!((inst >> 7) & 0x1F, 1); // rd = x1
     assert_eq!((inst >> 12) & 0x7, 0); // funct3 = 000
@@ -23,50 +24,50 @@ fn builder_add_encodes_r_type() {
 
 #[test]
 fn builder_sub_sets_funct7() {
-    let inst = InstructionBuilder::new().sub(1, 2, 3).build();
+    let inst = InstructionBuilder::new().sub(X1, X2, X3).build();
     assert_eq!(inst & 0x7F, OP_REG);
     assert_eq!((inst >> 25) & 0x7F, 0b0100000);
 }
 
 #[test]
 fn builder_and_or_xor_funct3() {
-    let and_inst = InstructionBuilder::new().and(1, 2, 3).build();
+    let and_inst = InstructionBuilder::new().and(X1, X2, X3).build();
     assert_eq!((and_inst >> 12) & 0x7, 0b111);
 
-    let or_inst = InstructionBuilder::new().or(1, 2, 3).build();
+    let or_inst = InstructionBuilder::new().or(X1, X2, X3).build();
     assert_eq!((or_inst >> 12) & 0x7, 0b110);
 
-    let xor_inst = InstructionBuilder::new().xor(1, 2, 3).build();
+    let xor_inst = InstructionBuilder::new().xor(X1, X2, X3).build();
     assert_eq!((xor_inst >> 12) & 0x7, 0b100);
 }
 
 #[test]
 fn builder_sll_srl_sra_funct3_and_funct7() {
-    let sll = InstructionBuilder::new().sll(1, 2, 3).build();
+    let sll = InstructionBuilder::new().sll(X1, X2, X3).build();
     assert_eq!((sll >> 12) & 0x7, 0b001);
     assert_eq!((sll >> 25) & 0x7F, 0b0000000);
 
-    let srl = InstructionBuilder::new().srl(1, 2, 3).build();
+    let srl = InstructionBuilder::new().srl(X1, X2, X3).build();
     assert_eq!((srl >> 12) & 0x7, 0b101);
     assert_eq!((srl >> 25) & 0x7F, 0b0000000);
 
-    let sra = InstructionBuilder::new().sra(1, 2, 3).build();
+    let sra = InstructionBuilder::new().sra(X1, X2, X3).build();
     assert_eq!((sra >> 12) & 0x7, 0b101);
     assert_eq!((sra >> 25) & 0x7F, 0b0100000);
 }
 
 #[test]
 fn builder_slt_sltu() {
-    let slt = InstructionBuilder::new().slt(1, 2, 3).build();
+    let slt = InstructionBuilder::new().slt(X1, X2, X3).build();
     assert_eq!((slt >> 12) & 0x7, 0b010);
 
-    let sltu = InstructionBuilder::new().sltu(1, 2, 3).build();
+    let sltu = InstructionBuilder::new().sltu(X1, X2, X3).build();
     assert_eq!((sltu >> 12) & 0x7, 0b011);
 }
 
 #[test]
 fn builder_addi_encodes_i_type() {
-    let inst = InstructionBuilder::new().addi(1, 0, 42).build();
+    let inst = InstructionBuilder::new().addi(X1, X0, 42).build();
     assert_eq!(inst & 0x7F, OP_IMM);
     assert_eq!((inst >> 7) & 0x1F, 1); // rd = x1
     assert_eq!((inst >> 12) & 0x7, 0); // funct3 = 000
@@ -77,33 +78,33 @@ fn builder_addi_encodes_i_type() {
 
 #[test]
 fn builder_addi_negative_immediate() {
-    let inst = InstructionBuilder::new().addi(1, 0, -1).build();
+    let inst = InstructionBuilder::new().addi(X1, X0, -1).build();
     let imm = (inst >> 20) & 0xFFF;
     assert_eq!(imm, 0xFFF, "Negative immediate -1 should be encoded as 0xFFF (12-bit)");
 }
 
 #[test]
 fn builder_immediate_variants() {
-    let andi = InstructionBuilder::new().andi(5, 6, 0xFF).build();
+    let andi = InstructionBuilder::new().andi(X5, X6, 0xFF).build();
     assert_eq!(andi & 0x7F, OP_IMM);
     assert_eq!((andi >> 12) & 0x7, 0b111);
 
-    let ori = InstructionBuilder::new().ori(5, 6, 0xFF).build();
+    let ori = InstructionBuilder::new().ori(X5, X6, 0xFF).build();
     assert_eq!((ori >> 12) & 0x7, 0b110);
 
-    let xori = InstructionBuilder::new().xori(5, 6, 0xFF).build();
+    let xori = InstructionBuilder::new().xori(X5, X6, 0xFF).build();
     assert_eq!((xori >> 12) & 0x7, 0b100);
 
-    let slti = InstructionBuilder::new().slti(5, 6, 10).build();
+    let slti = InstructionBuilder::new().slti(X5, X6, 10).build();
     assert_eq!((slti >> 12) & 0x7, 0b010);
 
-    let sltiu = InstructionBuilder::new().sltiu(5, 6, 10).build();
+    let sltiu = InstructionBuilder::new().sltiu(X5, X6, 10).build();
     assert_eq!((sltiu >> 12) & 0x7, 0b011);
 }
 
 #[test]
 fn builder_lw_encodes_i_type_load() {
-    let inst = InstructionBuilder::new().lw(1, 2, 8).build();
+    let inst = InstructionBuilder::new().lw(X1, X2, 8).build();
     assert_eq!(inst & 0x7F, OP_LOAD);
     assert_eq!((inst >> 12) & 0x7, 0b010); // funct3 = LW
     assert_eq!((inst >> 20) & 0xFFF, 8);
@@ -111,14 +112,14 @@ fn builder_lw_encodes_i_type_load() {
 
 #[test]
 fn builder_ld_encodes_doubleword_load() {
-    let inst = InstructionBuilder::new().ld(1, 2, 16).build();
+    let inst = InstructionBuilder::new().ld(X1, X2, 16).build();
     assert_eq!(inst & 0x7F, OP_LOAD);
     assert_eq!((inst >> 12) & 0x7, 0b011); // funct3 = LD
 }
 
 #[test]
 fn builder_sw_encodes_s_type() {
-    let inst = InstructionBuilder::new().sw(2, 3, 32).build();
+    let inst = InstructionBuilder::new().sw(X2, X3, 32).build();
     assert_eq!(inst & 0x7F, OP_STORE);
     assert_eq!((inst >> 12) & 0x7, 0b010); // funct3 = SW
     assert_eq!((inst >> 15) & 0x1F, 2); // rs1 = x2
@@ -132,14 +133,14 @@ fn builder_sw_encodes_s_type() {
 
 #[test]
 fn builder_sd_encodes_doubleword_store() {
-    let inst = InstructionBuilder::new().sd(2, 3, 8).build();
+    let inst = InstructionBuilder::new().sd(X2, X3, 8).build();
     assert_eq!(inst & 0x7F, OP_STORE);
     assert_eq!((inst >> 12) & 0x7, 0b011); // funct3 = SD
 }
 
 #[test]
 fn builder_beq_encodes_b_type() {
-    let inst = InstructionBuilder::new().beq(1, 2, 8).build();
+    let inst = InstructionBuilder::new().beq(X1, X2, 8).build();
     assert_eq!(inst & 0x7F, OP_BRANCH);
     assert_eq!((inst >> 12) & 0x7, 0b000); // funct3 = BEQ
     assert_eq!((inst >> 15) & 0x1F, 1); // rs1
@@ -148,25 +149,25 @@ fn builder_beq_encodes_b_type() {
 
 #[test]
 fn builder_branch_variants_funct3() {
-    let bne = InstructionBuilder::new().bne(1, 2, 8).build();
+    let bne = InstructionBuilder::new().bne(X1, X2, 8).build();
     assert_eq!((bne >> 12) & 0x7, 0b001);
 
-    let blt = InstructionBuilder::new().blt(1, 2, 8).build();
+    let blt = InstructionBuilder::new().blt(X1, X2, 8).build();
     assert_eq!((blt >> 12) & 0x7, 0b100);
 
-    let bge = InstructionBuilder::new().bge(1, 2, 8).build();
+    let bge = InstructionBuilder::new().bge(X1, X2, 8).build();
     assert_eq!((bge >> 12) & 0x7, 0b101);
 
-    let bltu = InstructionBuilder::new().bltu(1, 2, 8).build();
+    let bltu = InstructionBuilder::new().bltu(X1, X2, 8).build();
     assert_eq!((bltu >> 12) & 0x7, 0b110);
 
-    let bgeu = InstructionBuilder::new().bgeu(1, 2, 8).build();
+    let bgeu = InstructionBuilder::new().bgeu(X1, X2, 8).build();
     assert_eq!((bgeu >> 12) & 0x7, 0b111);
 }
 
 #[test]
 fn builder_lui_encodes_u_type() {
-    let inst = InstructionBuilder::new().lui(1, 0x12345).build();
+    let inst = InstructionBuilder::new().lui(X1, 0x12345).build();
     assert_eq!(inst & 0x7F, OP_LUI);
     assert_eq!((inst >> 7) & 0x1F, 1);
     let upper = inst >> 12;
@@ -175,21 +176,21 @@ fn builder_lui_encodes_u_type() {
 
 #[test]
 fn builder_auipc_encodes_u_type() {
-    let inst = InstructionBuilder::new().auipc(1, 0x1).build();
+    let inst = InstructionBuilder::new().auipc(X1, 0x1).build();
     assert_eq!(inst & 0x7F, OP_AUIPC);
     assert_eq!((inst >> 7) & 0x1F, 1);
 }
 
 #[test]
 fn builder_jal_encodes_j_type() {
-    let inst = InstructionBuilder::new().jal(1, 0).build();
+    let inst = InstructionBuilder::new().jal(X1, 0).build();
     assert_eq!(inst & 0x7F, OP_JAL);
     assert_eq!((inst >> 7) & 0x1F, 1);
 }
 
 #[test]
 fn builder_jalr_encodes_i_type() {
-    let inst = InstructionBuilder::new().jalr(1, 2, 0).build();
+    let inst = InstructionBuilder::new().jalr(X1, X2, 0).build();
     assert_eq!(inst & 0x7F, OP_JALR);
     assert_eq!((inst >> 7) & 0x1F, 1);
     assert_eq!((inst >> 15) & 0x1F, 2);
@@ -197,18 +198,18 @@ fn builder_jalr_encodes_i_type() {
 
 #[test]
 fn builder_addiw_encodes_op_imm_32() {
-    let inst = InstructionBuilder::new().addiw(1, 2, 5).build();
+    let inst = InstructionBuilder::new().addiw(X1, X2, 5).build();
     assert_eq!(inst & 0x7F, OP_IMM_32);
     assert_eq!((inst >> 12) & 0x7, 0b000);
 }
 
 #[test]
 fn builder_addw_subw_encodes_op_reg_32() {
-    let addw = InstructionBuilder::new().addw(1, 2, 3).build();
+    let addw = InstructionBuilder::new().addw(X1, X2, X3).build();
     assert_eq!(addw & 0x7F, OP_REG_32);
     assert_eq!((addw >> 25) & 0x7F, 0b0000000);
 
-    let subw = InstructionBuilder::new().subw(1, 2, 3).build();
+    let subw = InstructionBuilder::new().subw(X1, X2, X3).build();
     assert_eq!(subw & 0x7F, OP_REG_32);
     assert_eq!((subw >> 25) & 0x7F, 0b0100000);
 }
@@ -216,7 +217,7 @@ fn builder_addw_subw_encodes_op_reg_32() {
 #[test]
 fn builder_nop_is_addi_x0_x0_0() {
     let nop = InstructionBuilder::new().nop().build();
-    let addi_x0 = InstructionBuilder::new().addi(0, 0, 0).build();
+    let addi_x0 = InstructionBuilder::new().addi(X0, X0, 0).build();
     assert_eq!(nop, addi_x0);
 }
 
@@ -224,13 +225,13 @@ fn builder_nop_is_addi_x0_x0_0() {
 fn builder_raw_field_api() {
     let inst = InstructionBuilder::new()
         .opcode(OP_REG)
-        .rd(1)
-        .rs1(2)
-        .rs2(3)
+        .rd(X1)
+        .rs1(X2)
+        .rs2(X3)
         .funct3(0b000)
         .funct7(0b0000000)
         .build();
-    let via_helper = InstructionBuilder::new().add(1, 2, 3).build();
+    let via_helper = InstructionBuilder::new().add(X1, X2, X3).build();
     assert_eq!(inst, via_helper, "Raw field API should produce same encoding as helper");
 }
 
@@ -256,9 +257,9 @@ fn idex_builder_full_chain() {
     let entry = IdExBuilder::new()
         .pc(0x2000)
         .inst(0x12345678)
-        .rs1(1, 100)
-        .rs2(2, 200)
-        .rd(3)
+        .rs1(X1, 100)
+        .rs2(X2, 200)
+        .rd(X3)
         .imm(42)
         .control(ctrl)
         .build();
@@ -289,7 +290,7 @@ fn harness_with_memory_adds_device() {
 #[test]
 fn harness_load_program_writes_instructions_and_sets_pc() {
     let nop = InstructionBuilder::new().nop().build();
-    let addi = InstructionBuilder::new().addi(1, 0, 42).build();
+    let addi = InstructionBuilder::new().addi(X1, X0, 42).build();
     let program = [nop, addi];
 
     let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &program);
@@ -302,14 +303,14 @@ fn harness_load_program_writes_instructions_and_sets_pc() {
 #[test]
 fn harness_set_and_get_reg() {
     let mut ctx = TestContext::new();
-    ctx.set_reg(5, 0xDEAD);
-    assert_eq!(ctx.get_reg(5), 0xDEAD);
+    ctx.set_reg(X5, 0xDEAD);
+    assert_eq!(ctx.get_reg(X5), 0xDEAD);
 }
 
 /// A context spinning on `j .` whose UART has printed "Kernel panic", so a
 /// tick fails once the panic grace period ends.
 fn context_heading_for_a_kernel_panic() -> TestContext {
-    let spin = InstructionBuilder::new().jal(0, 0).build();
+    let spin = InstructionBuilder::new().jal(X0, 0).build();
     let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &[spin]);
     let uart = PhysAddr::new(Config::minimal().system.uart_base.val());
     for byte in b"Kernel panic" {
@@ -335,8 +336,8 @@ fn harness_run_until_fails_the_test_when_a_tick_errors() {
 #[test]
 fn harness_x0_always_zero() {
     let mut ctx = TestContext::new();
-    ctx.set_reg(0, 999);
-    assert_eq!(ctx.get_reg(0), 0, "x0 must always read as zero");
+    ctx.set_reg(X0, 999);
+    assert_eq!(ctx.get_reg(X0), 0, "x0 must always read as zero");
 }
 
 #[test]

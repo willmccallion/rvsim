@@ -2,14 +2,14 @@
 //! queue, the write-combining buffer and the load prefetcher.
 
 use super::program::{
-    A1, BACKENDS, T0, T1, T2, config, ending_in_spin, exit_sequence, run_to_exit, run_to_pc,
-    system, system_with,
+    BACKENDS, config, ending_in_spin, exit_sequence, run_to_exit, run_to_pc, system, system_with,
 };
 use super::{Recorder, accounting_checks};
 use crate::common::VirtAddr;
 use crate::config::{BackendKind, LoadPrefetcherConfig, MemDepPredictorKind, PageBoundary};
 use crate::tests::integration::translation::load_prefetch_paging::{Data, Mode, run_system};
 use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::regs::{A1, T0, T1, T2, X0};
 
 const LOOPS: i32 = 5;
 
@@ -18,9 +18,9 @@ const LOOPS: i32 = 5;
 fn mispredicted_loop() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T1, 0, LOOPS).build(),
+        i().addi(T1, X0, LOOPS).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -4).build(),
+        i().bne(T1, X0, -4).build(),
     ];
     program.extend(exit_sequence());
     program
@@ -51,7 +51,7 @@ fn decode_redirects_fetch_to_each_jump_it_finds(rec: &mut Recorder) {
     let jumps = 3;
     let mut program = Vec::new();
     for _ in 0..jumps {
-        program.extend([i().jal(0, 8).build(), i().addi(T0, 0, 1).build()]);
+        program.extend([i().jal(X0, 8).build(), i().addi(T0, X0, 1).build()]);
     }
     program.extend(exit_sequence());
     for backend in BACKENDS {
@@ -73,11 +73,11 @@ fn decode_redirects_fetch_to_each_jump_it_finds(rec: &mut Recorder) {
 fn loop_with_a_never_taken_branch(iterations: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T1, 0, iterations).build(),
-        i().bne(0, 0, 8).build(),
+        i().addi(T1, X0, iterations).build(),
+        i().bne(X0, X0, 8).build(),
         i().addi(T0, T0, 1).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -12).build(),
+        i().bne(T1, X0, -12).build(),
     ];
     program.extend(exit_sequence());
     program
@@ -104,7 +104,7 @@ fn a_branch_never_taken_costs_no_decode_redirect(rec: &mut Recorder) {
 fn load_past_unresolved_store() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T0, 0, 7).build(),
+        i().addi(T0, X0, 7).build(),
         i().div(T1, T0, T0).build(),
         i().add(T2, A1, T1).build(),
         i().addi(T2, T2, -1).build(),
@@ -169,7 +169,7 @@ fn predictor_counts_start_again_after_a_stats_reset(rec: &mut Recorder) {
 fn a_store_whose_data_comes_late_issues_in_two_halves(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
     let late_data = |late: bool| {
-        let mut program = vec![i().addi(T0, 0, 7).build(), i().div(T1, T0, T0).build()];
+        let mut program = vec![i().addi(T0, X0, 7).build(), i().div(T1, T0, T0).build()];
         let data = if late { T1 } else { T0 };
         program.push(i().sd(A1, data, 0).build());
         program.extend(exit_sequence());
@@ -195,7 +195,7 @@ fn a_device_read_waiting_to_be_oldest_counts_one_wait(rec: &mut Recorder) {
         let context = format!("{backend:?}");
         let mtime = config(backend).system.clint_base.val() + MTIME;
         let mut program = vec![
-            i().addi(T0, 0, 7).build(),
+            i().addi(T0, X0, 7).build(),
             i().div(T1, T0, T0).build(),
             i().lui(T0, ((mtime + 8) >> 12) as i32).build(),
             i().ld(T2, T0, -8).build(),
@@ -251,12 +251,12 @@ const RAM_SIZE: u64 = 0x1_0000;
 fn line_stride() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().addi(T1, 0, STREAM_LOADS).build(),
+        i().addi(T1, X0, STREAM_LOADS).build(),
         i().ld(T2, A1, 0).build(),
         i().add(A1, A1, T2).build(),
         i().addi(A1, A1, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -16).build(),
+        i().bne(T1, X0, -16).build(),
     ];
     program.extend(exit_sequence());
     program
@@ -284,7 +284,7 @@ fn a_stride_stream_is_prefetched_into_each_level_and_dropped_where_it_must_be(re
             system_with(&prefetching(backend, PageBoundary::Stop), &line_stride(), &[]);
         let mut to_the_end =
             system_with(&prefetching(backend, PageBoundary::CrossWithTlb), &line_stride(), &[]);
-        to_the_end.set_reg(A1 as usize, ram_end - 64 * STREAM_LOADS as u64);
+        to_the_end.set_reg(A1, ram_end - 64 * STREAM_LOADS as u64);
         to_the_end.sim.sync_arch_regs();
 
         run_to_exit(&mut inside, &context);

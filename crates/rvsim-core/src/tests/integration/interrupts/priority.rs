@@ -10,6 +10,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::X0;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const M_HANDLER: u64 = PROGRAM_BASE + 0x100;
@@ -22,7 +23,7 @@ const SUPERVISOR_TIMER: u64 = 5;
 fn run(backend: BackendKind) -> (PrivilegeMode, u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    let spin = [InstructionBuilder::new().jal(0, 0).build()];
+    let spin = [InstructionBuilder::new().jal(X0, 0).build()];
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &spin);
     for handler in [M_HANDLER, S_HANDLER] {
         ctx.sim.probe_mem_store(PhysAddr::new(handler), u64::from(spin[0]), ProbeWidth::B4);

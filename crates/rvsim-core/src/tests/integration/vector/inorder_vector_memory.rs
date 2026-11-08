@@ -4,16 +4,15 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SOURCE: u64 = PROGRAM_BASE + 0x400;
 const DEST: u64 = SOURCE + 64;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
 const ELEMENTS: u64 = 8;
 
 /// `vsetivli x0, uimm, e8m1`.
@@ -22,13 +21,13 @@ const fn vsetivli_e8(uimm: u32) -> u32 {
 }
 
 /// `vle8.v vd, (rs1)`.
-const fn vle8(vd: u32, rs1: u32) -> u32 {
-    0x0200_0007 | (vd << 7) | (rs1 << 15)
+const fn vle8(vd: u32, rs1: RegIdx) -> u32 {
+    0x0200_0007 | (vd << 7) | (rs1.field() << 15)
 }
 
 /// `vse8.v vs3, (rs1)`.
-const fn vse8(vs3: u32, rs1: u32) -> u32 {
-    0x0200_0027 | (vs3 << 7) | (rs1 << 15)
+const fn vse8(vs3: u32, rs1: RegIdx) -> u32 {
+    0x0200_0027 | (vs3 << 7) | (rs1.field() << 15)
 }
 
 /// `vadd.vi vd, vs2, imm`.
@@ -49,7 +48,7 @@ fn program() -> Vec<u32> {
         vadd_vi(2, 1, 1),
         vse8(2, A1),
         i().ld(A2, A1, 0).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -67,7 +66,7 @@ fn a_scalar_load_forwards_from_an_in_order_vector_store() {
 
     ctx.run(600);
 
-    assert_eq!(ctx.get_reg(A2 as usize), 0x0908_0706_0504_0302, "the stored bytes, forwarded");
+    assert_eq!(ctx.get_reg(A2), 0x0908_0706_0504_0302, "the stored bytes, forwarded");
     let stored: Vec<u64> = (0..ELEMENTS)
         .map(|b| ctx.sim.probe_mem_load(PhysAddr::new(DEST + b), ProbeWidth::B1))
         .collect();

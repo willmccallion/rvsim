@@ -8,10 +8,12 @@ use crate::isa::csr;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{CBO_ZERO_IMM, CBOZ_BLOCK_SIZE};
 use crate::isa::privileged::PrivilegeMode;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::pmp_entry;
+use crate::tests::support::regs::{X10, X11};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -28,8 +30,6 @@ const PTE_V: u64 = 1;
 const PTE_RWX_AD: u64 = 0b1100_1111;
 const PTE_RW_AD: u64 = 0b1100_0111;
 const JAL_SELF: u32 = 0x0000_006F;
-const X10: u32 = 10;
-const X11: u32 = 11;
 const FILL: u32 = 0xDEAD_BEEF;
 const STORE_ACCESS_FAULT: u64 = 7;
 const PMP_NA4_NONE: u8 = 0b10 << 3;
@@ -44,8 +44,8 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u6
     ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
-const fn cbo(imm: i64, rs1: u32) -> u32 {
-    ((imm as u32 & 0xFFF) << 20) | (rs1 << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM
+const fn cbo(imm: i64, rs1: RegIdx) -> u32 {
+    ((imm as u32 & 0xFFF) << 20) | (rs1.field() << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM
 }
 
 /// `pmpaddr` of the naturally aligned power-of-two region at `base`.
@@ -143,7 +143,7 @@ fn word_load_at_the_end_of_a_pmp_region_after_a_walk_does_not_fault() {
     ];
     let results = [BackendKind::InOrder, BackendKind::OutOfOrder].map(|backend| {
         let ctx = run(backend, &program, grant_only_the_pages_in_use);
-        (ctx.sim.state.harts[0].csrs.mcause, ctx.get_reg(X11 as usize))
+        (ctx.sim.state.harts[0].csrs.mcause, ctx.get_reg(X11))
     });
 
     let loaded = (0, i64::from(FILL.cast_signed()) as u64);

@@ -2,13 +2,15 @@
 //! as the load's width asks, on both backends.
 
 use crate::config::{BackendKind, Config};
+use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X5, X6, X7, X8, X10};
 
 const BASE_ADDR: u64 = 0x8000_0000;
 const MEM_SIZE: usize = 0x1000;
 const DATA_OFFSET: i32 = 0x400;
-const DONE_REG: usize = 2;
+const DONE_REG: RegIdx = RegIdx::new(2);
 const DONE_VALUE: u64 = 7;
 
 fn config(backend: BackendKind) -> Config {
@@ -24,15 +26,15 @@ fn config(backend: BackendKind) -> Config {
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, DATA_OFFSET).build(),
-        i().addi(5, 0, -1).build(),
-        i().sd(10, 5, 0).build(),
-        i().lw(6, 10, 0).build(),
-        i().addi(7, 0, 5).build(),
-        i().sd(10, 7, 8).build(),
-        i().ld(8, 10, 8).build(),
-        i().addi(DONE_REG as u32, 0, DONE_VALUE as i32).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, DATA_OFFSET).build(),
+        i().addi(X5, X0, -1).build(),
+        i().sd(X10, X5, 0).build(),
+        i().lw(X6, X10, 0).build(),
+        i().addi(X7, X0, 5).build(),
+        i().sd(X10, X7, 8).build(),
+        i().ld(X8, X10, 8).build(),
+        i().addi(DONE_REG, X0, DONE_VALUE as i32).build(),
     ];
     program.extend(std::iter::repeat_n(i().nop().build(), 4));
     program
@@ -45,8 +47,8 @@ fn assert_forwarded_values_are_the_stored_ones(backend: BackendKind) {
 
     tc.run_until(10_000, |tc| tc.get_reg(DONE_REG) == DONE_VALUE).expect("program did not finish");
 
-    assert_eq!(tc.get_reg(6), u64::MAX, "{backend:?}: lw sign-extends the forwarded word");
-    assert_eq!(tc.get_reg(8), 5, "{backend:?}: ld reads the forwarded doubleword");
+    assert_eq!(tc.get_reg(X6), u64::MAX, "{backend:?}: lw sign-extends the forwarded word");
+    assert_eq!(tc.get_reg(X8), 5, "{backend:?}: ld reads the forwarded doubleword");
 }
 
 #[test]

@@ -6,8 +6,10 @@ use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{
     CBO_CLEAN_IMM, CBO_FLUSH_IMM, CBO_INVAL_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE,
 };
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X10, X11, X12};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
@@ -15,27 +17,29 @@ const NOP: u32 = 0x0000_0013;
 /// `jal x0, 0` — branch-to-self, used as the "park here" tail of test
 /// programs so PC doesn't run off into uninitialized memory and trap.
 const JAL_SELF: u32 = 0x0000_006F;
-const X10: u32 = 10;
 
 /// Encode a CBO instruction. I-type with the variant-specific 12-bit imm,
 /// rd=x0, funct3=CBO, opcode=MISC-MEM.
-fn cbo(imm: i64, rs1: u32) -> u32 {
-    ((imm as u32 & 0xFFF) << 20) | ((rs1 & 0x1F) << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM
+fn cbo(imm: i64, rs1: RegIdx) -> u32 {
+    ((imm as u32 & 0xFFF) << 20)
+        | ((rs1.field() & 0x1F) << 15)
+        | (i_f3::CBO << 12)
+        | i_op::OP_MISC_MEM
 }
 
-fn cbo_zero(rs1: u32) -> u32 {
+fn cbo_zero(rs1: RegIdx) -> u32 {
     cbo(CBO_ZERO_IMM, rs1)
 }
 
-fn cbo_inval(rs1: u32) -> u32 {
+fn cbo_inval(rs1: RegIdx) -> u32 {
     cbo(CBO_INVAL_IMM, rs1)
 }
 
-fn cbo_clean(rs1: u32) -> u32 {
+fn cbo_clean(rs1: RegIdx) -> u32 {
     cbo(CBO_CLEAN_IMM, rs1)
 }
 
-fn cbo_flush(rs1: u32) -> u32 {
+fn cbo_flush(rs1: RegIdx) -> u32 {
     cbo(CBO_FLUSH_IMM, rs1)
 }
 
@@ -69,7 +73,7 @@ fn run_cbo(ctx: &mut TestContext, inst: u32, addr_in_x10: u64) {
     for i in 2..16 {
         ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + i * 4), u64::from(NOP), ProbeWidth::B4);
     }
-    ctx.set_reg(X10 as usize, addr_in_x10);
+    ctx.set_reg(X10, addr_in_x10);
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     ctx.state_mut().harts[0].csrs.mtvec = RAM_BASE + park_offset;
     ctx.run(1000);
@@ -209,8 +213,6 @@ fn cbo_flush_in_machine_mode_does_not_trap() {
 /// takes effect at commit, so the load must not read the block before then.
 fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
     use crate::tests::support::builder::instruction::InstructionBuilder;
-    const X11: u32 = 11;
-    const X12: u32 = 12;
     let data_addr = RAM_BASE + 0x1000;
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
@@ -218,7 +220,7 @@ fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
     fill_pattern(&mut ctx, data_addr, CBOZ_BLOCK_SIZE);
     let i = InstructionBuilder::new;
     let program =
-        [cbo_zero(X10), i().ld(X11, X10, 8).build(), i().addi(X12, 0, 1).build(), JAL_SELF];
+        [cbo_zero(X10), i().ld(X11, X10, 8).build(), i().addi(X12, X0, 1).build(), JAL_SELF];
     for (n, inst) in program.iter().enumerate() {
         ctx.sim.probe_mem_store(
             PhysAddr::new(RAM_BASE + 4 * n as u64),
@@ -226,17 +228,17 @@ fn check_load_after_cbo_zero_reads_zero(backend: crate::config::BackendKind) {
             ProbeWidth::B4,
         );
     }
-    ctx.set_reg(X10 as usize, data_addr);
-    ctx.set_reg(X11 as usize, u64::MAX);
+    ctx.set_reg(X10, data_addr);
+    ctx.set_reg(X11, u64::MAX);
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     ctx.state_mut().harts[0].csrs.mtvec = RAM_BASE + 12;
     ctx.sim.sync_arch_regs();
 
-    let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(X12 as usize) == 1);
+    let finished = ctx.run_until(2_000, |ctx| ctx.get_reg(X12) == 1);
 
     assert!(finished.is_some(), "{backend:?}: the program never finished");
     assert_eq!(ctx.state().harts[0].csrs.mcause, 0, "{backend:?}: no trap was taken");
-    assert_eq!(ctx.get_reg(X11 as usize), 0, "{backend:?}: the load read the zeroed block");
+    assert_eq!(ctx.get_reg(X11), 0, "{backend:?}: the load read the zeroed block");
 }
 
 #[test]

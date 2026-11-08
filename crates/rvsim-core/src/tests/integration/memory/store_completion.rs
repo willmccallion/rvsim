@@ -6,14 +6,16 @@
 
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A2, X0, X10, after};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA_OFFSET: i32 = 0x400;
 const LINE: i32 = 64;
 const STORES: i32 = 8;
-const DONE_REG: usize = 2;
+const DONE_REG: RegIdx = RegIdx::new(2);
 const DONE: u64 = 7;
 /// `fence rw, rw`.
 const FENCE_RW_RW: u32 = 0x0330_000F;
@@ -33,16 +35,16 @@ fn cycles_to_finish(config: &Config, program: &[u32]) -> u64 {
 }
 
 fn done() -> u32 {
-    InstructionBuilder::new().addi(DONE_REG as u32, 0, DONE as i32).build()
+    InstructionBuilder::new().addi(DONE_REG, X0, DONE as i32).build()
 }
 
 /// `STORES` stores `stride` bytes apart, then the completion marker.
 fn stores(stride: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let mut program = vec![i().auipc(10, 0).build(), i().addi(10, 10, DATA_OFFSET).build()];
-    program.extend((0..STORES).map(|n| i().sd(10, 0, n * stride).build()));
+    let mut program = vec![i().auipc(X10, 0).build(), i().addi(X10, X10, DATA_OFFSET).build()];
+    program.extend((0..STORES).map(|n| i().sd(X10, X0, n * stride).build()));
     program.push(done());
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 
@@ -50,12 +52,12 @@ fn stores(stride: i32) -> Vec<u32> {
 fn store_then(between: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, DATA_OFFSET).build(),
-        i().sd(10, 0, 0).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, DATA_OFFSET).build(),
+        i().sd(X10, X0, 0).build(),
         between,
         done(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -93,13 +95,15 @@ fn store_then_alu_ops() -> Vec<u32> {
     const ALU_OPS: u32 = 24;
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, DATA_OFFSET).build(),
-        i().sd(10, 0, 0).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, DATA_OFFSET).build(),
+        i().sd(X10, X0, 0).build(),
     ];
-    program.extend((0..ALU_OPS).map(|n| i().addi(12 + n % 8, 0, n.cast_signed()).build()));
+    program.extend(
+        (0..ALU_OPS).map(|n| i().addi(after(A2, (n % 8) as usize), X0, n.cast_signed()).build()),
+    );
     program.push(done());
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 

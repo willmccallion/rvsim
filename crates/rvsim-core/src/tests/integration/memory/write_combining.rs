@@ -7,21 +7,23 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::X0;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
 const OTHER_LINE: i32 = 0x80;
-const BASE: u32 = 5;
-const LOW: u32 = 6;
-const HIGH: u32 = 7;
-const WHOLE: usize = 10;
-const UNWRITTEN: usize = 11;
-const PARTLY_WRITTEN: usize = 12;
-const AFTER_EVICTION: usize = 13;
-const DONE_REG: usize = 31;
+const BASE: RegIdx = RegIdx::new(5);
+const LOW: RegIdx = RegIdx::new(6);
+const HIGH: RegIdx = RegIdx::new(7);
+const WHOLE: RegIdx = RegIdx::new(10);
+const UNWRITTEN: RegIdx = RegIdx::new(11);
+const PARTLY_WRITTEN: RegIdx = RegIdx::new(12);
+const AFTER_EVICTION: RegIdx = RegIdx::new(13);
+const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 const LOW_VALUE: u64 = 0x123;
 const HIGH_VALUE: u64 = 0x456;
@@ -31,18 +33,18 @@ fn program() -> Vec<u32> {
     vec![
         i().auipc(BASE, 0).build(),
         i().addi(BASE, BASE, (DATA - PROGRAM_BASE) as i32).build(),
-        i().addi(LOW, 0, LOW_VALUE as i32).build(),
-        i().addi(HIGH, 0, HIGH_VALUE as i32).build(),
+        i().addi(LOW, X0, LOW_VALUE as i32).build(),
+        i().addi(HIGH, X0, HIGH_VALUE as i32).build(),
         i().sw(BASE, LOW, 0).build(),
         i().sw(BASE, HIGH, 4).build(),
-        i().ld(WHOLE as u32, BASE, 0).build(),
-        i().lw(UNWRITTEN as u32, BASE, 8).build(),
+        i().ld(WHOLE, BASE, 0).build(),
+        i().lw(UNWRITTEN, BASE, 8).build(),
         i().sw(BASE, LOW, 12).build(),
-        i().ld(PARTLY_WRITTEN as u32, BASE, 8).build(),
+        i().ld(PARTLY_WRITTEN, BASE, 8).build(),
         i().sw(BASE, HIGH, OTHER_LINE).build(),
-        i().ld(AFTER_EVICTION as u32, BASE, 0).build(),
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().ld(AFTER_EVICTION, BASE, 0).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 

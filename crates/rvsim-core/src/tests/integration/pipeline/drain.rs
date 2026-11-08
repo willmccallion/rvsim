@@ -9,9 +9,7 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
+use crate::tests::support::regs::{T0, T1, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SLOTS: u64 = PROGRAM_BASE + 0x100;
 const STORES: u64 = 32;
@@ -22,11 +20,11 @@ const MARK: u64 = 0x55;
 /// than the store buffer drains them.
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let mut program = vec![i().auipc(T0, 0).build(), i().addi(T1, 0, MARK as i32).build()];
+    let mut program = vec![i().auipc(T0, 0).build(), i().addi(T1, X0, MARK as i32).build()];
     for slot in 0..STORES {
         program.push(i().sd(T0, T1, 0x100 + 8 * slot as i32).build());
     }
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 

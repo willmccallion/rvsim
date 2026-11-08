@@ -7,9 +7,7 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const A2: u32 = 12;
-const S4: u32 = 20;
+use crate::tests::support::regs::{A2, S4, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 const MCAUSE: u32 = 0x342;
@@ -37,8 +35,8 @@ fn trap_cause(backend: BackendKind) -> Option<u64> {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> =
         HINTS.chunks(2).map(|pair| u32::from(pair[0]) | u32::from(pair[1]) << 16).collect();
-    program.extend([i().addi(S4, 0, 1).build(), i().jal(0, 0).build()]);
-    let handler = [i().csrrs(A2, MCAUSE, 0).build(), i().jal(0, 0).build()];
+    program.extend([i().addi(S4, X0, 1).build(), i().jal(X0, 0).build()]);
+    let handler = [i().csrrs(A2, MCAUSE, X0).build(), i().jal(X0, 0).build()];
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
@@ -53,9 +51,9 @@ fn trap_cause(backend: BackendKind) -> Option<u64> {
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();
 
-    let finished = ctx.run_until(1_000, |ctx| ctx.get_reg(S4 as usize) == 1);
+    let finished = ctx.run_until(1_000, |ctx| ctx.get_reg(S4) == 1);
 
-    finished.is_none().then(|| ctx.get_reg(A2 as usize))
+    finished.is_none().then(|| ctx.get_reg(A2))
 }
 
 #[test]

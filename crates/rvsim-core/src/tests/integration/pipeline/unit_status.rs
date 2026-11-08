@@ -11,15 +11,11 @@ use crate::isa::fp::Frm;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, A3, A4, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 const DATA: u64 = PROGRAM_BASE + 0x200;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const A4: u32 = 14;
 const MCAUSE: u32 = 0x342;
 const MTVAL: u32 = 0x343;
 const FCSR: u32 = 0x003;
@@ -56,7 +52,11 @@ const BOTH_ON: Units = Units { fp: true, vector: true };
 /// Records `mcause` and `mtval`, then spins.
 fn handler() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().csrrs(A2, MCAUSE, 0).build(), i().csrrs(A3, MTVAL, 0).build(), i().jal(0, 0).build()]
+    vec![
+        i().csrrs(A2, MCAUSE, X0).build(),
+        i().csrrs(A3, MTVAL, X0).build(),
+        i().jal(X0, 0).build(),
+    ]
 }
 
 /// Runs `inst` followed by a marker write; returns `(mcause, mtval, marker)`.
@@ -65,7 +65,7 @@ fn run(backend: BackendKind, units: Units, frm: u64, inst: u32) -> (u64, u64, u6
     config.pipeline.backend = backend;
     config.system.console = crate::config::Console::Quiet;
     let i = InstructionBuilder::new;
-    let program = [inst, i().addi(A4, 0, 1).build(), i().jal(0, 0).build()];
+    let program = [inst, i().addi(A4, X0, 1).build(), i().jal(X0, 0).build()];
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
@@ -86,11 +86,11 @@ fn run(backend: BackendKind, units: Units, frm: u64, inst: u32) -> (u64, u64, u6
     csrs.frm = Frm::from_bits(frm);
     csrs.vtype = VTYPE_E32_M1;
     csrs.vl = 4;
-    ctx.set_reg(A0 as usize, DATA);
+    ctx.set_reg(A0, DATA);
     ctx.sim.sync_arch_regs();
 
     ctx.run(1_000);
-    (ctx.get_reg(A2 as usize), ctx.get_reg(A3 as usize), ctx.get_reg(A4 as usize))
+    (ctx.get_reg(A2), ctx.get_reg(A3), ctx.get_reg(A4))
 }
 
 /// `inst` is illegal with `off` and runs to the marker with both units on.
@@ -124,12 +124,12 @@ fn vector_floating_point_is_illegal_with_fs_off() {
 
 #[test]
 fn fp_csr_access_is_illegal_with_fs_off() {
-    check(InstructionBuilder::new().csrrs(A1, FCSR, 0).build(), Units { fp: false, vector: true });
+    check(InstructionBuilder::new().csrrs(A1, FCSR, X0).build(), Units { fp: false, vector: true });
 }
 
 #[test]
 fn vector_csr_access_is_illegal_with_vs_off() {
-    check(InstructionBuilder::new().csrrs(A1, VL, 0).build(), Units { fp: true, vector: false });
+    check(InstructionBuilder::new().csrrs(A1, VL, X0).build(), Units { fp: true, vector: false });
 }
 
 /// `inst` is illegal with every reserved `frm` and runs with `frm` = RNE.

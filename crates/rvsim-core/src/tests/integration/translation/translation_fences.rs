@@ -4,9 +4,11 @@
 use crate::common::{LineAddr, PhysAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::sim::packet::MesiState;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X10, X11};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
@@ -15,7 +17,7 @@ const SFENCE_VMA_ALL: u32 = 0x1200_0073;
 /// `fence rw, rw`: the store drains before the maintenance instruction.
 const FENCE_RW_RW: u32 = 0x0330_000F;
 const SETTLE_NOPS: usize = 40;
-const DONE_REG: usize = 2;
+const DONE_REG: RegIdx = RegIdx::new(2);
 const DONE: u64 = 7;
 
 /// Dirties the data line and lets the store drain, runs `maintenance`,
@@ -23,18 +25,18 @@ const DONE: u64 = 7;
 fn program(maintenance: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
-        i().auipc(10, 0).build(),
-        i().addi(10, 10, 0x400).build(),
-        i().sd(10, 0, 0).build(),
+        i().auipc(X10, 0).build(),
+        i().addi(X10, X10, 0x400).build(),
+        i().sd(X10, X0, 0).build(),
         FENCE_RW_RW,
     ];
     // Time for the drained store's write miss to fill the line.
     program.extend(std::iter::repeat_n(i().nop().build(), SETTLE_NOPS));
     program.extend([
         maintenance,
-        i().ld(11, 10, 0).build(),
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().ld(X11, X10, 0).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]);
     program
 }
@@ -73,7 +75,7 @@ fn assert_caches_untouched(maintenance: u32) {
 
 #[test]
 fn a_satp_write_leaves_the_caches_alone() {
-    assert_caches_untouched(InstructionBuilder::new().csrrw(0, SATP, 0).build());
+    assert_caches_untouched(InstructionBuilder::new().csrrw(X0, SATP, X0).build());
 }
 
 #[test]

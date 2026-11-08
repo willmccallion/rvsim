@@ -6,6 +6,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::X0;
 use crate::uarch::bpred::BranchPredictor;
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
@@ -15,7 +16,7 @@ fn history_after_a_jump_loop(backend: BackendKind) -> bool {
     config.pipeline.backend = backend;
     config.pipeline.branch_predictor = crate::config::BranchPredictorKind::GShare;
     config.system.console = crate::config::Console::Quiet;
-    let program = [InstructionBuilder::new().jal(0, 0).build()];
+    let program = [InstructionBuilder::new().jal(X0, 0).build()];
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
 
     ctx.run(100);

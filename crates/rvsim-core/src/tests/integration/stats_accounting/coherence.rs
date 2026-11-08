@@ -8,13 +8,7 @@ use crate::config::{BackendKind, Config, HomeAgentConfig, InterconnectConfig};
 use crate::system::simulator::StopAt;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
 use crate::tests::support::multihart::{MultiHart, PROGRAM_BASE};
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const T3: u32 = 28;
-const T5: u32 = 30;
-const T6: u32 = 31;
+use crate::tests::support::regs::{T0, T1, T2, T3, T4, T5, T6, X0};
 const MHARTID: u32 = 0xF14;
 /// Hart 1 sets this word once its body is done; a line of its own.
 const DONE_FLAG: i32 = 0x300;
@@ -45,26 +39,26 @@ fn two_cached_harts(backend: BackendKind) -> Config {
 fn per_hart(hart0: &[u32], hart1: &[u32]) -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
     let mut code = vec![
-        i().addi(T0, 0, 31).build(),
-        i().addi(T2, 0, 1).build(),
+        i().addi(T0, X0, 31).build(),
+        i().addi(T2, X0, 1).build(),
         i().sll(T2, T2, T0).build(),
         i().addi(T2, T2, 0x400).build(),
-        i().csrrs(T5, MHARTID, 0).build(),
+        i().csrrs(T5, MHARTID, X0).build(),
     ];
     let hart0_tail = 4;
     let hart1_at = code.len() + 1 + hart0.len() + hart0_tail;
-    code.push(i().bne(T5, 0, ((hart1_at - code.len()) * 4) as i32).build());
+    code.push(i().bne(T5, X0, ((hart1_at - code.len()) * 4) as i32).build());
     code.extend_from_slice(hart0);
-    code.extend([FENCE_IORW, i().ld(T6, T2, DONE_FLAG).build(), i().beq(T6, 0, -4).build()]);
+    code.extend([FENCE_IORW, i().ld(T6, T2, DONE_FLAG).build(), i().beq(T6, X0, -4).build()]);
     let end = PROGRAM_BASE + 4 * code.len() as u64;
-    code.push(i().jal(0, 0).build());
+    code.push(i().jal(X0, 0).build());
     assert_eq!(code.len(), hart1_at);
     code.extend_from_slice(hart1);
     code.extend([
         FENCE_IORW,
-        i().addi(T6, 0, 1).build(),
+        i().addi(T6, X0, 1).build(),
         i().sd(T2, T6, DONE_FLAG).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]);
     (code, end)
 }
@@ -87,11 +81,11 @@ fn run_settled(config: &Config, (program, end): (Vec<u32>, u64), context: &str) 
 fn ping_pong(rounds: i32, mine: i32, theirs: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T1, 0, rounds).build(),
+        i().addi(T1, X0, rounds).build(),
         i().sd(T2, T1, mine).build(),
         i().ld(T3, T2, theirs).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -12).build(),
+        i().bne(T1, X0, -12).build(),
     ]
 }
 
@@ -125,8 +119,6 @@ fn every_snoop_and_upgrade_the_home_counts_reaches_a_cache(rec: &mut Recorder) {
     }
 }
 
-const T4: u32 = 29;
-
 /// `lines` lines from 4 KiB above the data, each stored to when `store`,
 /// otherwise loaded.
 fn sweep(lines: i32, store: bool) -> Vec<u32> {
@@ -135,11 +127,11 @@ fn sweep(lines: i32, store: bool) -> Vec<u32> {
     vec![
         i().lui(T4, 1).build(),
         i().add(T4, T2, T4).build(),
-        i().addi(T1, 0, lines).build(),
+        i().addi(T1, X0, lines).build(),
         access,
         i().addi(T4, T4, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -12).build(),
+        i().bne(T1, X0, -12).build(),
     ]
 }
 
@@ -238,11 +230,13 @@ fn the_home_counts_maintenance_recalls_and_waits(rec: &mut Recorder) {
     use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
     use crate::isa::encoding::zicboz::CBO_FLUSH_IMM;
     let i = InstructionBuilder::new;
-    let flush =
-        ((CBO_FLUSH_IMM as u32 & 0xFFF) << 20) | (T2 << 15) | (i_f3::CBO << 12) | i_op::OP_MISC_MEM;
+    let flush = ((CBO_FLUSH_IMM as u32 & 0xFFF) << 20)
+        | (T2.field() << 15)
+        | (i_f3::CBO << 12)
+        | i_op::OP_MISC_MEM;
     for backend in BACKENDS {
         let context = format!("{backend:?}");
-        let hart0 = [i().addi(T1, 0, 5).build(), i().sd(T2, T1, 0).build(), flush];
+        let hart0 = [i().addi(T1, X0, 5).build(), i().sd(T2, T1, 0).build(), flush];
         let program = per_hart(&hart0, &ping_pong(20, 8, 0));
         let mut tiny = two_cached_harts(backend);
         tiny.coherence.home_agent = HomeAgentConfig::SnoopFilter {
@@ -332,7 +326,7 @@ fn read_meet_write(clint_base: u64) -> Vec<u32> {
     vec![
         i().ld(T3, T2, 0).build(),
         i().lui(T4, ((mtime + 8) >> 12) as i32).build(),
-        i().addi(T1, 0, STORE_AT).build(),
+        i().addi(T1, X0, STORE_AT).build(),
         i().ld(T0, T4, -8).build(),
         i().blt(T0, T1, -4).build(),
         i().sd(T2, T0, 0).build(),
@@ -371,16 +365,16 @@ fn an_upgrade_a_snoop_overtook_is_retried_for_data(rec: &mut Recorder) {
 fn lr_sc_increments_on_a_held_line(rounds: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T1, 0, rounds).build(),
+        i().addi(T1, X0, rounds).build(),
         i().ld(T3, T2, 0).build(),
         i().add(T0, T3, T1).build(),
         i().div(T0, T0, T0).build(),
         i().lr_d(T3, T2).build(),
         i().addi(T3, T3, 1).build(),
         i().sc_d(T0, T2, T3).build(),
-        i().bne(T0, 0, -24).build(),
+        i().bne(T0, X0, -24).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -32).build(),
+        i().bne(T1, X0, -32).build(),
     ]
 }
 
@@ -390,13 +384,13 @@ fn lr_sc_increments_on_a_held_line(rounds: i32) -> Vec<u32> {
 /// retire depends on the chain's length; the test tries several.
 fn paced_stores_to_the_shared_word(rounds: i32, muls: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
-    let mut program = vec![i().addi(T1, 0, rounds).build(), i().mul(T3, T1, T1).build()];
+    let mut program = vec![i().addi(T1, X0, rounds).build(), i().mul(T3, T1, T1).build()];
     for _ in 1..muls {
         program.push(i().mul(T3, T3, T1).build());
     }
     program.push(i().sd(T2, T3, 0).build());
     program.push(i().addi(T1, T1, -1).build());
-    program.push(i().bne(T1, 0, -4 * (muls + 2)).build());
+    program.push(i().bne(T1, X0, -4 * (muls + 2)).build());
     program
 }
 
@@ -408,13 +402,13 @@ const RACED: i32 = 0x80;
 fn racing_loads(rounds: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T1, 0, rounds).build(),
+        i().addi(T1, X0, rounds).build(),
         i().div(T0, T1, T1).build(),
         i().add(T4, T2, T0).build(),
         i().ld(T3, T4, RACED - 1).build(),
         i().ld(T5, T2, RACED + 8).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -20).build(),
+        i().bne(T1, X0, -20).build(),
     ]
 }
 
@@ -422,10 +416,10 @@ fn racing_loads(rounds: i32) -> Vec<u32> {
 fn racing_stores(rounds: i32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T1, 0, rounds).build(),
+        i().addi(T1, X0, rounds).build(),
         i().sd(T2, T1, RACED).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -8).build(),
+        i().bne(T1, X0, -8).build(),
     ]
 }
 

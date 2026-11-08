@@ -8,11 +8,10 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A2, A3, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
-const A2: u32 = 12;
-const A3: u32 = 13;
 const MCAUSE: u32 = 0x342;
 const MTVAL: u32 = 0x343;
 const ILLEGAL_INSTRUCTION: u64 = 2;
@@ -22,7 +21,11 @@ const TWO_C_NOPS: u32 = 0x0001_0001;
 /// Records `mcause` and `mtval`, then spins.
 fn handler() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().csrrs(A2, MCAUSE, 0).build(), i().csrrs(A3, MTVAL, 0).build(), i().jal(0, 0).build()]
+    vec![
+        i().csrrs(A2, MCAUSE, X0).build(),
+        i().csrrs(A3, MTVAL, X0).build(),
+        i().jal(X0, 0).build(),
+    ]
 }
 
 /// `mcause` and `mtval` after running the two `c.nop`s under `isa`, or
@@ -32,7 +35,7 @@ fn trap_seen(backend: BackendKind, isa: &str) -> (u64, u64) {
     config.pipeline.backend = backend;
     config.isa.string = Some(isa.to_owned());
     config.system.console = crate::config::Console::Quiet;
-    let program = [TWO_C_NOPS, InstructionBuilder::new().jal(0, 0).build()];
+    let program = [TWO_C_NOPS, InstructionBuilder::new().jal(X0, 0).build()];
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program);
     for (n, word) in handler().iter().enumerate() {
         ctx.sim.probe_mem_store(
@@ -46,7 +49,7 @@ fn trap_seen(backend: BackendKind, isa: &str) -> (u64, u64) {
 
     ctx.run(500);
 
-    (ctx.get_reg(A2 as usize), ctx.get_reg(A3 as usize))
+    (ctx.get_reg(A2), ctx.get_reg(A3))
 }
 
 #[test]

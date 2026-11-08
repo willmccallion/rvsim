@@ -8,10 +8,10 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::X31;
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
-const X31: usize = 31;
 const LINE_BYTES: usize = 64;
 const I_CACHE_LATENCY: u64 = 8;
 const C_NOP: u16 = 0x0001;

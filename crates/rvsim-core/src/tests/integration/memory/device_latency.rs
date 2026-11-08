@@ -4,13 +4,15 @@
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::config::DeviceKind;
+use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X5, X6, X7};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const CLINT_MTIME_PAGE: i32 = 0x0200_B000 >> 12;
 const MTIME_OFFSET: i32 = 0xFF8;
-const DONE_REG: usize = 31;
+const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 const CLOCK_MHZ: u64 = 2400;
 
@@ -18,11 +20,11 @@ const CLOCK_MHZ: u64 = 2400;
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().lui(5, CLINT_MTIME_PAGE).build(),
-        i().ld(6, 5, MTIME_OFFSET).build(),
-        i().add(7, 6, 6).build(),
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().lui(X5, CLINT_MTIME_PAGE).build(),
+        i().ld(X6, X5, MTIME_OFFSET).build(),
+        i().add(X7, X6, X6).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 

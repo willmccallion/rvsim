@@ -10,6 +10,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::X0;
 use crate::uarch::pipeline::engine::{ExecutionEngine, PipelineDispatch};
 
 const RAM_BASE: u64 = 0x8000_0000;
@@ -32,7 +33,7 @@ fn inflight_fetches(pipeline: &PipelineDispatch) -> usize {
 fn straight_line_program() -> Vec<u32> {
     let mut program = vec![InstructionBuilder::new().nop().build(); PROGRAM_LEN];
     let last = program.len() - 1;
-    program[last] = InstructionBuilder::new().jal(0, 0).build();
+    program[last] = InstructionBuilder::new().jal(X0, 0).build();
     program
 }
 

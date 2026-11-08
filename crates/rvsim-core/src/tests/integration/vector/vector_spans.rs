@@ -5,37 +5,35 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, T0, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const SOURCE: u64 = PROGRAM_BASE + 0x400;
 const DEST: u64 = SOURCE + 0x100;
 const BYTES: u64 = 64;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const T0: u32 = 5;
-const DONE_REG: usize = 31;
+const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 const MTVEC: u32 = 0x305;
 const LOAD_ACCESS_FAULT: u64 = 5;
 const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrder];
 
 /// `vsetvli x0, rs1, e8m4`.
-const fn vsetvli_e8m4(rs1: u32) -> u32 {
-    (0b010 << 20) | (rs1 << 15) | (0b111 << 12) | 0x57
+const fn vsetvli_e8m4(rs1: RegIdx) -> u32 {
+    (0b010 << 20) | (rs1.field() << 15) | (0b111 << 12) | 0x57
 }
 
 /// `vle8.v vd, (rs1)`.
-const fn vle8(vd: u32, rs1: u32) -> u32 {
-    0x0200_0007 | (vd << 7) | (rs1 << 15)
+const fn vle8(vd: u32, rs1: RegIdx) -> u32 {
+    0x0200_0007 | (vd << 7) | (rs1.field() << 15)
 }
 
 /// `vse8.v vs3, (rs1)`.
-const fn vse8(vs3: u32, rs1: u32) -> u32 {
-    0x0200_0027 | (vs3 << 7) | (rs1 << 15)
+const fn vse8(vs3: u32, rs1: RegIdx) -> u32 {
+    0x0200_0027 | (vs3 << 7) | (rs1.field() << 15)
 }
 
 /// Copies `BYTES` bytes from `SOURCE` to `DEST` through v4..v7; without
@@ -47,12 +45,12 @@ fn copy(with_load: bool) -> Vec<u32> {
         i().auipc(A0, 0).build(),
         i().addi(A0, A0, (SOURCE - PROGRAM_BASE) as i32).build(),
         i().addi(A1, A0, (DEST - SOURCE) as i32).build(),
-        i().addi(A2, 0, BYTES as i32).build(),
+        i().addi(A2, X0, BYTES as i32).build(),
         vsetvli_e8m4(A2),
         load,
         vse8(4, A1),
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(),
-        i().jal(0, 0).build(),
+        i().addi(DONE_REG, X0, DONE as i32).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -119,17 +117,17 @@ fn the_vector_memory_width_sets_the_bytes_per_access() {
 fn load_past_the_end_of_ram() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().auipc(A0, 4).build(),                          // 0x00: RAM end
-        i().addi(A0, A0, -32).build(),                     // 0x04
-        i().auipc(T0, 0).build(),                          // 0x08
-        i().addi(T0, T0, 0x20).build(),                    // 0x0c: the handler
-        i().csrrw(0, MTVEC, T0).build(),                   // 0x10
-        i().addi(A2, 0, BYTES as i32).build(),             // 0x14
-        vsetvli_e8m4(A2),                                  // 0x18
-        vle8(4, A0),                                       // 0x1c
-        i().addi(DONE_REG as u32, 0, DONE as i32).build(), // 0x20
-        i().jal(0, 0).build(),                             // 0x24
-        i().jal(0, 0).build(),                             // 0x28: handler
+        i().auipc(A0, 4).build(),                    // 0x00: RAM end
+        i().addi(A0, A0, -32).build(),               // 0x04
+        i().auipc(T0, 0).build(),                    // 0x08
+        i().addi(T0, T0, 0x20).build(),              // 0x0c: the handler
+        i().csrrw(X0, MTVEC, T0).build(),            // 0x10
+        i().addi(A2, X0, BYTES as i32).build(),      // 0x14
+        vsetvli_e8m4(A2),                            // 0x18
+        vle8(4, A0),                                 // 0x1c
+        i().addi(DONE_REG, X0, DONE as i32).build(), // 0x20
+        i().jal(X0, 0).build(),                      // 0x24
+        i().jal(X0, 0).build(),                      // 0x28: handler
     ]
 }
 

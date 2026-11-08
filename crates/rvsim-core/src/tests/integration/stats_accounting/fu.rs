@@ -2,10 +2,11 @@
 //! other instruction, one per instruction for a pipelined unit and its
 //! latency for one that is not.
 
-use super::program::{A2, BACKENDS, T0, T1, T2, ending_in_spin, run_to_pc, system};
+use super::program::{BACKENDS, ending_in_spin, run_to_pc, system};
 use super::{Recorder, accounting_checks};
 use crate::config::BackendKind;
 use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::regs::{A2, T0, T1, T2, X0};
 
 /// `fadd.d ft2, ft1, ft1`.
 const FADD_D: u32 = 0x0210_f153;
@@ -51,9 +52,9 @@ fn util(rec: &mut Recorder, sim: &crate::Simulator, unit: &str) -> u64 {
 fn scalar_classes() -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
     ending_in_spin(vec![
-        i().addi(T0, 0, 7).build(),
-        i().addi(T1, 0, 3).build(),
-        i().addi(T2, 0, 1).build(),
+        i().addi(T0, X0, 7).build(),
+        i().addi(T1, X0, 3).build(),
+        i().addi(T2, X0, 1).build(),
         i().mul(T2, T0, T1).build(),
         i().mul(T2, T1, T1).build(),
         i().div(T2, T0, T1).build(),
@@ -154,10 +155,10 @@ fn a_squashed_op_still_counts_the_cycles_its_unit_was_busy(rec: &mut Recorder) {
     // A divide on the path a mispredicted branch skips: it issues before
     // the branch resolves, then is squashed.
     let (program, end) = ending_in_spin(vec![
-        i().addi(T0, 0, 1).build(),
-        i().bne(T0, 0, 8).build(),
+        i().addi(T0, X0, 1).build(),
+        i().bne(T0, X0, 8).build(),
         i().div(T1, T0, T0).build(),
-        i().addi(T2, 0, 0).build(),
+        i().addi(T2, X0, 0).build(),
     ]);
     let context = "OutOfOrder";
     let mut ctx = system(BackendKind::OutOfOrder, &program, &[]);

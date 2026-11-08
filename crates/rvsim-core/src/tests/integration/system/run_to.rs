@@ -9,13 +9,12 @@ use crate::isa::reg::RegIdx;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, X0, X5, X6, X7, X28};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
-const ADDRESS: u32 = 5;
-const VALUE: u32 = 6;
-const COUNTER: u32 = 7;
-const A0: u32 = 10;
-const A1: u32 = 11;
+const ADDRESS: RegIdx = RegIdx::new(5);
+const VALUE: RegIdx = RegIdx::new(6);
+const COUNTER: RegIdx = RegIdx::new(7);
 const BREAK_LABEL: i32 = 9;
 const UART_BASE_UPPER: i32 = 0x1_0000;
 const M5_FAIL: u32 = 0x22;
@@ -26,14 +25,14 @@ const M5_WORK_BEGIN: u32 = 0x5a;
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(COUNTER, 0, 100).build(),
+        i().addi(COUNTER, X0, 100).build(),
         i().addi(COUNTER, COUNTER, -1).build(),
-        i().bne(COUNTER, 0, -4).build(),
-        i().addi(A0, 0, BREAK_LABEL).build(),
+        i().bne(COUNTER, X0, -4).build(),
+        i().addi(A0, X0, BREAK_LABEL).build(),
         PseudoOp::encode(M5_WORK_BEGIN),
-        i().addi(A1, 0, 3).build(),
+        i().addi(A1, X0, 3).build(),
         PseudoOp::encode(M5_FAIL),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -84,7 +83,7 @@ fn any_of_the_pcs_stops_when_a_hart_is_about_to_run_it() {
 
     assert_eq!(reason, StopReason::Pc { hart: 0 });
     assert_eq!(ctx.sim.state.harts[0].pc, VirtAddr::new(loop_exit));
-    assert_eq!(ctx.get_reg(COUNTER as usize), 0, "the loop has finished");
+    assert_eq!(ctx.get_reg(COUNTER), 0, "the loop has finished");
 }
 
 #[test]
@@ -103,13 +102,13 @@ fn a_guest_break_stops_the_run_and_it_resumes_to_the_exit() {
 fn printing_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(COUNTER, 0, 30).build(),
+        i().addi(COUNTER, X0, 30).build(),
         i().addi(COUNTER, COUNTER, -1).build(),
-        i().bne(COUNTER, 0, -4).build(),
+        i().bne(COUNTER, X0, -4).build(),
         i().lui(ADDRESS, UART_BASE_UPPER).build(),
-        i().addi(VALUE, 0, i32::from(b'!')).build(),
+        i().addi(VALUE, X0, i32::from(b'!')).build(),
         i().sb(ADDRESS, VALUE, 0).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -124,7 +123,7 @@ fn console_output_stops_the_run_once_the_guest_prints() {
     let reason = ctx.sim.run_to(&stop).expect("the run ticks");
 
     assert_eq!(reason, StopReason::ConsoleOutput);
-    assert_eq!(ctx.get_reg(COUNTER as usize), 0, "the spin before the print has finished");
+    assert_eq!(ctx.get_reg(COUNTER), 0, "the spin before the print has finished");
     assert_eq!(ctx.sim.take_console_output(), b"!");
 }
 
@@ -132,10 +131,10 @@ fn console_output_stops_the_run_once_the_guest_prints() {
 fn independent_adds() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(5, 0, 1).build(),
-        i().addi(6, 0, 2).build(),
-        i().addi(7, 0, 3).build(),
-        i().addi(28, 0, 4).build(),
+        i().addi(X5, X0, 1).build(),
+        i().addi(X6, X0, 2).build(),
+        i().addi(X7, X0, 3).build(),
+        i().addi(X28, X0, 4).build(),
         0x0000_006f,
     ]
 }

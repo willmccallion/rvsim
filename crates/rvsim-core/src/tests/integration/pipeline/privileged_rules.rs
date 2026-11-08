@@ -8,13 +8,10 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{A1, A2, A3, T1, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const T1: u32 = 6;
 const MCAUSE: u32 = 0x342;
 const MTVAL: u32 = 0x343;
 const CYCLE: u32 = 0xC00;
@@ -42,7 +39,11 @@ struct Outcome {
 
 fn handler() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().csrrs(A2, MCAUSE, 0).build(), i().csrrs(A3, MTVAL, 0).build(), i().jal(0, 0).build()]
+    vec![
+        i().csrrs(A2, MCAUSE, X0).build(),
+        i().csrrs(A3, MTVAL, X0).build(),
+        i().jal(X0, 0).build(),
+    ]
 }
 
 fn context(backend: BackendKind, isa: Option<&str>, program: &[u32]) -> TestContext {
@@ -65,17 +66,13 @@ fn context(backend: BackendKind, isa: Option<&str>, program: &[u32]) -> TestCont
 fn run(mut ctx: TestContext) -> Outcome {
     ctx.sim.sync_arch_regs();
     ctx.run(1_000);
-    Outcome {
-        mcause: ctx.get_reg(A2 as usize),
-        mtval: ctx.get_reg(A3 as usize),
-        ran_on: ctx.get_reg(A1 as usize) == RAN,
-    }
+    Outcome { mcause: ctx.get_reg(A2), mtval: ctx.get_reg(A3), ran_on: ctx.get_reg(A1) == RAN }
 }
 
 /// `inst`, then a marker and a spin, run at `privilege`.
 fn run_at(backend: BackendKind, privilege: PrivilegeMode, inst: u32) -> Outcome {
     let i = InstructionBuilder::new;
-    let program = [inst, i().addi(A1, 0, RAN as i32).build(), i().jal(0, 0).build()];
+    let program = [inst, i().addi(A1, X0, RAN as i32).build(), i().jal(X0, 0).build()];
     let mut ctx = context(backend, None, &program);
     let hart = &mut ctx.sim.state.harts[0];
     open_pmp(&mut hart.pmp);
@@ -110,7 +107,7 @@ fn csrrs_of_a_read_only_csr_with_a_zero_valued_rs1_other_than_x0_is_illegal() {
 
 #[test]
 fn csrrs_of_a_read_only_csr_with_rs1_x0_only_reads() {
-    let csrrs = InstructionBuilder::new().csrrs(A2, CYCLE, 0).build();
+    let csrrs = InstructionBuilder::new().csrrs(A2, CYCLE, X0).build();
 
     let outcomes = BACKENDS.map(|backend| run_at(backend, PrivilegeMode::Machine, csrrs));
 
@@ -121,13 +118,13 @@ fn csrrs_of_a_read_only_csr_with_rs1_x0_only_reads() {
 /// FS=Initial.
 fn fs_after_zero_valued_csrrs_of_fflags(backend: BackendKind) -> u64 {
     let i = InstructionBuilder::new;
-    let csrrs = i().csrrs(0, FFLAGS, T1).build();
-    let program = [csrrs, i().addi(A1, 0, RAN as i32).build(), i().jal(0, 0).build()];
+    let csrrs = i().csrrs(X0, FFLAGS, T1).build();
+    let program = [csrrs, i().addi(A1, X0, RAN as i32).build(), i().jal(X0, 0).build()];
     let mut ctx = context(backend, None, &program);
     let mstatus = &mut ctx.sim.state.harts[0].csrs.mstatus;
     *mstatus = (*mstatus & !MSTATUS_FS) | MSTATUS_FS_INIT;
     ctx.sim.sync_arch_regs();
-    ctx.run_until(1_000, |ctx| ctx.get_reg(A1 as usize) == RAN).expect("ran");
+    ctx.run_until(1_000, |ctx| ctx.get_reg(A1) == RAN).expect("ran");
     ctx.sim.state.harts[0].csrs.mstatus & MSTATUS_FS
 }
 
@@ -140,7 +137,7 @@ fn csrrs_with_a_zero_valued_rs1_other_than_x0_still_writes_fflags() {
 
 #[test]
 fn hpmcounter3_reads_in_machine_mode_when_zihpm_is_advertised() {
-    let read = InstructionBuilder::new().csrrs(A2, HPMCOUNTER3, 0).build();
+    let read = InstructionBuilder::new().csrrs(A2, HPMCOUNTER3, X0).build();
 
     let outcomes = BACKENDS.map(|backend| run_at(backend, PrivilegeMode::Machine, read));
 
@@ -149,7 +146,7 @@ fn hpmcounter3_reads_in_machine_mode_when_zihpm_is_advertised() {
 
 #[test]
 fn hpmcounter3_is_illegal_in_user_mode_while_mcounteren_hides_it() {
-    let read = InstructionBuilder::new().csrrs(A2, HPMCOUNTER3, 0).build();
+    let read = InstructionBuilder::new().csrrs(A2, HPMCOUNTER3, X0).build();
 
     let mcauses = BACKENDS.map(|backend| run_at(backend, PrivilegeMode::User, read).mcause);
 

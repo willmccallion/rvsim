@@ -16,6 +16,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, MRET};
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{A3, T0, T1, T2, T3, T4, T5, T6, X0};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -25,14 +26,6 @@ const TARGET_L1_PPN: u64 = 0x8_0102;
 const CODE: u64 = 0x8020_0000;
 const TARGET_PA: u64 = 0x8040_0000;
 const TARGET_VA: u64 = 0x4000_0000;
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
-const T3: u32 = 28;
-const T4: u32 = 29;
-const T5: u32 = 30;
-const T6: u32 = 31;
-const A3: u32 = 13;
 const MSTATUS: u32 = 0x300;
 const MTVEC: u32 = 0x305;
 const MEPC: u32 = 0x341;
@@ -50,43 +43,43 @@ fn machine_code() -> Vec<u32> {
         i().lui(A3, 0x40000).build(),
         i().auipc(T2, 0).build(),
         i().addi(T2, T2, M_HANDLER * 4 - 4).build(),
-        i().csrrw(0, MTVEC, T2).build(),
+        i().csrrw(X0, MTVEC, T2).build(),
         i().auipc(T3, 0).build(),
         i().addi(T3, T3, P * 4 - 16).build(),
-        i().csrrw(0, MEPC, T3).build(),
+        i().csrrw(X0, MEPC, T3).build(),
         i().lui(T4, 1).build(),
         i().addi(T4, T4, 0x7ff).build(),
-        i().csrrc(0, MSTATUS, T4).build(),
-        i().addi(T4, 0, 1).build(),
-        i().addi(T5, 0, 11).build(),
+        i().csrrc(X0, MSTATUS, T4).build(),
+        i().addi(T4, X0, 1).build(),
+        i().addi(T5, X0, 11).build(),
         i().sll(T4, T4, T5).build(),
-        i().csrrs(0, MSTATUS, T4).build(),
-        i().addi(T6, 0, 0).build(),
+        i().csrrs(X0, MSTATUS, T4).build(),
+        i().addi(T6, X0, 0).build(),
         MRET,
-        i().csrrs(T5, MCAUSE, 0).build(),
-        i().addi(T4, 0, 1).build(),
+        i().csrrs(T5, MCAUSE, X0).build(),
+        i().addi(T4, X0, 1).build(),
         i().beq(T5, T4, (FAIL - 18) * 4).build(),
         i().addi(T6, T6, 1).build(),
-        i().addi(T4, 0, 3).build(),
+        i().addi(T4, X0, 3).build(),
         i().bne(T6, T4, (RET - 21) * 4).build(),
-        i().csrrs(T5, MEPC, 0).build(),
+        i().csrrs(T5, MEPC, X0).build(),
         i().addi(T5, T5, 4).build(),
-        i().csrrw(0, MEPC, T5).build(),
+        i().csrrw(X0, MEPC, T5).build(),
         MRET,
-        i().jalr(0, A3, 0).build(),
-        i().addi(T1, 0, 1).build(),
-        i().jal(0, 0).build(),
+        i().jalr(X0, A3, 0).build(),
+        i().addi(T1, X0, 1).build(),
+        i().jal(X0, 0).build(),
     ];
-    assert_eq!(code[M_HANDLER as usize], i().csrrs(T5, MCAUSE, 0).build());
+    assert_eq!(code[M_HANDLER as usize], i().csrrs(T5, MCAUSE, X0).build());
     assert_eq!(code[RET as usize], MRET);
-    assert_eq!(code[P as usize], i().jalr(0, A3, 0).build());
-    assert_eq!(code[FAIL as usize], i().addi(T1, 0, 1).build());
+    assert_eq!(code[P as usize], i().jalr(X0, A3, 0).build());
+    assert_eq!(code[FAIL as usize], i().addi(T1, X0, 1).build());
     code
 }
 
 fn target_code() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![ECALL, i().addi(T0, 0, 5).build(), i().jal(0, 0).build()]
+    vec![ECALL, i().addi(T0, X0, 5).build(), i().jal(X0, 0).build()]
 }
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
@@ -132,7 +125,7 @@ fn run(backend: BackendKind, width: usize) -> (u64, u64, u64) {
     ctx.sim.sync_arch_regs();
 
     ctx.run(5_000);
-    (ctx.get_reg(T0 as usize), ctx.get_reg(T1 as usize), ctx.get_reg(T6 as usize))
+    (ctx.get_reg(T0), ctx.get_reg(T1), ctx.get_reg(T6))
 }
 
 fn a_predicted_fetch_across_mret_is_discarded(backend: BackendKind, width: usize) {

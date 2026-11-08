@@ -9,8 +9,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const RA: u32 = 1;
+use crate::tests::support::regs::{RA, X0};
 const MSCRATCH: u32 = 0x340;
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const CALLS: usize = 8;
@@ -22,9 +21,9 @@ fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> =
         (0..CALLS).map(|n| i().jal(RA, FUNCTION - 4 * n as i32).build()).collect();
-    program.push(i().jal(0, 0).build());
-    program.push(i().csrrw(0, MSCRATCH, 0).build());
-    program.push(i().jalr(0, RA, 0).build());
+    program.push(i().jal(X0, 0).build());
+    program.push(i().csrrw(X0, MSCRATCH, X0).build());
+    program.push(i().jalr(X0, RA, 0).build());
     program
 }
 

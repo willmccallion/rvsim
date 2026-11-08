@@ -13,6 +13,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{X0, X10, X11, X12};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -99,9 +100,9 @@ fn run(backend: BackendKind, program: &[u32], code_flags: u64, data_flags: u64) 
 fn store_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().lui(10, (DATA_VA >> 12) as i32).build(),
-        i().addi(11, 0, STORED as i32).build(),
-        i().sd(10, 11, 0).build(),
+        i().lui(X10, (DATA_VA >> 12) as i32).build(),
+        i().addi(X11, X0, STORED as i32).build(),
+        i().sd(X10, X11, 0).build(),
     ]
 }
 
@@ -109,15 +110,15 @@ fn store_program() -> Vec<u32> {
 fn crossing_store_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().lui(10, (NEXT_VA >> 12) as i32).build(),
-        i().addi(11, 0, STORED as i32).build(),
-        i().sd(10, 11, -4).build(),
+        i().lui(X10, (NEXT_VA >> 12) as i32).build(),
+        i().addi(X11, X0, STORED as i32).build(),
+        i().sd(X10, X11, -4).build(),
     ]
 }
 
 fn load_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().lui(10, (DATA_VA >> 12) as i32).build(), i().ld(12, 10, 8).build()]
+    vec![i().lui(X10, (DATA_VA >> 12) as i32).build(), i().ld(X12, X10, 8).build()]
 }
 
 #[test]
@@ -137,7 +138,7 @@ fn a_load_from_an_unaccessed_page_sets_a_but_not_d() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run(backend, &load_program(), PTE_RWX_AD, PTE_RW);
 
-        assert_eq!(ctx.get_reg(12), LOADED, "{backend:?}: the load retired");
+        assert_eq!(ctx.get_reg(X12), LOADED, "{backend:?}: the load retired");
         assert_eq!(leaf_pte(&mut ctx, DATA_VA) & (PTE_A | PTE_D), PTE_A, "{backend:?}");
     }
 }
@@ -147,7 +148,7 @@ fn fetching_from_an_unaccessed_page_sets_its_a_bit() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
         let mut ctx = run(backend, &load_program(), PTE_X, PTE_RW | PTE_A | PTE_D);
 
-        assert_eq!(ctx.get_reg(12), LOADED, "{backend:?}: the code ran");
+        assert_eq!(ctx.get_reg(X12), LOADED, "{backend:?}: the code ran");
         assert_eq!(leaf_pte(&mut ctx, CODE_VA) & (PTE_A | PTE_D), PTE_A, "{backend:?}");
     }
 }

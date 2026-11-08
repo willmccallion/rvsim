@@ -6,6 +6,7 @@
 
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X1, X2, X3, X4, X5, X6, X7};
 
 const BASE_ADDR: u64 = 0x8000_0000;
 const MEM_SIZE: usize = 0x1000;
@@ -21,11 +22,11 @@ fn taken_branch_redirects_pc() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().addi(1, 0, 10).build(), // x1 = 10
-            InstructionBuilder::new().addi(2, 0, 20).build(), // x2 = 20
-            InstructionBuilder::new().beq(1, 1, 8).build(),   // BEQ x1, x1, +8
-            InstructionBuilder::new().addi(3, 0, 99).build(), // x3 = 99 (should flush)
-            InstructionBuilder::new().addi(4, 0, 42).build(), // x4 = 42 (target)
+            InstructionBuilder::new().addi(X1, X0, 10).build(), // x1 = 10
+            InstructionBuilder::new().addi(X2, X0, 20).build(), // x2 = 20
+            InstructionBuilder::new().beq(X1, X1, 8).build(),   // BEQ x1, x1, +8
+            InstructionBuilder::new().addi(X3, X0, 99).build(), // x3 = 99 (should flush)
+            InstructionBuilder::new().addi(X4, X0, 42).build(), // x4 = 42 (target)
             nop,
             nop,
             nop,
@@ -34,10 +35,10 @@ fn taken_branch_redirects_pc() {
 
     tc.run(500);
 
-    assert_eq!(tc.get_reg(1), 10, "x1 should be 10");
-    assert_eq!(tc.get_reg(2), 20, "x2 should be 20");
-    assert_eq!(tc.get_reg(3), 0, "x3 should NOT be written (flushed by branch)");
-    assert_eq!(tc.get_reg(4), 42, "x4 should be 42 (branch target)");
+    assert_eq!(tc.get_reg(X1), 10, "x1 should be 10");
+    assert_eq!(tc.get_reg(X2), 20, "x2 should be 20");
+    assert_eq!(tc.get_reg(X3), 0, "x3 should NOT be written (flushed by branch)");
+    assert_eq!(tc.get_reg(X4), 42, "x4 should be 42 (branch target)");
 }
 
 #[test]
@@ -46,10 +47,10 @@ fn not_taken_branch_continues() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().addi(1, 0, 10).build(),
-            InstructionBuilder::new().addi(2, 0, 20).build(),
-            InstructionBuilder::new().beq(1, 2, 8).build(),
-            InstructionBuilder::new().addi(3, 0, 33).build(),
+            InstructionBuilder::new().addi(X1, X0, 10).build(),
+            InstructionBuilder::new().addi(X2, X0, 20).build(),
+            InstructionBuilder::new().beq(X1, X2, 8).build(),
+            InstructionBuilder::new().addi(X3, X0, 33).build(),
             nop,
             nop,
             nop,
@@ -59,7 +60,7 @@ fn not_taken_branch_continues() {
 
     tc.run(500);
 
-    assert_eq!(tc.get_reg(3), 33, "Not-taken: x3 should execute normally");
+    assert_eq!(tc.get_reg(X3), 33, "Not-taken: x3 should execute normally");
 }
 
 #[test]
@@ -69,10 +70,10 @@ fn jal_redirects_and_links() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().jal(1, 12).build(),
-            InstructionBuilder::new().addi(6, 0, 99).build(),
-            InstructionBuilder::new().addi(7, 0, 99).build(),
-            InstructionBuilder::new().addi(4, 0, 55).build(),
+            InstructionBuilder::new().jal(X1, 12).build(),
+            InstructionBuilder::new().addi(X6, X0, 99).build(),
+            InstructionBuilder::new().addi(X7, X0, 99).build(),
+            InstructionBuilder::new().addi(X4, X0, 55).build(),
             nop,
             nop,
             nop,
@@ -82,9 +83,9 @@ fn jal_redirects_and_links() {
 
     tc.run(500);
 
-    assert_eq!(tc.get_reg(1), BASE_ADDR + 4, "x1 = return address (PC+4)");
-    assert_eq!(tc.get_reg(6), 0, "x6 should NOT execute (after JAL)");
-    assert_eq!(tc.get_reg(4), 55, "x4 should be 55 (jump target)");
+    assert_eq!(tc.get_reg(X1), BASE_ADDR + 4, "x1 = return address (PC+4)");
+    assert_eq!(tc.get_reg(X6), 0, "x6 should NOT execute (after JAL)");
+    assert_eq!(tc.get_reg(X4), 55, "x4 should be 55 (jump target)");
 }
 
 #[test]
@@ -94,11 +95,11 @@ fn jalr_indirect_jump() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().auipc(5, 0).build(), // x5 = PC = 0x8000_0000
-            InstructionBuilder::new().addi(5, 5, 16).build(), // x5 = 0x8000_0010
-            InstructionBuilder::new().jalr(1, 5, 0).build(), // jump to x5
-            InstructionBuilder::new().addi(6, 0, 99).build(), // should not execute
-            InstructionBuilder::new().addi(3, 0, 77).build(), // target
+            InstructionBuilder::new().auipc(X5, 0).build(), // x5 = PC = 0x8000_0000
+            InstructionBuilder::new().addi(X5, X5, 16).build(), // x5 = 0x8000_0010
+            InstructionBuilder::new().jalr(X1, X5, 0).build(), // jump to x5
+            InstructionBuilder::new().addi(X6, X0, 99).build(), // should not execute
+            InstructionBuilder::new().addi(X3, X0, 77).build(), // target
             nop,
             nop,
             nop,
@@ -107,9 +108,9 @@ fn jalr_indirect_jump() {
 
     tc.run(500);
 
-    assert_eq!(tc.get_reg(3), 77, "x3 should be 77 (JALR target)");
-    assert_eq!(tc.get_reg(1), BASE_ADDR + 12, "x1 = return address");
-    assert_eq!(tc.get_reg(6), 0, "x6 should NOT execute (flushed)");
+    assert_eq!(tc.get_reg(X3), 77, "x3 should be 77 (JALR target)");
+    assert_eq!(tc.get_reg(X1), BASE_ADDR + 12, "x1 = return address");
+    assert_eq!(tc.get_reg(X6), 0, "x6 should NOT execute (flushed)");
 }
 
 #[test]
@@ -118,11 +119,11 @@ fn backward_branch_loop() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().addi(1, 0, 0).build(), // x1 = 0
-            InstructionBuilder::new().addi(2, 0, 3).build(), // x2 = 3
-            InstructionBuilder::new().addi(1, 1, 1).build(), // x1 += 1 (loop body)
-            InstructionBuilder::new().bne(1, 2, -4).build(), // if x1 != x2 goto -4
-            InstructionBuilder::new().addi(3, 0, 100).build(), // x3 = 100
+            InstructionBuilder::new().addi(X1, X0, 0).build(), // x1 = 0
+            InstructionBuilder::new().addi(X2, X0, 3).build(), // x2 = 3
+            InstructionBuilder::new().addi(X1, X1, 1).build(), // x1 += 1 (loop body)
+            InstructionBuilder::new().bne(X1, X2, -4).build(), // if x1 != x2 goto -4
+            InstructionBuilder::new().addi(X3, X0, 100).build(), // x3 = 100
             nop,
             nop,
             nop,
@@ -131,8 +132,8 @@ fn backward_branch_loop() {
 
     tc.run(1000);
 
-    assert_eq!(tc.get_reg(1), 3, "x1 should be 3 after loop");
-    assert_eq!(tc.get_reg(3), 100, "x3 should be 100 after loop exit");
+    assert_eq!(tc.get_reg(X1), 3, "x1 should be 3 after loop");
+    assert_eq!(tc.get_reg(X3), 100, "x3 should be 100 after loop exit");
 }
 
 #[test]
@@ -141,19 +142,19 @@ fn blt_taken() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().addi(1, 0, 5).build(),
-            InstructionBuilder::new().addi(2, 0, 10).build(),
-            InstructionBuilder::new().blt(1, 2, 8).build(), // 5 < 10 → taken
-            InstructionBuilder::new().addi(3, 0, 99).build(), // flushed
-            InstructionBuilder::new().addi(4, 0, 42).build(), // target
+            InstructionBuilder::new().addi(X1, X0, 5).build(),
+            InstructionBuilder::new().addi(X2, X0, 10).build(),
+            InstructionBuilder::new().blt(X1, X2, 8).build(), // 5 < 10 → taken
+            InstructionBuilder::new().addi(X3, X0, 99).build(), // flushed
+            InstructionBuilder::new().addi(X4, X0, 42).build(), // target
             nop,
             nop,
             nop,
         ],
     );
     tc.run(500);
-    assert_eq!(tc.get_reg(3), 0, "BLT taken → x3 flushed");
-    assert_eq!(tc.get_reg(4), 42, "BLT target reached");
+    assert_eq!(tc.get_reg(X3), 0, "BLT taken → x3 flushed");
+    assert_eq!(tc.get_reg(X4), 42, "BLT target reached");
 }
 
 #[test]
@@ -162,19 +163,19 @@ fn bge_taken() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().addi(1, 0, 10).build(),
-            InstructionBuilder::new().addi(2, 0, 10).build(),
-            InstructionBuilder::new().bge(1, 2, 8).build(), // 10 >= 10 → taken
-            InstructionBuilder::new().addi(3, 0, 99).build(),
-            InstructionBuilder::new().addi(4, 0, 42).build(),
+            InstructionBuilder::new().addi(X1, X0, 10).build(),
+            InstructionBuilder::new().addi(X2, X0, 10).build(),
+            InstructionBuilder::new().bge(X1, X2, 8).build(), // 10 >= 10 → taken
+            InstructionBuilder::new().addi(X3, X0, 99).build(),
+            InstructionBuilder::new().addi(X4, X0, 42).build(),
             nop,
             nop,
             nop,
         ],
     );
     tc.run(500);
-    assert_eq!(tc.get_reg(3), 0);
-    assert_eq!(tc.get_reg(4), 42);
+    assert_eq!(tc.get_reg(X3), 0);
+    assert_eq!(tc.get_reg(X4), 42);
 }
 
 #[test]
@@ -184,19 +185,19 @@ fn bltu_taken() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().addi(1, 0, 5).build(),
-            InstructionBuilder::new().addi(2, 0, -1).build(), // x2 = 0xFFFF...FFFF (unsigned large)
-            InstructionBuilder::new().bltu(1, 2, 8).build(),  // 5 <u MAX → taken
-            InstructionBuilder::new().addi(3, 0, 99).build(),
-            InstructionBuilder::new().addi(4, 0, 42).build(),
+            InstructionBuilder::new().addi(X1, X0, 5).build(),
+            InstructionBuilder::new().addi(X2, X0, -1).build(), // x2 = 0xFFFF...FFFF (unsigned large)
+            InstructionBuilder::new().bltu(X1, X2, 8).build(),  // 5 <u MAX → taken
+            InstructionBuilder::new().addi(X3, X0, 99).build(),
+            InstructionBuilder::new().addi(X4, X0, 42).build(),
             nop,
             nop,
             nop,
         ],
     );
     tc.run(500);
-    assert_eq!(tc.get_reg(3), 0);
-    assert_eq!(tc.get_reg(4), 42);
+    assert_eq!(tc.get_reg(X3), 0);
+    assert_eq!(tc.get_reg(X4), 42);
 }
 
 #[test]
@@ -205,10 +206,10 @@ fn bgeu_not_taken() {
     let mut tc = ctx().load_program(
         BASE_ADDR,
         &[
-            InstructionBuilder::new().addi(1, 0, 5).build(),
-            InstructionBuilder::new().addi(2, 0, 10).build(),
-            InstructionBuilder::new().bgeu(1, 2, 8).build(), // 5 >=u 10 → not taken
-            InstructionBuilder::new().addi(3, 0, 33).build(), // should execute
+            InstructionBuilder::new().addi(X1, X0, 5).build(),
+            InstructionBuilder::new().addi(X2, X0, 10).build(),
+            InstructionBuilder::new().bgeu(X1, X2, 8).build(), // 5 >=u 10 → not taken
+            InstructionBuilder::new().addi(X3, X0, 33).build(), // should execute
             nop,
             nop,
             nop,
@@ -216,5 +217,5 @@ fn bgeu_not_taken() {
         ],
     );
     tc.run(500);
-    assert_eq!(tc.get_reg(3), 33, "BGEU not taken → sequential execution");
+    assert_eq!(tc.get_reg(X3), 33, "BGEU not taken → sequential execution");
 }

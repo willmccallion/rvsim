@@ -6,22 +6,19 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
+use crate::tests::support::regs::{T0, T1, T2, X0};
 const MSCRATCH: u32 = 0x340;
 const PROGRAM_BASE: u64 = 0x8000_0000;
 
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(T0, 0, 0x123).build(),
-        i().csrrw(0, MSCRATCH, 0).build(),
+        i().addi(T0, X0, 0x123).build(),
+        i().csrrw(X0, MSCRATCH, X0).build(),
         i().csrrw(T0, MSCRATCH, T0).build(),
-        i().csrrs(T1, MSCRATCH, 0).build(),
-        i().csrrw(T2, MSCRATCH, 0).build(),
-        i().jal(0, 0).build(),
+        i().csrrs(T1, MSCRATCH, X0).build(),
+        i().csrrw(T2, MSCRATCH, X0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -34,17 +31,9 @@ fn swap_then_read_back(backend: BackendKind, width: usize) {
 
     ctx.run(400);
 
-    assert_eq!(ctx.get_reg(T0 as usize), 0, "{backend:?} w{width}: the swap returns the old value");
-    assert_eq!(
-        ctx.get_reg(T1 as usize),
-        0x123,
-        "{backend:?} w{width}: the read sees the swapped-in value"
-    );
-    assert_eq!(
-        ctx.get_reg(T2 as usize),
-        0x123,
-        "{backend:?} w{width}: the second swap sees it too"
-    );
+    assert_eq!(ctx.get_reg(T0), 0, "{backend:?} w{width}: the swap returns the old value");
+    assert_eq!(ctx.get_reg(T1), 0x123, "{backend:?} w{width}: the read sees the swapped-in value");
+    assert_eq!(ctx.get_reg(T2), 0x123, "{backend:?} w{width}: the second swap sees it too");
 }
 
 #[test]
@@ -74,7 +63,7 @@ fn o3_holds_rename_behind_a_csr_access_instead_of_squashing() {
 
     let paths = &ctx.sim.state.cores[0].units.stat_paths.pipeline;
     let stats = &ctx.sim.state.uncore.kernel.stats;
-    assert_eq!(ctx.get_reg(T1 as usize), 0x123, "the read sees the swapped-in value");
+    assert_eq!(ctx.get_reg(T1), 0x123, "the read sees the swapped-in value");
     assert_eq!(stats.get(paths.flushes_system), Some(0.0), "no CSR access squashed");
     assert!(stats.get(paths.stalls_serialize).unwrap_or(0.0) > 0.0, "rename waited");
 }

@@ -2,14 +2,13 @@
 //! the caches send it, the column, row and bus traffic they become, its
 //! queues, refresh, power-down and scrubbing.
 
-use super::program::{
-    A1, BACKENDS, T1, T2, config, ending_in_spin, run_to_pc, system_with_configured_latency,
-};
+use super::program::{BACKENDS, config, ending_in_spin, run_to_pc, system_with_configured_latency};
 use super::{Recorder, accounting_checks};
 use crate::config::{BackendKind, Config, MemoryControllerKind};
 use crate::soc::memory::ddr5::controller::ClockRatio;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A1, T1, T2, X0};
 
 /// Cycles run after a program's end for every write to drain.
 const SETTLE: u64 = 20_000;
@@ -37,13 +36,13 @@ fn ddr5_system(backend: BackendKind, params: &str) -> Config {
 fn read_modify_write_lines(lines: i32) -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
     ending_in_spin(vec![
-        i().addi(T1, 0, lines).build(),
+        i().addi(T1, X0, lines).build(),
         i().ld(T2, A1, 0).build(),
         i().addi(T2, T2, 1).build(),
         i().sd(A1, T2, 0).build(),
         i().addi(A1, A1, 64).build(),
         i().addi(T1, T1, -1).build(),
-        i().bne(T1, 0, -20).build(),
+        i().bne(T1, X0, -20).build(),
     ])
 }
 

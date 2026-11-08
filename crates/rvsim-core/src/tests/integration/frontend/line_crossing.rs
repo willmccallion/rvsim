@@ -6,12 +6,10 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A0, A1, A2, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
 
 /// `ld a1, offset(a0)` then `sd a2, offset+64(a0)` then a spin.
 fn program(offset: i32) -> Vec<u32> {
@@ -22,7 +20,7 @@ fn program(offset: i32) -> Vec<u32> {
         i().lui(A2, 0x12345).build(),
         i().ld(A1, A0, offset).build(),
         i().sd(A0, A2, offset + 64).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -45,7 +43,7 @@ fn run(backend: BackendKind, offset: i32) -> (u64, u64) {
     let paths = &ctx.sim.state.cores[0].units.l1_d_cache.stat_paths;
     let stats = &ctx.sim.state.uncore.kernel.stats;
     let accesses = stats.get(paths.hits).unwrap_or(0.0) + stats.get(paths.misses).unwrap_or(0.0);
-    (ctx.get_reg(A1 as usize), accesses as u64)
+    (ctx.get_reg(A1), accesses as u64)
 }
 
 fn check(backend: BackendKind) {

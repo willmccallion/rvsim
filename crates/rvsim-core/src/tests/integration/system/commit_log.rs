@@ -2,6 +2,7 @@
 //! instruction's register, CSR and memory effects and each trap, the same
 //! on every backend.
 
+use crate::tests::support::regs::{T0, T1, X0, X7, X8, X9, X10, X11, X12, X13, X14};
 use std::collections::HashMap;
 
 use crate::common::VirtAddr;
@@ -13,8 +14,6 @@ const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x1000;
 const HANDLER: u64 = PROGRAM_BASE + 0x50;
 const VALUE: u64 = 0x7f;
-const T0: u32 = 5;
-const T1: u32 = 6;
 const MSCRATCH: u32 = 0x340;
 const MSTATUS: u32 = 0x300;
 const MTVEC: u32 = 0x305;
@@ -23,7 +22,7 @@ const ECALL_FROM_M: u64 = 11;
 const FFLAGS_DZ: u64 = 0x08;
 
 /// `fmv.d.x f1, t1`.
-const FMV_D_X_F1_T1: u32 = 0xf200_0053 | (T1 << 15) | (1 << 7);
+const FMV_D_X_F1_T1: u32 = 0xf200_0053 | (T1.field() << 15) | (1 << 7);
 /// `fdiv.d f2, f1, f0` rounding to nearest: a division by zero.
 const FDIV_D_F2_F1_F0: u32 = 0x1a00_0053 | (1 << 15) | (2 << 7);
 /// `vsetvli a5, zero, e64, m1`.
@@ -35,26 +34,26 @@ fn every_effect() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
         i().auipc(T0, 1).build(),
-        i().addi(T1, 0, VALUE as i32).build(),
+        i().addi(T1, X0, VALUE as i32).build(),
         i().sd(T0, T1, 0).build(),
-        i().ld(7, T0, 0).build(),
+        i().ld(X7, T0, 0).build(),
         i().sb(T0, T1, 9).build(),
-        i().lbu(8, T0, 9).build(),
-        i().amoadd_d(9, T0, T1).build(),
-        i().lr_d(10, T0).build(),
-        i().sc_d(11, T0, T1).build(),
-        i().csrrw(12, MSCRATCH, T1).build(),
-        i().lui(13, 0x6).build(),
-        i().addi(13, 13, 0x600).build(),
-        i().csrrs(0, MSTATUS, 13).build(),
+        i().lbu(X8, T0, 9).build(),
+        i().amoadd_d(X9, T0, T1).build(),
+        i().lr_d(X10, T0).build(),
+        i().sc_d(X11, T0, T1).build(),
+        i().csrrw(X12, MSCRATCH, T1).build(),
+        i().lui(X13, 0x6).build(),
+        i().addi(X13, X13, 0x600).build(),
+        i().csrrs(X0, MSTATUS, X13).build(),
         FMV_D_X_F1_T1,
         FDIV_D_F2_F1_F0,
         VSETVLI_A5_E64,
-        i().auipc(14, 0).build(),
-        i().addi(14, 14, 16).build(),
-        i().csrrw(0, MTVEC, 14).build(),
+        i().auipc(X14, 0).build(),
+        i().addi(X14, X14, 16).build(),
+        i().csrrw(X0, MTVEC, X14).build(),
         ECALL,
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
@@ -275,11 +274,11 @@ const VMV_V_I_V1_5: u32 =
 fn vector_tail() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
-        i().addi(13, 0, MSTATUS_VS_INITIAL).build(),
-        i().csrrs(0, MSTATUS, 13).build(),
+        i().addi(X13, X0, MSTATUS_VS_INITIAL).build(),
+        i().csrrs(X0, MSTATUS, X13).build(),
         VSETIVLI_ONE_E64_TA,
         VMV_V_I_V1_5,
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 

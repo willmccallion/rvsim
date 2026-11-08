@@ -8,14 +8,11 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{X0, X6, X8, X28, X31};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x4000;
 const DATA_BASE: u64 = RAM_BASE + 0x1000;
-const X6: u32 = 6;
-const X8: u32 = 8;
-const X28: u32 = 28;
-const X31: u32 = 31;
 
 /// (store width in bytes, store offset, load width in bytes, load offset).
 /// Every pair overlaps without the store fully covering the load, so the
@@ -51,13 +48,13 @@ fn partial_overlap_program() -> Vec<u32> {
     let mut program = Vec::new();
     for _ in 0..4 {
         for (i, &(sw, so, lw, lo)) in PARTIAL_OVERLAPS.iter().enumerate() {
-            program.push(InstructionBuilder::new().addi(X6, 0, (i as i32 + 1) * 0x111).build());
+            program.push(InstructionBuilder::new().addi(X6, X0, (i as i32 + 1) * 0x111).build());
             program.push(store(sw, so));
             program.push(load(lw, lo));
         }
     }
-    program.push(InstructionBuilder::new().addi(X31, 0, 1).build());
-    program.push(InstructionBuilder::new().jal(0, 0).build());
+    program.push(InstructionBuilder::new().addi(X31, X0, 1).build());
+    program.push(InstructionBuilder::new().jal(X0, 0).build());
     program
 }
 
@@ -65,7 +62,7 @@ fn run_program(config: &Config) -> TestContext {
     let mut tc = TestContext::with_fast_memory(config)
         .with_memory(RAM_SIZE, RAM_BASE)
         .load_program(RAM_BASE, &partial_overlap_program());
-    tc.set_reg(X8 as usize, DATA_BASE);
+    tc.set_reg(X8, DATA_BASE);
     tc.sim.sync_arch_regs();
     tc.run(20_000);
     tc
@@ -79,7 +76,7 @@ fn out_of_order_backend_completes_partially_overlapping_store_load_pairs() {
 
     let tc = run_program(&config);
 
-    assert_eq!(tc.get_reg(X31 as usize), 1, "program never reached its marker: deadlocked");
+    assert_eq!(tc.get_reg(X31), 1, "program never reached its marker: deadlocked");
 }
 
 #[test]
@@ -90,5 +87,5 @@ fn in_order_backend_completes_partially_overlapping_store_load_pairs() {
 
     let tc = run_program(&config);
 
-    assert_eq!(tc.get_reg(X31 as usize), 1, "program never reached its marker: deadlocked");
+    assert_eq!(tc.get_reg(X31), 1, "program never reached its marker: deadlocked");
 }

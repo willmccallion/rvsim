@@ -3,9 +3,11 @@
 //! bare-metal image, a user program under SE mode and a paged supervisor
 //! alike, reaching the memory through the hart's own translation.
 
+use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::build_simulator;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{A0, A1, A2, A3, T0, T1, T2, X0};
 use std::fs;
 
 use tempfile::TempDir;
@@ -28,13 +30,6 @@ const OUTPUT_NAME: &str = "out.bin";
 const READ_FILE: u32 = PseudoOp::encode(0x50);
 const WRITE_FILE: u32 = PseudoOp::encode(0x4f);
 const JAL_SELF: u32 = 0x0000_006f;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const T0: u32 = 5;
-const T1: u32 = 6;
-const T2: u32 = 7;
 /// Where the buffer and the file name sit, past the code.
 const BUFFER_OFFSET: usize = 0x100;
 const BUFFER_BYTES: i32 = 64;
@@ -78,7 +73,7 @@ impl Host {
 
 /// Pushes `auipc rd` and `addi rd` that leave the address `offset` bytes
 /// from the program's start in `rd`.
-fn address_of(program: &mut Vec<u32>, rd: u32, offset: usize) {
+fn address_of(program: &mut Vec<u32>, rd: RegIdx, offset: usize) {
     let i = InstructionBuilder::new;
     let here = program.len() * 4;
     program.push(i().auipc(rd, 0).build());
@@ -87,7 +82,7 @@ fn address_of(program: &mut Vec<u32>, rd: u32, offset: usize) {
 
 /// Pushes `auipc rd, 1` and `addi rd` that leave the address of the page
 /// after the program's in `rd`.
-fn next_page_address(program: &mut Vec<u32>, rd: u32) {
+fn next_page_address(program: &mut Vec<u32>, rd: RegIdx) {
     let i = InstructionBuilder::new;
     let here = program.len() * 4;
     program.push(i().auipc(rd, 1).build());
@@ -114,21 +109,21 @@ fn exchange_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = Vec::new();
     address_of(&mut program, A0, BUFFER_OFFSET);
-    program.push(i().addi(A1, 0, BUFFER_BYTES).build());
-    program.push(i().addi(A2, 0, 0).build());
+    program.push(i().addi(A1, X0, BUFFER_BYTES).build());
+    program.push(i().addi(A2, X0, 0).build());
     program.push(READ_FILE);
     program.push(i().addi(T0, A0, 0).build());
     address_of(&mut program, A0, BUFFER_OFFSET);
     program.push(i().addi(A1, T0, 0).build());
-    program.push(i().addi(A2, 0, 0).build());
+    program.push(i().addi(A2, X0, 0).build());
     address_of(&mut program, A3, NAME_OFFSET);
     program.push(WRITE_FILE);
     program.push(i().addi(T1, A0, 0).build());
     address_of(&mut program, A0, BUFFER_OFFSET);
-    program.push(i().addi(A1, 0, BUFFER_BYTES).build());
+    program.push(i().addi(A1, X0, BUFFER_BYTES).build());
     program.push(i().addi(A2, T0, 0).build());
     program.push(READ_FILE);
-    program.push(i().addi(T2, 0, 100).build());
+    program.push(i().addi(T2, X0, 100).build());
     program.push(i().mul(A0, A0, T2).build());
     program.push(i().add(A1, T1, A0).build());
     program.push(M5_FAIL);
@@ -143,8 +138,8 @@ fn read_then_load_program() -> Vec<u32> {
     let mut program = Vec::new();
     address_of(&mut program, T0, BUFFER_OFFSET);
     program.push(i().addi(A0, T0, 0).build());
-    program.push(i().addi(A1, 0, BUFFER_BYTES).build());
-    program.push(i().addi(A2, 0, 0).build());
+    program.push(i().addi(A1, X0, BUFFER_BYTES).build());
+    program.push(i().addi(A2, X0, 0).build());
     program.push(READ_FILE);
     program.push(i().lbu(A1, T0, 0).build());
     program.push(M5_FAIL);
@@ -158,8 +153,8 @@ fn read_into_the_next_page_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = Vec::new();
     next_page_address(&mut program, A0);
-    program.push(i().addi(A1, 0, BUFFER_BYTES).build());
-    program.push(i().addi(A2, 0, 0).build());
+    program.push(i().addi(A1, X0, BUFFER_BYTES).build());
+    program.push(i().addi(A2, X0, 0).build());
     program.push(READ_FILE);
     program.push(i().addi(A1, A0, 0).build());
     program.push(M5_FAIL);

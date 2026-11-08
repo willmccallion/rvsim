@@ -13,6 +13,7 @@ use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
+use crate::tests::support::regs::{A0, A1, A2, A3, X0};
 
 const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
@@ -26,10 +27,6 @@ const DATA_VA: u64 = 0x4000_0000;
 const FIRST_PA: u64 = 0x8030_0000;
 const ADJACENT_PA: u64 = FIRST_PA + 0x1000;
 const FAR_PA: u64 = 0x8032_0000;
-const A0: u32 = 10;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
 const MCAUSE: u32 = 0x342;
 const MTVAL: u32 = 0x343;
 const LOAD_ADDRESS_MISALIGNED: u64 = 4;
@@ -60,14 +57,18 @@ fn program() -> Vec<u32> {
         i().lui(A0, ((DATA_VA + 0x1000) >> 12) as i32).build(),
         i().addi(A0, A0, -4).build(),
         i().ld(A1, A0, 0).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
 /// The machine-mode handler records `mcause` and `mtval` and spins.
 fn handler() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().csrrs(A2, MCAUSE, 0).build(), i().csrrs(A3, MTVAL, 0).build(), i().jal(0, 0).build()]
+    vec![
+        i().csrrs(A2, MCAUSE, X0).build(),
+        i().csrrs(A3, MTVAL, X0).build(),
+        i().jal(X0, 0).build(),
+    ]
 }
 
 struct Outcome {
@@ -127,11 +128,7 @@ fn run(backend: BackendKind, second_pa: Option<u64>) -> Outcome {
     ctx.sim.sync_arch_regs();
 
     ctx.run(3_000);
-    Outcome {
-        loaded: ctx.get_reg(A1 as usize),
-        mcause: ctx.get_reg(A2 as usize),
-        mtval: ctx.get_reg(A3 as usize),
-    }
+    Outcome { loaded: ctx.get_reg(A1), mcause: ctx.get_reg(A2), mtval: ctx.get_reg(A3) }
 }
 
 fn check(backend: BackendKind) {

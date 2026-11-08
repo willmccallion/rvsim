@@ -5,9 +5,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
-const A0: u32 = 10;
+use crate::tests::support::regs::{A0, T0, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const LINES: u64 = 16;
 const LINE_BYTES: u64 = 64;
@@ -20,7 +18,7 @@ fn program() -> Vec<u32> {
     for line in 0..LINES {
         program.push(i().ld(T0, A0, (line * LINE_BYTES) as i32).build());
     }
-    program.push(i().jal(0, 0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 

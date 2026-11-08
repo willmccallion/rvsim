@@ -9,14 +9,11 @@ use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
+use crate::tests::support::regs::{A1, A2, A3, T0, X0};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 const DATA: u64 = PROGRAM_BASE + 0x200;
-const A1: u32 = 11;
-const A2: u32 = 12;
-const A3: u32 = 13;
-const T0: u32 = 5;
 const MSTATUS: u32 = 0x300;
 const MCAUSE: u32 = 0x342;
 const MTVAL: u32 = 0x343;
@@ -29,19 +26,23 @@ fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     vec![
         i().lui(T0, 0x6).build(),
-        i().csrrc(0, MSTATUS, T0).build(),
+        i().csrrc(X0, MSTATUS, T0).build(),
         i().auipc(A1, 0).build(),
         i().addi(A1, A1, (DATA - PROGRAM_BASE - 8) as i32).build(),
-        i().addi(A3, 0, 7).build(),
+        i().addi(A3, X0, 7).build(),
         FSW_FT0_A1,
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]
 }
 
 /// Records `mcause` and `mtval`, then spins.
 fn handler() -> Vec<u32> {
     let i = InstructionBuilder::new;
-    vec![i().csrrs(A2, MCAUSE, 0).build(), i().csrrs(A3, MTVAL, 0).build(), i().jal(0, 0).build()]
+    vec![
+        i().csrrs(A2, MCAUSE, X0).build(),
+        i().csrrs(A3, MTVAL, X0).build(),
+        i().jal(X0, 0).build(),
+    ]
 }
 
 fn store_program(ctx: &mut TestContext, base: u64, program: &[u32]) {
@@ -67,7 +68,7 @@ fn run(backend: BackendKind) -> (u64, u64, u64) {
 
     ctx.run(500);
     let memory = ctx.sim.probe_mem_load(PhysAddr::new(DATA), ProbeWidth::B4);
-    (ctx.get_reg(A2 as usize), ctx.get_reg(A3 as usize), memory)
+    (ctx.get_reg(A2), ctx.get_reg(A3), memory)
 }
 
 fn check(backend: BackendKind) {

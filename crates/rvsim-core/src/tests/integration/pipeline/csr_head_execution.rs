@@ -6,9 +6,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
-const T1: u32 = 6;
+use crate::tests::support::regs::{T0, T1, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const MINSTRET: u32 = 0xB02;
 const ADDS: u64 = 40;
@@ -17,8 +15,8 @@ const ADDS: u64 = 40;
 fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> = (0..ADDS).map(|_| i().addi(T0, T0, 1).build()).collect();
-    program.push(i().csrrs(T1, MINSTRET, 0).build());
-    program.push(i().jal(0, 0).build());
+    program.push(i().csrrs(T1, MINSTRET, X0).build());
+    program.push(i().jal(X0, 0).build());
     program
 }
 
@@ -31,8 +29,8 @@ fn instret_seen(backend: BackendKind) -> u64 {
 
     ctx.run(400);
 
-    assert_eq!(ctx.get_reg(T0 as usize), ADDS, "{backend:?}: the adds ran");
-    ctx.get_reg(T1 as usize)
+    assert_eq!(ctx.get_reg(T0), ADDS, "{backend:?}: the adds ran");
+    ctx.get_reg(T1)
 }
 
 #[test]

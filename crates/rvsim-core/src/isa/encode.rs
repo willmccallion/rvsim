@@ -26,10 +26,10 @@ impl RType {
     #[must_use]
     pub const fn encode(self) -> u32 {
         (self.funct7 & 0x7F) << 25
-            | reg(self.rs2) << 20
-            | reg(self.rs1) << 15
+            | self.rs2.field() << 20
+            | self.rs1.field() << 15
             | (self.funct3 & 0x7) << 12
-            | reg(self.rd) << 7
+            | self.rd.field() << 7
             | (self.opcode & 0x7F)
     }
 }
@@ -58,12 +58,12 @@ impl R4Type {
     /// The instruction word.
     #[must_use]
     pub const fn encode(self) -> u32 {
-        reg(self.rs3) << 27
+        self.rs3.field() << 27
             | (self.fmt & 0x3) << 25
-            | reg(self.rs2) << 20
-            | reg(self.rs1) << 15
+            | self.rs2.field() << 20
+            | self.rs1.field() << 15
             | (self.funct3 & 0x7) << 12
-            | reg(self.rd) << 7
+            | self.rd.field() << 7
             | (self.opcode & 0x7F)
     }
 }
@@ -88,9 +88,9 @@ impl IType {
     #[must_use]
     pub const fn encode(self) -> u32 {
         (self.imm.cast_unsigned() & 0xFFF) << 20
-            | reg(self.rs1) << 15
+            | self.rs1.field() << 15
             | (self.funct3 & 0x7) << 12
-            | reg(self.rd) << 7
+            | self.rd.field() << 7
             | (self.opcode & 0x7F)
     }
 }
@@ -116,8 +116,8 @@ impl SType {
     pub const fn encode(self) -> u32 {
         let imm = self.imm.cast_unsigned();
         ((imm >> 5) & 0x7F) << 25
-            | reg(self.rs2) << 20
-            | reg(self.rs1) << 15
+            | self.rs2.field() << 20
+            | self.rs1.field() << 15
             | (self.funct3 & 0x7) << 12
             | (imm & 0x1F) << 7
             | (self.opcode & 0x7F)
@@ -146,8 +146,8 @@ impl BType {
         let offset = self.offset.cast_unsigned();
         ((offset >> 12) & 1) << 31
             | ((offset >> 5) & 0x3F) << 25
-            | reg(self.rs2) << 20
-            | reg(self.rs1) << 15
+            | self.rs2.field() << 20
+            | self.rs1.field() << 15
             | (self.funct3 & 0x7) << 12
             | ((offset >> 1) & 0xF) << 8
             | ((offset >> 11) & 1) << 7
@@ -170,7 +170,7 @@ impl UType {
     /// The instruction word.
     #[must_use]
     pub const fn encode(self) -> u32 {
-        (self.imm20 & 0xF_FFFF) << 12 | reg(self.rd) << 7 | (self.opcode & 0x7F)
+        (self.imm20 & 0xF_FFFF) << 12 | self.rd.field() << 7 | (self.opcode & 0x7F)
     }
 }
 
@@ -194,12 +194,7 @@ impl JType {
             | ((offset >> 1) & 0x3FF) << 21
             | ((offset >> 11) & 1) << 20
             | ((offset >> 12) & 0xFF) << 12
-            | reg(self.rd) << 7
+            | self.rd.field() << 7
             | (self.opcode & 0x7F)
     }
-}
-
-/// A register field's value.
-const fn reg(idx: RegIdx) -> u32 {
-    idx.as_u8() as u32
 }

@@ -7,8 +7,7 @@
 use crate::isa::csr;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
-
-const T0: u32 = 5;
+use crate::tests::support::regs::{T0, X0};
 const PROGRAM_BASE: u64 = 0x8000_0000;
 const NOPS: u64 = 5;
 const REAL_INSTRUCTIONS: u64 = 3;
@@ -18,10 +17,10 @@ fn program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> = (0..NOPS).map(|_| i().nop().build()).collect();
     program.extend([
-        i().addi(T0, 0, 1).build(),
+        i().addi(T0, X0, 1).build(),
         i().addi(T0, T0, 2).build(),
         i().addi(T0, T0, 3).build(),
-        i().jal(0, 0).build(),
+        i().jal(X0, 0).build(),
     ]);
     program
 }
