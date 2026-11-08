@@ -293,7 +293,7 @@ impl Cache {
             enabled: config.enabled,
             prefetcher,
             store_prefetcher: None,
-            stat_paths: CacheStatPaths::new(stat_subject),
+            stat_paths: CacheStatPaths::under(stat_subject),
             upstream_inclusion: InclusionPolicy::Nine,
             clean_victims_to_downstream: false,
             coherent: None,
