@@ -5,9 +5,9 @@
 //! `kernel/sched/core.c`).
 
 use super::{
-    REALTIME_EPOCH_SECONDS, Reply, Result, SYS_CLONE, SYS_EXIT, SYS_EXIT_GROUP, SYS_FUTEX,
-    SYS_GETPID, SYS_GETTID, SYS_KILL, SYS_SCHED_GETAFFINITY, SYS_SET_TID_ADDRESS, SYS_TGKILL,
-    SYS_TKILL, ok, user_pointer,
+    REALTIME_EPOCH_SECONDS, Reply, SYS_CLONE, SYS_EXIT, SYS_EXIT_GROUP, SYS_FUTEX, SYS_GETPID,
+    SYS_GETTID, SYS_KILL, SYS_SCHED_GETAFFINITY, SYS_SET_TID_ADDRESS, SYS_TGKILL, SYS_TKILL,
+    SysResult, ok, user_pointer,
 };
 use crate::arch::Hart;
 use crate::common::NANOS_PER_SECOND;
@@ -80,7 +80,7 @@ pub(super) struct ThreadCall<'a> {
 impl ThreadCall<'_> {
     /// Serves syscall `number` when it is one of these; `None` for any
     /// other.
-    pub(super) fn dispatch(&mut self, number: u64, a: [u64; 6]) -> Option<Result> {
+    pub(super) fn dispatch(&mut self, number: u64, a: [u64; 6]) -> Option<SysResult> {
         let result = match number {
             SYS_GETPID => ok(self.caller.tgid.as_u64()),
             SYS_GETTID => ok(self.caller.tid.as_u64()),
@@ -104,9 +104,7 @@ impl ThreadCall<'_> {
     }
 
     /// The caller's process, and RAM.
-    fn process_and_memory(
-        &mut self,
-    ) -> std::result::Result<(&mut Process, &mut GlobalMemory), Errno> {
+    fn process_and_memory(&mut self) -> Result<(&mut Process, &mut GlobalMemory), Errno> {
         let process = self.processes.process_mut(self.caller.tgid).ok_or(Errno::ESRCH)?;
         Ok((process, &mut *self.memory))
     }
@@ -134,7 +132,7 @@ impl ThreadCall<'_> {
         parent_tid: VirtAddr,
         tls: u64,
         child_tid: u64,
-    ) -> Result {
+    ) -> SysResult {
         let has = |flag: u64| flags & flag != 0;
         if has(CLONE_THREAD) && !has(CLONE_SIGHAND) || has(CLONE_SIGHAND) && !has(CLONE_VM) {
             return Err(Errno::EINVAL);
@@ -192,7 +190,7 @@ impl ThreadCall<'_> {
     /// `futex(addr, op, val, timeout, addr2, val3)`: wait and wake, with
     /// their bitset forms, private or not. Requeueing and the
     /// priority-inheritance operations are not served.
-    fn futex(&mut self, addr: VirtAddr, op: u32, val: u32, timeout: u64, val3: u64) -> Result {
+    fn futex(&mut self, addr: VirtAddr, op: u32, val: u32, timeout: u64, val3: u64) -> SysResult {
         let cmd = op & !(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME);
         let realtime = op & FUTEX_CLOCK_REALTIME != 0;
         let deadline = match user_pointer(timeout) {
@@ -228,7 +226,7 @@ impl ThreadCall<'_> {
         cmd: u32,
         realtime: bool,
         timeout: VirtAddr,
-    ) -> std::result::Result<u64, Errno> {
+    ) -> Result<u64, Errno> {
         let cycle = self.cycle;
         let (process, memory) = self.process_and_memory()?;
         let read = |at: VirtAddr| process.space.read_u64(memory, at).map_err(|_| Errno::EFAULT);
@@ -256,7 +254,7 @@ impl ThreadCall<'_> {
         expected: u32,
         bitset: u32,
         deadline: Option<u64>,
-    ) -> Result {
+    ) -> SysResult {
         if bitset == 0 || !addr.val().is_multiple_of(4) {
             return Err(Errno::EINVAL);
         }
@@ -276,7 +274,7 @@ impl ThreadCall<'_> {
     /// Wakes up to `count` waiters on the word at `addr` whose bitsets
     /// meet `bitset`, and at least one, as Linux does for a count of zero
     /// or less. A shared futex must be mapped.
-    fn futex_wake(&mut self, addr: VirtAddr, count: u32, bitset: u32, shared: bool) -> Result {
+    fn futex_wake(&mut self, addr: VirtAddr, count: u32, bitset: u32, shared: bool) -> SysResult {
         if bitset == 0 || !addr.val().is_multiple_of(4) {
             return Err(Errno::EINVAL);
         }
@@ -290,7 +288,7 @@ impl ThreadCall<'_> {
     /// `kill(pid, signal)`. Each program is its own process group, so a
     /// `pid` of 0 is the caller's process and `-pid` names process `pid`;
     /// -1 is every other process but the first program's.
-    fn kill(&mut self, pid: i32, signal: u64) -> Result {
+    fn kill(&mut self, pid: i32, signal: u64) -> SysResult {
         let targets = match pid {
             0 => vec![self.caller.tgid],
             -1 => self
@@ -311,7 +309,7 @@ impl ThreadCall<'_> {
     }
 
     /// `tkill(tid, signal)`: to the process of thread `tid`.
-    fn tkill(&mut self, tid: i32, signal: u64) -> Result {
+    fn tkill(&mut self, tid: i32, signal: u64) -> SysResult {
         let tid = u32::try_from(tid).ok().filter(|&tid| tid > 0).ok_or(Errno::EINVAL)?;
         let thread = self.processes.find_thread(Tid::new(tid)).ok_or(Errno::ESRCH)?;
         self.signal(&[thread.tgid], signal)
@@ -319,7 +317,7 @@ impl ThreadCall<'_> {
 
     /// `tgkill(tgid, tid, signal)`: to the process of thread `tid`, which
     /// must belong to process `tgid`.
-    fn tgkill(&mut self, tgid: i32, tid: i32, signal: u64) -> Result {
+    fn tgkill(&mut self, tgid: i32, tid: i32, signal: u64) -> SysResult {
         let positive = |id: i32| u32::try_from(id).ok().filter(|&id| id > 0).map(Tid::new);
         let (Some(tgid), Some(tid)) = (positive(tgid), positive(tid)) else {
             return Err(Errno::EINVAL);
@@ -336,7 +334,7 @@ impl ThreadCall<'_> {
     /// handlers never running: 0 only checks that they exist, a signal
     /// whose default is to be ignored does nothing, and any other ends
     /// each process with the shell's status for it, 128 plus the signal.
-    fn signal(&mut self, targets: &[Tid], signal: u64) -> Result {
+    fn signal(&mut self, targets: &[Tid], signal: u64) -> SysResult {
         if signal > MAX_SIGNAL {
             return Err(Errno::EINVAL);
         }
@@ -356,7 +354,7 @@ impl ThreadCall<'_> {
 
     /// `sched_getaffinity(pid, len, mask)`: every hart, since a thread may
     /// start on any of them. The mask is the size a 6.6 kernel's is.
-    fn sched_getaffinity(&mut self, pid: i32, len: u32, mask: VirtAddr) -> Result {
+    fn sched_getaffinity(&mut self, pid: i32, len: u32, mask: VirtAddr) -> SysResult {
         let harts = self.processes.hart_count();
         let len = len as usize;
         if len * 8 < harts || !len.is_multiple_of(size_of::<u64>()) {

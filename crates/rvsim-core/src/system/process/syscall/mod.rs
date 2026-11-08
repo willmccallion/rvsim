@@ -183,7 +183,12 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
 /// clock. A call that removed a mapping or changed its rights leaves the
 /// process's other threads to drop their translations, as a kernel's TLB
 /// shootdown makes them.
-fn process_call(state: &mut CoreCtx<'_>, caller: ThreadRef, number: u64, args: [u64; 6]) -> Result {
+fn process_call(
+    state: &mut CoreCtx<'_>,
+    caller: ThreadRef,
+    number: u64,
+    args: [u64; 6],
+) -> SysResult {
     let cycle = state.uncore.cycle;
     let ram_bytes = state.uncore.config.memory.ram_size as u64;
     let isa = state.core.isa;
@@ -224,7 +229,8 @@ enum Reply {
     Ended(Option<u64>),
 }
 
-type Result = std::result::Result<Reply, Errno>;
+/// What a handler returns: its reply, or the error the guest sees.
+type SysResult = Result<Reply, Errno>;
 
 /// Everything a handler touches.
 struct Sys<'a> {
@@ -245,12 +251,12 @@ struct Sys<'a> {
 }
 
 #[allow(clippy::unnecessary_wraps, reason = "the handlers' common result type")]
-const fn ok(value: u64) -> Result {
+const fn ok(value: u64) -> SysResult {
     Ok(Reply::Value(value as i64))
 }
 
 impl Sys<'_> {
-    fn dispatch(&mut self, number: u64, a: [u64; 6]) -> Result {
+    fn dispatch(&mut self, number: u64, a: [u64; 6]) -> SysResult {
         let at = |i: usize| VirtAddr::new(a[i]);
         match number {
             SYS_WRITE => self.write(a[0] as i64, at(1), a[2]),
@@ -315,58 +321,50 @@ impl Sys<'_> {
         }
     }
 
-    fn read_user(&self, vaddr: VirtAddr, len: u64) -> std::result::Result<Vec<u8>, Errno> {
+    fn read_user(&self, vaddr: VirtAddr, len: u64) -> Result<Vec<u8>, Errno> {
         let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         self.process.space.read(self.memory, vaddr, len).map_err(Errno::from)
     }
 
-    fn write_user(&mut self, vaddr: VirtAddr, bytes: &[u8]) -> std::result::Result<(), Errno> {
+    fn write_user(&mut self, vaddr: VirtAddr, bytes: &[u8]) -> Result<(), Errno> {
         self.process.space.write(self.memory, vaddr, bytes).map_err(Errno::from)
     }
 
-    fn read_path(&self, vaddr: VirtAddr) -> std::result::Result<Vec<u8>, Errno> {
+    fn read_path(&self, vaddr: VirtAddr) -> Result<Vec<u8>, Errno> {
         self.process.space.read_cstr(self.memory, vaddr, PATH_MAX).map_err(Errno::from)
     }
 
-    fn resolve(
-        &mut self,
-        dirfd: i64,
-        path: VirtAddr,
-    ) -> std::result::Result<std::path::PathBuf, Errno> {
+    fn resolve(&mut self, dirfd: i64, path: VirtAddr) -> Result<std::path::PathBuf, Errno> {
         let path = self.read_path(path)?;
         self.process.files.resolve(dirfd, &path)
     }
 
-    fn write(&mut self, fd: i64, buf: VirtAddr, len: u64) -> Result {
+    fn write(&mut self, fd: i64, buf: VirtAddr, len: u64) -> SysResult {
         let bytes = self.read_user(buf, len)?;
         self.process.files.write(fd, &bytes).and_then(|n| ok(n as u64))
     }
 
-    fn read(&mut self, fd: i64, buf: VirtAddr, len: u64) -> Result {
+    fn read(&mut self, fd: i64, buf: VirtAddr, len: u64) -> SysResult {
         let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let bytes = self.process.files.read(fd, len)?;
         self.write_user(buf, &bytes)?;
         ok(bytes.len() as u64)
     }
 
-    fn pread(&mut self, fd: i64, buf: VirtAddr, len: u64, offset: u64) -> Result {
+    fn pread(&mut self, fd: i64, buf: VirtAddr, len: u64, offset: u64) -> SysResult {
         let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let bytes = self.process.files.pread(fd, len, offset)?;
         self.write_user(buf, &bytes)?;
         ok(bytes.len() as u64)
     }
 
-    fn pwrite(&mut self, fd: i64, buf: VirtAddr, len: u64, offset: u64) -> Result {
+    fn pwrite(&mut self, fd: i64, buf: VirtAddr, len: u64, offset: u64) -> SysResult {
         let bytes = self.read_user(buf, len)?;
         self.process.files.pwrite(fd, &bytes, offset).and_then(|n| ok(n as u64))
     }
 
     /// The `(base, len)` pairs of an `iovec` array.
-    fn iovecs(
-        &self,
-        iov: VirtAddr,
-        count: u64,
-    ) -> std::result::Result<Vec<(VirtAddr, u64)>, Errno> {
+    fn iovecs(&self, iov: VirtAddr, count: u64) -> Result<Vec<(VirtAddr, u64)>, Errno> {
         let count = usize::try_from(count).map_err(|_| Errno::EINVAL)?;
         let bytes = self.read_user(iov, (count * 16) as u64)?;
         Ok(bytes
@@ -383,7 +381,7 @@ impl Sys<'_> {
             .collect())
     }
 
-    fn writev(&mut self, fd: i64, iov: VirtAddr, count: u64) -> Result {
+    fn writev(&mut self, fd: i64, iov: VirtAddr, count: u64) -> SysResult {
         let mut total = 0u64;
         for (base, len) in self.iovecs(iov, count)? {
             let bytes = self.read_user(base, len)?;
@@ -392,7 +390,7 @@ impl Sys<'_> {
         ok(total)
     }
 
-    fn readv(&mut self, fd: i64, iov: VirtAddr, count: u64) -> Result {
+    fn readv(&mut self, fd: i64, iov: VirtAddr, count: u64) -> SysResult {
         let mut total = 0u64;
         for (base, len) in self.iovecs(iov, count)? {
             let want = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
@@ -406,7 +404,7 @@ impl Sys<'_> {
         ok(total)
     }
 
-    fn openat(&mut self, dirfd: i64, path: VirtAddr, flags: u64, mode: u64) -> Result {
+    fn openat(&mut self, dirfd: i64, path: VirtAddr, flags: u64, mode: u64) -> SysResult {
         let path = self.resolve(dirfd, path)?;
         if let Some(contents) = self.generated_file(&path) {
             if flags & open_flags::O_ACCMODE != open_flags::O_RDONLY {
@@ -429,13 +427,13 @@ impl Sys<'_> {
         Some(list.into_bytes())
     }
 
-    fn fstat(&mut self, fd: i64, buf: VirtAddr) -> Result {
+    fn fstat(&mut self, fd: i64, buf: VirtAddr) -> SysResult {
         let stat = self.process.files.stat(fd)?;
         self.write_user(buf, &stat.to_bytes())?;
         ok(0)
     }
 
-    fn fstatat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, flags: u64) -> Result {
+    fn fstatat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, flags: u64) -> SysResult {
         let path_bytes = self.read_path(path)?;
         let stat = if path_bytes.is_empty() && flags & AT_EMPTY_PATH != 0 {
             self.process.files.stat(dirfd)?
@@ -447,13 +445,13 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn faccessat(&mut self, dirfd: i64, path: VirtAddr) -> Result {
+    fn faccessat(&mut self, dirfd: i64, path: VirtAddr) -> SysResult {
         let host = self.resolve(dirfd, path)?;
         std::fs::metadata(&host).map(drop)?;
         ok(0)
     }
 
-    fn readlinkat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, size: u64) -> Result {
+    fn readlinkat(&mut self, dirfd: i64, path: VirtAddr, buf: VirtAddr, size: u64) -> SysResult {
         let path_bytes = self.read_path(path)?;
         let target: Vec<u8> = if path_bytes == b"/proc/self/exe" {
             let program = self.process.program.as_deref().ok_or(Errno::ENOENT)?;
@@ -467,13 +465,13 @@ impl Sys<'_> {
         ok(len as u64)
     }
 
-    fn mkdirat(&mut self, dirfd: i64, path: VirtAddr) -> Result {
+    fn mkdirat(&mut self, dirfd: i64, path: VirtAddr) -> SysResult {
         let host = self.resolve(dirfd, path)?;
         std::fs::create_dir(&host)?;
         ok(0)
     }
 
-    fn unlinkat(&mut self, dirfd: i64, path: VirtAddr, flags: u64) -> Result {
+    fn unlinkat(&mut self, dirfd: i64, path: VirtAddr, flags: u64) -> SysResult {
         let host = self.resolve(dirfd, path)?;
         let removed = if flags & AT_REMOVEDIR != 0 {
             std::fs::remove_dir(&host)
@@ -484,14 +482,20 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn renameat(&mut self, old_dirfd: i64, old: VirtAddr, new_dirfd: i64, new: VirtAddr) -> Result {
+    fn renameat(
+        &mut self,
+        old_dirfd: i64,
+        old: VirtAddr,
+        new_dirfd: i64,
+        new: VirtAddr,
+    ) -> SysResult {
         let from = self.resolve(old_dirfd, old)?;
         let to = self.resolve(new_dirfd, new)?;
         std::fs::rename(&from, &to)?;
         ok(0)
     }
 
-    fn getcwd(&mut self, buf: VirtAddr, size: u64) -> Result {
+    fn getcwd(&mut self, buf: VirtAddr, size: u64) -> SysResult {
         let mut cwd =
             std::env::current_dir().map(|p| p.to_string_lossy().into_owned().into_bytes())?;
         cwd.push(0);
@@ -502,7 +506,7 @@ impl Sys<'_> {
         ok(cwd.len() as u64)
     }
 
-    fn ioctl(&mut self, fd: i64, request: u64, arg: VirtAddr) -> Result {
+    fn ioctl(&mut self, fd: i64, request: u64, arg: VirtAddr) -> SysResult {
         if !self.process.files.is_console(fd) {
             return Err(Errno::ENOTTY);
         }
@@ -537,7 +541,7 @@ impl Sys<'_> {
         flags: u64,
         fd: i64,
         offset: u64,
-    ) -> Result {
+    ) -> SysResult {
         if len == 0 {
             return Err(Errno::EINVAL);
         }
@@ -565,7 +569,7 @@ impl Sys<'_> {
         ok(start.val())
     }
 
-    fn mremap(&mut self, old_addr: VirtAddr, old_len: u64, new_len: u64, flags: u64) -> Result {
+    fn mremap(&mut self, old_addr: VirtAddr, old_len: u64, new_len: u64, flags: u64) -> SysResult {
         if flags & MREMAP_MAYMOVE == 0 {
             return Err(Errno::ENOMEM);
         }
@@ -579,7 +583,7 @@ impl Sys<'_> {
         ok(start.val())
     }
 
-    fn mprotect(&mut self, addr: VirtAddr, len: u64, prot: u64) -> Result {
+    fn mprotect(&mut self, addr: VirtAddr, len: u64, prot: u64) -> SysResult {
         if !addr.is_page_aligned() {
             return Err(Errno::EINVAL);
         }
@@ -599,7 +603,7 @@ impl Sys<'_> {
     /// Accepts the advice a 6.6 kernel knows for a mapped range and does
     /// nothing with it; other advice, such as glibc 2.42's guard-page
     /// request, is refused as that kernel refuses it.
-    fn madvise(&self, addr: VirtAddr, len: u64, advice: u64) -> Result {
+    fn madvise(&self, addr: VirtAddr, len: u64, advice: u64) -> SysResult {
         let fits = len.checked_next_multiple_of(PAGE_SIZE).and_then(|len| addr.checked_add(len));
         if !addr.is_page_aligned() || fits.is_none() || !MADVISE_ADVICE.contains(&advice) {
             return Err(Errno::EINVAL);
@@ -610,7 +614,7 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn zero_if_given(&mut self, addr: Option<VirtAddr>, len: usize) -> Result {
+    fn zero_if_given(&mut self, addr: Option<VirtAddr>, len: usize) -> SysResult {
         if let Some(addr) = addr {
             self.write_user(addr, &vec![0u8; len])?;
         }
@@ -622,7 +626,7 @@ impl Sys<'_> {
         self.process.nanoseconds_at(self.cycle)
     }
 
-    fn write_timespec(&mut self, addr: VirtAddr, seconds: u64, nanos: u64) -> Result {
+    fn write_timespec(&mut self, addr: VirtAddr, seconds: u64, nanos: u64) -> SysResult {
         let mut bytes = [0u8; 16];
         bytes[..8].copy_from_slice(&seconds.to_le_bytes());
         bytes[8..].copy_from_slice(&nanos.to_le_bytes());
@@ -630,13 +634,13 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn clock_gettime(&mut self, clock: u64, addr: VirtAddr) -> Result {
+    fn clock_gettime(&mut self, clock: u64, addr: VirtAddr) -> SysResult {
         let ns = self.elapsed_ns();
         let epoch = if clock == 0 { REALTIME_EPOCH_SECONDS } else { 0 };
         self.write_timespec(addr, epoch + (ns / 1_000_000_000) as u64, (ns % 1_000_000_000) as u64)
     }
 
-    fn gettimeofday(&mut self, addr: Option<VirtAddr>) -> Result {
+    fn gettimeofday(&mut self, addr: Option<VirtAddr>) -> SysResult {
         let Some(addr) = addr else { return ok(0) };
         let us = self.elapsed_ns() / 1000;
         let mut bytes = [0u8; 16];
@@ -652,7 +656,7 @@ impl Sys<'_> {
         (self.elapsed_ns() / 10_000_000) as u64
     }
 
-    fn times(&mut self, addr: Option<VirtAddr>) -> Result {
+    fn times(&mut self, addr: Option<VirtAddr>) -> SysResult {
         let ticks = self.ticks();
         if let Some(addr) = addr {
             let mut bytes = [0u8; 32];
@@ -662,7 +666,7 @@ impl Sys<'_> {
         ok(ticks)
     }
 
-    fn getrusage(&mut self, addr: VirtAddr) -> Result {
+    fn getrusage(&mut self, addr: VirtAddr) -> SysResult {
         let us = self.elapsed_ns() / 1000;
         let mut bytes = [0u8; 144];
         bytes[..8].copy_from_slice(&((us / 1_000_000) as u64).to_le_bytes());
@@ -676,7 +680,7 @@ impl Sys<'_> {
     /// string) and whether misaligned accesses are fast. The CPU set
     /// arguments are accepted as given, every hart being alike. A key the
     /// kernel does not know comes back as -1.
-    fn hwprobe(&mut self, pairs: VirtAddr, count: u64, flags: u64) -> Result {
+    fn hwprobe(&mut self, pairs: VirtAddr, count: u64, flags: u64) -> SysResult {
         if flags != 0 {
             return Err(Errno::EINVAL);
         }
@@ -728,7 +732,7 @@ impl Sys<'_> {
             .fold(0, |bits, (_, bit)| bits | bit)
     }
 
-    fn uname(&mut self, addr: VirtAddr) -> Result {
+    fn uname(&mut self, addr: VirtAddr) -> SysResult {
         let mut bytes = [0u8; 6 * 65];
         for (i, field) in
             ["Linux", "rvsim", "6.6.0", "#1 SMP rvsim", "riscv64", ""].iter().enumerate()
@@ -740,7 +744,7 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn sysinfo(&mut self, addr: VirtAddr) -> Result {
+    fn sysinfo(&mut self, addr: VirtAddr) -> SysResult {
         let mut bytes = [0u8; 112];
         bytes[..8].copy_from_slice(&((self.elapsed_ns() / 1_000_000_000) as u64).to_le_bytes());
         bytes[32..40].copy_from_slice(&self.ram_bytes.to_le_bytes());
@@ -752,7 +756,7 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn prlimit(&mut self, resource: u64, old: Option<VirtAddr>) -> Result {
+    fn prlimit(&mut self, resource: u64, old: Option<VirtAddr>) -> SysResult {
         if let Some(old) = old {
             let (cur, max) = match resource {
                 RLIMIT_STACK => (self.process.stack_bytes(), RLIM_INFINITY),
@@ -767,7 +771,7 @@ impl Sys<'_> {
         ok(0)
     }
 
-    fn getrandom(&mut self, buf: VirtAddr, len: u64) -> Result {
+    fn getrandom(&mut self, buf: VirtAddr, len: u64) -> SysResult {
         let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
         let mut bytes = Vec::with_capacity(len);
         while bytes.len() < len {
@@ -793,7 +797,7 @@ const fn user_pointer(raw: u64) -> Option<VirtAddr> {
 }
 
 #[allow(clippy::unnecessary_wraps, reason = "the handlers' common result type")]
-const fn ok_i64(value: i64) -> Result {
+const fn ok_i64(value: i64) -> SysResult {
     Ok(Reply::Value(value))
 }
 
