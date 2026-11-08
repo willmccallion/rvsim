@@ -37,13 +37,13 @@ fn goldfish_rtc_address_range() {
 }
 
 #[test]
-fn goldfish_rtc_read_time_low_nonzero() {
+fn a_fresh_rtc_reads_its_epoch() {
     let mut rtc =
         GoldfishRtc::new(PhysAddr::new(0), EPOCH_NS, std::num::NonZero::new(CLOCK_MHZ).unwrap());
-    let time_low = probe::read(&mut rtc, PhysAddr::new(0x0), ProbeWidth::B4) as u32;
-    let _time_high = probe::read(&mut rtc, PhysAddr::new(0x4), ProbeWidth::B4) as u32;
-    let time_ns = (u64::from(_time_high) << 32) | u64::from(time_low);
-    assert!(time_ns > 0, "Time since epoch should be > 0");
+    let time_low = probe::read(&mut rtc, PhysAddr::new(0x0), ProbeWidth::B4);
+    let time_high = probe::read(&mut rtc, PhysAddr::new(0x4), ProbeWidth::B4);
+
+    assert_eq!((time_high << 32) | time_low, EPOCH_NS);
 }
 
 #[test]
