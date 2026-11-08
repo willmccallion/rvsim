@@ -199,3 +199,15 @@ fn a_half_precision_fma_whose_f64_step_rounds_away_the_product_is_inexact() {
     let flags = execute_f16(FpOp::Fma(FmaSigns::Macc), smallest_negative, smallest, minus_32);
     assert_eq!(flags, FpFlags::NX);
 }
+
+#[test]
+fn a_half_result_below_the_smallest_normal_at_full_precision_underflows() {
+    use crate::exec::compute::fpu::half::f64_to_f16;
+    use crate::isa::fp::RoundingMode;
+    // -(2^-14 - 2^-25 - 2^-30) rounds down to -(2^-14 - 2^-25) at f16's full
+    // precision, which is tiny, though at subnormal precision it rounds to
+    // -2^-14, the smallest normal.
+    let just_below_smallest_normal = -(2f64.powi(-14) - 2f64.powi(-25) - 2f64.powi(-30));
+    let (bits, flags) = f64_to_f16(just_below_smallest_normal, RoundingMode::Rdn);
+    assert_eq!((bits, flags), (0x8400, FpFlags::NX | FpFlags::UF));
+}

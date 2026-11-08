@@ -142,9 +142,7 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
     };
 
     let mant_shifted = sig >> shift;
-    let round_bit = (sig >> (shift - 1)) & 1;
-    let sticky_mask = (1u64 << (shift - 1)) - 1;
-    let sticky = (sig & sticky_mask) != 0;
+    let dropped = Discarded::of(sig, shift);
 
     let base_mant: u32 = if f16_exp > 0 {
         (mant_shifted as u32) & u32::from(F16_FRAC_MASK)
@@ -152,14 +150,8 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
         mant_shifted as u32
     };
 
-    let inexact = round_bit != 0 || sticky;
-    let round_up = match rm {
-        RoundingMode::Rne => round_bit == 1 && (sticky || (base_mant & 1) == 1),
-        RoundingMode::Rtz => false,
-        RoundingMode::Rdn => sign_u16 == 1 && inexact,
-        RoundingMode::Rup => sign_u16 == 0 && inexact,
-        RoundingMode::Rmm => round_bit == 1,
-    };
+    let inexact = dropped.is_inexact();
+    let round_up = rounds_up(rm, sign_u16 == 1, dropped, base_mant & 1 == 1);
 
     let mut mant_out = base_mant;
     let mut exp_out = f16_exp;
@@ -174,8 +166,11 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
     if inexact {
         flags = flags | FpFlags::NX;
     }
-    // IEEE 754-2008 "after rounding" UF: tiny (subnormal) AND inexact.
-    if f16_exp == 0 && inexact && exp_out == 0 {
+    // UF: inexact and tiny, judged after rounding to f16's precision with an
+    // unbounded exponent (IEEE 754-2008 §7.5, as RISC-V does). Only a value
+    // in [2^-15, 2^-14) can round out of the tiny range that way.
+    let is_tiny = f16_exp == 0 && (unbiased < -15 || !reaches_smallest_normal(sig, sign_u16, rm));
+    if is_tiny && inexact {
         flags = flags | FpFlags::UF;
     }
 
@@ -187,6 +182,47 @@ pub fn f64_to_f16(val: f64, rm: RoundingMode) -> (u16, FpFlags) {
     let result =
         (sign_u16 << F16_SIGN_SHIFT) | ((exp_out as u16) << F16_FRAC_BITS) | (mant_out as u16);
     (result, flags)
+}
+
+/// The bits rounding drops from a significand: the first, and whether any
+/// later one is set.
+#[derive(Clone, Copy)]
+struct Discarded {
+    round_bit: bool,
+    sticky: bool,
+}
+
+impl Discarded {
+    /// What dropping the low `bits` bits of `sig` discards.
+    const fn of(sig: u64, bits: u32) -> Self {
+        Self { round_bit: (sig >> (bits - 1)) & 1 == 1, sticky: sig & ((1 << (bits - 1)) - 1) != 0 }
+    }
+
+    /// Whether anything nonzero is discarded.
+    const fn is_inexact(self) -> bool {
+        self.round_bit || self.sticky
+    }
+}
+
+/// Whether rounding by `rm` steps the kept significand, odd when `lsb_set`,
+/// away from zero.
+const fn rounds_up(rm: RoundingMode, is_negative: bool, dropped: Discarded, lsb_set: bool) -> bool {
+    match rm {
+        RoundingMode::Rne => dropped.round_bit && (dropped.sticky || lsb_set),
+        RoundingMode::Rtz => false,
+        RoundingMode::Rdn => is_negative && dropped.is_inexact(),
+        RoundingMode::Rup => !is_negative && dropped.is_inexact(),
+        RoundingMode::Rmm => dropped.round_bit,
+    }
+}
+
+/// Whether the f64 significand `sig` of a value in [2^-15, 2^-14) rounds
+/// by `rm` to 2^-14 at f16's full 11-bit precision.
+const fn reaches_smallest_normal(sig: u64, sign_u16: u16, rm: RoundingMode) -> bool {
+    const DROPPED_BITS: u32 = 42;
+    const ALL_KEPT_BITS_SET: u64 = 0x7FF;
+    let dropped = Discarded::of(sig, DROPPED_BITS);
+    sig >> DROPPED_BITS == ALL_KEPT_BITS_SET && rounds_up(rm, sign_u16 == 1, dropped, true)
 }
 
 /// Produces the correct f16 result for an overflow under the given
