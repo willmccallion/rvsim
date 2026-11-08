@@ -55,7 +55,6 @@ fn test_load_binary_large_file() {
 #[test]
 fn test_load_binary_missing_file() {
     let result = loader::load_binary("/nonexistent/path/that/cannot/exist.bin");
-    assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("/nonexistent/path/that/cannot/exist.bin"));
 }
@@ -142,9 +141,9 @@ fn a_missing_explicit_firmware_is_an_error() {
         ..loader::KernelBoot::default()
     };
 
-    let result = loader::setup_kernel_load(&mut state, &config, &boot);
+    let error = loader::setup_kernel_load(&mut state, &config, &boot).expect_err("no firmware");
 
-    assert!(result.is_err());
+    assert!(error.to_string().contains("/nonexistent/fw_jump.bin"), "{error}");
 }
 
 /// A kernel the boot names must be there; booting the firmware alone is
@@ -160,9 +159,9 @@ fn a_missing_explicit_kernel_is_an_error() {
         ..loader::KernelBoot::default()
     };
 
-    let result = loader::setup_kernel_load(&mut state, &config, &boot);
+    let error = loader::setup_kernel_load(&mut state, &config, &boot).expect_err("no kernel");
 
-    assert!(result.is_err());
+    assert!(error.to_string().contains("/nonexistent/Image"), "{error}");
 }
 
 #[test]

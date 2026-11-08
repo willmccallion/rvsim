@@ -987,7 +987,9 @@ fn an_isa_string_claiming_v_needs_the_full_vector_extension() {
     config.isa.vector.elen = 32;
     config.isa.string = Some("rv64gcv".to_owned());
 
-    assert!(config.validate().is_err());
+    let result = config.validate();
+
+    assert!(matches!(result, Err(ConfigError::VWithoutFullVector { elen: 32, .. })), "{result:?}");
 }
 
 #[test]

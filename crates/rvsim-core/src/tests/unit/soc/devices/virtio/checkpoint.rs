@@ -8,6 +8,7 @@ use crate::common::PhysAddr;
 use crate::sim::events::EventQueue;
 use crate::soc::devices::Device;
 use crate::soc::devices::virtio_disk::VirtioBlock;
+use crate::soc::traits::RestoreError;
 
 const WRITTEN: u8 = 0xab;
 
@@ -50,7 +51,7 @@ fn a_checkpoint_is_refused_by_a_different_image() {
 
     let result = restored.restore(&state);
 
-    assert!(result.is_err());
+    assert!(matches!(result, Err(RestoreError::DiskImageDiffers)), "{result:?}");
     assert_eq!(restored.checkpoint(), before, "a refused restore changes nothing");
 }
 
@@ -60,5 +61,7 @@ fn a_written_sector_past_the_end_of_the_disk_is_refused() {
     state.written[0].sector = 4;
     let mut restored = fresh_device(disk_image());
 
-    assert!(restored.set_state(&state).is_err());
+    let result = restored.set_state(&state);
+
+    assert!(matches!(result, Err(RestoreError::WrittenSectorPastDisk)), "{result:?}");
 }
