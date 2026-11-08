@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 
-def _parse_size(s) -> int:
+def _parse_size(s: str | int) -> int:
     """Parse a size string like '32KB', '4MB', '64B' into bytes. Ints pass through."""
     if isinstance(s, int):
         return s
@@ -20,7 +20,7 @@ def _parse_size(s) -> int:
     return val * mult[unit]
 
 
-def _parse_cycles(s) -> int:
+def _parse_cycles(s: str | int) -> int:
     """Parse a cycle count like ``'5M'``, ``'500K'``, ``'2G'`` into an integer.
 
     Uses SI (decimal) suffixes: K = 1,000, M = 1,000,000, G = 1,000,000,000.

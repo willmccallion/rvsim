@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 __all__ = ["Sweep", "SweepResults"]
 
@@ -18,12 +18,20 @@ from .config import Config
 from .experiment import Environment, Result
 
 
-def _run_one(args: tuple) -> tuple:
+class _Job(NamedTuple):
+    """One binary on one config, as a worker process receives it."""
+
+    binary: str
+    config_name: str
+    config: Config | dict[str, Any]
+    limit: int | None
+
+
+def _run_one(job: _Job) -> tuple[str, str, Result]:
     """Worker function for parallel execution. Must be top-level for pickling."""
-    binary, config_name, config, limit = args
-    env = Environment(binary=binary, config=config)
-    result = env.run(quiet=True, limit=limit)
-    return (binary, config_name, result)
+    env = Environment(binary=job.binary, config=job.config)
+    result = env.run(quiet=True, limit=job.limit)
+    return (job.binary, job.config_name, result)
 
 
 @dataclass
@@ -100,10 +108,11 @@ class Sweep:
             `SweepResults` with per-binary, per-config results.
         """
         # Build work items
-        work: list[tuple] = []
-        for binary in self.binaries:
-            for config_name, config in self.configs.items():
-                work.append((binary, config_name, config, limit))
+        work = [
+            _Job(binary, config_name, config, limit)
+            for binary in self.binaries
+            for config_name, config in self.configs.items()
+        ]
 
         # Execute
         if parallel and len(work) > 1:

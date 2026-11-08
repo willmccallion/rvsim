@@ -81,15 +81,18 @@ class Prefetcher:
             return f"Prefetcher.Tagged(degree={self.degree})"
 
 
-def _prefetcher_from(cache: dict[str, Any]):
+def _prefetcher_from(cache: dict[str, Any]) -> _AnyPrefetcher:
     """The cache-side prefetcher a core cache-level dict names."""
-    kind = getattr(Prefetcher, cache["prefetcher"])
-    if kind is Prefetcher.Off:
+    name = cache["prefetcher"]
+    if name == "Off":
         return Prefetcher.Off()
-    if kind is Prefetcher.Stride:
+    if name == "Stride":
         return Prefetcher.Stride(
             degree=cache["prefetch_degree"], table_size=cache["prefetch_table_size"]
         )
+    kind: type[Prefetcher.NextLine | Prefetcher.Stream | Prefetcher.Tagged] = getattr(
+        Prefetcher, name
+    )
     return kind(degree=cache["prefetch_degree"])
 
 
@@ -377,6 +380,19 @@ class Cache:
         )
 
 
+_AnyPrefetcher = (
+    Prefetcher.Off
+    | Prefetcher.NextLine
+    | Prefetcher.Stride
+    | Prefetcher.Stream
+    | Prefetcher.Tagged
+)
+_AnyMemoryController = (
+    MemoryController.Simple | MemoryController.Dram | MemoryController.Ddr5
+)
+_AnyInclusionPolicy = Cache.Nine | Cache.Inclusive | Cache.Exclusive
+
+
 def _unless_default(level: dict[str, Any], field: str) -> int | None:
     """A cache resource count from a core level dict: None when it is the
     core's default, as a ``Cache`` built without it holds."""
@@ -422,7 +438,7 @@ def _store_prefetcher_from(prefetcher: dict[str, Any]) -> StorePrefetcher.Stream
     )
 
 
-def _controller_from(memory: dict[str, Any]):
+def _controller_from(memory: dict[str, Any]) -> _AnyMemoryController:
     """The memory controller a core memory dict names."""
     kind = getattr(MemoryController, memory["controller"])
     if kind is MemoryController.Simple:

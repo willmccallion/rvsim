@@ -31,7 +31,7 @@ else
 endif
 
 .PHONY: help software examples linux python python-wheel
-.PHONY: check test test-python test-coverage clippy doc fmt fmt-check ruff
+.PHONY: check test test-python test-coverage clippy doc fmt fmt-check ruff mypy
 .PHONY: lint lint-rust lint-python ci prerelease
 .PHONY: compare-gem5
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
@@ -60,7 +60,8 @@ help:
 	@printf "    %-$(HELP_W)s  Format Rust and Python code\n" "make fmt"
 	@printf "    %-$(HELP_W)s  Check formatting without modifying\n" "make fmt-check"
 	@printf "    %-$(HELP_W)s  Lint Python with ruff\n" "make ruff"
-	@printf "    %-$(HELP_W)s  Every lint (lint-rust + lint-python)\n" "make lint"
+	@printf "    %-$(HELP_W)s  Type-check the rvsim package with mypy (strict)\n" "make mypy"
+	@printf "    %-$(HELP_W)s  Every lint and type check (lint-rust + lint-python)\n" "make lint"
 	@printf "    %-$(HELP_W)s  Everything CI runs: lint, tests, conformance smoke, SE check\n" "make ci"
 	@printf "    %-$(HELP_W)s  Full pre-release check (PRERELEASE_ARGS=--skip-linux skips the boot)\n" "make prerelease"
 	@printf "    %-$(HELP_W)s  Build riscv-tests ELFs (one-time)\n" "make riscv-tests-build"
@@ -186,13 +187,17 @@ ruff: $(VENV_STAMP)
 	@printf "$(GREEN)Running ruff…$(RESET)\n"
 	$(PYTHON) -m ruff check $(PYTHON_SOURCES)
 
+mypy: $(VENV_STAMP)
+	@printf "$(GREEN)Running mypy…$(RESET)\n"
+	$(PYTHON) -m mypy
+
 lint-rust:
 	$(CARGO) fmt --all -- --check
 	@$(MAKE) --no-print-directory clippy doc
 
 lint-python: $(VENV_STAMP)
 	$(PYTHON) -m ruff format --check $(PYTHON_SOURCES)
-	@$(MAKE) --no-print-directory ruff
+	@$(MAKE) --no-print-directory ruff mypy
 
 lint: lint-rust lint-python
 

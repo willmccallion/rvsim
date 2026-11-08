@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from ._core_defaults import COMPONENTS
 
 _TAGE = COMPONENTS["tage"]
@@ -71,11 +73,13 @@ class BranchPredictor:
             self.enabled = list(enabled)
 
         @classmethod
-        def from_dict(cls, banking: dict | None) -> BranchPredictor.TageBanking | None:
+        def from_dict(
+            cls, banking: dict[str, Any] | None
+        ) -> BranchPredictor.TageBanking | None:
             """The banking a core TAGE dict holds, or None."""
             return None if banking is None else cls(**banking)
 
-        def to_dict(self) -> dict:
+        def to_dict(self) -> dict[str, Any]:
             return {
                 "short_factor": self.short_factor,
                 "long_factor": self.long_factor,
@@ -197,11 +201,11 @@ class BranchPredictor:
             self.weight_init = weight_init
 
         @classmethod
-        def from_dict(cls, gehl: dict) -> BranchPredictor.ScGehl:
+        def from_dict(cls, gehl: dict[str, Any]) -> BranchPredictor.ScGehl:
             """The GEHL component a core SC dict holds."""
             return cls(gehl["lengths"], gehl["log_entries"], gehl["weight_init"])
 
-        def to_dict(self) -> dict:
+        def to_dict(self) -> dict[str, Any]:
             return {
                 "lengths": self.lengths,
                 "log_entries": self.log_entries,
@@ -235,7 +239,7 @@ class BranchPredictor:
             self.gehl = BranchPredictor.ScGehl(lengths, log_entries, weight_init)
 
         @classmethod
-        def from_dict(cls, local: dict) -> BranchPredictor.ScLocalGehl:
+        def from_dict(cls, local: dict[str, Any]) -> BranchPredictor.ScLocalGehl:
             """The local GEHL component a core SC dict holds."""
             gehl = local["gehl"]
             return cls(
@@ -247,7 +251,7 @@ class BranchPredictor:
                 local["mix_pc"],
             )
 
-        def to_dict(self) -> dict:
+        def to_dict(self) -> dict[str, Any]:
             return {
                 "histories": self.histories,
                 "index_shift": self.index_shift,
@@ -478,14 +482,28 @@ class MemDepPredictor:
             )
 
 
-def _tage_arguments(tage: dict) -> dict:
+_AnyBranchPredictor = (
+    BranchPredictor.Static
+    | BranchPredictor.GShare
+    | BranchPredictor.Bht
+    | BranchPredictor.Tage
+    | BranchPredictor.ScLTage
+    | BranchPredictor.Perceptron
+    | BranchPredictor.Tournament
+)
+_AnyMemDepPredictor = MemDepPredictor.Blind | MemDepPredictor.StoreSet
+
+
+def _tage_arguments(tage: dict[str, Any]) -> dict[str, Any]:
     """``BranchPredictor.Tage`` arguments from a core TAGE dict."""
     return {**tage, "banking": BranchPredictor.TageBanking.from_dict(tage["banking"])}
 
 
-def _branch_predictor_from(pipeline: dict):
+def _branch_predictor_from(pipeline: dict[str, Any]) -> _AnyBranchPredictor:
     """The branch predictor a core pipeline dict describes."""
-    kind = getattr(BranchPredictor, pipeline["branch_predictor"])
+    kind: type[_AnyBranchPredictor] = getattr(
+        BranchPredictor, pipeline["branch_predictor"]
+    )
     if kind is BranchPredictor.Tage:
         return BranchPredictor.Tage(**_tage_arguments(pipeline["tage"]))
     if kind is BranchPredictor.ScLTage:
@@ -522,7 +540,7 @@ def _branch_predictor_from(pipeline: dict):
     return kind()
 
 
-def _mem_dep_predictor_from(pipeline: dict):
+def _mem_dep_predictor_from(pipeline: dict[str, Any]) -> _AnyMemDepPredictor:
     """The memory dependence predictor a core pipeline dict describes."""
     if pipeline["mem_dep_predictor"] == "Blind":
         return MemDepPredictor.Blind()

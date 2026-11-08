@@ -24,7 +24,7 @@ __all__ = [
     "StopReason",
 ]
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._core import Instruction, PipelineSnapshot
 from ._core import Simulator as _CoreSimulator
@@ -104,7 +104,7 @@ class Simulator(_CoreSimulator):
 
     def __new__(
         cls,
-        config: Config | dict | None = None,
+        config: Config | dict[str, Any] | None = None,
         *,
         binary: str | None = None,
         elf_data: bytes | None = None,

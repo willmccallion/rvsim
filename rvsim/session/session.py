@@ -397,6 +397,7 @@ class Session:
         Raises `WorkloadEnded` if the workload ends first."""
         began = time.perf_counter()
         key = self._cache_key(until) if cache else None
+        path: str | None = None
         if key is not None and self._cache.has(key):
             path = self._cache.path(key)
             self._load(path, _read_meta(path))
@@ -411,7 +412,6 @@ class Session:
             self._save(path)
             self._load(path, _read_meta(path))
         else:
-            path = None
             with tempfile.TemporaryDirectory(prefix="rvsim-fast-forward-") as directory:
                 stop_point = os.path.join(directory, "stop.ckpt")
                 self._save(stop_point)
@@ -445,14 +445,17 @@ class Session:
     ) -> Session:
         """Runs unmeasured to ``until``, or through a shell ``command``, to
         warm caches and predictors before measuring."""
-        if (until is None) == (command is None):
-            raise ValueError("warm_up takes an until stop or a command, exactly one")
-        if command is not None:
-            self.shell(command)
-        else:
-            stopped = self._drive_logged(until, "warm-up")
-            if stopped.exited and not isinstance(until, Exit):
-                raise WorkloadEnded(until, stopped)
+        match until, command:
+            case None, str():
+                self.shell(command)
+            case Stop(), None:
+                stopped = self._drive_logged(until, "warm-up")
+                if stopped.exited and not isinstance(until, Exit):
+                    raise WorkloadEnded(until, stopped)
+            case _:
+                raise ValueError(
+                    "warm_up takes an until stop or a command, exactly one"
+                )
         return self
 
     def measure(
@@ -467,12 +470,16 @@ class Session:
         A command runs under the guest's ``rvsim run``, which snapshots the
         stats just before it starts and just after it exits; the region is
         the difference, so the session's whole-run stats stay intact."""
-        if (command is None) == (until is None):
-            raise ValueError("measure takes a command or an until stop, exactly one")
         began = time.perf_counter()
-        if command is not None:
-            return self._measure_command(command, name or command, began)
-        return self._measure_run(until, name or str(until), began)
+        match command, until:
+            case str(), None:
+                return self._measure_command(command, name or command, began)
+            case None, Stop():
+                return self._measure_run(until, name or str(until), began)
+            case _:
+                raise ValueError(
+                    "measure takes a command or an until stop, exactly one"
+                )
 
     def send(self, text: str) -> None:
         """Types ``text`` into the console."""
@@ -753,6 +760,14 @@ class Session:
         sys.stderr.flush()
 
 
+@dataclass
+class _DueWhen:
+    """A `When` and the cycle its predicate is next checked on."""
+
+    cycle: int
+    when: When
+
+
 class _Run:
     """One run of a session until one of its primitive stops holds."""
 
@@ -778,7 +793,9 @@ class _Run:
         self.pc_stops = [s for s in stops if isinstance(s, Pc)]
         self.markers = [s for s in stops if isinstance(s, Marker)]
         self.consoles = [s for s in stops if isinstance(s, Console)]
-        self.whens = [[start_cycle + s.every, s] for s in stops if isinstance(s, When)]
+        self.whens = [
+            _DueWhen(start_cycle + s.every, s) for s in stops if isinstance(s, When)
+        ]
         self.exit = next((s for s in stops if isinstance(s, Exit)), Exit())
         self.every = every
         self.on_every = on_every
@@ -817,12 +834,12 @@ class _Run:
         matched = self.session._match_console(self.consoles)
         if matched is not None:
             return self._stopped(matched[0], match=matched[1])
-        for target, stop in self.instruction_targets:
+        for target, instructions in self.instruction_targets:
             if self.sim.instructions_retired >= target:
-                return self._stopped(stop)
-        for target, stop in self.cycle_targets:
+                return self._stopped(instructions)
+        for target, cycles in self.cycle_targets:
             if self.sim.cycle >= target:
-                return self._stopped(stop)
+                return self._stopped(cycles)
         return None
 
     def _stopped_by(self, reason: StopReason, value: int | None) -> Stopped | None:
@@ -842,7 +859,7 @@ class _Run:
 
     def _cycles_to_run(self) -> int | None:
         horizons = [target for target, _ in self.cycle_targets]
-        horizons += [check for check, _ in self.whens]
+        horizons += [due.cycle for due in self.whens]
         if self.next_every is not None:
             horizons.append(self.next_every)
         now = self.sim.cycle
@@ -866,12 +883,11 @@ class _Run:
             assert self.on_every is not None and self.every is not None
             self.on_every(self.session)
             self.next_every += self.every
-        for entry in self.whens:
-            check, when = entry
-            if now >= check:
-                if when.predicate(self.session):
-                    return self._stopped(when)
-                entry[0] = check + when.every
+        for due in self.whens:
+            if now >= due.cycle:
+                if due.when.predicate(self.session):
+                    return self._stopped(due.when)
+                due.cycle += due.when.every
         self._report()
         return None
 

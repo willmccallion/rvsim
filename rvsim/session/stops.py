@@ -9,7 +9,7 @@ ends if the workload does, reported as `Exit`.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -125,7 +125,8 @@ class Console(Stop):
 
     def __init__(self, pattern: str | re.Pattern[str], flags: int = 0):
         if isinstance(pattern, re.Pattern):
-            pattern, flags = pattern.pattern, pattern.flags | flags
+            flags |= pattern.flags
+            pattern = pattern.pattern
         re.compile(pattern, flags)
         object.__setattr__(self, "pattern", pattern)
         object.__setattr__(self, "flags", flags)
@@ -157,7 +158,7 @@ class When(Stop):
     every: int = 100_000
     name: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         object.__setattr__(self, "every", _count(self.every, "When.every"))
 
     def key(self) -> str | None:
@@ -178,9 +179,10 @@ class AnyOf(Stop):
 
     def key(self) -> str | None:
         keys = [stop.key() for stop in self.stops]
-        if any(key is None for key in keys):
+        known = [key for key in keys if key is not None]
+        if len(known) < len(keys):
             return None
-        return "any(" + ",".join(sorted(keys)) + ")"
+        return "any(" + ",".join(sorted(known)) + ")"
 
     def _primitives(self) -> tuple[Stop, ...]:
         return self.stops
@@ -220,7 +222,7 @@ class LoginShell(Stop):
             match=stopped.match,
         )
 
-    def _steps(self):
+    def _steps(self) -> Iterator[str | Console]:
         yield Console(self.login)
         yield self.user + "\n"
         if self.password is not None:

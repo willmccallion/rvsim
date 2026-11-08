@@ -38,6 +38,7 @@ from .config import (
     Prefetcher,
     ReplacementPolicy,
 )
+from .config.memory import _AnyMemoryController
 
 __all__ = [
     "PRESETS",
@@ -233,6 +234,7 @@ def linux(
         raise ValueError(
             f"interconnect must be one of {INTERCONNECTS}, got {interconnect!r}"
         )
+    controller: _AnyMemoryController
     if memory == "Ddr5":
         controller = MemoryController.Ddr5(speed_bin=speed_bin, channels=4)
     elif memory == "Dram":

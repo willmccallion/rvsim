@@ -46,12 +46,13 @@ class _Cache:
         path = self.path(key)
         if not (os.path.exists(path) and os.path.exists(path + ".json")):
             return False
-        return _read_meta(path)["checkpoint_version"] == _core.CHECKPOINT_VERSION
+        version: int = _read_meta(path)["checkpoint_version"]
+        return version == _core.CHECKPOINT_VERSION
 
 
 def _read_meta(path: str) -> dict[str, Any]:
     with open(path + ".json") as f:
-        meta = json.load(f)
+        meta: dict[str, Any] = json.load(f)
     if meta.get("format") != _META_FORMAT:
         raise ValueError(f"{path}.json is not a session checkpoint this rvsim reads")
     return meta
