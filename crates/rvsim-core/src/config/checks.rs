@@ -56,12 +56,12 @@ impl Config {
     }
 }
 
-const fn at_least_one(field: &'static str, value: usize) -> Result<(), ConfigError> {
-    if value == 0 { Err(ConfigError::Zero(field)) } else { Ok(()) }
-}
-
-const fn at_least_one_u64(field: &'static str, value: u64) -> Result<(), ConfigError> {
-    if value == 0 { Err(ConfigError::Zero(field)) } else { Ok(()) }
+/// Refuses a zero `value` for `field`.
+fn at_least_one<T: Copy + Default + PartialEq>(
+    field: &'static str,
+    value: T,
+) -> Result<(), ConfigError> {
+    if value == T::default() { Err(ConfigError::Zero(field)) } else { Ok(()) }
 }
 
 const fn power_of_two(field: &'static str, value: usize) -> Result<(), ConfigError> {
@@ -74,8 +74,8 @@ const fn at_most(field: &'static str, value: usize, most: usize) -> Result<(), C
 
 fn check_system(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigError> {
     at_least_one("system.hart_count", system.hart_count)?;
-    at_least_one_u64("system.cpu_clock_mhz", system.cpu_clock_mhz)?;
-    at_least_one_u64("system.timebase_hz", u64::from(system.timebase_hz))?;
+    at_least_one("system.cpu_clock_mhz", system.cpu_clock_mhz)?;
+    at_least_one("system.timebase_hz", system.timebase_hz)?;
     if system.timer == Timer::RealTime
         && !system.cpu_clock_hz().is_multiple_of(u64::from(system.timebase_hz))
     {
