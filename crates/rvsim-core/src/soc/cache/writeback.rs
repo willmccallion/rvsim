@@ -21,7 +21,6 @@ impl Cache {
         dirty: bool,
         ctx: &mut HandleCtx<'_>,
     ) {
-        let addr = req.paddr.val();
         let hit_level = self.hit_level();
         self.respond(
             Response {
@@ -35,20 +34,20 @@ impl Cache {
             },
             ctx,
         );
-        let line = self.line_of(addr);
+        let line = self.line_of(req.paddr);
         // A clean writeback is an eviction notice. A dirty one may also be
         // a probed cache keeping a shared copy, so its presence bit stays
         // until a probe finds it gone.
         if !dirty {
-            self.forget_upper_copy(addr, req.source);
+            self.forget_upper_copy(line, req.source);
         }
         if self.answering_a_probe_for(line) {
             self.note_probe_writeback(line, dirty, ctx);
             return;
         }
         self.note_fetch_probe_writeback(line, dirty);
-        if let Some(way) = self.find_way(addr) {
-            let index = self.slot(self.set_index(addr), way);
+        if let Some(way) = self.find_way(line) {
+            let index = self.slot(self.set_index(line), way);
             // A writeback carries data, never permission. Held Shared, the
             // line was downgraded by a probe whose answer already carried
             // this dirty data; the writeback merely arrived after it.
@@ -63,7 +62,7 @@ impl Cache {
         }
         if dirty || self.clean_victims_to_downstream {
             // Not ours: forward downstream through the writeback buffer.
-            self.write_back(self.line_of(addr), dirty, WritebackCause::Eviction, ctx);
+            self.write_back(line, dirty, WritebackCause::Eviction, ctx);
         }
     }
 
@@ -117,7 +116,7 @@ impl Cache {
     pub(super) fn forward(&mut self, req: BlockedRequest, ctx: &mut HandleCtx<'_>) {
         let Some(downstream) = self.downstream else { return };
         let ours = self.alloc_req_id();
-        let line = self.line_of(req.paddr.val());
+        let line = self.line_of(req.paddr);
         self.forwarded.push(Forwarded { ours, source: req.source, theirs: req.req_id, line });
         ctx.scheduler.schedule(
             ctx.cycle,
@@ -144,7 +143,7 @@ impl Cache {
         dirty_above: bool,
         ctx: &mut HandleCtx<'_>,
     ) {
-        let line = self.line_of(req.paddr.val());
+        let line = self.line_of(req.paddr);
         if self.mshrs.holds(line) {
             self.after_fill.push(req);
             return;
@@ -200,13 +199,13 @@ impl Cache {
         ctx: &mut HandleCtx<'_>,
     ) -> bool {
         match op {
-            Maintenance::Clean => self.clean_line(line.val()),
+            Maintenance::Clean => self.clean_line(line),
             Maintenance::Flush | Maintenance::Invalidate => {
                 let _ = self.handed_up.remove(&line);
                 let holders: Vec<ComponentId> =
                     self.upper_holders(line).into_iter().filter(|&h| h != requester).collect();
                 self.back_invalidate(line, &holders, ctx);
-                self.invalidate_line(line.val(), ctx.stats)
+                self.invalidate_line(line, ctx.stats)
             }
         }
     }

@@ -42,7 +42,7 @@ fn l2(sim: &mut Simulator, core: CoreId) -> &mut Cache {
 
 /// Plants `ADDR`'s line in `cache`, in its first way.
 fn hold(cache: &mut Cache, state: MesiState) {
-    cache.plant_line(0, ADDR, state);
+    cache.plant_line(0, PhysAddr::new(ADDR), state);
 }
 
 /// Records in the home agent that `core` was granted `ADDR` in `state`.
@@ -98,8 +98,8 @@ fn an_empty_system_breaks_no_invariant() {
 #[test]
 fn a_line_in_two_ways_of_a_set_is_a_bookkeeping_fault_not_a_coherence_one() {
     let mut sim = two_cores();
-    l2(&mut sim, CORE_0).plant_line(0, ADDR, MesiState::Shared);
-    l2(&mut sim, CORE_0).plant_line(1, ADDR, MesiState::Shared);
+    l2(&mut sim, CORE_0).plant_line(0, PhysAddr::new(ADDR), MesiState::Shared);
+    l2(&mut sim, CORE_0).plant_line(1, PhysAddr::new(ADDR), MesiState::Shared);
     grant(&mut sim, CORE_0, MesiState::Shared);
     let l2_id = l2(&mut sim, CORE_0).id;
 

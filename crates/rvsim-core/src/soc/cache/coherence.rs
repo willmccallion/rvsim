@@ -22,7 +22,7 @@ impl Cache {
         ctx: &mut HandleCtx<'_>,
     ) {
         let (Some(requester), Some(downstream)) = (self.coherent, self.downstream) else { return };
-        let line = self.line_of(req.paddr.val());
+        let line = self.line_of(req.paddr);
         let kind = match &req.op {
             MemOp::Writeback { dirty } => {
                 let dirty = *dirty;
@@ -142,7 +142,7 @@ impl Cache {
     ) {
         // A fetch outstanding for the line was ordered after this probe at
         // the next level, so its fill is authoritative and is left alone.
-        let had_copy = self.contains(line.val());
+        let had_copy = self.holds(line);
         let holders = self.upper_holders(line);
         let dirty =
             self.apply_probe(line, kind, write_back_dirty, ctx) || self.writebacks.holds(line);
@@ -184,8 +184,8 @@ impl Cache {
         if !self.enabled {
             return false;
         }
-        let Some(way) = self.find_way(line.val()) else { return false };
-        let index = self.slot(self.set_index(line.val()), way);
+        let Some(way) = self.find_way(line) else { return false };
+        let index = self.slot(self.set_index(line), way);
         let dirty = self.lines[index].dirty();
         if dirty && write_back_dirty {
             self.write_back(line, true, WritebackCause::Demanded, ctx);
@@ -255,7 +255,7 @@ impl Cache {
         let Some(index) = self.pending_probes.iter().position(|p| p.ours == txn) else { return };
         let (line, kind) = (self.pending_probes[index].line, self.pending_probes[index].kind);
         if !had_copy || kind == ProbeKind::Invalidate {
-            self.forget_upper_copy(line.val(), from);
+            self.forget_upper_copy(line, from);
         }
         let pending = &mut self.pending_probes[index];
         pending.had_copy |= had_copy;
@@ -306,7 +306,7 @@ impl Cache {
             Packet::Coh(CoherenceMsg::CompAck { txn, line, from }),
         );
         let lost_upgrade =
-            self.mshrs.iter().any(|m| m.req_id == txn && m.upgrade) && !self.contains(line.val());
+            self.mshrs.iter().any(|m| m.req_id == txn && m.upgrade) && !self.holds(line);
         if lost_upgrade {
             self.reissue_for_data(txn, ctx);
             return;

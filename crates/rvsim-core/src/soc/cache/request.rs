@@ -43,7 +43,7 @@ impl Cache {
             ctx.self_id,
             Packet::MemResp {
                 req_id: response.req_id,
-                line_addr: self.line_of(response.paddr.val()),
+                line_addr: self.line_of(response.paddr),
                 data: response.data,
                 hit_level: response.hit_level,
                 state: response.state,
@@ -123,8 +123,8 @@ impl Cache {
         // and leaves it modified, like a store.
         let is_write =
             matches!(req.op, MemOp::Write { .. } | MemOp::ReadOwn | MemOp::Atomic { .. });
-        let set_index = self.set_index(req.paddr.val());
-        let present = self.find_way(req.paddr.val());
+        let set_index = self.set_index(self.line_of(req.paddr));
+        let present = self.find_way(self.line_of(req.paddr));
         if let Some(way) = present {
             self.note_request_for(self.slot(set_index, way), ctx.stats);
         }
@@ -175,7 +175,7 @@ impl Cache {
         {
             // The upper level now owns the line.
             self.drop_line(index, ctx.stats);
-            let _ = self.handed_up.insert(self.line_of(addr));
+            let _ = self.handed_up.insert(self.line_of(req.paddr));
         }
         self.observe_prefetcher(addr, req.pc, Lookup::Hit, ctx);
     }
@@ -190,7 +190,7 @@ impl Cache {
     ) {
         let addr = req.paddr.val();
         ctx.stats.counter(self.stat_paths.misses).inc();
-        let line = self.line_of(addr);
+        let line = self.line_of(req.paddr);
         let target = MshrTarget {
             source: req.source,
             req_id: req.req_id,
@@ -241,7 +241,7 @@ impl Cache {
         let vaddr = targets.first().and_then(|target| target.vaddr);
         let pc = targets.first().and_then(|target| target.pc);
         let req_id = self.alloc_req_id();
-        let upgrade = self.find_way(line.val()).is_some();
+        let upgrade = self.find_way(line).is_some();
         self.filled_since_flush = true;
         self.mshrs.allocate(Mshr {
             line,
@@ -362,8 +362,8 @@ impl Cache {
     /// already here with the permission wanted, in flight or being
     /// written back.
     fn start_prefetch(&mut self, addr: u64, exclusive: bool, ctx: &mut HandleCtx<'_>) {
-        let line = self.line_of(addr);
-        if self.holds_for(addr, exclusive)
+        let line = self.line_of(PhysAddr::new(addr));
+        if self.holds_for(line, exclusive)
             || self.mshrs.holds(line)
             || self.writebacks.holds(line)
             || self.handed_up.contains(&line)
@@ -380,9 +380,9 @@ impl Cache {
     }
 
     /// True when the line holding `addr` is here, writable if `exclusive`.
-    fn holds_for(&self, addr: u64, exclusive: bool) -> bool {
-        let Some(way) = self.find_way(addr) else { return false };
-        let state = self.lines[self.slot(self.set_index(addr), way)].state;
+    fn holds_for(&self, line: LineAddr, exclusive: bool) -> bool {
+        let Some(way) = self.find_way(line) else { return false };
+        let state = self.lines[self.slot(self.set_index(line), way)].state;
         !exclusive || state != MesiState::Shared
     }
 
@@ -423,9 +423,9 @@ impl Cache {
         else {
             return;
         };
-        let placement = (!hands_up).then(|| self.placement(line_addr.val()));
+        let placement = (!hands_up).then(|| self.placement(line_addr));
         if let Some(Placement::Victim(way)) = placement
-            && self.victim_needs_a_slot(line_addr.val(), way)
+            && self.victim_needs_a_slot(line_addr, way)
             && self.writebacks.is_full()
         {
             let fill = WaitingFill { req_id, line_addr, data, hit_level, granted };
@@ -443,8 +443,8 @@ impl Cache {
             }
             Some(placement) => self.fill(&mshr, granted, placement, ctx),
         };
-        if let Some(way) = self.find_way(mshr.line.val()) {
-            let index = self.slot(self.set_index(mshr.line.val()), way);
+        if let Some(way) = self.find_way(mshr.line) {
+            let index = self.slot(self.set_index(mshr.line), way);
             for target in &mshr.targets {
                 self.note_upper_copy(index, target.source);
             }
@@ -459,9 +459,9 @@ impl Cache {
 
     /// Where `addr`'s line goes: its own way when held, else a free way,
     /// else the way of the replacement policy's victim.
-    fn placement(&mut self, addr: u64) -> Placement {
-        let set_index = self.set_index(addr);
-        if let Some(way) = self.find_way(addr) {
+    fn placement(&mut self, line: LineAddr) -> Placement {
+        let set_index = self.set_index(line);
+        if let Some(way) = self.find_way(line) {
             return Placement::Held(way);
         }
         if let Some(free) = self.ways().find(|&w| !self.lines[self.slot(set_index, w)].valid()) {
@@ -471,11 +471,11 @@ impl Cache {
     }
 
     /// The way `placement` names, its victim evicted first.
-    fn place(&mut self, addr: u64, placement: Placement, ctx: &mut HandleCtx<'_>) -> WayIdx {
+    fn place(&mut self, line: LineAddr, placement: Placement, ctx: &mut HandleCtx<'_>) -> WayIdx {
         match placement {
             Placement::Held(way) | Placement::Free(way) => way,
             Placement::Victim(way) => {
-                self.evict(self.set_index(addr), way, ctx);
+                self.evict(self.set_index(line), way, ctx);
                 way
             }
         }
@@ -483,8 +483,8 @@ impl Cache {
 
     /// Whether evicting the line in `way` of `addr`'s set sends it to the
     /// next level, which needs a writeback-buffer slot.
-    fn victim_needs_a_slot(&self, addr: u64, way: WayIdx) -> bool {
-        let victim = self.lines[self.slot(self.set_index(addr), way)];
+    fn victim_needs_a_slot(&self, line: LineAddr, way: WayIdx) -> bool {
+        let victim = self.lines[self.slot(self.set_index(line), way)];
         victim.valid() && (victim.dirty() || self.clean_victims_to_downstream)
     }
 
@@ -501,12 +501,11 @@ impl Cache {
     /// Installs a line a cache above evicted, as an exclusive level holds
     /// what the level above gives up; it is modified when `dirty`.
     pub(super) fn install_victim(&mut self, line: LineAddr, dirty: bool, ctx: &mut HandleCtx<'_>) {
-        let addr = line.val();
-        let set_index = self.set_index(addr);
-        let placement = self.placement(addr);
-        let way = self.place(addr, placement, ctx);
+        let set_index = self.set_index(line);
+        let placement = self.placement(line);
+        let way = self.place(line, placement, ctx);
         let state = if dirty { MesiState::Modified } else { MesiState::Exclusive };
-        let tag = self.tag_of(addr);
+        let tag = self.tag_of(line);
         let slot = self.slot(set_index, way);
         self.lines[slot] = CacheLine { tag, state, upper: UpperMask::default(), prefetched: false };
         self.policy.insert(set_index, way);
@@ -529,7 +528,7 @@ impl Cache {
     pub(super) fn serve_after_fill(&mut self, line: LineAddr, ctx: &mut HandleCtx<'_>) {
         let (ready, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.after_fill)
             .into_iter()
-            .partition(|req| self.line_of(req.paddr.val()) == line);
+            .partition(|req| self.line_of(req.paddr) == line);
         self.after_fill = waiting;
         for req in ready {
             self.on_request(req, ctx);
@@ -551,11 +550,11 @@ impl Cache {
             return;
         }
         let writable = matches!(installed, MesiState::Exclusive | MesiState::Modified);
-        let Some(way) = self.find_way(line.val()).filter(|_| writable) else {
+        let Some(way) = self.find_way(line).filter(|_| writable) else {
             self.start_fetch(line, deferred, FetchOrigin::Demand, MemOp::ReadOwn, ctx);
             return;
         };
-        let index = self.slot(self.set_index(line.val()), way);
+        let index = self.slot(self.set_index(line), way);
         self.lines[index].state = MesiState::Modified;
         for target in &deferred {
             self.note_upper_copy(index, target.source);
@@ -574,12 +573,11 @@ impl Cache {
         placement: Placement,
         ctx: &mut HandleCtx<'_>,
     ) -> MesiState {
-        let addr = mshr.line.val();
-        let set_index = self.set_index(addr);
-        let tag = self.tag_of(addr);
+        let set_index = self.set_index(mshr.line);
+        let tag = self.tag_of(mshr.line);
         ctx.stats.counter(self.stat_paths.fills).inc();
 
-        let way = self.place(addr, placement, ctx);
+        let way = self.place(mshr.line, placement, ctx);
         let state = fetched_state(mshr, granted);
         let index = self.slot(set_index, way);
         let state = if self.lines[index].dirty() { MesiState::Modified } else { state };
@@ -601,7 +599,7 @@ impl Cache {
             return;
         }
         ctx.stats.counter(self.stat_paths.evictions).inc();
-        let line = self.line_of(self.reconstruct_addr(set_index, victim.tag));
+        let line = self.line_at(set_index, victim.tag);
         let holders = self.upper_holders(line);
         self.drop_line(index, ctx.stats);
         if victim.dirty() || self.clean_victims_to_downstream {

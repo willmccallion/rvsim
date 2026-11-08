@@ -83,7 +83,7 @@ fn level_faults(
             if busy(&line) {
                 continue;
             }
-            let below = lower.contains(line.val());
+            let below = lower.contains(line.phys());
             let fault = match (policy, below) {
                 (InclusionPolicy::Inclusive, false) => {
                     Some(InclusionFault::MissingFromInclusiveLevel)

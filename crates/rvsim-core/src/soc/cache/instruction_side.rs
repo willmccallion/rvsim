@@ -7,7 +7,7 @@
 //! cycle, writes back the dirty ones and invalidates them all, skipping
 //! the walk when nothing has been fetched since the last flush.
 
-use crate::common::LineAddr;
+use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::HandleCtx;
 use crate::sim::packet::{MemOp, MemRespData, MesiState, Packet, ProbeKind};
@@ -28,7 +28,7 @@ impl Cache {
         if req.probed_above || !matches!(req.op, MemOp::Fetch) {
             return Some(req);
         }
-        let line = self.line_of(req.paddr.val());
+        let line = self.line_of(req.paddr);
         let holders = self.writable_upper_copies(line, req.source);
         if holders.is_empty() {
             return Some(req);
@@ -63,9 +63,9 @@ impl Cache {
     /// it. A non-inclusive cache that has evicted the line keeps no record
     /// of the caches above that still hold it, so it probes none.
     fn writable_upper_copies(&self, line: LineAddr, requester: ComponentId) -> Vec<ComponentId> {
-        let holders = match self.find_way(line.val()) {
+        let holders = match self.find_way(line) {
             Some(way) => {
-                let held = self.lines[self.slot(self.set_index(line.val()), way)];
+                let held = self.lines[self.slot(self.set_index(line), way)];
                 if held.state == MesiState::Shared {
                     return Vec::new();
                 }
@@ -142,9 +142,9 @@ impl Cache {
                 Self::schedule_flush_step(ctx);
                 return;
             }
-            let addr = self.reconstruct_addr(self.set_of_slot(index), line.tag);
+            let held = self.line_at(self.set_of_slot(index), line.tag);
             if line.dirty() {
-                self.write_back(self.line_of(addr), true, WritebackCause::Flushed, ctx);
+                self.write_back(held, true, WritebackCause::Flushed, ctx);
             }
             self.drop_line(index, ctx.stats);
             ctx.stats.counter(self.stat_paths.flushed_lines).inc();
@@ -181,7 +181,7 @@ impl Cache {
             ctx.self_id,
             Packet::MemResp {
                 req_id,
-                line_addr: self.line_of(0),
+                line_addr: self.line_of(PhysAddr::new(0)),
                 data: MemRespData::Small(0),
                 hit_level: self.hit_level(),
                 state: MesiState::Invalid,
