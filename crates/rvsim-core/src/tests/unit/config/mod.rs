@@ -55,14 +55,14 @@ fn test_memory_config_defaults() {
 fn test_cache_config_defaults() {
     let cache = CacheConfig::default();
     assert!(!cache.enabled);
-    assert_eq!(cache.size_bytes, 4096);
-    assert_eq!(cache.line_bytes, 64);
-    assert_eq!(cache.ways, 1);
+    assert_eq!(cache.size_bytes, std::num::NonZero::new(4096).unwrap());
+    assert_eq!(cache.line_bytes, std::num::NonZero::new(64).unwrap());
+    assert_eq!(cache.ways, std::num::NonZero::new(1).unwrap());
     assert_eq!(cache.policy, ReplacementPolicyKind::Lru);
     assert_eq!(cache.latency, 1);
     assert_eq!(cache.prefetcher, PrefetcherKind::Off);
     assert_eq!(cache.prefetch_table_size, 64);
-    assert_eq!(cache.prefetch_degree, 1);
+    assert_eq!(cache.prefetch_degree, std::num::NonZero::new(1).unwrap());
 }
 
 #[test]
@@ -348,8 +348,8 @@ fn test_json_deserialization_with_tracing() {
     assert!(config.cache.l1_d.enabled);
     assert!(config.cache.l2.enabled);
     assert!(!config.cache.l3.enabled);
-    assert_eq!(config.cache.l1_d.size_bytes, 32768);
-    assert_eq!(config.cache.l1_d.ways, 4);
+    assert_eq!(config.cache.l1_d.size_bytes, std::num::NonZero::new(32768).unwrap());
+    assert_eq!(config.cache.l1_d.ways, std::num::NonZero::new(4).unwrap());
     assert_eq!(config.cache.l1_d.prefetcher, PrefetcherKind::Stride);
     assert_eq!(config.pipeline.branch_predictor, BranchPredictorKind::GShare);
 }
@@ -849,15 +849,15 @@ fn test_custom_cache_sizes() {
     }"#;
 
     let config: Config = serde_json::from_str(json).unwrap();
-    assert_eq!(config.cache.l1_i.size_bytes, 16384);
-    assert_eq!(config.cache.l1_i.ways, 2);
+    assert_eq!(config.cache.l1_i.size_bytes, std::num::NonZero::new(16384).unwrap());
+    assert_eq!(config.cache.l1_i.ways, std::num::NonZero::new(2).unwrap());
     assert_eq!(config.cache.l1_i.latency, 2);
     assert_eq!(config.cache.l1_i.prefetch_table_size, 128);
-    assert_eq!(config.cache.l1_i.prefetch_degree, 2);
-    assert_eq!(config.cache.l2.size_bytes, 262144);
+    assert_eq!(config.cache.l1_i.prefetch_degree, std::num::NonZero::new(2).unwrap());
+    assert_eq!(config.cache.l2.size_bytes, std::num::NonZero::new(262144).unwrap());
     assert_eq!(config.cache.l2.latency, 15);
-    assert_eq!(config.cache.l3.size_bytes, 1048576);
-    assert_eq!(config.cache.l3.ways, 16);
+    assert_eq!(config.cache.l3.size_bytes, std::num::NonZero::new(1048576).unwrap());
+    assert_eq!(config.cache.l3.ways, std::num::NonZero::new(16).unwrap());
     assert_eq!(config.cache.l3.latency, 40);
     assert!(config.cache.l3.enabled);
 }

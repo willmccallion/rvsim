@@ -9,6 +9,7 @@
 
 use super::Prefetcher;
 use crate::common::VirtAddr;
+use std::num::NonZeroUsize;
 
 /// Confidence at which a stream prefetches.
 const MAX_CONFIDENCE: u8 = 3;
@@ -93,14 +94,14 @@ pub struct StridePrefetcher {
 impl StridePrefetcher {
     /// A stride prefetcher with a `table_size`-entry tracking table (a
     /// power of two), fetching `degree` lines ahead.
-    pub fn new(line_bytes: usize, table_size: usize, degree: usize) -> Self {
+    pub fn new(line_bytes: usize, table_size: usize, degree: NonZeroUsize) -> Self {
         let safe_size =
             if table_size > 0 && table_size.is_power_of_two() { table_size } else { 64 };
         Self {
             table: vec![None; safe_size],
             line_bytes: line_bytes as u64,
             table_mask: safe_size - 1,
-            degree: if degree == 0 { 1 } else { degree },
+            degree: degree.get(),
         }
     }
 }

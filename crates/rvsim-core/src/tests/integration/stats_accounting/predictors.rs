@@ -265,8 +265,8 @@ fn line_stride() -> Vec<u32> {
 fn prefetching(backend: BackendKind, page_boundary: PageBoundary) -> crate::config::Config {
     let mut config = config(backend);
     config.cache.l1_d.enabled = true;
-    config.cache.l1_d.size_bytes = 32 * 1024;
-    config.cache.l1_d.ways = 8;
+    config.cache.l1_d.size_bytes = std::num::NonZero::new(32 * 1024).unwrap();
+    config.cache.l1_d.ways = std::num::NonZero::new(8).unwrap();
     config.cache.l2.enabled = true;
     config.cache.load_prefetcher =
         LoadPrefetcherConfig::Stride { table_size: 64, l1_lines: 2, l2_lines: 4, page_boundary };

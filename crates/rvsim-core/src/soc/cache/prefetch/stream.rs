@@ -10,6 +10,7 @@
 
 use super::Prefetcher;
 use crate::common::VirtAddr;
+use std::num::NonZeroUsize;
 
 /// The most confidence a stream builds up.
 const MAX_CONFIDENCE: u8 = 3;
@@ -43,10 +44,10 @@ pub struct StreamPrefetcher {
 
 impl StreamPrefetcher {
     /// A stream prefetcher fetching `degree` lines ahead.
-    pub const fn new(line_bytes: usize, degree: usize) -> Self {
+    pub const fn new(line_bytes: usize, degree: NonZeroUsize) -> Self {
         Self {
             line_bytes: line_bytes as u64,
-            degree: if degree == 0 { 1 } else { degree },
+            degree: degree.get(),
             last_addr: 0,
             direction: None,
             confidence: 0,

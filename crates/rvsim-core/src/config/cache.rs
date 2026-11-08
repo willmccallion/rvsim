@@ -137,13 +137,13 @@ pub struct CacheConfig {
     pub enabled: bool,
 
     /// Total cache size in bytes
-    pub size_bytes: usize,
+    pub size_bytes: NonZeroUsize,
 
     /// Cache line size in bytes
-    pub line_bytes: usize,
+    pub line_bytes: NonZeroUsize,
 
     /// Associativity (number of ways)
-    pub ways: usize,
+    pub ways: NonZeroUsize,
 
     /// Replacement policy
     pub policy: ReplacementPolicyKind,
@@ -163,7 +163,7 @@ pub struct CacheConfig {
     pub prefetch_table_size: usize,
 
     /// Prefetch degree (lines to prefetch per trigger)
-    pub prefetch_degree: usize,
+    pub prefetch_degree: NonZeroUsize,
 
     /// Number of MSHRs (Miss Status Holding Registers): outstanding line
     /// fetches this level can have in flight. One gives a blocking cache.

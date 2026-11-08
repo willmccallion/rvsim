@@ -31,15 +31,15 @@ const PIPELINE: ComponentId = ComponentId::Pipeline(PipelineId::new(0));
 fn test_config() -> CacheConfig {
     CacheConfig {
         enabled: true,
-        size_bytes: 256,
-        line_bytes: 64,
-        ways: 2,
+        size_bytes: std::num::NonZero::new(256).unwrap(),
+        line_bytes: std::num::NonZero::new(64).unwrap(),
+        ways: std::num::NonZero::new(2).unwrap(),
         policy: ReplacementPolicyKind::Lru,
         latency: LATENCY,
         response_latency: RESPONSE_LATENCY,
         prefetcher: PrefetcherKind::Off,
         prefetch_table_size: 64,
-        prefetch_degree: 1,
+        prefetch_degree: std::num::NonZero::new(1).unwrap(),
         mshr_count: count(4),
         write_buffers: count(4),
         targets_per_mshr: count(8),
@@ -732,7 +732,7 @@ fn back_invalidation_of_a_dirty_line_writes_it_back_and_propagates() {
 fn a_prefetch_is_a_real_fetch_that_a_demand_miss_can_join() {
     let mut config = test_config();
     config.prefetcher = PrefetcherKind::NextLine;
-    config.size_bytes = 1024;
+    config.size_bytes = std::num::NonZero::new(1024).unwrap();
     let mut bench = Bench::new(cache_with(&config));
 
     bench.read(1, 0x1000);

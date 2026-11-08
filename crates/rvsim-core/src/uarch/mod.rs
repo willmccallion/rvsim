@@ -112,8 +112,11 @@ impl CoreUnits {
         l1_d_cache.set_clean_victims_to_downstream(inclusion == InclusionPolicy::Exclusive);
         if let StorePrefetcherConfig::Stream { streams, l2_lines } = config.cache.store_prefetcher {
             let line_bytes = config.cache.l1_d.line_bytes;
-            l1_d_cache
-                .set_store_prefetcher(StoreStreamPrefetcher::new(line_bytes, streams, l2_lines));
+            l1_d_cache.set_store_prefetcher(StoreStreamPrefetcher::new(
+                line_bytes.get(),
+                streams,
+                l2_lines,
+            ));
         }
 
         let mut l2_cache =
@@ -134,7 +137,10 @@ impl CoreUnits {
                 config.memory.l2_tlb_latency,
                 config.memory.paging_mode_max,
             ),
-            wcb: WriteCombiningBuffer::new(config.cache.wcb_entries, config.cache.l1_d.line_bytes),
+            wcb: WriteCombiningBuffer::new(
+                config.cache.wcb_entries,
+                config.cache.l1_d.line_bytes.get(),
+            ),
             load_prefetcher: load_prefetcher(config),
             branch_predictor: BranchPredictor::new(config),
             stat_paths: CorePaths::new(core_id),
@@ -153,7 +159,7 @@ fn load_prefetcher(config: &Config) -> Option<LoadPrefetcher> {
         LoadPrefetcherConfig::None => None,
         LoadPrefetcherConfig::Stride { table_size, l1_lines, l2_lines, page_boundary } => {
             Some(LoadPrefetcher::new(
-                config.cache.l1_d.line_bytes,
+                config.cache.l1_d.line_bytes.get(),
                 table_size,
                 l1_lines,
                 l2_lines,

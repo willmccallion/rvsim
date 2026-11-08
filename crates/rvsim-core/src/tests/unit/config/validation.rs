@@ -133,7 +133,7 @@ fn the_default_machine_validates() {
 #[test]
 fn a_structure_that_must_hold_something_refuses_zero() {
     type Change = fn(&mut Config);
-    let cases: [(&str, Change); 22] = [
+    let cases: [(&str, Change); 21] = [
         ("pipeline.width", |c| c.pipeline.width = 0),
         ("pipeline.fetch_width", |c| c.pipeline.fetch_width = Some(0)),
         ("pipeline.issue_width", |c| c.pipeline.issue_width = Some(0)),
@@ -164,11 +164,6 @@ fn a_structure_that_must_hold_something_refuses_zero() {
         ("coherence.interconnect.bytes_per_cycle", |c| {
             c.coherence.interconnect =
                 InterconnectConfig::Mesh { hop_latency: 1, bytes_per_cycle: 0 };
-        }),
-        ("cache prefetch_degree", |c| {
-            c.cache.l1_d.enabled = true;
-            c.cache.l1_d.prefetcher = PrefetcherKind::NextLine;
-            c.cache.l1_d.prefetch_degree = 0;
         }),
     ];
     for (field, change) in cases {
@@ -240,8 +235,13 @@ fn a_hart_without_m_needs_no_multiplier() {
 /// of `line_bytes`-byte lines, checked.
 fn with_l1_d(size_bytes: usize, ways: usize, line_bytes: usize) -> Result<(), ConfigError> {
     minimal_with(|c| {
-        c.cache.l1_d =
-            CacheConfig { enabled: true, size_bytes, ways, line_bytes, ..CacheConfig::default() };
+        c.cache.l1_d = CacheConfig {
+            enabled: true,
+            size_bytes: std::num::NonZero::new(size_bytes).unwrap(),
+            ways: std::num::NonZero::new(ways).unwrap(),
+            line_bytes: std::num::NonZero::new(line_bytes).unwrap(),
+            ..CacheConfig::default()
+        };
     })
 }
 
@@ -255,8 +255,6 @@ fn an_enabled_cache_holds_a_whole_number_of_sets() {
     };
 
     assert_eq!(with_l1_d(32 << 10, 3, 64), Err(geometry(32 << 10, 3, 64)));
-    assert_eq!(with_l1_d(32 << 10, 0, 64), Err(geometry(32 << 10, 0, 64)));
-    assert_eq!(with_l1_d(0, 4, 64), Err(geometry(0, 4, 64)));
     assert_eq!(with_l1_d(32 << 10, 1024, 64), Err(geometry(32 << 10, 1024, 64)));
     assert!(with_l1_d(48 << 10, 12, 64).is_ok(), "64 sets of 12 ways");
     assert!(with_l1_d(48 << 10, 4, 64).is_ok(), "192 sets, indexed by modulo");
@@ -276,8 +274,8 @@ fn plru_replacement_tracks_at_most_63_ways() {
         minimal_with(|c| {
             c.cache.l1_d = CacheConfig {
                 enabled: true,
-                size_bytes: ways * 64,
-                ways,
+                size_bytes: std::num::NonZero::new(ways * 64).unwrap(),
+                ways: std::num::NonZero::new(ways).unwrap(),
                 policy: ReplacementPolicyKind::Plru,
                 ..CacheConfig::default()
             };
@@ -291,7 +289,7 @@ fn plru_replacement_tracks_at_most_63_ways() {
 #[test]
 fn every_cache_level_shares_one_line_size() {
     let err = refused(Config::default(), |c| {
-        c.cache.l2.line_bytes = 128;
+        c.cache.l2.line_bytes = std::num::NonZero::new(128).unwrap();
     });
 
     assert_eq!(
@@ -510,14 +508,14 @@ fn degenerate_but_working_machines_validate() {
         ("an L2 smaller than the L1D", |c| {
             c.cache.l1_d = CacheConfig {
                 enabled: true,
-                size_bytes: 32 << 10,
-                ways: 4,
+                size_bytes: std::num::NonZero::new(32 << 10).unwrap(),
+                ways: std::num::NonZero::new(4).unwrap(),
                 ..CacheConfig::default()
             };
             c.cache.l2 = CacheConfig {
                 enabled: true,
-                size_bytes: 16 << 10,
-                ways: 4,
+                size_bytes: std::num::NonZero::new(16 << 10).unwrap(),
+                ways: std::num::NonZero::new(4).unwrap(),
                 ..CacheConfig::default()
             };
         }),
@@ -637,7 +635,7 @@ fn a_disabled_cache_still_needs_a_power_of_two_line() {
     let mut config = Config::minimal();
     config.system.hart_count = std::num::NonZero::new(2).unwrap();
     config.cache.l1_d.enabled = false;
-    config.cache.l1_d.line_bytes = 48;
+    config.cache.l1_d.line_bytes = std::num::NonZero::new(48).unwrap();
 
     let checked = config.validate();
 
@@ -645,4 +643,19 @@ fn a_disabled_cache_still_needs_a_power_of_two_line() {
         matches!(checked, Err(ConfigError::NotPowerOfTwo { field: "cache line_bytes", value: 48 })),
         "{checked:?}"
     );
+}
+
+/// A cache's geometry and prefetch degree are non-zero types, so a zero
+/// never parses, whether or not the cache is enabled.
+#[test]
+fn a_zero_cache_geometry_does_not_parse() {
+    for field in ["size_bytes", "line_bytes", "ways", "prefetch_degree"] {
+        let mut json = serde_json::to_value(Config::minimal()).expect("the config serializes");
+        json["cache"]["l2"][field] = serde_json::json!(0);
+
+        let parsed = serde_json::from_value::<Config>(json);
+
+        let error = parsed.expect_err(field).to_string();
+        assert!(error.contains("nonzero"), "{field}: {error}");
+    }
 }

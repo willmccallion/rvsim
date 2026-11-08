@@ -288,10 +288,7 @@ impl SystemState {
         let bus = build_bus(config, hart_count, &terminal, &exit_signal, disk)?;
         let mem_controller = build_mem_controller(config);
         let mut l3_cache = build_llc(config, &topology);
-        let write_log_line_bytes = match config.cache.l1_d.line_bytes {
-            0 => 64,
-            line_bytes => line_bytes as u64,
-        };
+        let write_log_line_bytes = config.cache.l1_d.line_bytes.get() as u64;
         let harts = build_harts(config, hart_count);
 
         let mut units: Vec<CoreUnits> = topology

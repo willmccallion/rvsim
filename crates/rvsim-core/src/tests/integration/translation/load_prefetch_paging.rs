@@ -231,8 +231,8 @@ pub fn run_system(
     config.pipeline.backend = backend;
     // Large enough that the two pages' lines do not evict each other.
     config.cache.l1_d.enabled = true;
-    config.cache.l1_d.size_bytes = 32 * 1024;
-    config.cache.l1_d.ways = 8;
+    config.cache.l1_d.size_bytes = std::num::NonZero::new(32 * 1024).unwrap();
+    config.cache.l1_d.ways = std::num::NonZero::new(8).unwrap();
     config.cache.l1_d.prefetcher = PrefetcherKind::Off;
     config.cache.load_prefetcher =
         LoadPrefetcherConfig::Stride { table_size: 64, l1_lines: 4, l2_lines: 0, page_boundary };

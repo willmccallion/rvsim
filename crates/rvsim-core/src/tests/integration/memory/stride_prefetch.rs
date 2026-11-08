@@ -59,7 +59,7 @@ fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
         L1dPrefetcher::None => {}
         L1dPrefetcher::InTheCache => {
             config.cache.l1_d.prefetcher = PrefetcherKind::Stride;
-            config.cache.l1_d.prefetch_degree = 4;
+            config.cache.l1_d.prefetch_degree = std::num::NonZero::new(4).unwrap();
             config.cache.l1_d.prefetch_table_size = 64;
         }
         L1dPrefetcher::InTheLoadStoreUnit(page_boundary) => {

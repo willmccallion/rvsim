@@ -64,7 +64,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// let config = Config::default();
 /// assert_eq!(config.general.trace_instructions, false);
-/// assert_eq!(config.cache.l1_d.size_bytes, 48 * 1024);
+/// assert_eq!(config.cache.l1_d.size_bytes.get(), 48 * 1024);
 /// assert!(!Config::minimal().cache.l1_d.enabled);
 /// ```
 ///
@@ -120,7 +120,6 @@ use serde::{Deserialize, Serialize};
 ///         },
 ///         "l3": {
 ///             "enabled": false,
-///             "size_bytes": 0,
 ///             "line_bytes": 64,
 ///             "ways": 1,
 ///             "latency": 20,
@@ -135,7 +134,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// let config: Config = serde_json::from_str(json).unwrap();
 /// assert_eq!(config.general.trace_instructions, true);
-/// assert_eq!(config.cache.l1_d.size_bytes, 32768);
+/// assert_eq!(config.cache.l1_d.size_bytes.get(), 32768);
 /// assert_eq!(config.cache.l1_d.prefetcher, PrefetcherKind::Stride);
 /// assert_eq!(config.pipeline.branch_predictor, BranchPredictorKind::GShare);
 /// ```

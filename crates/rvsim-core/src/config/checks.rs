@@ -213,23 +213,24 @@ fn check_caches(cache: &CacheHierarchyConfig) -> Result<(), ConfigError> {
         [("l1_i", &cache.l1_i), ("l1_d", &cache.l1_d), ("l2", &cache.l2), ("l3", &cache.l3)];
     let mut first_enabled: Option<(&'static str, usize)> = None;
     for (level, config) in levels {
-        // The write log tracks lines of the L1D's size even when it is off.
-        check_line_bytes(config.line_bytes)?;
+        // The write log tracks lines of the L1D's size even when it is off,
+        // and a disabled cache is still built from its geometry.
+        check_geometry(level, config)?;
         if !config.enabled {
             continue;
         }
         check_cache_level(level, config)?;
         match first_enabled {
-            Some((first, first_line_bytes)) if first_line_bytes != config.line_bytes => {
+            Some((first, first_line_bytes)) if first_line_bytes != config.line_bytes.get() => {
                 return Err(ConfigError::LineSizesDiffer {
                     level,
-                    line_bytes: config.line_bytes,
+                    line_bytes: config.line_bytes.get(),
                     first,
                     first_line_bytes,
                 });
             }
             Some(_) => {}
-            None => first_enabled = Some((level, config.line_bytes)),
+            None => first_enabled = Some((level, config.line_bytes.get())),
         }
     }
     at_most("cache.wcb_entries", cache.wcb_entries, MAX_WCB_ENTRIES)?;
@@ -244,44 +245,35 @@ fn check_caches(cache: &CacheHierarchyConfig) -> Result<(), ConfigError> {
 
 /// An enabled level holds a whole number of sets and its prefetcher has
 /// something to do.
-/// A line size the caches and the write log can index by: a power of two.
-const fn check_line_bytes(line_bytes: usize) -> Result<(), ConfigError> {
-    if line_bytes.is_power_of_two() {
-        Ok(())
-    } else {
-        Err(ConfigError::NotPowerOfTwo { field: "cache line_bytes", value: line_bytes })
+/// A level's lines are a power of two the caches and the write log can
+/// index by, and its size is a whole number of sets.
+const fn check_geometry(level: &'static str, cache: &CacheConfig) -> Result<(), ConfigError> {
+    let (size_bytes, line_bytes, ways) =
+        (cache.size_bytes.get(), cache.line_bytes.get(), cache.ways.get());
+    if !line_bytes.is_power_of_two() {
+        return Err(ConfigError::NotPowerOfTwo { field: "cache line_bytes", value: line_bytes });
     }
+    let set_bytes = line_bytes.saturating_mul(ways);
+    if size_bytes < set_bytes || !size_bytes.is_multiple_of(set_bytes) {
+        return Err(ConfigError::CacheGeometry { level, size_bytes, ways, line_bytes });
+    }
+    Ok(())
 }
 
+/// An enabled level holds a cache block, a replacement policy that tracks
+/// its ways, and a prefetcher table it can index.
 fn check_cache_level(level: &'static str, cache: &CacheConfig) -> Result<(), ConfigError> {
-    if (cache.line_bytes as u64) < CBOZ_BLOCK_SIZE {
-        return Err(ConfigError::LineSmallerThanCacheBlock { level, line_bytes: cache.line_bytes });
+    let line_bytes = cache.line_bytes.get();
+    if (line_bytes as u64) < CBOZ_BLOCK_SIZE {
+        return Err(ConfigError::LineSmallerThanCacheBlock { level, line_bytes });
     }
-    let set_bytes = cache.line_bytes.saturating_mul(cache.ways);
-    let whole_sets = cache.ways > 0
-        && cache.size_bytes >= set_bytes
-        && cache.size_bytes.is_multiple_of(set_bytes);
-    if !whole_sets {
-        return Err(ConfigError::CacheGeometry {
-            level,
-            size_bytes: cache.size_bytes,
-            ways: cache.ways,
-            line_bytes: cache.line_bytes,
-        });
+    if cache.policy == ReplacementPolicyKind::Plru && cache.ways.get() > MAX_PLRU_WAYS {
+        return Err(ConfigError::PlruWays { level, ways: cache.ways.get() });
     }
-    if cache.policy == ReplacementPolicyKind::Plru && cache.ways > MAX_PLRU_WAYS {
-        return Err(ConfigError::PlruWays { level, ways: cache.ways });
+    if cache.prefetcher == PrefetcherKind::Stride {
+        power_of_two("cache prefetch_table_size", cache.prefetch_table_size)?;
     }
-    match cache.prefetcher {
-        PrefetcherKind::Off => Ok(()),
-        PrefetcherKind::Stride => {
-            power_of_two("cache prefetch_table_size", cache.prefetch_table_size)?;
-            at_least_one("cache prefetch_degree", cache.prefetch_degree)
-        }
-        PrefetcherKind::NextLine | PrefetcherKind::Stream | PrefetcherKind::Tagged => {
-            at_least_one("cache prefetch_degree", cache.prefetch_degree)
-        }
-    }
+    Ok(())
 }
 
 fn check_pipeline(pipeline: &PipelineConfig, misa: Misa) -> Result<(), ConfigError> {

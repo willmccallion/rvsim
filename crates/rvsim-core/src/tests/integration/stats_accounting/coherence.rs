@@ -30,12 +30,12 @@ fn two_cached_harts(backend: BackendKind) -> Config {
     config.pipeline.backend = backend;
     for cache in [&mut config.cache.l1_i, &mut config.cache.l1_d] {
         cache.enabled = true;
-        cache.size_bytes = 4096;
-        cache.ways = 2;
+        cache.size_bytes = std::num::NonZero::new(4096).unwrap();
+        cache.ways = std::num::NonZero::new(2).unwrap();
     }
     config.cache.l2.enabled = true;
-    config.cache.l2.size_bytes = 16384;
-    config.cache.l2.ways = 4;
+    config.cache.l2.size_bytes = std::num::NonZero::new(16384).unwrap();
+    config.cache.l2.ways = std::num::NonZero::new(4).unwrap();
     config
 }
 
@@ -216,7 +216,7 @@ fn the_interconnect_moves_a_header_or_a_header_and_a_line(rec: &mut Recorder) {
 
         let messages = rec.read(&system.sim, "coherence.interconnect.messages");
         let bytes = rec.read(&system.sim, "coherence.interconnect.bytes");
-        let (header, line) = (8, config.cache.l2.line_bytes as u64);
+        let (header, line) = (8, config.cache.l2.line_bytes.get() as u64);
         let with_line = (bytes - header * messages) / line;
         assert_eq!(bytes, header * messages + line * with_line, "{context}: whole messages");
         let reads = rec.read(&system.sim, "coherence.ha.requests.read_shared")
@@ -285,8 +285,8 @@ fn only_the_l2s_take_part_in_coherence(rec: &mut Recorder) {
         let context = format!("{backend:?}");
         let mut config = two_cached_harts(backend);
         config.cache.l3.enabled = true;
-        config.cache.l3.size_bytes = 65536;
-        config.cache.l3.ways = 8;
+        config.cache.l3.size_bytes = std::num::NonZero::new(65536).unwrap();
+        config.cache.l3.ways = std::num::NonZero::new(8).unwrap();
         let program = per_hart(&ping_pong(20, 0, 8), &ping_pong(20, 8, 0));
 
         let system = run_settled(&config, program, &context);

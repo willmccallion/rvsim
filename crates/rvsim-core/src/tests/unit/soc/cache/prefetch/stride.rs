@@ -33,7 +33,7 @@ fn stream(
 
 #[test]
 fn a_loads_first_access_prefetches_nothing() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
 
     let prefetches = pf.observe(0x1000, LOAD, false);
 
@@ -42,7 +42,7 @@ fn a_loads_first_access_prefetches_nothing() {
 
 #[test]
 fn a_stride_prefetches_only_once_confidence_saturates() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
 
     let warming = stream(&mut pf, LOAD, 0x1_0000, 256, WARMUP);
     let trained = pf.observe(0x1_0000 + 256 * WARMUP, LOAD, false);
@@ -53,7 +53,7 @@ fn a_stride_prefetches_only_once_confidence_saturates() {
 
 #[test]
 fn a_256_byte_stride_prefetches_degree_strides_ahead() {
-    let mut pf = StridePrefetcher::new(64, 64, 4);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(4).unwrap());
     let base = 0x2_0000;
 
     let prefetches = stream(&mut pf, LOAD, base, 256, WARMUP + 1);
@@ -64,7 +64,7 @@ fn a_256_byte_stride_prefetches_degree_strides_ahead() {
 
 #[test]
 fn a_stride_shorter_than_a_line_prefetches_the_following_lines() {
-    let mut pf = StridePrefetcher::new(64, 64, 2);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(2).unwrap());
     let base = 0x2_1000;
 
     let prefetches = stream(&mut pf, LOAD, base, 8, WARMUP + 1);
@@ -75,7 +75,7 @@ fn a_stride_shorter_than_a_line_prefetches_the_following_lines() {
 
 #[test]
 fn a_negative_stride_prefetches_downward() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
     let base = 0x3_0000;
 
     let prefetches = stream(&mut pf, LOAD, base, -192, WARMUP + 1);
@@ -85,7 +85,7 @@ fn a_negative_stride_prefetches_downward() {
 
 #[test]
 fn prefetch_targets_are_line_aligned() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
 
     let prefetches = stream(&mut pf, LOAD, 0x4_0008, 200, WARMUP + 1);
 
@@ -94,7 +94,7 @@ fn prefetch_targets_are_line_aligned() {
 
 #[test]
 fn interleaved_loads_each_learn_their_own_stride() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
     let (a, b) = (0x5_0000u64, 0x9_0000u64);
     let (mut last_a, mut last_b) = (Vec::new(), Vec::new());
 
@@ -109,7 +109,7 @@ fn interleaved_loads_each_learn_their_own_stride() {
 
 #[test]
 fn accesses_without_a_pc_do_not_train() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
 
     let prefetches = stream(&mut pf, None, 0x6_0000, 256, 3 * WARMUP);
 
@@ -118,7 +118,7 @@ fn accesses_without_a_pc_do_not_train() {
 
 #[test]
 fn a_changed_stride_does_not_prefetch() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
     let base = 0x7_0000;
     let _ = stream(&mut pf, LOAD, base, 256, WARMUP + 1);
 
@@ -129,7 +129,7 @@ fn a_changed_stride_does_not_prefetch() {
 
 #[test]
 fn a_repeated_address_prefetches_nothing() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
 
     let prefetches = stream(&mut pf, LOAD, 0x8_0000, 0, 3 * WARMUP);
 
@@ -138,7 +138,7 @@ fn a_repeated_address_prefetches_nothing() {
 
 #[test]
 fn a_load_that_takes_over_an_entry_starts_untrained() {
-    let mut pf = StridePrefetcher::new(64, 64, 1);
+    let mut pf = StridePrefetcher::new(64, 64, std::num::NonZero::new(1).unwrap());
     let alias = LOAD.map(|pc| VirtAddr(pc.val() + 64 * 2));
     let _ = stream(&mut pf, LOAD, 0x9_0000, 256, WARMUP + 1);
     let _ = pf.observe(0xA_0000, alias, false);

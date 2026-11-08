@@ -20,8 +20,8 @@ const POLICIES: [InclusionPolicy; 3] =
 
 fn sized(cache: &mut CacheConfig, bytes: usize, ways: usize) {
     cache.enabled = true;
-    cache.size_bytes = bytes;
-    cache.ways = ways;
+    cache.size_bytes = std::num::NonZero::new(bytes).unwrap();
+    cache.ways = std::num::NonZero::new(ways).unwrap();
 }
 
 /// Small caches at every level, so lines are evicted, written back and
