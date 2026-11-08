@@ -219,7 +219,7 @@ impl Simulator {
     /// [`DTB_RESERVE`] bytes of RAM.
     fn reset_bare_metal(&mut self, entry: u64) {
         let config = self.state.uncore.kernel.config.clone();
-        let dtb_addr = config.system.ram_base + config.memory.ram_size as u64 - DTB_RESERVE;
+        let dtb_addr = config.system.ram_base.val() + config.memory.ram_size as u64 - DTB_RESERVE;
         self.state.uncore.load_binary_at(&dtb::generate_dtb(&config), PhysAddr::new(dtb_addr));
         for hart in &mut self.state.harts {
             hart.pc = VirtAddr::new(entry);
@@ -282,7 +282,7 @@ impl Simulator {
         data: &[u8],
         args: &ProcessArgs,
     ) -> Result<ProgramKind, SimError> {
-        let kind = ProgramKind::of(data, self.state.uncore.kernel.config.system.ram_base)?;
+        let kind = ProgramKind::of(data, self.state.uncore.kernel.config.system.ram_base.val())?;
         match kind {
             ProgramKind::Process => self.load_process(data, args)?,
             ProgramKind::BareMetal => self.load_elf_with_args(data, args)?,

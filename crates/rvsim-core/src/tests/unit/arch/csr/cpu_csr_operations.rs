@@ -403,7 +403,7 @@ fn test_csr_stval() {
 fn sstc_raises_stip_once_the_clint_time_reaches_stimecmp() {
     let config = Config::minimal();
     let mut sim = build_simulator(&config);
-    let mtime = crate::common::PhysAddr::new(config.system.clint_base + 0xBFF8);
+    let mtime = crate::common::PhysAddr::new(config.system.clint_base.val() + 0xBFF8);
     sim.probe_mem_store(mtime, 5000, 8);
     let mut state = sim.state.core_ctx(0);
     state.csr_write(csr::MENVCFG, csr::MENVCFG_STCE);

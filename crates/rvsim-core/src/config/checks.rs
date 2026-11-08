@@ -169,7 +169,8 @@ fn check_system(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigErro
 
 /// RAM and every device's register window must not share an address.
 fn check_address_map(system: &SystemConfig, ram_size: usize) -> Result<(), ConfigError> {
-    let ram = super::DeviceRegion { name: "RAM", base: system.ram_base, size: ram_size as u64 };
+    let ram =
+        super::DeviceRegion { name: "RAM", base: system.ram_base.val(), size: ram_size as u64 };
     let regions = system.device_regions();
     let all: Vec<_> = std::iter::once(ram).chain(regions).collect();
     for (index, first) in all.iter().enumerate() {

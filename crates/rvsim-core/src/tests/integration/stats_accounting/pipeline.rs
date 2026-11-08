@@ -433,7 +433,7 @@ fn a_wfi_counts_the_cycles_it_waited_with_or_without_idle_skipping(rec: &mut Rec
         let mut waited = Vec::new();
         for skip in [true, false] {
             let context = format!("{backend:?} skipping idle cycles: {skip}");
-            let (program, end) = wait_for_the_timer(config(backend).system.clint_base);
+            let (program, end) = wait_for_the_timer(config(backend).system.clint_base.val());
             let mut ctx = system(backend, &program, &[]);
             ctx.sim.set_skip_idle_cores(skip);
             let straight = run(&config(backend), straight_line(), &context);

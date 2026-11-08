@@ -73,18 +73,18 @@ fn test_setup_kernel_load_without_opensbi() {
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // Verify PC is set to RAM base
-    assert_eq!(state.harts[0].pc, VirtAddr::new(config.system.ram_base));
+    assert_eq!(state.harts[0].pc, VirtAddr::new(config.system.ram_base.val()));
 
     // Verify privilege mode is Machine
     assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
 
     // Verify MEPC is set to kernel load address
-    let expected_mepc = config.system.ram_base + config.system.kernel_offset;
+    let expected_mepc = config.system.ram_base.val() + config.system.kernel_offset;
     assert_eq!(state.core_ctx(0).csr_read(csr::MEPC), expected_mepc);
 
     // Verify registers are set up
     assert_eq!(state.harts[0].regs.read(reg::REG_A0), 0);
-    assert_eq!(state.harts[0].regs.read(reg::REG_A1), config.system.ram_base + 0x2200000);
+    assert_eq!(state.harts[0].regs.read(reg::REG_A1), config.system.ram_base.val() + 0x2200000);
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn test_setup_kernel_load_dtb_address() {
     loader::setup_kernel_load(&mut state, &config, &loader::KernelBoot::default()).unwrap();
 
     // DTB should be loaded at RAM base + 0x2200000
-    let expected_dtb_addr = config.system.ram_base + 0x2200000;
+    let expected_dtb_addr = config.system.ram_base.val() + 0x2200000;
     assert_eq!(state.harts[0].regs.read(reg::REG_A1), expected_dtb_addr);
 }
 
@@ -114,7 +114,7 @@ fn test_setup_kernel_load_with_dtb_file() {
     loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
 
     // Verify DTB was loaded into memory at expected address
-    let dtb_addr = config.system.ram_base + 0x2200000;
+    let dtb_addr = config.system.ram_base.val() + 0x2200000;
     assert_eq!(state.uncore.kernel.memory.read(PhysAddr::new(dtb_addr), 1), Some(0xd0));
 }
 
@@ -131,8 +131,8 @@ fn an_explicit_firmware_is_loaded_at_ram_base_and_entered_in_machine_mode() {
     loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
 
     let ram_base = config.system.ram_base;
-    assert_eq!(state.uncore.kernel.memory.read(PhysAddr::new(ram_base), 1), Some(0x73));
-    assert_eq!(state.harts[0].pc, VirtAddr::new(ram_base));
+    assert_eq!(state.uncore.kernel.memory.read(ram_base, 1), Some(0x73));
+    assert_eq!(state.harts[0].pc, VirtAddr::new(ram_base.val()));
     assert_eq!(state.harts[0].privilege, PrivilegeMode::Machine);
     assert_eq!(state.harts[0].regs.read(reg::REG_A2), 0, "fw_jump takes no info struct");
 }
@@ -203,7 +203,7 @@ fn test_setup_kernel_load_mret_instruction_at_ram_base() {
 
     // MRET instruction (0x30200073) should be loaded at RAM base
     let ram_base = config.system.ram_base;
-    assert_eq!(state.uncore.kernel.memory.read(PhysAddr::new(ram_base), 4), Some(0x3020_0073));
+    assert_eq!(state.uncore.kernel.memory.read(ram_base, 4), Some(0x3020_0073));
 }
 
 #[test]
@@ -227,10 +227,10 @@ fn test_setup_kernel_load_multiple_calls() {
 fn test_setup_kernel_load_different_ram_bases() {
     // Test with different RAM base addresses
     let mut config1 = Config::minimal();
-    config1.system.ram_base = 0x80000000;
+    config1.system.ram_base = PhysAddr::new(0x80000000);
 
     let mut config2 = Config::minimal();
-    config2.system.ram_base = 0xA000_0000;
+    config2.system.ram_base = PhysAddr::new(0xA000_0000);
 
     let mut cpu1 = SystemState::build(&config1);
     loader::setup_kernel_load(&mut cpu1, &config1, &loader::KernelBoot::default()).unwrap();
@@ -275,6 +275,6 @@ fn a_kernel_booted_by_firmware_is_loaded_at_the_configured_offset() {
 
     loader::setup_kernel_load(&mut state, &config, &boot).unwrap();
 
-    let kernel_addr = PhysAddr::new(config.system.ram_base + KERNEL_OFFSET);
+    let kernel_addr = PhysAddr::new(config.system.ram_base.val() + KERNEL_OFFSET);
     assert_eq!(state.uncore.kernel.memory.read(kernel_addr, 1), Some(u64::from(KERNEL_FIRST_BYTE)));
 }

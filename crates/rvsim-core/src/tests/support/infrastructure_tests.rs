@@ -310,7 +310,7 @@ fn harness_set_and_get_reg() {
 fn context_heading_for_a_kernel_panic() -> TestContext {
     let spin = InstructionBuilder::new().jal(0, 0).build();
     let mut ctx = TestContext::new().with_memory(4096, 0x1000).load_program(0x1000, &[spin]);
-    let uart = PhysAddr::new(Config::minimal().system.uart_base);
+    let uart = PhysAddr::new(Config::minimal().system.uart_base.val());
     for byte in b"Kernel panic" {
         ctx.sim.probe_mem_store(uart, u64::from(*byte), 1);
     }
