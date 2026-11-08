@@ -363,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vredsum() {
+    fn vredsum_adds_every_element_to_the_accumulator() {
         let mut vpr = vpr128();
         let ctx = make_ctx(Sew::E32, 4);
         let vd = VRegIdx::new(1);
@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vredand() {
+    fn vredand_ands_every_element_into_the_accumulator() {
         let mut vpr = vpr128();
         let ctx = make_ctx(Sew::E32, 4);
         let vd = VRegIdx::new(1);
@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vredmin_signed() {
+    fn vredmin_takes_the_signed_minimum_of_elements_and_accumulator() {
         let mut vpr = vpr128();
         let ctx = make_ctx(Sew::E32, 4);
         let vd = VRegIdx::new(1);
@@ -421,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfredosum_f32() {
+    fn vfredosum_adds_single_precision_elements_to_the_accumulator() {
         let mut vpr = vpr128();
         let ctx = make_ctx(Sew::E32, 4);
         let vd = VRegIdx::new(1);

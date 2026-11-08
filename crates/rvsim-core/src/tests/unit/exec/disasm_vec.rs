@@ -111,7 +111,7 @@ const OPMVX: u32 = 0b110;
 const OPCFG: u32 = 0b111;
 
 #[test]
-fn test_rvv_config() {
+fn vsetvl_variants_disassemble_with_their_operands() {
     // vsetvli a0, a1, e32, m4, ta, ma. zimm = 0b11_010_010 = 0xD2.
     let zimm: u32 = 0xD2;
     let inst = (zimm << 20) | (11 << 15) | (OPCFG << 12) | (10 << 7) | OP_V;
@@ -141,7 +141,7 @@ fn test_rvv_config() {
 }
 
 #[test]
-fn test_rvv_int_arith() {
+fn integer_arithmetic_disassembles_with_its_mask_suffix_and_immediate() {
     // vadd.vv v1, v2, v3, unmasked
     let inst = vec_arith(0b000000, 1, 2, 3, OPIVV, 1);
     assert!(disassemble(inst).starts_with("vadd.vv"), "{}", disassemble(inst));
@@ -176,7 +176,7 @@ fn test_rvv_int_arith() {
 }
 
 #[test]
-fn test_rvv_int_mul_div() {
+fn integer_multiply_and_divide_disassemble_to_their_mnemonics() {
     assert!(disassemble(vec_arith(0b100101, 1, 2, 3, OPMVV, 1)).starts_with("vmul.vv"));
     assert!(disassemble(vec_arith(0b100111, 1, 2, 3, OPMVV, 1)).starts_with("vmulh.vv"));
     assert!(disassemble(vec_arith(0b100100, 1, 2, 3, OPMVV, 1)).starts_with("vmulhu.vv"));
@@ -199,7 +199,7 @@ fn test_rvv_int_mul_div() {
 }
 
 #[test]
-fn test_rvv_comparison() {
+fn integer_compares_disassemble_to_their_mnemonics() {
     assert!(disassemble(vec_arith(0b011000, 1, 2, 3, OPIVV, 1)).starts_with("vmseq.vv"));
     assert!(disassemble(vec_arith(0b011001, 1, 2, 3, OPIVV, 1)).starts_with("vmsne.vv"));
     assert!(disassemble(vec_arith(0b011010, 1, 2, 3, OPIVV, 1)).starts_with("vmsltu.vv"));
@@ -211,7 +211,7 @@ fn test_rvv_comparison() {
 }
 
 #[test]
-fn test_rvv_widening() {
+fn widening_and_narrowing_ops_disassemble_to_their_mnemonics() {
     assert!(disassemble(vec_arith(0b110000, 1, 2, 3, OPMVV, 1)).starts_with("vwaddu.vv"));
     assert!(disassemble(vec_arith(0b110001, 1, 2, 3, OPMVV, 1)).starts_with("vwadd.vv"));
     assert!(disassemble(vec_arith(0b111000, 1, 2, 3, OPMVV, 1)).starts_with("vwmulu.vv"));
@@ -223,7 +223,7 @@ fn test_rvv_widening() {
 }
 
 #[test]
-fn test_rvv_fp_arith() {
+fn fp_arithmetic_and_conversions_disassemble_to_their_mnemonics() {
     assert!(disassemble(vec_arith(0b000000, 1, 2, 3, OPFVV, 1)).starts_with("vfadd.vv"));
     assert!(disassemble(vec_arith(0b000010, 1, 2, 3, OPFVV, 1)).starts_with("vfsub.vv"));
     assert!(disassemble(vec_arith(0b100100, 1, 2, 3, OPFVV, 1)).starts_with("vfmul.vv"));
@@ -270,7 +270,7 @@ fn test_rvv_fp_arith() {
 }
 
 #[test]
-fn test_rvv_fp_compare() {
+fn fp_compares_disassemble_to_their_mnemonics() {
     assert!(disassemble(vec_arith(0b011000, 1, 2, 3, OPFVV, 1)).starts_with("vmfeq.vv"));
     assert!(disassemble(vec_arith(0b011011, 1, 2, 3, OPFVV, 1)).starts_with("vmflt.vv"));
     assert!(disassemble(vec_arith(0b011001, 1, 2, 3, OPFVV, 1)).starts_with("vmfle.vv"));
@@ -282,7 +282,7 @@ fn test_rvv_fp_compare() {
 }
 
 #[test]
-fn test_rvv_loads_stores() {
+fn vector_loads_and_stores_disassemble_to_their_mnemonics() {
     // vle32.v v1, (a0)  — width=0b110 (e32), mop=00, lumop=00000, vm=1
     let inst = vec_load_unit(0, 0, 0b00, 1, 0b00000, 10, 0b110, 1);
     let text = disassemble(inst);
@@ -341,7 +341,7 @@ fn test_rvv_loads_stores() {
 }
 
 #[test]
-fn test_rvv_mask() {
+fn mask_ops_and_extensions_disassemble_to_their_mnemonics() {
     // vmand.mm v1, v2, v3  (funct6=0b011001 under OPMVV)
     let inst = vec_arith(0b011001, 1, 2, 3, OPMVV, 1);
     assert!(disassemble(inst).starts_with("vmand.mm"), "{}", disassemble(inst));
@@ -387,7 +387,7 @@ fn test_rvv_mask() {
 }
 
 #[test]
-fn test_rvv_permute() {
+fn permutes_and_scalar_moves_disassemble_to_their_mnemonics() {
     // vslideup.vi — funct6=0b001110, OPIVI
     let inst = vec_arith(0b001110, 1, 2, 4, OPIVI, 1);
     let text = disassemble(inst);
@@ -453,7 +453,7 @@ fn test_rvv_permute() {
 }
 
 #[test]
-fn test_rvv_reductions() {
+fn reductions_disassemble_to_their_mnemonics() {
     assert!(disassemble(vec_arith(0b000000, 1, 2, 3, OPMVV, 1)).starts_with("vredsum.vs"));
     assert!(disassemble(vec_arith(0b000001, 1, 2, 3, OPMVV, 1)).starts_with("vredand.vs"));
     assert!(disassemble(vec_arith(0b000010, 1, 2, 3, OPMVV, 1)).starts_with("vredor.vs"));

@@ -266,7 +266,7 @@ mod tests {
     use crate::isa::reg::RegIdx;
 
     #[test]
-    fn test_commit_stage_normal() {
+    fn a_completed_register_write_commits_its_value_to_the_hart() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);

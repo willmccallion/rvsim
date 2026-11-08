@@ -4,7 +4,7 @@
 use crate::exec::disasm::disassemble;
 
 #[test]
-fn test_rv64i_arithmetic() {
+fn rv64i_register_arithmetic_disassembles_to_its_mnemonics() {
     assert!(disassemble(0x00B50533).starts_with("add"));
     assert!(disassemble(0x40B50533).starts_with("sub"));
     assert!(disassemble(0x00B51533).starts_with("sll"));
@@ -18,7 +18,7 @@ fn test_rv64i_arithmetic() {
 }
 
 #[test]
-fn test_rv64i_immediate() {
+fn rv64i_immediate_arithmetic_disassembles_to_its_mnemonics() {
     assert!(disassemble(0x00A00513).starts_with("addi"));
     assert!(disassemble(0x00A52513).starts_with("slti"));
     assert!(disassemble(0x00A53513).starts_with("sltiu"));
@@ -31,7 +31,7 @@ fn test_rv64i_immediate() {
 }
 
 #[test]
-fn test_rv64i_32bit() {
+fn rv64i_word_ops_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x0015051B).starts_with("addiw"));
     assert!(disassemble(0x00B5053B).starts_with("addw"));
     assert!(disassemble(0x40B5053B).starts_with("subw"));
@@ -44,7 +44,7 @@ fn test_rv64i_32bit() {
 }
 
 #[test]
-fn test_rv64i_loads() {
+fn rv64i_loads_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x00058503).starts_with("lb"));
     assert!(disassemble(0x00059503).starts_with("lh"));
     assert!(disassemble(0x0005A503).starts_with("lw"));
@@ -55,7 +55,7 @@ fn test_rv64i_loads() {
 }
 
 #[test]
-fn test_rv64i_stores() {
+fn rv64i_stores_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x00A58023).starts_with("sb"));
     assert!(disassemble(0x00A59023).starts_with("sh"));
     assert!(disassemble(0x00A5A023).starts_with("sw"));
@@ -63,7 +63,7 @@ fn test_rv64i_stores() {
 }
 
 #[test]
-fn test_rv64i_branches() {
+fn rv64i_branches_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x00B58463).starts_with("beq"));
     assert!(disassemble(0x00B59463).starts_with("bne"));
     assert!(disassemble(0x00B5C463).starts_with("blt"));
@@ -73,7 +73,7 @@ fn test_rv64i_branches() {
 }
 
 #[test]
-fn test_rv64i_jumps() {
+fn jal_and_jalr_disassemble_to_their_mnemonics() {
     let jal = disassemble(0x008000EF);
     assert!(jal.starts_with("jal"));
 
@@ -82,7 +82,7 @@ fn test_rv64i_jumps() {
 }
 
 #[test]
-fn test_rv64i_upper() {
+fn lui_and_auipc_disassemble_to_their_mnemonics() {
     let lui = disassemble(0x000015B7);
     assert!(lui.starts_with("lui"));
 
@@ -91,7 +91,7 @@ fn test_rv64i_upper() {
 }
 
 #[test]
-fn test_rv64m_multiply() {
+fn rv64m_multiplies_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x02B50533).starts_with("mul"));
     assert!(disassemble(0x02B51533).starts_with("mulh"));
     assert!(disassemble(0x02B52533).starts_with("mulhsu"));
@@ -100,7 +100,7 @@ fn test_rv64m_multiply() {
 }
 
 #[test]
-fn test_rv64m_divide() {
+fn rv64m_divides_and_remainders_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x02B54533).starts_with("div"));
     assert!(disassemble(0x02B55533).starts_with("divu"));
     assert!(disassemble(0x02B56533).starts_with("rem"));
@@ -112,7 +112,7 @@ fn test_rv64m_divide() {
 }
 
 #[test]
-fn test_rv64a_word() {
+fn word_atomics_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x1005A52F).contains("lr.w"));
     assert!(disassemble(0x18C5A52F).contains("sc.w"));
     assert!(disassemble(0x08C5A52F).contains("amoswap.w"));
@@ -127,7 +127,7 @@ fn test_rv64a_word() {
 }
 
 #[test]
-fn test_rv64a_double() {
+fn doubleword_atomics_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x1005B52F).contains("lr.d"));
     assert!(disassemble(0x18C5B52F).contains("sc.d"));
     assert!(disassemble(0x08C5B52F).contains("amoswap.d"));
@@ -140,13 +140,13 @@ fn test_rv64a_double() {
 }
 
 #[test]
-fn test_rv64f_loadstore() {
+fn flw_and_fsw_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x00052507).starts_with("flw"));
     assert!(disassemble(0x00A52027).starts_with("fsw"));
 }
 
 #[test]
-fn test_rv64f_arithmetic() {
+fn single_precision_arithmetic_disassembles_to_its_mnemonics() {
     assert!(disassemble(0x00B50553).contains("fadd.s"));
     assert!(disassemble(0x08B50553).contains("fsub.s"));
     assert!(disassemble(0x10B50553).contains("fmul.s"));
@@ -155,13 +155,13 @@ fn test_rv64f_arithmetic() {
 }
 
 #[test]
-fn test_rv64f_minmax() {
+fn fmin_s_and_fmax_s_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x28B50553).contains("fmin.s"));
     assert!(disassemble(0x28B51553).contains("fmax.s"));
 }
 
 #[test]
-fn test_rv64f_convert() {
+fn single_word_conversions_disassemble_to_their_mnemonics() {
     assert!(disassemble(0xC0050553).contains("fcvt.w.s"));
     assert!(disassemble(0xC0150553).contains("fcvt.wu.s"));
     assert!(disassemble(0xD0050553).contains("fcvt.s.w"));
@@ -169,7 +169,7 @@ fn test_rv64f_convert() {
 }
 
 #[test]
-fn test_rv64f_compare() {
+fn single_precision_compares_disassemble_to_an_f_dot_s_mnemonic() {
     let feq = disassemble(0xA0B52553);
     let flt = disassemble(0xA0B51553);
     let fle = disassemble(0xA0B50553);
@@ -179,13 +179,13 @@ fn test_rv64f_compare() {
 }
 
 #[test]
-fn test_rv64d_loadstore() {
+fn fld_and_fsd_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x00053507).starts_with("fld"));
     assert!(disassemble(0x00A53027).starts_with("fsd"));
 }
 
 #[test]
-fn test_rv64d_arithmetic() {
+fn double_precision_arithmetic_disassembles_to_its_mnemonics() {
     assert!(disassemble(0x02B50553).contains("fadd.d"));
     assert!(disassemble(0x0AB50553).contains("fsub.d"));
     assert!(disassemble(0x12B50553).contains("fmul.d"));
@@ -194,13 +194,13 @@ fn test_rv64d_arithmetic() {
 }
 
 #[test]
-fn test_rv64d_convert() {
+fn single_double_conversions_disassemble_to_their_mnemonics() {
     assert!(disassemble(0x42050553).contains("fcvt.d.s"));
     assert!(disassemble(0x40150553).contains("fcvt.s.d"));
 }
 
 #[test]
-fn test_privileged_system() {
+fn system_instructions_disassemble_to_their_bare_mnemonics() {
     assert_eq!(disassemble(0x00000073), "ecall");
     assert_eq!(disassemble(0x00100073), "ebreak");
     assert_eq!(disassemble(0x30200073), "mret");
@@ -209,7 +209,7 @@ fn test_privileged_system() {
 }
 
 #[test]
-fn test_privileged_csr() {
+fn csr_instructions_disassemble_to_their_mnemonics() {
     let csrrw = disassemble(0x30051573);
     assert!(csrrw.starts_with("csrrw"));
 
@@ -230,7 +230,7 @@ fn test_privileged_csr() {
 }
 
 #[test]
-fn test_privileged_fence() {
+fn fence_and_fence_i_disassemble_to_their_mnemonics() {
     let fence = disassemble(0x0FF0000F);
     assert!(fence.starts_with("fence"));
 
@@ -239,7 +239,7 @@ fn test_privileged_fence() {
 }
 
 #[test]
-fn test_pseudo_instructions() {
+fn nop_and_mv_disassemble_as_addi() {
     // NOP (addi x0, x0, 0)
     let nop = disassemble(0x00000013);
     assert!(nop.contains("addi") && nop.contains("zero"));
@@ -250,19 +250,19 @@ fn test_pseudo_instructions() {
 }
 
 #[test]
-fn test_negative_immediates() {
+fn a_negative_addi_immediate_is_printed_signed() {
     let addi_neg = disassemble(0xFFF50513);
     assert!(addi_neg.contains("addi") && addi_neg.contains("-1"));
 }
 
 #[test]
-fn test_large_immediates() {
+fn the_largest_addi_immediate_is_printed_as_2047() {
     let addi_large = disassemble(0x7FF50513);
     assert!(addi_large.contains("addi") && addi_large.contains("2047"));
 }
 
 #[test]
-fn test_all_integer_registers() {
+fn addi_disassembles_with_every_destination_register() {
     // Test disassembly includes all register names
     for i in 0..32_u32 {
         let inst = 0x00050513 | (i << 7); // addi xi, a0, 0
@@ -273,7 +273,7 @@ fn test_all_integer_registers() {
 }
 
 #[test]
-fn test_all_float_registers() {
+fn flw_disassembles_with_every_destination_register() {
     // Test floating-point register names
     for i in 0..32_u32 {
         let inst = 0x00052507 | (i << 7); // flw fi, 0(a0)
@@ -284,14 +284,14 @@ fn test_all_float_registers() {
 }
 
 #[test]
-fn test_unknown_instruction() {
+fn an_all_ones_word_disassembles_to_a_non_empty_string() {
     let unknown = disassemble(0xFFFFFFFF);
     // Should not panic, returns something
     assert!(!unknown.is_empty());
 }
 
 #[test]
-fn test_zero_instruction() {
+fn the_zero_word_disassembles_to_a_non_empty_string() {
     let zero = disassemble(0x00000000);
     // Should not panic
     assert!(!zero.is_empty());

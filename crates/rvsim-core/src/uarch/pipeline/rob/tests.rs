@@ -28,7 +28,7 @@ fn alloc(rob: &mut Rob, pc: u64, rd: u8, ctrl: ControlSignals) -> Option<RobTag>
 }
 
 #[test]
-fn test_allocate_and_commit() {
+fn an_allocated_entry_commits_once_completed() {
     let mut rob = Rob::new(4);
     assert!(rob.is_empty());
     assert_eq!(rob.free_slots(), 4);
@@ -62,7 +62,7 @@ fn test_allocate_and_commit() {
 }
 
 #[test]
-fn test_full_rob() {
+fn a_full_rob_refuses_allocation() {
     let mut rob = Rob::new(2);
     let _t1 = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
     let _t2 = alloc(&mut rob, 0x1004, 2, make_ctrl(true, false)).unwrap();
@@ -71,7 +71,7 @@ fn test_full_rob() {
 }
 
 #[test]
-fn test_in_order_commit() {
+fn entries_commit_in_order_even_when_completed_out_of_order() {
     let mut rob = Rob::new(4);
     let t1 = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
     let t2 = alloc(&mut rob, 0x1004, 2, make_ctrl(true, false)).unwrap();
@@ -91,7 +91,7 @@ fn test_in_order_commit() {
 }
 
 #[test]
-fn test_fault_commit() {
+fn a_faulted_entry_commits_with_its_trap() {
     let mut rob = Rob::new(4);
     let t1 = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
     rob.fault(t1, Trap::IllegalInstruction(0));
@@ -101,7 +101,7 @@ fn test_fault_commit() {
 }
 
 #[test]
-fn test_flush_all() {
+fn flush_all_empties_the_rob() {
     let mut rob = Rob::new(4);
     alloc(&mut rob, 0x1000, 1, make_ctrl(true, false));
     alloc(&mut rob, 0x1004, 2, make_ctrl(true, false));
@@ -113,7 +113,7 @@ fn test_flush_all() {
 }
 
 #[test]
-fn test_flush_after() {
+fn flush_after_drops_every_younger_entry() {
     let mut rob = Rob::new(8);
     let t1 = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
     let _t2 = alloc(&mut rob, 0x1004, 2, make_ctrl(true, false)).unwrap();
@@ -129,7 +129,7 @@ fn test_flush_after() {
 }
 
 #[test]
-fn test_csr_update() {
+fn a_csr_update_is_carried_to_commit() {
     let mut rob = Rob::new(4);
     let tag = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
     rob.set_csr_update(tag, CsrUpdate { addr: CsrAddr::from_u32(0x300), old_val: 10, new_val: 20 });
@@ -142,7 +142,7 @@ fn test_csr_update() {
 }
 
 #[test]
-fn test_circular_wraparound() {
+fn allocation_wraps_around_after_repeated_fill_and_drain() {
     let mut rob = Rob::new(2);
 
     // Fill and drain several times to test wraparound
@@ -183,7 +183,7 @@ fn alloc_with_inst(rob: &mut Rob, inst: u32, ctrl: ControlSignals) -> Option<Rob
 }
 
 #[test]
-fn test_fence_pred_satisfied() {
+fn a_fence_waits_only_for_older_accesses_it_orders() {
     let mut rob = Rob::new(8);
 
     // Allocate: store (tag1), load (tag2), FENCE rw,rw (tag3)
@@ -211,7 +211,7 @@ fn test_fence_pred_satisfied() {
 }
 
 #[test]
-fn test_has_fence_blocking() {
+fn a_fence_w_r_blocks_younger_loads_but_not_stores() {
     let mut rob = Rob::new(8);
 
     // Allocate: FENCE w,r (tag1), load (tag2), store (tag3)
@@ -298,7 +298,7 @@ fn an_older_arithmetic_instruction_is_no_memory_access() {
 }
 
 #[test]
-fn test_fence_tso_blocking() {
+fn a_fence_rw_rw_blocks_younger_loads_and_stores() {
     let mut rob = Rob::new(8);
 
     // FENCE.TSO = FENCE rw,rw
@@ -316,7 +316,7 @@ fn test_fence_tso_blocking() {
 }
 
 #[test]
-fn test_control_outcome() {
+fn a_control_outcome_is_recorded_on_its_entry() {
     let mut rob = Rob::new(4);
     let t1 = alloc_with_inst(&mut rob, 0, ControlSignals::default()).unwrap();
     rob.set_control_outcome(

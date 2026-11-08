@@ -290,7 +290,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_trap_display() {
+    fn a_trap_displays_as_its_variant_name_and_payload() {
         assert_eq!(
             format!("{}", Trap::InstructionAddressMisaligned(0x1000)),
             "InstructionAddressMisaligned(0x1000)"
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn test_trap_priority() {
+    fn exception_priority_ranks_traps_from_breakpoint_to_double_fault() {
         assert_eq!(Trap::Breakpoint(0).exception_priority(), 0);
         assert_eq!(Trap::InstructionPageFault(0).exception_priority(), 1);
         assert_eq!(Trap::InstructionAccessFault(0).exception_priority(), 2);

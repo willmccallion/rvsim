@@ -153,7 +153,7 @@ mod tests {
     use crate::config::Config;
 
     #[test]
-    fn test_do_mret() {
+    fn mret_returns_to_mepc_in_mpp_with_mie_restored() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
@@ -171,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn test_do_sret() {
+    fn sret_returns_to_sepc_in_spp_with_sie_restored() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);

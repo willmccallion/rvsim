@@ -14,7 +14,7 @@ fn execute(op: FpOp, a: u64, b: u64, c: u64, is32: bool) -> u64 {
 }
 
 #[test]
-fn test_box_f32() {
+fn a_boxed_single_has_its_upper_half_all_ones() {
     let f: f32 = 1.234;
     let boxed = to_register(f);
     // RISC-V: 32-bit values are boxed in 64-bit registers by setting upper 32 bits to all 1s.
@@ -23,7 +23,7 @@ fn test_box_f32() {
 }
 
 #[test]
-fn test_nan_boxing_unboxing() {
+fn fadd_s_boxes_its_sum_and_reads_unboxed_inputs_as_nan() {
     // Valid boxing
     let f_val: f32 = 42.0;
     let valid_boxed = to_register(f_val);
@@ -49,7 +49,7 @@ fn test_nan_boxing_unboxing() {
 }
 
 #[test]
-fn test_fmin_fmax_nan_handling() {
+fn single_fmin_fmax_skip_one_nan_and_canonicalize_two() {
     let f_val = to_register(10.0);
     let f_nan = to_register(f32::NAN);
 
@@ -73,7 +73,7 @@ fn test_fmin_fmax_nan_handling() {
 }
 
 #[test]
-fn test_canonical_nan_propagation() {
+fn an_add_of_a_signaling_nan_gives_the_canonical_nan() {
     // Signaling NaN (sNaN)
     let snan_bits = 0x7f800001u32;
     let snan = to_register(f32::from_bits(snan_bits));
@@ -90,7 +90,7 @@ fn test_canonical_nan_propagation() {
 }
 
 #[test]
-fn test_f64_nan_boxing_not_applicable() {
+fn a_double_add_reads_its_operands_without_unboxing() {
     // NaN boxing applies only to 32-bit values; f64 ops use the full 64 bits.
     let d_val1 = f64::to_bits(1.0);
     let d_val2 = f64::to_bits(2.0);
@@ -102,7 +102,7 @@ fn test_f64_nan_boxing_not_applicable() {
 use crate::exec::compute::fpu::nan_handling::*;
 
 #[test]
-fn test_unbox_f32_direct() {
+fn from_register_unboxes_a_single_or_gives_the_canonical_nan() {
     let valid = to_register(1.0);
     assert_eq!(<f32 as Float>::from_register(valid).to_bits(), 1.0f32.to_bits());
 
@@ -111,7 +111,7 @@ fn test_unbox_f32_direct() {
 }
 
 #[test]
-fn test_fmin_fmax_f32_direct() {
+fn fmin_f32_and_fmax_f32_order_zeros_and_skip_nans() {
     let pos_zero = f32::from_bits(0x0000_0000);
     let neg_zero = f32::from_bits(0x8000_0000);
 
@@ -140,7 +140,7 @@ fn test_fmin_fmax_f32_direct() {
 }
 
 #[test]
-fn test_fmin_fmax_f64_direct() {
+fn fmin_f64_and_fmax_f64_order_zeros_and_skip_nans() {
     let pos_zero = f64::from_bits(0x0000_0000_0000_0000);
     let neg_zero = f64::from_bits(0x8000_0000_0000_0000);
 

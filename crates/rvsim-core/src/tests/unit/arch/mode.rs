@@ -5,25 +5,25 @@
 use crate::isa::privileged::PrivilegeMode;
 
 #[test]
-fn test_privilege_mode_from_u8_user() {
+fn zero_decodes_as_user_mode() {
     let mode = PrivilegeMode::from_u8(0);
     assert_eq!(mode, PrivilegeMode::User);
 }
 
 #[test]
-fn test_privilege_mode_from_u8_supervisor() {
+fn one_decodes_as_supervisor_mode() {
     let mode = PrivilegeMode::from_u8(1);
     assert_eq!(mode, PrivilegeMode::Supervisor);
 }
 
 #[test]
-fn test_privilege_mode_from_u8_machine() {
+fn three_decodes_as_machine_mode() {
     let mode = PrivilegeMode::from_u8(3);
     assert_eq!(mode, PrivilegeMode::Machine);
 }
 
 #[test]
-fn test_privilege_mode_from_u8_invalid_defaults_to_machine() {
+fn reserved_and_out_of_range_values_decode_as_machine_mode() {
     // Invalid privilege values should default to Machine mode
     assert_eq!(PrivilegeMode::from_u8(2), PrivilegeMode::Machine);
     assert_eq!(PrivilegeMode::from_u8(4), PrivilegeMode::Machine);
@@ -31,55 +31,55 @@ fn test_privilege_mode_from_u8_invalid_defaults_to_machine() {
 }
 
 #[test]
-fn test_privilege_mode_to_u8_user() {
+fn user_mode_encodes_as_zero() {
     assert_eq!(PrivilegeMode::User.to_u8(), 0);
 }
 
 #[test]
-fn test_privilege_mode_to_u8_supervisor() {
+fn supervisor_mode_encodes_as_one() {
     assert_eq!(PrivilegeMode::Supervisor.to_u8(), 1);
 }
 
 #[test]
-fn test_privilege_mode_to_u8_machine() {
+fn machine_mode_encodes_as_three() {
     assert_eq!(PrivilegeMode::Machine.to_u8(), 3);
 }
 
 #[test]
-fn test_privilege_mode_name_user() {
+fn user_mode_is_named_user() {
     assert_eq!(PrivilegeMode::User.name(), "User");
 }
 
 #[test]
-fn test_privilege_mode_name_supervisor() {
+fn supervisor_mode_is_named_supervisor() {
     assert_eq!(PrivilegeMode::Supervisor.name(), "Supervisor");
 }
 
 #[test]
-fn test_privilege_mode_name_machine() {
+fn machine_mode_is_named_machine() {
     assert_eq!(PrivilegeMode::Machine.name(), "Machine");
 }
 
 #[test]
-fn test_privilege_mode_display_user() {
+fn user_mode_displays_as_user() {
     let mode = PrivilegeMode::User;
     assert_eq!(format!("{}", mode), "User");
 }
 
 #[test]
-fn test_privilege_mode_display_supervisor() {
+fn supervisor_mode_displays_as_supervisor() {
     let mode = PrivilegeMode::Supervisor;
     assert_eq!(format!("{}", mode), "Supervisor");
 }
 
 #[test]
-fn test_privilege_mode_display_machine() {
+fn machine_mode_displays_as_machine() {
     let mode = PrivilegeMode::Machine;
     assert_eq!(format!("{}", mode), "Machine");
 }
 
 #[test]
-fn test_privilege_mode_round_trip() {
+fn valid_encodings_round_trip_through_privilege_mode() {
     // Test round-trip conversion for all valid modes
     for val in [0u8, 1u8, 3u8] {
         let mode = PrivilegeMode::from_u8(val);
@@ -88,7 +88,7 @@ fn test_privilege_mode_round_trip() {
 }
 
 #[test]
-fn test_privilege_mode_ordering() {
+fn modes_order_user_below_supervisor_below_machine() {
     // User < Supervisor < Machine
     assert!(PrivilegeMode::User < PrivilegeMode::Supervisor);
     assert!(PrivilegeMode::Supervisor < PrivilegeMode::Machine);
@@ -96,7 +96,7 @@ fn test_privilege_mode_ordering() {
 }
 
 #[test]
-fn test_privilege_mode_equality() {
+fn each_mode_equals_only_itself() {
     assert_eq!(PrivilegeMode::User, PrivilegeMode::User);
     assert_eq!(PrivilegeMode::Supervisor, PrivilegeMode::Supervisor);
     assert_eq!(PrivilegeMode::Machine, PrivilegeMode::Machine);
@@ -107,14 +107,14 @@ fn test_privilege_mode_equality() {
 }
 
 #[test]
-fn test_privilege_mode_clone() {
+fn a_copied_mode_equals_the_original() {
     let mode = PrivilegeMode::Supervisor;
     let cloned = mode;
     assert_eq!(mode, cloned);
 }
 
 #[test]
-fn test_privilege_mode_copy() {
+fn a_mode_stays_usable_after_being_copied() {
     let mode1 = PrivilegeMode::Machine;
     let mode2 = mode1;
     // Both should still be usable after copy

@@ -31,7 +31,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_prediction_eq() {
+    fn predictions_are_equal_only_with_the_same_dependence() {
         assert_eq!(MemPrediction::NoDep, MemPrediction::NoDep);
         assert_eq!(MemPrediction::DepOn(RobTag::new(3)), MemPrediction::DepOn(RobTag::new(3)));
         assert_ne!(MemPrediction::NoDep, MemPrediction::DepOn(RobTag::new(1)));

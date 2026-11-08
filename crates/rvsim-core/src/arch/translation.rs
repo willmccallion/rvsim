@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn test_translation_result() {
+    fn success_and_fault_results_carry_their_address_cycles_and_trap() {
         let success = TranslationResult::success(PhysAddr(0x1000), 5);
         assert_eq!(success.paddr, PhysAddr(0x1000));
         assert_eq!(success.cycles, 5);

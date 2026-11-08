@@ -14,7 +14,7 @@ use crate::tests::support::harness::{build_simulator, minimal_system};
 
 /// Helper function to create a test CPU instance.
 #[test]
-fn test_csr_read_machine_info() {
+fn the_machine_id_registers_read_zero_on_a_default_hart() {
     let mut sys = minimal_system();
     let state = sys.core_ctx(0);
 
@@ -27,7 +27,7 @@ fn test_csr_read_machine_info() {
 }
 
 #[test]
-fn test_mhartid_returns_hart_id() {
+fn mhartid_reads_the_harts_id() {
     use crate::common::HartId;
 
     let mut sys = minimal_system();
@@ -41,7 +41,7 @@ fn test_mhartid_returns_hart_id() {
 }
 
 #[test]
-fn test_csr_read_write_mstatus() {
+fn mstatus_reads_back_mpp_with_uxl_and_sxl_at_rv64() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -53,7 +53,7 @@ fn test_csr_read_write_mstatus() {
 }
 
 #[test]
-fn test_csr_read_write_mie() {
+fn mie_reads_back_the_machine_interrupt_enables_written() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -63,7 +63,7 @@ fn test_csr_read_write_mie() {
 }
 
 #[test]
-fn test_csr_read_write_mip() {
+fn mip_keeps_the_supervisor_pending_bits_written() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -76,7 +76,7 @@ fn test_csr_read_write_mip() {
 }
 
 #[test]
-fn test_csr_read_write_mtvec() {
+fn mtvec_reads_back_a_written_base_address() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -86,7 +86,7 @@ fn test_csr_read_write_mtvec() {
 }
 
 #[test]
-fn test_csr_read_write_mscratch() {
+fn mscratch_reads_back_any_written_value() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -96,7 +96,7 @@ fn test_csr_read_write_mscratch() {
 }
 
 #[test]
-fn test_csr_read_write_mepc() {
+fn mepc_clears_bit_zero_on_write() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -206,7 +206,7 @@ fn a_satp_write_keeps_asid_tagged_tlb_entries() {
 }
 
 #[test]
-fn test_csr_read_write_mcause() {
+fn mcause_reads_back_an_interrupt_cause() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -216,7 +216,7 @@ fn test_csr_read_write_mcause() {
 }
 
 #[test]
-fn test_csr_read_write_mtval() {
+fn mtval_reads_back_any_written_value() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -226,7 +226,7 @@ fn test_csr_read_write_mtval() {
 }
 
 #[test]
-fn test_csr_read_write_medeleg() {
+fn medeleg_reads_back_the_delegated_exceptions_written() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -236,7 +236,7 @@ fn test_csr_read_write_medeleg() {
 }
 
 #[test]
-fn test_csr_read_write_mideleg() {
+fn mideleg_reads_back_the_supervisor_interrupts_written() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -246,7 +246,7 @@ fn test_csr_read_write_mideleg() {
 }
 
 #[test]
-fn test_csr_sstatus_synchronization() {
+fn sstatus_shows_the_supervisor_bits_written_to_mstatus() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -259,7 +259,7 @@ fn test_csr_sstatus_synchronization() {
 }
 
 #[test]
-fn test_csr_write_sstatus_masks_properly() {
+fn an_sstatus_write_sets_exactly_those_supervisor_bits_in_mstatus() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -280,7 +280,7 @@ fn test_csr_write_sstatus_masks_properly() {
 }
 
 #[test]
-fn test_csr_sie_delegation() {
+fn sie_reads_mie_masked_by_mideleg() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -297,7 +297,7 @@ fn test_csr_sie_delegation() {
 }
 
 #[test]
-fn test_csr_sip_delegation() {
+fn sip_reads_mip_masked_by_mideleg() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -314,7 +314,7 @@ fn test_csr_sip_delegation() {
 }
 
 #[test]
-fn test_csr_write_sie() {
+fn an_sie_write_sets_the_delegated_bits_in_mie() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -331,7 +331,7 @@ fn test_csr_write_sie() {
 }
 
 #[test]
-fn test_csr_write_sip() {
+fn an_sip_write_sets_a_delegated_ssip_in_mip() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -346,7 +346,7 @@ fn test_csr_write_sip() {
 }
 
 #[test]
-fn test_csr_stvec() {
+fn stvec_reads_back_a_written_base_address() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -356,7 +356,7 @@ fn test_csr_stvec() {
 }
 
 #[test]
-fn test_csr_sscratch() {
+fn sscratch_reads_back_any_written_value() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -366,7 +366,7 @@ fn test_csr_sscratch() {
 }
 
 #[test]
-fn test_csr_sepc_clears_lowest_bit() {
+fn sepc_clears_bit_zero_on_write() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -376,7 +376,7 @@ fn test_csr_sepc_clears_lowest_bit() {
 }
 
 #[test]
-fn test_csr_scause() {
+fn scause_reads_back_an_interrupt_cause() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -386,7 +386,7 @@ fn test_csr_scause() {
 }
 
 #[test]
-fn test_csr_stval() {
+fn stval_reads_back_any_written_value() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -411,7 +411,7 @@ fn sstc_raises_stip_once_the_clint_time_reaches_stimecmp() {
 }
 
 #[test]
-fn test_csr_stimecmp_clears_stip() {
+fn a_stimecmp_write_reads_back_and_clears_stip() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -426,7 +426,7 @@ fn test_csr_stimecmp_clears_stip() {
 }
 
 #[test]
-fn test_csr_satp_sv39_mode() {
+fn satp_accepts_an_sv39_write() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -437,7 +437,7 @@ fn test_csr_satp_sv39_mode() {
 }
 
 #[test]
-fn test_csr_satp_bare_mode() {
+fn satp_accepts_a_bare_mode_write() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -460,7 +460,7 @@ fn a_satp_write_with_a_reserved_mode_has_no_effect() {
 }
 
 #[test]
-fn test_csr_satp_sv48_accepted_by_default() {
+fn satp_accepts_an_sv48_write_by_default() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     let satp = (csr::SATP_MODE_SV48 << 60) | 0x12345;
@@ -469,7 +469,7 @@ fn test_csr_satp_sv48_accepted_by_default() {
 }
 
 #[test]
-fn test_csr_satp_sv57_accepted_by_default() {
+fn satp_accepts_an_sv57_write_by_default() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
     let satp = (csr::SATP_MODE_SV57 << 60) | 0x12345;
@@ -492,7 +492,7 @@ fn a_satp_write_with_a_mode_above_the_paging_cap_has_no_effect() {
 }
 
 #[test]
-fn test_csr_cycle_counter() {
+fn cycle_reads_the_same_as_mcycle() {
     let mut sys = minimal_system();
     let state = sys.core_ctx(0);
 
@@ -503,7 +503,7 @@ fn test_csr_cycle_counter() {
 }
 
 #[test]
-fn test_csr_time_counter() {
+fn time_matches_cycles_over_the_clint_divider_at_reset() {
     let mut sys = minimal_system();
     let state = sys.core_ctx(0);
 
@@ -514,7 +514,7 @@ fn test_csr_time_counter() {
 }
 
 #[test]
-fn test_csr_instret_counter() {
+fn instret_reads_the_same_as_minstret() {
     let mut sys = minimal_system();
     let state = sys.core_ctx(0);
 
@@ -525,7 +525,7 @@ fn test_csr_instret_counter() {
 }
 
 #[test]
-fn test_csr_unknown_read_returns_zero() {
+fn an_unimplemented_csr_reads_zero() {
     let mut sys = minimal_system();
     let state = sys.core_ctx(0);
 

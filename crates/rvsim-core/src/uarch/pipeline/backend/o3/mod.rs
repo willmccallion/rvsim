@@ -458,7 +458,7 @@ mod tests {
     use crate::isa::reg::RegIdx;
 
     #[test]
-    fn test_o3_engine_new_and_flush() {
+    fn a_new_engine_has_the_configured_rename_width_and_flushes_cleanly() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
@@ -476,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn test_o3_engine_sync_arch_regs() {
+    fn sync_arch_regs_copies_an_integer_register_into_the_prf() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let state = sys.core_ctx(0);

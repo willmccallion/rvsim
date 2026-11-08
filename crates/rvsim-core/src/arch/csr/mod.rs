@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn test_csr_serialization_type() {
+    fn satp_requires_a_fence_and_trap_setup_csrs_serialize() {
         assert_eq!(csr_serialization_type(SATP), CsrSerializationType::FenceRequired);
         assert_eq!(csr_serialization_type(MSTATUS), CsrSerializationType::Serializing);
         assert_eq!(csr_serialization_type(SSTATUS), CsrSerializationType::Serializing);
@@ -499,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn test_csrs_read_write() {
+    fn csr_writes_read_back_with_satp_legalized_and_fcsr_aliased() {
         let mut csrs = Csrs::default();
 
         csrs.write(MSTATUS, 0x1234);

@@ -142,7 +142,7 @@ mod tests {
     use crate::uarch::pipeline::latches::RenameIssueEntry;
 
     #[test]
-    fn test_execute_one_normal() {
+    fn a_plain_alu_op_yields_its_result_without_a_redirect() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_fence_i() {
+    fn fence_i_redirects_to_the_next_instruction() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
@@ -359,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_branch_misprediction() {
+    fn a_mispredicted_taken_branch_redirects_and_records_the_misprediction() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);
@@ -420,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_jump_jalr() {
+    fn a_mispredicted_jalr_redirects_to_its_target_with_bit_zero_cleared() {
         let config = Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);

@@ -228,7 +228,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_spec_matches_snapshot() {
+    fn speculative_index_and_tag_match_a_snapshot_recompute() {
         let hist_lengths = [5, 15, 44, 130];
         let tag_widths = [9, 9, 10, 10];
         let table_bits = 8;
@@ -255,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn test_recompute_restores_csrs() {
+    fn recompute_all_restores_the_csrs_of_a_ghr_snapshot() {
         let hist_lengths = [5, 15, 44, 130];
         let tag_widths = [9, 9, 10, 10];
         let table_bits = 8;
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn test_snapshot_all_matches_individual() {
+    fn snapshot_all_matches_the_per_bank_snapshots() {
         let hist_lengths = [5, 15, 44, 130];
         let tag_widths = [9, 9, 10, 10];
         let table_bits = 8;

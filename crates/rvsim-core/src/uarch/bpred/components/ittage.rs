@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ittage_miss_then_hit() {
+    fn a_branch_predicts_no_target_until_trained_with_one() {
         let mut ittage = Ittage::new(&test_config());
         let pc = 0x8000_2000u64;
         let target = 0x8000_3000u64;
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ittage_speculate_and_repair() {
+    fn a_target_trained_after_a_history_repair_is_predicted() {
         let mut ittage = Ittage::new(&test_config());
         let pc = 0x8000_1000u64;
         let target = 0x8000_5000u64;

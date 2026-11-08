@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn test_allocate_and_find() {
+    fn an_allocated_checkpoint_is_found_by_tag_until_freed() {
         let mut table = CheckpointTable::new(4);
         assert_eq!(table.available(), 4);
         assert!(!table.is_full());
@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn test_full_table() {
+    fn a_full_table_refuses_allocation() {
         let mut table = CheckpointTable::new(2);
         let rm = make_rename_map(1);
         table.allocate(RobTag::new(1), &rm).unwrap();
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flush_after() {
+    fn flush_after_frees_only_checkpoints_of_younger_branches() {
         let mut table = CheckpointTable::new(4);
         let rm = make_rename_map(1);
         table.allocate(RobTag::new(1), &rm).unwrap();
@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flush_all() {
+    fn flush_all_frees_every_checkpoint() {
         let mut table = CheckpointTable::new(4);
         let rm = make_rename_map(1);
         table.allocate(RobTag::new(1), &rm).unwrap();
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn test_zero_capacity() {
+    fn a_zero_capacity_table_is_full_and_refuses_allocation() {
         let mut table = CheckpointTable::new(0);
         assert!(table.is_full());
         assert_eq!(table.available(), 0);

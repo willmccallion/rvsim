@@ -260,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vid_mf8_e8() {
+    fn vid_at_mf8_e8_fills_vlmax_and_keeps_the_tail() {
         // vid.v at SEW=E8, LMUL=mf8: VLMAX = (128/8)*1/8 = 2. With vl=2,
         // expect vd[0]=0, vd[1]=1, and bytes 2..16 of vd preserved.
         let mut vpr = test_vpr();
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vmand() {
+    fn vmand_sets_only_the_bits_set_in_both_sources() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -319,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vmnand() {
+    fn vmnand_clears_bits_set_in_both_sources_and_sets_others() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vmxnor() {
+    fn vmxnor_sets_the_bits_where_the_sources_agree() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -361,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mask_logical_tail_agnostic() {
+    fn a_tail_agnostic_mask_logical_op_sets_the_tail_bits() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vcpop_unmasked() {
+    fn vcpop_counts_the_set_mask_bits() {
         let mut vpr = test_vpr();
         let vs2 = VRegIdx::new(1);
 
@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vcpop_masked() {
+    fn a_masked_vcpop_counts_only_active_bits() {
         let mut vpr = test_vpr();
         let vs2 = VRegIdx::new(1);
         let v0 = VRegIdx::new(0);
@@ -416,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vcpop_with_vstart() {
+    fn vcpop_skips_bits_below_vstart() {
         let mut vpr = test_vpr();
         let vs2 = VRegIdx::new(1);
 
@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfirst_found() {
+    fn vfirst_returns_the_index_of_the_lowest_set_bit() {
         let mut vpr = test_vpr();
         let vs2 = VRegIdx::new(1);
 
@@ -445,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfirst_not_found() {
+    fn vfirst_returns_minus_one_when_no_bit_is_set() {
         let vpr = test_vpr();
         let vs2 = VRegIdx::new(1);
 
@@ -455,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vfirst_masked() {
+    fn a_masked_vfirst_skips_inactive_set_bits() {
         let mut vpr = test_vpr();
         let vs2 = VRegIdx::new(1);
         let v0 = VRegIdx::new(0);
@@ -473,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vmsbf() {
+    fn vmsbf_sets_only_the_bits_before_the_first_set_bit() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -493,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vmsif() {
+    fn vmsif_sets_the_bits_through_the_first_set_bit() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -511,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vmsof() {
+    fn vmsof_sets_only_the_first_set_bit() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -530,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vmsbf_no_set_bit() {
+    fn vmsbf_sets_every_bit_when_no_source_bit_is_set() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -545,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn test_viota_basic() {
+    fn viota_writes_the_count_of_set_bits_below_each_element() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let vs2 = VRegIdx::new(3);
@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vid_basic() {
+    fn vid_writes_each_elements_index() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
 
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vid_masked() {
+    fn a_masked_vid_writes_active_indices_and_keeps_inactive_elements() {
         let mut vpr = test_vpr();
         let vd = VRegIdx::new(2);
         let v0 = VRegIdx::new(0);

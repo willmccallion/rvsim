@@ -10,7 +10,7 @@ use crate::tests::support::harness::minimal_system;
 use crate::uarch::mmu::TranslateOutcome;
 
 #[test]
-fn test_translate_bare_valid_address() {
+fn a_bare_read_translates_to_its_own_address_without_trapping() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -24,7 +24,7 @@ fn test_translate_bare_valid_address() {
 }
 
 #[test]
-fn test_translate_bare_different_addresses() {
+fn bare_reads_on_several_pages_translate_to_the_same_address() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -40,7 +40,7 @@ fn test_translate_bare_different_addresses() {
 }
 
 #[test]
-fn test_translate_bare_fetch_access() {
+fn a_bare_fetch_translates_without_a_trap() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -52,7 +52,7 @@ fn test_translate_bare_fetch_access() {
 }
 
 #[test]
-fn test_translate_bare_write_access() {
+fn a_bare_write_translates_without_a_trap() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -64,7 +64,7 @@ fn test_translate_bare_write_access() {
 }
 
 #[test]
-fn test_translate_preserves_translation_cost() {
+fn a_bare_translation_costs_no_cycles() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -76,7 +76,7 @@ fn test_translate_preserves_translation_cost() {
 }
 
 #[test]
-fn test_translate_multiple_calls() {
+fn repeated_bare_translations_give_the_same_address() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -90,7 +90,7 @@ fn test_translate_multiple_calls() {
 }
 
 #[test]
-fn test_translate_invalid_address_fetch() {
+fn a_bare_fetch_from_an_unmapped_address_traps() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -102,7 +102,7 @@ fn test_translate_invalid_address_fetch() {
 }
 
 #[test]
-fn test_translate_invalid_address_read() {
+fn a_bare_read_from_an_unmapped_address_traps() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -114,7 +114,7 @@ fn test_translate_invalid_address_read() {
 }
 
 #[test]
-fn test_translate_invalid_address_write() {
+fn a_bare_write_to_an_unmapped_address_traps() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 
@@ -126,7 +126,7 @@ fn test_translate_invalid_address_write() {
 }
 
 #[test]
-fn test_translate_with_paging_off() {
+fn a_bare_translation_completes_without_a_page_walk() {
     let mut sys = minimal_system();
     let mut state = sys.core_ctx(0);
 

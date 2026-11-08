@@ -22,7 +22,7 @@ fn fadd_f32_rm(a: f32, b: f32, rm: RoundingMode) -> f32 {
 }
 
 #[test]
-fn test_rounding_rne() {
+fn rne_adds_exactly_representable_values_exactly() {
     // RNE is the IEEE default; matches Rust's native f32 add for exact results.
     let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rne);
     assert_eq!(result, 3.0);
@@ -33,7 +33,7 @@ fn test_rounding_rne() {
 }
 
 #[test]
-fn test_rounding_rtz() {
+fn rtz_matches_exact_sums_and_stays_at_or_below_rne() {
     // For exactly representable results, RTZ and RNE agree
     let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rtz);
     assert_eq!(result, 3.0);
@@ -46,7 +46,7 @@ fn test_rounding_rtz() {
 }
 
 #[test]
-fn test_rounding_rdn() {
+fn rdn_matches_exact_sums_and_stays_at_or_below_rup() {
     // Exact results should be unchanged
     let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rdn);
     assert_eq!(result, 3.0);
@@ -58,7 +58,7 @@ fn test_rounding_rdn() {
 }
 
 #[test]
-fn test_rounding_rup() {
+fn rup_matches_exact_sums_and_stays_at_or_above_rdn() {
     let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rup);
     assert_eq!(result, 3.0);
 
@@ -69,7 +69,7 @@ fn test_rounding_rup() {
 }
 
 #[test]
-fn test_rounding_rmm() {
+fn rmm_agrees_with_rne_when_there_is_no_tie() {
     // For normal exact values, RMM and RNE agree
     let result = fadd_f32_rm(1.0, 2.0, RoundingMode::Rmm);
     assert_eq!(result, 3.0);

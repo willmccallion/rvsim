@@ -6,7 +6,7 @@ use crate::arch::regs::gpr::Gpr;
 use crate::isa::reg::RegIdx;
 
 #[test]
-fn test_gpr_new_initializes_to_zero() {
+fn a_new_register_file_reads_zero_everywhere() {
     let gpr = Gpr::new();
     for i in 0u8..32 {
         assert_eq!(gpr.read(RegIdx::new(i)), 0);
@@ -14,14 +14,14 @@ fn test_gpr_new_initializes_to_zero() {
 }
 
 #[test]
-fn test_gpr_read_write_x0_always_zero() {
+fn x0_reads_zero_after_a_write() {
     let mut gpr = Gpr::new();
     gpr.write(RegIdx::new(0), 0xDEAD_BEEF);
     assert_eq!(gpr.read(RegIdx::new(0)), 0);
 }
 
 #[test]
-fn test_gpr_read_write_x1() {
+fn x1_reads_back_a_written_value() {
     let mut gpr = Gpr::new();
     let value = 0x1234_5678;
     gpr.write(RegIdx::new(1), value);
@@ -29,7 +29,7 @@ fn test_gpr_read_write_x1() {
 }
 
 #[test]
-fn test_gpr_read_write_x31() {
+fn x31_reads_back_a_written_value() {
     let mut gpr = Gpr::new();
     let value = 0x9999_AAAA;
     gpr.write(RegIdx::new(31), value);
@@ -37,7 +37,7 @@ fn test_gpr_read_write_x31() {
 }
 
 #[test]
-fn test_gpr_write_all_registers() {
+fn every_register_but_x0_reads_back_its_write() {
     let mut gpr = Gpr::new();
     for i in 1u8..32 {
         let value = u64::from(i) << 32 | u64::from(i);
@@ -47,7 +47,7 @@ fn test_gpr_write_all_registers() {
 }
 
 #[test]
-fn test_gpr_x0_ignores_writes() {
+fn x0_reads_zero_after_writes_of_several_values() {
     let mut gpr = Gpr::new();
     for value in [1u64, 0xFFFF_FFFF, 0x8000_0000] {
         gpr.write(RegIdx::new(0), value);
@@ -56,7 +56,7 @@ fn test_gpr_x0_ignores_writes() {
 }
 
 #[test]
-fn test_gpr_multiple_writes_to_same_register() {
+fn a_later_write_replaces_the_earlier_value() {
     let mut gpr = Gpr::new();
     gpr.write(RegIdx::new(5), 100);
     assert_eq!(gpr.read(RegIdx::new(5)), 100);
@@ -67,7 +67,7 @@ fn test_gpr_multiple_writes_to_same_register() {
 }
 
 #[test]
-fn test_gpr_register_independence() {
+fn writes_to_different_registers_do_not_interfere() {
     let mut gpr = Gpr::new();
     gpr.write(RegIdx::new(1), 111);
     gpr.write(RegIdx::new(2), 222);
@@ -79,7 +79,7 @@ fn test_gpr_register_independence() {
 }
 
 #[test]
-fn test_gpr_large_values() {
+fn a_register_holds_u64_max() {
     let mut gpr = Gpr::new();
     let large_value = u64::MAX;
     gpr.write(RegIdx::new(10), large_value);
@@ -87,7 +87,7 @@ fn test_gpr_large_values() {
 }
 
 #[test]
-fn test_gpr_zero_after_writes() {
+fn x0_stays_zero_after_writes_to_every_other_register() {
     let mut gpr = Gpr::new();
     // Write to other registers
     for i in 1u8..32 {
@@ -98,7 +98,7 @@ fn test_gpr_zero_after_writes() {
 }
 
 #[test]
-fn test_gpr_display_lists_every_register() {
+fn display_prints_registers_as_zero_padded_hex() {
     let mut gpr = Gpr::new();
     gpr.write(RegIdx::new(1), 0x1234_5678);
     gpr.write(RegIdx::new(31), 0xFFFF_FFFF);
@@ -108,7 +108,7 @@ fn test_gpr_display_lists_every_register() {
 }
 
 #[test]
-fn test_gpr_alternating_write_read() {
+fn registers_read_back_each_round_of_rewrites() {
     let mut gpr = Gpr::new();
     for iteration in 0..3 {
         for i in 1u8..32 {

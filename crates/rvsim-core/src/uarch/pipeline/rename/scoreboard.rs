@@ -95,7 +95,7 @@ mod tests {
     use crate::isa::reg::RegIdx;
 
     #[test]
-    fn test_new_all_clear() {
+    fn a_new_scoreboard_has_no_producers() {
         let sb = Scoreboard::new();
         for i in 0u8..32 {
             assert_eq!(sb.get_producer(ArchReg::Int(RegIdx::new(i))), None);
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_and_get_producer() {
+    fn a_set_producer_is_returned_for_its_register_only() {
         let mut sb = Scoreboard::new();
         let tag = RobTag::new(42);
         sb.set_producer(ArchReg::Int(RegIdx::new(5)), tag);
@@ -113,14 +113,14 @@ mod tests {
     }
 
     #[test]
-    fn test_x0_always_clear() {
+    fn x0_never_records_a_producer() {
         let mut sb = Scoreboard::new();
         sb.set_producer(ArchReg::Int(RegIdx::new(0)), RobTag::new(1));
         assert_eq!(sb.get_producer(ArchReg::Int(RegIdx::new(0))), None);
     }
 
     #[test]
-    fn test_clear_if_match() {
+    fn clearing_with_the_producer_tag_clears_the_register() {
         let mut sb = Scoreboard::new();
         let tag = RobTag::new(10);
         sb.set_producer(ArchReg::Int(RegIdx::new(3)), tag);
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_mismatch_preserves() {
+    fn clearing_with_an_older_tag_keeps_the_newer_producer() {
         let mut sb = Scoreboard::new();
         let old_tag = RobTag::new(10);
         let new_tag = RobTag::new(20);
@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flush() {
+    fn flush_clears_every_producer() {
         let mut sb = Scoreboard::new();
         sb.set_producer(ArchReg::Int(RegIdx::new(1)), RobTag::new(1));
         sb.set_producer(ArchReg::Int(RegIdx::new(2)), RobTag::new(2));
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fpr_independent() {
+    fn fp_and_int_registers_of_one_index_are_tracked_apart() {
         let mut sb = Scoreboard::new();
         let gpr_tag = RobTag::new(10);
         let fpr_tag = RobTag::new(20);

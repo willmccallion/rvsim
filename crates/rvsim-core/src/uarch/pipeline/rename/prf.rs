@@ -114,14 +114,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_phys_reg_zero_always_ready() {
+    fn the_zero_register_starts_ready_and_reads_zero() {
         let prf = PhysRegFile::new(64);
         assert!(prf.is_ready(PhysReg::ZERO));
         assert_eq!(prf.read(PhysReg::ZERO), 0);
     }
 
     #[test]
-    fn test_write_read_lifecycle() {
+    fn a_write_makes_a_register_ready_with_its_value() {
         let mut prf = PhysRegFile::new(64);
         let p = PhysReg::from_index(5);
         // Initially not ready
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn test_allocate_marks_not_ready() {
+    fn allocating_a_written_register_makes_it_not_ready() {
         let mut prf = PhysRegFile::new(64);
         let p = PhysReg::from_index(10);
         prf.write(p, 99);
@@ -143,14 +143,14 @@ mod tests {
     }
 
     #[test]
-    fn test_allocate_zero_noop() {
+    fn allocating_the_zero_register_leaves_it_ready() {
         let mut prf = PhysRegFile::new(64);
         prf.allocate(PhysReg::ZERO);
         assert!(prf.is_ready(PhysReg::ZERO));
     }
 
     #[test]
-    fn test_write_zero_noop() {
+    fn writing_the_zero_register_leaves_it_zero() {
         let mut prf = PhysRegFile::new(64);
         prf.write(PhysReg::ZERO, 999);
         assert_eq!(prf.read(PhysReg::ZERO), 0);

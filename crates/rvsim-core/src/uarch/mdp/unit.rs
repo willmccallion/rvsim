@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn test_blind_dispatch_loads_wait_all() {
+    fn a_blind_predictor_makes_loads_wait_for_all_older_stores() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
         assert_eq!(
@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn test_blind_dispatch_stores_none() {
+    fn a_blind_predictor_gives_stores_no_dependence() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
         assert_eq!(
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn test_blind_dispatch_non_memory_none() {
+    fn a_blind_predictor_gives_non_memory_instructions_no_dependence() {
         let config = blind_config();
         let mut mdu = MemDepUnit::new(&config);
         assert_eq!(
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn test_store_set_unknown_pc_bypass() {
+    fn a_load_with_an_untrained_pc_bypasses_older_stores() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
         assert_eq!(
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn test_store_set_trained_dep() {
+    fn a_load_trained_against_a_store_waits_for_it() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
         let load_pc = 0x1000;
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn test_store_resolved_wakeup() {
+    fn resolving_a_store_wakes_the_load_waiting_on_it() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
         let load_pc = 0x1000;
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn test_issued_cleans_up() {
+    fn issuing_a_load_drops_its_dependence() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
         let load_pc = 0x1000;
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn test_flush_clears_deps() {
+    fn a_flush_drops_every_dependence() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
         let load_pc = 0x1000;
@@ -377,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn test_younger_barrier_ignored() {
+    fn a_load_waits_only_for_a_store_dispatched_before_it() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
         let load_pc = 0x1000;

@@ -374,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pipelined_unit_free_next_cycle() {
+    fn a_pipelined_unit_is_free_again_the_next_cycle() {
         let mut pool = default_pool();
         assert!(pool.free_unit(FuType::IntAlu, 0).is_some());
         let complete = pool.acquire(pool.free_unit(FuType::IntAlu, 0).unwrap(), 0, RobTag::new(1));
@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn test_non_pipelined_holds_for_full_latency() {
+    fn a_non_pipelined_unit_stays_busy_for_its_full_latency() {
         let mut pool = default_pool();
         assert!(pool.free_unit(FuType::IntDiv, 0).is_some());
         let complete = pool.acquire(pool.free_unit(FuType::IntDiv, 0).unwrap(), 0, RobTag::new(1));
@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn test_structural_hazard_all_units_busy() {
+    fn no_unit_is_free_once_all_of_its_type_are_busy() {
         let mut pool = default_pool();
         // FpDivSqrt has count=1
         pool.acquire(pool.free_unit(FuType::FpDivSqrt, 0).unwrap(), 0, RobTag::new(1));
@@ -409,28 +409,28 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_int_alu() {
+    fn an_integer_add_runs_on_the_int_alu() {
         let ctrl =
             ControlSignals { alu: AluOp::Int(IntAluOp::Arith(ArithOp::Add)), ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::IntAlu);
     }
 
     #[test]
-    fn test_classify_int_div() {
+    fn an_integer_divide_runs_on_the_int_divider() {
         let ctrl =
             ControlSignals { alu: AluOp::Int(IntAluOp::Div(DivOp::Div)), ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::IntDiv);
     }
 
     #[test]
-    fn test_classify_fp_fma() {
+    fn an_fp_fma_runs_on_the_fp_fma_unit() {
         let ctrl =
             ControlSignals { alu: AluOp::Fp(FpOp::Fma(FmaSigns::Macc)), ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::FpFma);
     }
 
     #[test]
-    fn test_classify_branch() {
+    fn a_conditional_branch_runs_on_the_branch_unit() {
         let ctrl = ControlSignals {
             control_flow: ControlFlow::Branch(BranchCond::Eq),
             ..Default::default()
@@ -439,13 +439,13 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_mem() {
+    fn a_memory_read_runs_on_the_mem_unit() {
         let ctrl = ControlSignals { mem_read: true, ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::Mem);
     }
 
     #[test]
-    fn test_classify_vec_int_alu() {
+    fn a_vector_integer_add_runs_on_the_vec_int_alu() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Alu(VecAluOp::Int(IntOp::Add))),
             ..Default::default()
@@ -454,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_vec_int_mul() {
+    fn a_vector_integer_multiply_runs_on_the_vec_int_mul_unit() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Alu(VecAluOp::Int(IntOp::Mul))),
             ..Default::default()
@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_vec_int_div() {
+    fn a_vector_integer_divide_runs_on_the_vec_int_divider() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Alu(VecAluOp::Int(IntOp::Div))),
             ..Default::default()
@@ -472,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_vec_fp_alu() {
+    fn a_vector_fp_add_runs_on_the_vec_fp_alu() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Add))),
             ..Default::default()
@@ -481,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_vec_fp_fma() {
+    fn a_vector_fp_fma_runs_on_the_vec_fp_fma_unit() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Fp(VecFpOp::Fma(FmaSigns::Macc, FmaAddend::Vd))),
             ..Default::default()
@@ -490,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_vec_fp_div_sqrt() {
+    fn a_vector_fp_divide_runs_on_the_vec_fp_div_sqrt_unit() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Fp(VecFpOp::Binary(FpBinaryOp::Div))),
             ..Default::default()
@@ -499,14 +499,14 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_vec_mem() {
+    fn a_vector_load_runs_on_the_vec_mem_unit() {
         let ctrl =
             ControlSignals { vec_op: Some(VectorOp::Load(VecLoadOp::Unit)), ..Default::default() };
         assert_eq!(FuType::classify(&ctrl), FuType::VecMem);
     }
 
     #[test]
-    fn test_classify_vec_permute() {
+    fn a_vector_slide_up_runs_on_the_vec_permute_unit() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Permute(PermuteOp::SlideUp(crate::isa::op::SlideOffset::Rs1))),
             ..Default::default()
@@ -515,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn test_acquire_with_latency() {
+    fn acquire_with_latency_completes_after_the_given_latency() {
         let mut pool = default_pool();
         let complete = pool.acquire_with_latency(
             pool.free_unit(FuType::VecIntAlu, 10).unwrap(),
@@ -529,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_fu_pool_created() {
+    fn the_default_pool_has_every_vector_unit_type() {
         let pool = default_pool();
         assert!(pool.free_unit(FuType::VecIntAlu, 0).is_some());
         assert!(pool.free_unit(FuType::VecIntMul, 0).is_some());
@@ -542,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_vec_reduction() {
+    fn vector_reductions_run_on_the_int_or_fp_vector_alu() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Reduce(ReduceOp::Int(IntReduceOp::Sum))),
             ..Default::default()
@@ -557,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_vec_mask() {
+    fn a_mask_logical_op_runs_on_the_vec_permute_unit() {
         let ctrl = ControlSignals {
             vec_op: Some(VectorOp::Mask(MaskOp::Logical(MaskLogicalOp::And))),
             ..Default::default()

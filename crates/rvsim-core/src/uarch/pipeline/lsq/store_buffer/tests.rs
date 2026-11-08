@@ -79,7 +79,7 @@ fn a_store_written_as_two_requests_waits_for_both() {
 }
 
 #[test]
-fn test_allocate_and_drain() {
+fn a_store_drains_only_once_resolved_and_committed() {
     let mut sb = StoreBuffer::new(4);
     assert!(sb.is_empty());
 
@@ -107,7 +107,7 @@ fn test_allocate_and_drain() {
 }
 
 #[test]
-fn test_full_buffer() {
+fn a_full_buffer_refuses_another_allocation() {
     let mut sb = StoreBuffer::new(2);
     assert!(sb.allocate(RobTag::new(1), MemWidth::Word));
     assert!(sb.allocate(RobTag::new(2), MemWidth::Word));
@@ -116,7 +116,7 @@ fn test_full_buffer() {
 }
 
 #[test]
-fn test_forward_load() {
+fn a_load_forwards_only_from_a_store_to_its_address() {
     let mut sb = StoreBuffer::new(4);
     let tag = RobTag::new(1);
     sb.allocate(tag, MemWidth::Word);
@@ -132,7 +132,7 @@ fn test_forward_load() {
 }
 
 #[test]
-fn test_forward_load_byte() {
+fn a_byte_load_forwards_the_low_byte_of_a_word_store() {
     let mut sb = StoreBuffer::new(4);
     let tag = RobTag::new(1);
     sb.allocate(tag, MemWidth::Word);
@@ -144,7 +144,7 @@ fn test_forward_load_byte() {
 }
 
 #[test]
-fn test_flush_speculative() {
+fn a_speculative_flush_keeps_only_committed_stores() {
     let mut sb = StoreBuffer::new(4);
     let t1 = RobTag::new(1);
     let t2 = RobTag::new(2);
@@ -175,7 +175,7 @@ fn test_flush_speculative() {
 }
 
 #[test]
-fn test_flush_all() {
+fn flush_all_empties_the_buffer() {
     let mut sb = StoreBuffer::new(4);
     sb.allocate(RobTag::new(1), MemWidth::Word);
     sb.allocate(RobTag::new(2), MemWidth::Word);
@@ -185,7 +185,7 @@ fn test_flush_all() {
 }
 
 #[test]
-fn test_circular_wraparound() {
+fn a_two_slot_buffer_drains_ten_stores_in_turn() {
     let mut sb = StoreBuffer::new(2);
     for i in 1..=10 {
         let tag = RobTag::new(i);

@@ -964,12 +964,12 @@ mod tests {
     }
 
     #[test]
-    fn test_backend_type_default() {
+    fn the_default_backend_is_in_order() {
         assert_eq!(BackendKind::default(), BackendKind::InOrder);
     }
 
     #[test]
-    fn test_pipeline_dispatch_inorder_tick_flush_snapshot() {
+    fn an_in_order_dispatch_snapshot_has_the_requested_width() {
         let config = crate::config::Config::minimal();
         let mut sys = crate::system::SystemState::build(&config);
         let mut state = sys.core_ctx(0);

@@ -102,7 +102,7 @@ mod tests {
     use crate::isa::reg::RegIdx;
 
     #[test]
-    fn test_identity_mapping() {
+    fn a_new_map_is_the_identity_with_fprs_after_gprs() {
         let rm = RenameMap::new();
         for i in 0u8..32 {
             assert_eq!(rm.get(ArchReg::Int(RegIdx::new(i))), PhysReg::from_index(usize::from(i)));
@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn test_x0_always_phys_zero() {
+    fn setting_x0_leaves_it_mapped_to_the_zero_register() {
         let mut rm = RenameMap::new();
         // x0 set is a no-op
         rm.set(ArchReg::Int(RegIdx::new(0)), PhysReg::from_index(99));
@@ -122,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_get_roundtrip() {
+    fn setting_a_gpr_leaves_the_same_numbered_fpr_alone() {
         let mut rm = RenameMap::new();
         rm.set(ArchReg::Int(RegIdx::new(5)), PhysReg::from_index(100));
         assert_eq!(rm.get(ArchReg::Int(RegIdx::new(5))), PhysReg::from_index(100));
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fp_set_get() {
+    fn setting_an_fpr_leaves_the_same_numbered_gpr_alone() {
         let mut rm = RenameMap::new();
         rm.set(ArchReg::Fp(RegIdx::new(3)), PhysReg::from_index(200));
         assert_eq!(rm.get(ArchReg::Fp(RegIdx::new(3))), PhysReg::from_index(200));
@@ -139,7 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_identity_mapping() {
+    fn a_new_map_sends_each_vector_register_to_its_index() {
         let rm = RenameMap::new();
         for i in 0u8..32 {
             assert_eq!(rm.get_vec(VRegIdx::new(i)), VecPhysReg::from_index(usize::from(i)));
@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vec_set_get() {
+    fn any_vector_register_including_v0_can_be_remapped() {
         let mut rm = RenameMap::new();
         let v5 = VRegIdx::new(5);
         rm.set_vec(v5, VecPhysReg::from_index(40));
