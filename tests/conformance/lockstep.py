@@ -123,7 +123,7 @@ def lockstep_one(args):
             "--ram",
             f"{cfg.ram_base:x}:{cfg.ram_size:x}",
             "--mmu",
-            cfg.paging_mode_max,
+            cfg.paging_mode_max.lower(),
         ]
         sim_env = dict(os.environ, RVSIM_CYCLE_LIMIT=str(cycle_limit))
         with open(os.path.join(tmp, "sim.err"), "w+") as sim_err:
