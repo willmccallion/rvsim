@@ -704,10 +704,13 @@ impl<E: ExecutionEngine> Pipeline<E> {
             && self.rename_output.is_empty()
             && !self.engine.common().fetch.is_waiting();
         self.engine.common_mut().frontend_empty = frontend_empty;
-        // The engine dispatches the bundle, or leaves it when a trap or squash
-        // makes it wrong-path; the redirect below discards the frontend then.
-        let mut dispatch = self.rename_output.take(state.uncore.kernel.cycle);
+        // The engine dispatches the bundle, or leaves what its issue queue has
+        // no room for, or all of it when a trap or squash makes it wrong-path;
+        // the redirect below discards the frontend then.
+        let now = state.uncore.kernel.cycle;
+        let mut dispatch = self.rename_output.take(now);
         self.engine.tick(state, &mut dispatch, &mut self.redirect);
+        self.rename_output.put_back(now, dispatch);
 
         let fetch_squashing = match self.redirect.take() {
             Some(pc) => {

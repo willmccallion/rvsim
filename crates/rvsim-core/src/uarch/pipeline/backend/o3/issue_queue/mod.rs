@@ -238,6 +238,63 @@ pub struct Selection {
     pub oldest: Option<IssueHold>,
 }
 
+impl IssueQueueEntry {
+    /// `entry` as it enters the queue, with each source operand that is
+    /// ready read from the register files.
+    pub fn new(
+        entry: O3Entry,
+        prf: &PhysRegFile,
+        vec_prf: &VecPhysRegFile,
+        mem_dep: MemDepState,
+    ) -> Self {
+        let ctrl = &entry.inst.ctrl;
+        let src1 = resolve_operand(ctrl.src1(entry.inst.rs1), entry.regs.rs1_phys, prf);
+        let src2 = resolve_operand(ctrl.src2(entry.inst.rs2), entry.regs.rs2_phys, prf);
+        let src3 = ctrl.src3(entry.inst.rs3).map_or(OperandState::ready(PhysReg::ZERO, 0), |rs3| {
+            resolve_operand(rs3, entry.regs.rs3_phys, prf)
+        });
+
+        let vec_src1 = VecOperandState::of(entry.regs.vs1, vec_prf);
+        let vec_src2 = VecOperandState::of(entry.regs.vs2, vec_prf);
+        let vec_src3 = VecOperandState::of(entry.regs.vs3, vec_prf);
+
+        let mask_ready = entry.regs.mask.is_none_or(|mask| vec_prf.is_ready(mask));
+
+        let store_issue = if entry.inst.ctrl.splits_store() && entry.trap.is_none() {
+            StoreIssue::Unissued
+        } else {
+            StoreIssue::Whole
+        };
+        Self {
+            entry,
+            src1,
+            src2,
+            src3,
+            vec_src1,
+            vec_src2,
+            vec_src3,
+            mem_dep,
+            mask_ready,
+            store_issue,
+        }
+    }
+}
+
+/// A free slot [`IssueQueue::free_slot`] found, for [`FreeSlot::fill`] to
+/// write before anything else fills a slot.
+#[derive(Debug)]
+#[must_use]
+pub struct FreeSlot(usize);
+
+impl FreeSlot {
+    /// Dispatches `iq_entry` into this slot of `queue`.
+    pub fn fill(self, queue: &mut IssueQueue, iq_entry: IssueQueueEntry) {
+        debug_assert!(queue.slots[self.0].is_none(), "a slot was filled after free_slot");
+        queue.slots[self.0] = Some(iq_entry);
+        queue.count += 1;
+    }
+}
+
 /// CAM-style issue queue with wakeup and oldest-first select.
 #[derive(Debug)]
 pub struct IssueQueue {
@@ -257,53 +314,9 @@ impl IssueQueue {
         Self { slots, capacity, count: 0 }
     }
 
-    /// Dispatch an instruction from rename into the first free slot,
-    /// reading each source operand that is ready from the register files.
-    pub fn dispatch(
-        &mut self,
-        entry: O3Entry,
-        prf: &PhysRegFile,
-        vec_prf: &VecPhysRegFile,
-        mem_dep: MemDepState,
-    ) -> bool {
-        let Some(free) = self.slots.iter().position(Option::is_none) else {
-            return false;
-        };
-
-        let ctrl = &entry.inst.ctrl;
-        let src1 = resolve_operand(ctrl.src1(entry.inst.rs1), entry.regs.rs1_phys, prf);
-        let src2 = resolve_operand(ctrl.src2(entry.inst.rs2), entry.regs.rs2_phys, prf);
-        let src3 = ctrl.src3(entry.inst.rs3).map_or(OperandState::ready(PhysReg::ZERO, 0), |rs3| {
-            resolve_operand(rs3, entry.regs.rs3_phys, prf)
-        });
-
-        let vec_src1 = VecOperandState::of(entry.regs.vs1, vec_prf);
-        let vec_src2 = VecOperandState::of(entry.regs.vs2, vec_prf);
-        let vec_src3 = VecOperandState::of(entry.regs.vs3, vec_prf);
-
-        let mask_ready = entry.regs.mask.is_none_or(|mask| vec_prf.is_ready(mask));
-
-        let store_issue = if entry.inst.ctrl.splits_store() && entry.trap.is_none() {
-            StoreIssue::Unissued
-        } else {
-            StoreIssue::Whole
-        };
-        let iq_entry = IssueQueueEntry {
-            entry,
-            src1,
-            src2,
-            src3,
-            vec_src1,
-            vec_src2,
-            vec_src3,
-            mem_dep,
-            mask_ready,
-            store_issue,
-        };
-
-        self.slots[free] = Some(iq_entry);
-        self.count += 1;
-        true
+    /// A free slot, if the queue has one.
+    pub fn free_slot(&self) -> Option<FreeSlot> {
+        self.slots.iter().position(Option::is_none).map(FreeSlot)
     }
 
     /// Broadcast a completed result via physical register (PRF wakeup path).

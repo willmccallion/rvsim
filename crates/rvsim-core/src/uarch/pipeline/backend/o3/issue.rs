@@ -1,6 +1,7 @@
 //! Dispatch into the issue queue, and select and issue out of it.
 
 use super::O3Entry;
+use super::issue_queue::IssueQueueEntry;
 use crate::common::usize_of;
 use crate::exec::compute::vector::agnostic::AgnosticRecorder;
 use crate::exec::compute::vector::execute::execute_vec_op_on;
@@ -277,16 +278,20 @@ impl O3Engine {
         self.vec_mem_inflight.push(VecMemInflight::plan(&result, micro_ops, width, vd));
     }
 
-    /// Dispatches renamed instructions into the issue queue, each with the
-    /// memory dependence the MDP predicts for it.
+    /// Dispatches renamed instructions into the issue queue in order, each
+    /// with the memory dependence the MDP predicts for it. Those the queue
+    /// has no room for stay in `rename_output`, to dispatch next cycle.
     pub(super) fn dispatch(&mut self, state: &mut CoreCtx<'_>, rename_output: &mut Vec<O3Entry>) {
-        for entry in std::mem::take(rename_output) {
+        let mut renamed = std::mem::take(rename_output).into_iter();
+        while let Some(slot) = self.issue_queue.free_slot() {
+            let Some(entry) = renamed.next() else { return };
             state.trace_stage(entry.seq, Stage::Dispatch);
             let access = MemDepAccess::of(&entry.inst.ctrl);
             let mem_dep = self.mdp.dispatch(entry.inst.pc, entry.rob_tag, access);
-            let ok = self.issue_queue.dispatch(entry, &self.prf, &self.vec_prf, mem_dep);
-            debug_assert!(ok, "IQ dispatch failed — rename budget should prevent this");
+            let iq_entry = IssueQueueEntry::new(entry, &self.prf, &self.vec_prf, mem_dep);
+            slot.fill(&mut self.issue_queue, iq_entry);
         }
+        rename_output.extend(renamed);
     }
 
     /// Adds what the memory dependence unit counted this cycle to the stats.
