@@ -227,13 +227,13 @@ class Config:
         return f"Config({', '.join(parts)})"
 
 
-def _config_to_dict(config) -> dict[str, Any]:
-    """Normalize config to a dict for the Rust backend. Accepts Config or plain dict."""
-    if hasattr(config, "to_dict") and callable(config.to_dict):
+def _config_to_dict(config: Config | dict[str, Any]) -> dict[str, Any]:
+    """The nested dict the core reads: a `Config`'s, or a dict as given."""
+    if isinstance(config, Config):
         return config.to_dict()
     if isinstance(config, dict):
         return config
-    raise TypeError("config must be Config or dict")
+    raise TypeError(f"config must be a Config or a dict, not {type(config).__name__}")
 
 
 def load_config(path: str) -> Config:
