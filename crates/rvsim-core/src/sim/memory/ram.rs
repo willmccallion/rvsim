@@ -1,5 +1,6 @@
 //! Physical RAM: a zeroed byte image mapped at a base address.
 
+use std::alloc::{Layout, alloc_zeroed, dealloc};
 use std::fmt;
 use std::io;
 use std::ptr::NonNull;
@@ -80,9 +81,9 @@ impl Ram {
     }
 }
 
-/// An owned zero-filled allocation. On Unix it is an anonymous mapping the
-/// kernel backs lazily, so a large RAM costs memory only for the pages the
-/// guest touches; elsewhere it is a heap allocation.
+/// An owned zero-filled allocation from the global allocator. A large one
+/// comes from the system's zeroed allocation, which the kernel backs lazily,
+/// so a large RAM costs memory only for the pages the guest touches.
 struct ZeroedBytes {
     ptr: NonNull<u8>,
     len: usize,
@@ -107,33 +108,17 @@ impl ZeroedBytes {
         if len == 0 {
             return Ok(Self { ptr: NonNull::dangling(), len });
         }
-        Ok(Self { ptr: Self::allocate(len)?, len })
+        let layout = Self::layout(len)?;
+        // SAFETY: `layout` has a non-zero size, checked above.
+        let raw = unsafe { alloc_zeroed(layout) };
+        let ptr = NonNull::new(raw)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::OutOfMemory, "cannot allocate the RAM"))?;
+        Ok(Self { ptr, len })
     }
 
-    #[cfg(unix)]
-    fn allocate(len: usize) -> io::Result<NonNull<u8>> {
-        // SAFETY: an anonymous private mapping has no file or address
-        // requirements; the arguments are the documented flags for one.
-        let raw = unsafe {
-            libc::mmap(
-                std::ptr::null_mut(),
-                len,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-                -1,
-                0,
-            )
-        };
-        if raw == libc::MAP_FAILED {
-            return Err(io::Error::last_os_error());
-        }
-        NonNull::new(raw.cast::<u8>()).ok_or_else(|| io::Error::other("mmap returned null"))
-    }
-
-    #[cfg(not(unix))]
-    fn allocate(len: usize) -> io::Result<NonNull<u8>> {
-        let bytes: &mut [u8] = Box::leak(vec![0u8; len].into_boxed_slice());
-        Ok(NonNull::from(bytes).cast::<u8>())
+    /// Byte-aligned, which keeps a large allocation on the lazily zeroed path.
+    fn layout(len: usize) -> io::Result<Layout> {
+        Layout::from_size_align(len, 1).map_err(io::Error::other)
     }
 
     const fn as_slice(&self) -> &[u8] {
@@ -154,15 +139,9 @@ impl Drop for ZeroedBytes {
         if self.len == 0 {
             return;
         }
-        #[cfg(unix)]
-        // SAFETY: `ptr` and `len` are what `mmap` returned, and no slice of
-        // the mapping outlives `self`.
-        let _ = unsafe { libc::munmap(self.ptr.as_ptr().cast(), self.len) };
-        #[cfg(not(unix))]
-        // SAFETY: `ptr` and `len` are what `Box::into_raw` gave for a boxed
-        // slice of `len` bytes, and no slice of it outlives `self`.
-        drop(unsafe {
-            Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.ptr.as_ptr(), self.len))
-        });
+        let Ok(layout) = Self::layout(self.len) else { return };
+        // SAFETY: `ptr` came from `alloc_zeroed` with this same layout, and
+        // no slice of it outlives `self`.
+        unsafe { dealloc(self.ptr.as_ptr(), layout) };
     }
 }

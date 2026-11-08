@@ -59,10 +59,9 @@ opt-level = 3
 missing_docs = "warn"
 missing_debug_implementations = "warn"
 unused_results = "deny"
-# unsafe_code is intentionally permitted: this simulator requires raw pointer
-# access for hot-path RAM reads/writes, mmap-based DRAM allocation, and FFI
-# calls into the C floating-point environment (feclearexcept/fetestexcept).
-# All unsafe blocks are individually justified with SAFETY comments.
+# unsafe_code is permitted for the RAM image (a lazily zeroed allocation
+# viewed as a byte slice) and for FFI into the C floating-point environment
+# (feclearexcept/fetestexcept). Every unsafe block carries a SAFETY comment.
 rust_2018_idioms = { level = "deny", priority = -1 }
 unsafe_op_in_unsafe_fn = "deny"
 
