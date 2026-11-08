@@ -39,13 +39,6 @@ pub struct GeoBankSet {
     idx_csr2: [FoldedHistory; MAX_BANKS],
     tag_csr: [FoldedHistory; MAX_BANKS],
     tag_csr2: [FoldedHistory; MAX_BANKS],
-
-    /// Mirrors of the speculative CSRs, advanced incrementally via
-    /// `update_committed_csrs()` at commit time.
-    committed_idx_csr: [FoldedHistory; MAX_BANKS],
-    committed_idx_csr2: [FoldedHistory; MAX_BANKS],
-    committed_tag_csr: [FoldedHistory; MAX_BANKS],
-    committed_tag_csr2: [FoldedHistory; MAX_BANKS],
 }
 
 impl GeoBankSet {
@@ -88,10 +81,6 @@ impl GeoBankSet {
             tag_widths: tw,
             table_bits,
             table_mask: (1 << table_bits) - 1,
-            committed_idx_csr: idx_csr,
-            committed_idx_csr2: idx_csr2,
-            committed_tag_csr: tag_csr,
-            committed_tag_csr2: tag_csr2,
             idx_csr,
             idx_csr2,
             tag_csr,
@@ -192,20 +181,6 @@ impl GeoBankSet {
             self.idx_csr2[i].recompute(ghr);
             self.tag_csr[i].recompute(ghr);
             self.tag_csr2[i].recompute(ghr);
-        }
-    }
-
-    /// Incrementally updates all committed CSRs for a new branch outcome. `O(num_banks)`.
-    /// Must be called BEFORE `commit_ghr.push()`.
-    #[inline]
-    pub fn update_committed_csrs(&mut self, taken: bool, ghr: &Ghr) {
-        for i in 0..self.num_banks {
-            let hl = self.hist_lengths[i];
-            let old_bit = if hl > 0 { ghr.bit(hl - 1) } else { false };
-            self.committed_idx_csr[i].update(taken, old_bit);
-            self.committed_idx_csr2[i].update(taken, old_bit);
-            self.committed_tag_csr[i].update(taken, old_bit);
-            self.committed_tag_csr2[i].update(taken, old_bit);
         }
     }
 }

@@ -27,8 +27,6 @@ use crate::uarch::bpred::direction::{DirectionPredictor, Jump, Retired};
 pub struct ScLTagePredictor {
     /// ITTAGE's speculative global history.
     spec_ghr: Ghr,
-    /// ITTAGE's committed global history.
-    commit_ghr: Ghr,
 
     /// Shared TAGE direction core.
     tage: TageCore,
@@ -69,7 +67,6 @@ impl ScLTagePredictor {
         let ittage_history = ittage_config.history_lengths.iter().copied().max().unwrap_or(0);
         Self {
             spec_ghr: Ghr::with_len(ittage_history),
-            commit_ghr: Ghr::with_len(ittage_history),
             tage: TageCore::new(tage_config),
             loop_pred: LoopPredictor::new(loop_config),
             sc: StatCorrector::new(sc_config),
@@ -90,14 +87,6 @@ impl ScLTagePredictor {
             branch,
             conditional: None,
         }
-    }
-
-    /// Advances the committed history. Must follow every read of the
-    /// committed CSRs for this instruction: the folded histories need the
-    /// bit about to be shifted out.
-    fn push_committed(&mut self, taken: bool) {
-        self.ittage.commit_advance(taken, &self.commit_ghr);
-        self.commit_ghr.push(taken);
     }
 
     fn speculate_conditional(&mut self, prediction: &ConditionalPrediction, taken: bool) {
@@ -175,7 +164,6 @@ impl DirectionPredictor for ScLTagePredictor {
         if let Some(target) = retired.indirect_target {
             self.ittage.update(pc, target, &history.ghr);
         }
-        self.push_committed(retired.taken);
     }
 
     fn indirect_target(&self, pc: u64) -> Option<u64> {
