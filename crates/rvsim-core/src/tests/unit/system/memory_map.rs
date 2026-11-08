@@ -14,8 +14,8 @@ fn every_device_sits_at_its_configured_region() {
     let mut built: Vec<_> = sys
         .uncore
         .bus
-        .device_windows()
-        .map(|(name, base, size)| (name.to_owned(), base, size))
+        .devices()
+        .map(|device| (device.name().to_owned(), device.region().base.val(), device.region().size))
         .collect();
     let mut expected: Vec<_> = config
         .system

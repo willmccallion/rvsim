@@ -154,13 +154,10 @@ impl Bus {
             self.devices.iter().find(|d| d.kind() == DeviceKind::Htif).map(|d| d.region());
     }
 
-    /// Each device's name and register window, in address order.
+    /// The devices, in address order.
     #[cfg(test)]
-    pub(crate) fn device_windows(&self) -> impl Iterator<Item = (&str, u64, u64)> {
-        self.devices.iter().map(|d| {
-            let region = d.region();
-            (d.name(), region.base.val(), region.size)
-        })
+    pub(crate) fn devices(&self) -> impl Iterator<Item = &dyn Device> {
+        self.devices.iter().map(AsRef::as_ref)
     }
 
     /// Tells the bus that `ctrl` serves the `size` bytes of RAM at `base`.
