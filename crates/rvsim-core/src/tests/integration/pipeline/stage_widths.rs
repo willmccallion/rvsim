@@ -4,10 +4,9 @@
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{T0, X0, X31, after};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const ADDS: u64 = 32;
 
 type Narrowing = fn(&mut Config);

@@ -10,11 +10,9 @@ use std::thread;
 use crate::config::{BackendKind, Config, Console};
 use crate::system::gdb::Outcome;
 use crate::system::simulator::Simulator;
-use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF, M5_FAIL};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
-const JAL_SELF: u32 = 0x0000_006f;
 /// Where the program stores `t0`: `auipc t2` at `PROGRAM_BASE + 4` plus `0x100`.
 const STORED_AT: u64 = PROGRAM_BASE + 4 + 0x100;
 /// The `addi a1` before the exit, where the breakpoint goes.

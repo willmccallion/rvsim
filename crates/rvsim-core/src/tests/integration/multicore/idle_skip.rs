@@ -5,7 +5,8 @@
 use crate::config::BackendKind;
 use crate::sim::stats::StatFormat;
 use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
-use crate::tests::support::multihart::{DATA_BASE, MultiHart, PROGRAM_BASE};
+use crate::tests::support::harness::PROGRAM_BASE;
+use crate::tests::support::multihart::{DATA_BASE, MultiHart};
 use crate::tests::support::regs::{A0, T0, T1, T2, T3, T5, T6, X0, X10, X11};
 const MHARTID: u32 = 0xF14;
 const MIE: u32 = 0x304;

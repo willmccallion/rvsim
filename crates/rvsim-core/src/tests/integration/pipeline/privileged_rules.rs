@@ -5,12 +5,11 @@ use crate::config::{BackendKind, Config, Console};
 use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_DIRTY, MSTATUS_FS_INIT};
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A1, A2, A3, T1, X0};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 const MCAUSE: u32 = 0x342;
 const MTVAL: u32 = 0x343;
@@ -24,7 +23,6 @@ const SFENCE_VMA: u32 = 0x1200_0073;
 /// `c.fld f8, 0(x8)` then `c.nop`: an RV64C encoding of a D instruction.
 const C_FLD_THEN_C_NOP: u32 = 0x0001_2000;
 const C_FLD: u64 = 0x2000;
-const JAL_SELF: u32 = 0x0000_006F;
 const BACKENDS: [BackendKind; 2] = [BackendKind::InOrder, BackendKind::OutOfOrder];
 
 /// What a run left behind: `mcause` and `mtval` as the handler recorded

@@ -3,7 +3,7 @@
 //! Coherence traffic, which needs several cores, is checked with the rest
 //! of the coherence stats.
 
-use super::program::{BACKENDS, PROGRAM_BASE, config, ending_in_spin, run_to_pc, system_with};
+use super::program::{BACKENDS, config, ending_in_spin, run_to_pc, system_with};
 use super::{Recorder, accounting_checks};
 use crate::config::{
     BackendKind, CacheConfig, Config, InclusionPolicy, PrefetcherKind, StorePrefetcherConfig,
@@ -12,7 +12,7 @@ use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::CBO_CLEAN_IMM;
 use crate::tests::support::builder::instruction::{FENCE_I, FENCE_IORW, InstructionBuilder};
 use crate::tests::support::count;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A1, T0, T1, T2, X0, after};
 
 const CACHES: [&str; 4] = ["core0.cache.l1i", "core0.cache.l1d", "core0.cache.l2", "llc"];
@@ -460,7 +460,7 @@ fn misses_beyond_each_levels_mshrs_wait_there(rec: &mut Recorder) {
 
 fn next_line_candidates_past_the_page_are_dropped_at_every_level(rec: &mut Recorder) {
     let i = InstructionBuilder::new;
-    let page_end = super::program::PROGRAM_BASE + 4096 - 4;
+    let page_end = PROGRAM_BASE + 4096 - 4;
     // Loads the data page's last line, then jumps to a spin in the last
     // word of the code page.
     let program = vec![

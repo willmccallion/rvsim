@@ -8,9 +8,8 @@
 use crate::config::{BackendKind, Config};
 use crate::tests::support::builder::instruction::{FENCE_I, FENCE_IORW, InstructionBuilder};
 use crate::tests::support::count;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A1, S2, S3, S4, T0, T1, X0};
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const MCYCLE: u32 = 0xB00;
 /// Lines in the 1 KiB direct-mapped L1D.
 const L1D_LINES: u64 = 16;

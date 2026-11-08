@@ -6,6 +6,7 @@
 
 use crate::common::{HartId, LineAddr, PhysAddr};
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::sim::components::{ComponentId, DeviceId, PipelineId, ReqId};
 use crate::sim::events::EventQueue;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -17,7 +18,6 @@ use crate::soc::devices::Device;
 use crate::soc::devices::virtio_disk::VirtioBlock;
 
 pub(super) const MMIO: u64 = 0x1000_1000;
-pub(super) const RAM_BASE: u64 = 0x8000_0000;
 const DESC: u64 = 0x1000;
 const AVAIL: u64 = 0x2000;
 const USED: u64 = 0x3000;

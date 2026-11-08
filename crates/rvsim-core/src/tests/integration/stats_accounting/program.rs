@@ -8,10 +8,9 @@ use crate::system::SystemState;
 use crate::system::simulator::ProbeWidth;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, M5_FAIL, MRET};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, A1, A2, T0, T1, X0};
 
-pub const PROGRAM_BASE: u64 = 0x8000_0000;
 pub const HANDLER: u64 = PROGRAM_BASE + 0x400;
 pub const DATA: u64 = PROGRAM_BASE + 0x1000;
 pub const MEPC: u32 = 0x341;

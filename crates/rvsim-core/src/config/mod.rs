@@ -10,7 +10,7 @@ mod checks;
 mod coherence;
 mod components;
 pub mod ddr5;
-mod defaults;
+pub(crate) mod defaults;
 mod general;
 mod machine;
 mod memory;

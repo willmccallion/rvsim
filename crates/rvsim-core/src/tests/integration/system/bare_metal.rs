@@ -2,13 +2,13 @@
 //! entry in machine mode, its id in `a0`, the system's device tree in `a1`.
 
 use crate::common::{PhysAddr, VirtAddr};
+use crate::config::defaults::RAM_BASE;
 use crate::config::{Config, Console};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg;
 use crate::system::simulator::{DTB_RESERVE, ProcessArgs};
 use crate::tests::support::harness::build_simulator;
 
-const RAM_BASE: u64 = 0x8000_0000;
 const CODE_OFFSET: u64 = 0x1000;
 const ET_EXEC: u16 = 2;
 const EM_RISCV: u16 = 243;

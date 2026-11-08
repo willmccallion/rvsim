@@ -6,10 +6,9 @@ use crate::config::Config;
 use crate::config::DeviceKind;
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{X0, X5, X6, X7};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const CLINT_MTIME_PAGE: i32 = 0x0200_B000 >> 12;
 const MTIME_OFFSET: i32 = 0xFF8;
 const DONE_REG: RegIdx = RegIdx::new(31);

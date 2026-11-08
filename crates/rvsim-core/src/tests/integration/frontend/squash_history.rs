@@ -8,10 +8,9 @@
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{RA, X0};
 const MSCRATCH: u32 = 0x340;
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const CALLS: usize = 8;
 /// The function, after the calls and the final `j .`.
 const FUNCTION: i32 = 4 * (CALLS as i32 + 1);

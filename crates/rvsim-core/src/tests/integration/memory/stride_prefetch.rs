@@ -8,11 +8,10 @@
 use crate::config::{BackendKind, Config, LoadPrefetcherConfig, PageBoundary, PrefetcherKind};
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, T0, T1, T2, X0};
 const DONE_REG: RegIdx = RegIdx::new(2);
 const DONE: u64 = 7;
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const ITERATIONS: i32 = 64;
 const STRIDE: i32 = 256;
 

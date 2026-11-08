@@ -9,6 +9,7 @@
 //! Sv48 and Sv57 the data lies above Sv39's address range, so the walk uses
 //! nonzero indices at the extra levels.
 
+use crate::config::defaults::RAM_BASE;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::regs::{X0, X6, X7, X13};
@@ -23,7 +24,6 @@ use crate::tests::support::harness::TestContext;
 use crate::tests::support::{open_pmp, pmp_entry};
 use crate::uarch::mmu::tlb::PageSize;
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
 /// Page tables are allocated from here up.
 const FIRST_TABLE_PPN: u64 = 0x8_0100;

@@ -11,14 +11,13 @@ use crate::soc::exit::ExitSignal;
 use crate::system::SystemState;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
 use crate::tests::support::harness::valid;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{
     A0, A5, T0, T2, X0, X6, X11, X12, X13, X14, X18, X19, X20, X21, X22, X23, X24, X25, X26, X28,
     X29, X30, X31,
 };
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
 const LOADED: u64 = 0x1234_5678_9ABC_DEF0;
 const LATENCY: u64 = 600;

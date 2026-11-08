@@ -8,10 +8,9 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A2, X0, X10, after};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA_OFFSET: i32 = 0x400;
 const LINE: i32 = 64;
 const STORES: i32 = 8;

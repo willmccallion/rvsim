@@ -7,15 +7,15 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{X0, X10, X11, X12};
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
 const ROOT_PPN: u64 = 0x8_0100;
 const L1_PPN: u64 = 0x8_0101;
@@ -33,7 +33,6 @@ const PTE_D: u64 = 1 << 7;
 const PTE_RWX_AD: u64 = 0b1100_1111;
 const PTE_X: u64 = 0b0000_1001;
 const PTE_RW: u64 = 0b0000_0111;
-const JAL_SELF: u32 = 0x0000_006F;
 const STORED: u64 = 0x55;
 const LOADED: u64 = 0x1234;
 

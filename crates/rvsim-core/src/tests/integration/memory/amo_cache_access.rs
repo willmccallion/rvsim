@@ -7,10 +7,9 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, A1, A2, X0};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const DATA: u64 = PROGRAM_BASE + 0x400;
 const AMOS: u64 = 8;
 

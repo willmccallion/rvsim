@@ -6,10 +6,9 @@ use crate::config::{BackendKind, Config, Console};
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, A1, A2, T0, T1, T2, X0};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const TOHOST: u64 = PROGRAM_BASE + 0x1000;
 const FENCE: u32 = 0x0ff0_000f;
 const SYS_EXIT: i32 = 93;

@@ -5,10 +5,9 @@ use crate::config::Config;
 use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, A1, A2, X0, X13, X14, X15};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const COUNTER: RegIdx = RegIdx::new(7);
 const LOOPS: i32 = 50;
 const M5_FAIL: u32 = 0x22;

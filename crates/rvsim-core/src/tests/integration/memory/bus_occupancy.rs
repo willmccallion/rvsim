@@ -4,9 +4,8 @@
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, T0, X0};
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const LINES: u64 = 16;
 const LINE_BYTES: u64 = 64;
 

@@ -4,17 +4,16 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF};
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{X0, X10, X11};
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x10_000;
 const TRAP_PARK: u64 = RAM_BASE + 0x800;
-const JAL_SELF: u32 = 0x0000_006F;
 const UNMAPPED: u64 = 0x5000_0000;
 const LOAD_ACCESS_FAULT: u64 = 5;
 const STORE_ACCESS_FAULT: u64 = 7;

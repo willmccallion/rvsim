@@ -20,7 +20,7 @@ use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::privileged::PrivilegeMode;
 use crate::system::process::errno::Errno;
 use crate::system::simulator::{ProcessArgs, StopAt, StopReason};
-use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
+use crate::tests::support::builder::instruction::{InstructionBuilder, JAL_SELF, M5_FAIL};
 use crate::tests::support::harness::TestContext;
 
 use super::se_mode::user_elf;
@@ -29,7 +29,6 @@ const SCRIPT: &[u8] = b"echo hello from the host\n";
 const OUTPUT_NAME: &str = "out.bin";
 const READ_FILE: u32 = PseudoOp::encode(0x50);
 const WRITE_FILE: u32 = PseudoOp::encode(0x4f);
-const JAL_SELF: u32 = 0x0000_006f;
 /// Where the buffer and the file name sit, past the code.
 const BUFFER_OFFSET: usize = 0x100;
 const BUFFER_BYTES: i32 = 64;

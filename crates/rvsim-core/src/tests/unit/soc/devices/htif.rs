@@ -153,7 +153,7 @@ fn a_checkpoint_with_host_files_open_is_refused() {
 /// buffer cannot hold the path.
 #[test]
 fn getcwd_into_a_buffer_too_small_for_the_path_fails_with_erange() {
-    const RAM_BASE: u64 = 0x8000_0000;
+    use crate::config::defaults::RAM_BASE;
     const BLOCK: u64 = RAM_BASE + 0x100;
     const SYS_GETCWD: u64 = 17;
     const ERANGE: i64 = 34;

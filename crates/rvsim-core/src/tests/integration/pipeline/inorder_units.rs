@@ -7,9 +7,8 @@
 use crate::config::BackendKind;
 use crate::config::{Config, PrefetcherKind};
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A1, A2, A3, A4, T0, T1, X0};
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const CHAIN: u64 = 60;
 const MUL_LATENCY: u64 = 3;
 const DIV_LATENCY: u64 = 35;

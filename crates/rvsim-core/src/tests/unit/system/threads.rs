@@ -3,6 +3,7 @@
 //! exits free or stop harts.
 
 use crate::common::{HartId, PhysAddr, VirtAddr};
+use crate::config::defaults::RAM_BASE;
 use crate::config::{Config, Console};
 use crate::isa::privileged::PagingMode;
 use crate::soc::terminal::Terminal;
@@ -12,7 +13,6 @@ use crate::system::process::{
     AddressSpace, FrameAllocator, Process, Processes, ThreadNotice, ThreadRef, Tid, WakeupKind,
 };
 
-const RAM_BASE: u64 = 0x8000_0000;
 const FUTEX: VirtAddr = VirtAddr::new(0x1_0000);
 const ANY: u32 = u32::MAX;
 const ETIMEDOUT: u64 = 110;

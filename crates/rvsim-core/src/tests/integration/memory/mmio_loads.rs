@@ -6,9 +6,8 @@
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, T0, T1, T2, X0};
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const CHAIN: usize = 40;
 /// The CLINT's `mtime`, which counts every cycle with an every-cycle timer.
 const MTIME: u64 = 0x0200_BFF8;

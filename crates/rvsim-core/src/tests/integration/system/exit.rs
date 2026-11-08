@@ -8,10 +8,9 @@ use crate::isa::reg::RegIdx;
 use crate::system::SystemState;
 use crate::system::simulator::{StopAt, StopReason};
 use crate::tests::support::builder::instruction::{InstructionBuilder, exit_with_a0};
-use crate::tests::support::harness::TestContext;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 use crate::tests::support::regs::{A0, X0};
 
-const PROGRAM_BASE: u64 = 0x8000_0000;
 const UART: RegIdx = RegIdx::new(5);
 const VALUE: RegIdx = RegIdx::new(6);
 const UART_BASE_UPPER: i32 = 0x1_0000;

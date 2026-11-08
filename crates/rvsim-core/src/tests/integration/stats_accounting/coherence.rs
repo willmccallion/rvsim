@@ -7,7 +7,8 @@ use crate::common::VirtAddr;
 use crate::config::{BackendKind, Config, HomeAgentConfig, InterconnectConfig};
 use crate::system::simulator::StopAt;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
-use crate::tests::support::multihart::{MultiHart, PROGRAM_BASE};
+use crate::tests::support::harness::PROGRAM_BASE;
+use crate::tests::support::multihart::MultiHart;
 use crate::tests::support::regs::{T0, T1, T2, T3, T4, T5, T6, X0};
 const MHARTID: u32 = 0xF14;
 /// Hart 1 sets this word once its body is done; a line of its own.

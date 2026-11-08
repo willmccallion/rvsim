@@ -11,6 +11,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::config::defaults::RAM_BASE;
 use crate::isa::csr;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, MRET};
@@ -18,7 +19,6 @@ use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A3, T0, T1, T2, T3, T4, T5, T6, X0};
 
-const RAM_BASE: u64 = 0x8000_0000;
 const RAM_SIZE: usize = 0x80_0000;
 const ROOT_PPN: u64 = 0x8_0100;
 const CODE_L1_PPN: u64 = 0x8_0101;
