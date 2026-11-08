@@ -28,7 +28,16 @@ use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Pa
 use crate::soc::devices::Device;
 use crate::soc::terminal::SharedTerminal;
 use crate::system::process::errno::Errno;
-use crate::system::process::files::{Fd, FileTable, PATH_MAX, Stat};
+use crate::system::process::file_calls::{self, FileCalls, GuestMemory, PhysicalMemory};
+use crate::system::process::files::{AT_FDCWD, Fd, FileTable, PATH_MAX};
+use crate::system::process::syscall::{
+    SYS_CHDIR, SYS_CLOSE, SYS_EXIT, SYS_FACCESSAT, SYS_FCNTL, SYS_FSTAT, SYS_FTRUNCATE, SYS_GETCWD,
+    SYS_LSEEK, SYS_MKDIRAT, SYS_NEWFSTATAT, SYS_OPENAT, SYS_PREAD64, SYS_PWRITE64, SYS_READ,
+    SYS_READLINKAT, SYS_RENAMEAT, SYS_UNLINKAT, SYS_WRITE,
+};
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -40,25 +49,7 @@ const SYSCALL_COMMAND: u64 = 0;
 const BLOCK_WORDS: usize = 8;
 const FROMHOST_OFFSET: u64 = 8;
 
-const SYS_GETCWD: u64 = 17;
-const SYS_FCNTL: u64 = 25;
-const SYS_MKDIRAT: u64 = 34;
-const SYS_UNLINKAT: u64 = 35;
-const SYS_RENAMEAT: u64 = 38;
-const SYS_FTRUNCATE: u64 = 46;
-const SYS_FACCESSAT: u64 = 48;
-const SYS_CHDIR: u64 = 49;
-const SYS_OPENAT: u64 = 56;
-const SYS_CLOSE: u64 = 57;
-const SYS_LSEEK: u64 = 62;
-const SYS_READ: u64 = 63;
-const SYS_WRITE: u64 = 64;
-const SYS_PREAD: u64 = 67;
-const SYS_PWRITE: u64 = 68;
-const SYS_READLINKAT: u64 = 78;
-const SYS_FSTATAT: u64 = 79;
-const SYS_FSTAT: u64 = 80;
-const SYS_EXIT: u64 = 93;
+/// fesvr's own calls, beyond Linux's.
 const SYS_LSTAT: u64 = 1039;
 const SYS_GETMAINVARS: u64 = 2011;
 
@@ -134,97 +125,53 @@ impl Htif {
         a: [u64; 6],
         memory: &mut GlobalMemory,
     ) -> Result<u64, Errno> {
-        let mut host = Host { files: &mut self.files, memory };
+        let at = |i: usize| PhysAddr::new(a[i]);
+        let fd = Fd::from_arg(a[0]);
+        let mut calls = FileCalls { files: &mut self.files, memory: PhysicalMemory(memory) };
         match number {
             SYS_EXIT => {
                 self.exit_signal.store(a[0], Ordering::Relaxed);
                 Ok(0)
             }
-            SYS_WRITE => host.write(Fd::from_arg(a[0]), a[1], a[2]),
-            SYS_READ => host.read(Fd::from_arg(a[0]), a[1], a[2]),
-            SYS_PREAD => host.pread(Fd::from_arg(a[0]), a[1], a[2], a[3]),
-            SYS_PWRITE => host.pwrite(Fd::from_arg(a[0]), a[1], a[2], a[3]),
+            SYS_WRITE => calls.write(fd, at(1), a[2]),
+            SYS_READ => calls.read(fd, at(1), a[2]),
+            SYS_PREAD64 => calls.pread(fd, at(1), a[2], a[3]),
+            SYS_PWRITE64 => calls.pwrite(fd, at(1), a[2], a[3]),
             SYS_OPENAT => {
-                let path = host.path(a[1], a[2])?;
-                host.files.open(path, a[3], a[4]).map(Fd::return_value)
+                let path = fesvr_path(&mut calls, a[1], a[2])?;
+                calls.files.open(path, a[3], a[4]).map(Fd::return_value)
             }
-            SYS_CLOSE => host.files.close(Fd::from_arg(a[0])).map(|()| 0),
-            SYS_LSEEK => host.files.seek(Fd::from_arg(a[0]), a[1] as i64, a[2]),
-            SYS_FSTAT => {
-                let stat = host.files.stat(Fd::from_arg(a[0]))?;
-                {
-                    host.write_bytes(a[1], &stat.to_bytes());
-                    Ok(0)
-                }
-            }
-            SYS_FSTATAT => {
-                let path = host.path(a[1], a[2])?;
-                let stat = std::fs::metadata(&path).map(|m| Stat::from_metadata(&m))?;
-                {
-                    host.write_bytes(a[3], &stat.to_bytes());
-                    Ok(0)
-                }
+            SYS_CLOSE => calls.files.close(fd).map(|()| 0),
+            SYS_LSEEK => calls.files.seek(fd, a[1] as i64, a[2]),
+            SYS_FSTAT => calls.fstat(fd, at(1)),
+            SYS_NEWFSTATAT => {
+                let stat = file_calls::stat(&fesvr_path(&mut calls, a[1], a[2])?)?;
+                calls.write_stat(stat, at(3))
             }
             SYS_LSTAT => {
-                let path = host.path(a[0], a[1])?;
-                let stat = std::fs::symlink_metadata(&path).map(|m| Stat::from_metadata(&m))?;
-                {
-                    host.write_bytes(a[2], &stat.to_bytes());
-                    Ok(0)
-                }
+                let stat = file_calls::lstat(&fesvr_path(&mut calls, a[0], a[1])?)?;
+                calls.write_stat(stat, at(2))
             }
-            SYS_FTRUNCATE => host.files.truncate(Fd::from_arg(a[0]), a[1]).map(|()| 0),
-            SYS_FACCESSAT => {
-                let path = host.path(a[1], a[2])?;
-                std::fs::metadata(&path).map(drop)?;
-                Ok(0)
-            }
-            SYS_MKDIRAT => {
-                let path = host.path(a[1], a[2])?;
-                std::fs::create_dir(&path)?;
-                Ok(0)
-            }
-            SYS_UNLINKAT => {
-                let path = host.path(a[1], a[2])?;
-                let removed = if a[3] & 0x200 != 0 {
-                    std::fs::remove_dir(&path)
-                } else {
-                    std::fs::remove_file(&path)
-                };
-                removed?;
-                Ok(0)
-            }
+            SYS_FTRUNCATE => calls.files.truncate(fd, a[1]).map(|()| 0),
+            SYS_FACCESSAT => file_calls::access(&fesvr_path(&mut calls, a[1], a[2])?),
+            SYS_MKDIRAT => file_calls::make_dir(&fesvr_path(&mut calls, a[1], a[2])?),
+            SYS_UNLINKAT => file_calls::unlink(&fesvr_path(&mut calls, a[1], a[2])?, a[3]),
             SYS_RENAMEAT => {
-                let from = host.path(a[1], a[2])?;
-                let to = host.path(a[4], a[5])?;
-                std::fs::rename(&from, &to)?;
-                Ok(0)
+                let from = fesvr_path(&mut calls, a[1], a[2])?;
+                file_calls::rename(&from, &fesvr_path(&mut calls, a[4], a[5])?)
             }
             SYS_READLINKAT => {
-                let path = host.path(a[1], a[2])?;
-                let target = std::fs::read_link(&path)
-                    .map(|p| p.to_string_lossy().into_owned().into_bytes())?;
-                let len = target.len().min(usize::try_from(a[4]).map_err(|_| Errno::EINVAL)?);
-                host.write_bytes(a[3], &target[..len]);
-                Ok(len as u64)
+                let target = file_calls::read_link(&fesvr_path(&mut calls, a[1], a[2])?)?;
+                calls.write_link_target(&target, at(3), a[4])
             }
-            SYS_GETCWD => {
-                let mut cwd = std::env::current_dir()
-                    .map(|p| p.to_string_lossy().into_owned().into_bytes())?;
-                cwd.push(0);
-                if cwd.len() as u64 > a[1] {
-                    return Err(Errno::ERANGE);
-                }
-                host.write_bytes(a[0], &cwd);
-                Ok(cwd.len() as u64)
-            }
+            SYS_GETCWD => calls.getcwd(at(0), a[1]),
             SYS_CHDIR => {
-                let path = host.cstr(a[0])?;
-                std::env::set_current_dir(String::from_utf8_lossy(&path).as_ref())?;
+                let path = cstr(&calls.memory, at(0))?;
+                std::env::set_current_dir(OsStr::from_bytes(&path))?;
                 Ok(0)
             }
             SYS_FCNTL => Ok(0),
-            SYS_GETMAINVARS => host.getmainvars(&self.args, a[0], a[1]),
+            SYS_GETMAINVARS => getmainvars(&mut calls.memory, &self.args, at(0), a[1]),
             _ => {
                 tracing::warn!(target: "rvsim::htif", number, "unimplemented HTIF syscall; returning ENOSYS");
                 Err(Errno::ENOSYS)
@@ -233,94 +180,60 @@ impl Htif {
     }
 }
 
-/// The host's side of one syscall: its files and the target's memory.
-struct Host<'a> {
-    files: &'a mut FileTable,
-    memory: &'a mut GlobalMemory,
+/// A path the target passed as an address and a length that includes its
+/// NUL, as fesvr's callers pass them.
+fn fesvr_path(
+    calls: &mut FileCalls<'_, PhysicalMemory<'_>>,
+    addr: u64,
+    len: u64,
+) -> Result<PathBuf, Errno> {
+    let mut bytes = calls.memory.read(PhysAddr::new(addr), file_calls::buffer_len(len)?)?;
+    if let Some(nul) = bytes.iter().position(|&b| b == 0) {
+        bytes.truncate(nul);
+    }
+    calls.files.resolve(AT_FDCWD, &bytes)
 }
 
-impl Host<'_> {
-    fn read_bytes(&self, addr: u64, len: u64) -> Result<Vec<u8>, Errno> {
-        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
-        self.memory.read_bytes(PhysAddr::new(addr), len).map(Vec::from).ok_or(Errno::EFAULT)
-    }
-
-    fn write_bytes(&mut self, addr: u64, bytes: &[u8]) {
-        if !bytes.is_empty() {
-            self.memory.write_bytes(Writer::External, PhysAddr::new(addr), bytes);
+/// The NUL-terminated string at `addr`.
+fn cstr(memory: &PhysicalMemory<'_>, addr: PhysAddr) -> Result<Vec<u8>, Errno> {
+    let mut out = Vec::new();
+    let mut cursor = addr;
+    loop {
+        let [byte] = memory.read(cursor, 1)?[..] else { return Err(Errno::EFAULT) };
+        if byte == 0 || out.len() >= PATH_MAX {
+            return Ok(out);
         }
+        out.push(byte);
+        cursor = PhysAddr::new(cursor.val() + 1);
     }
+}
 
-    /// A path the target passed as an address and a length that includes
-    /// its NUL, as fesvr's callers pass them.
-    fn path(&mut self, addr: u64, len: u64) -> Result<std::path::PathBuf, Errno> {
-        let mut bytes = self.read_bytes(addr, len)?;
-        if let Some(nul) = bytes.iter().position(|&b| b == 0) {
-            bytes.truncate(nul);
-        }
-        self.files.resolve(crate::system::process::files::AT_FDCWD, &bytes)
+/// `argc`, the `argv` pointers, a NULL, an empty `envp`, then the strings,
+/// written at `pbuf` when they fit in `limit` bytes.
+fn getmainvars(
+    memory: &mut PhysicalMemory<'_>,
+    args: &[String],
+    pbuf: PhysAddr,
+    limit: u64,
+) -> Result<u64, Errno> {
+    let mut words: Vec<u64> = vec![args.len() as u64];
+    let mut size = (args.len() as u64 + 3) * 8;
+    for arg in args {
+        words.push(pbuf.val() + size);
+        size += arg.len() as u64 + 1;
     }
-
-    /// A NUL-terminated string at `addr`.
-    fn cstr(&self, addr: u64) -> Result<Vec<u8>, Errno> {
-        let mut out = Vec::new();
-        let mut cursor = addr;
-        loop {
-            let byte = self.memory.read(PhysAddr::new(cursor), 1).ok_or(Errno::EFAULT)? as u8;
-            if byte == 0 || out.len() >= PATH_MAX {
-                return Ok(out);
-            }
-            out.push(byte);
-            cursor += 1;
-        }
+    words.push(0);
+    words.push(0);
+    let mut bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+    for arg in args {
+        bytes.extend_from_slice(arg.as_bytes());
+        bytes.push(0);
     }
-
-    fn write(&mut self, fd: Fd, buf: u64, len: u64) -> Result<u64, Errno> {
-        let bytes = self.read_bytes(buf, len)?;
-        self.files.write(fd, &bytes).map(|n| n as u64)
+    if bytes.len() as u64 > limit {
+        return Err(Errno::ENOMEM);
     }
-
-    fn read(&mut self, fd: Fd, buf: u64, len: u64) -> Result<u64, Errno> {
-        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
-        let bytes = self.files.read(fd, len)?;
-        self.write_bytes(buf, &bytes);
-        Ok(bytes.len() as u64)
-    }
-
-    fn pread(&mut self, fd: Fd, buf: u64, len: u64, offset: u64) -> Result<u64, Errno> {
-        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
-        let bytes = self.files.pread(fd, len, offset)?;
-        self.write_bytes(buf, &bytes);
-        Ok(bytes.len() as u64)
-    }
-
-    fn pwrite(&mut self, fd: Fd, buf: u64, len: u64, offset: u64) -> Result<u64, Errno> {
-        let bytes = self.read_bytes(buf, len)?;
-        self.files.pwrite(fd, &bytes, offset).map(|n| n as u64)
-    }
-
-    /// `argc`, the `argv` pointers, a NULL, an empty `envp`, then the
-    /// strings, written at `pbuf` when they fit in `limit` bytes.
-    fn getmainvars(&mut self, args: &[String], pbuf: u64, limit: u64) -> Result<u64, Errno> {
-        let mut words: Vec<u64> = vec![args.len() as u64];
-        let mut size = (args.len() as u64 + 3) * 8;
-        for arg in args {
-            words.push(pbuf + size);
-            size += arg.len() as u64 + 1;
-        }
-        words.push(0);
-        words.push(0);
-        let mut bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
-        for arg in args {
-            bytes.extend_from_slice(arg.as_bytes());
-            bytes.push(0);
-        }
-        if bytes.len() as u64 > limit {
-            return Err(Errno::ENOMEM);
-        }
-        self.write_bytes(pbuf, &bytes);
-        Ok(0)
-    }
+    memory.write(pbuf, &bytes)?;
+    Ok(0)
 }
 
 impl Handle for Htif {

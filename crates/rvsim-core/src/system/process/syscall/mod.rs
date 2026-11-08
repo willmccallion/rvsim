@@ -9,7 +9,8 @@ mod thread;
 use thread::ThreadCall;
 
 use super::errno::Errno;
-use super::files::{Fd, PATH_MAX, Stat, open_flags};
+use super::file_calls::{self, FileCalls, UserMemory};
+use super::files::{Fd, PATH_MAX, open_flags};
 use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, ThreadRef, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
 use crate::common::VirtAddr;
@@ -36,76 +37,77 @@ pub enum Outcome {
     },
 }
 
-const SYS_GETCWD: u64 = 17;
-const SYS_FCNTL: u64 = 25;
-const SYS_IOCTL: u64 = 29;
-const SYS_MKDIRAT: u64 = 34;
-const SYS_UNLINKAT: u64 = 35;
-const SYS_RENAMEAT: u64 = 38;
-const SYS_FACCESSAT: u64 = 48;
-const SYS_OPENAT: u64 = 56;
-const SYS_CLOSE: u64 = 57;
-const SYS_LSEEK: u64 = 62;
-const SYS_READ: u64 = 63;
-const SYS_WRITE: u64 = 64;
-const SYS_READV: u64 = 65;
-const SYS_WRITEV: u64 = 66;
-const SYS_PREAD64: u64 = 67;
-const SYS_PWRITE64: u64 = 68;
-const SYS_READLINKAT: u64 = 78;
-const SYS_NEWFSTATAT: u64 = 79;
-const SYS_FSTAT: u64 = 80;
-const SYS_EXIT: u64 = 93;
-const SYS_EXIT_GROUP: u64 = 94;
-const SYS_SET_TID_ADDRESS: u64 = 96;
-const SYS_FUTEX: u64 = 98;
-const SYS_SET_ROBUST_LIST: u64 = 99;
-const SYS_NANOSLEEP: u64 = 101;
-const SYS_CLOCK_GETTIME: u64 = 113;
-const SYS_CLOCK_GETRES: u64 = 114;
-const SYS_CLOCK_NANOSLEEP: u64 = 115;
-const SYS_SCHED_GETAFFINITY: u64 = 123;
-const SYS_SCHED_YIELD: u64 = 124;
-const SYS_KILL: u64 = 129;
-const SYS_TKILL: u64 = 130;
-const SYS_TGKILL: u64 = 131;
-const SYS_RT_SIGACTION: u64 = 134;
-const SYS_RT_SIGPROCMASK: u64 = 135;
-const SYS_TIMES: u64 = 153;
-const SYS_UNAME: u64 = 160;
-const SYS_GETRUSAGE: u64 = 165;
-const SYS_GETTIMEOFDAY: u64 = 169;
-const SYS_GETPID: u64 = 172;
-const SYS_GETPPID: u64 = 173;
-const SYS_GETUID: u64 = 174;
-const SYS_GETEUID: u64 = 175;
-const SYS_GETGID: u64 = 176;
-const SYS_GETEGID: u64 = 177;
-const SYS_GETTID: u64 = 178;
-const SYS_SYSINFO: u64 = 179;
-const SYS_BRK: u64 = 214;
-const SYS_MUNMAP: u64 = 215;
-const SYS_MREMAP: u64 = 216;
-const SYS_CLONE: u64 = 220;
-const SYS_EXECVE: u64 = 221;
-const SYS_MMAP: u64 = 222;
-const SYS_MPROTECT: u64 = 226;
-const SYS_MADVISE: u64 = 233;
-const SYS_RISCV_HWPROBE: u64 = 258;
-const SYS_RISCV_FLUSH_ICACHE: u64 = 259;
-const SYS_PRLIMIT64: u64 = 261;
-const SYS_RENAMEAT2: u64 = 276;
-const SYS_GETRANDOM: u64 = 278;
-const SYS_STATX: u64 = 291;
-const SYS_RSEQ: u64 = 293;
-const SYS_CLONE3: u64 = 435;
-const SYS_FACCESSAT2: u64 = 439;
+pub const SYS_GETCWD: u64 = 17;
+pub const SYS_FCNTL: u64 = 25;
+pub const SYS_IOCTL: u64 = 29;
+pub const SYS_MKDIRAT: u64 = 34;
+pub const SYS_UNLINKAT: u64 = 35;
+pub const SYS_RENAMEAT: u64 = 38;
+pub const SYS_FTRUNCATE: u64 = 46;
+pub const SYS_FACCESSAT: u64 = 48;
+pub const SYS_CHDIR: u64 = 49;
+pub const SYS_OPENAT: u64 = 56;
+pub const SYS_CLOSE: u64 = 57;
+pub const SYS_LSEEK: u64 = 62;
+pub const SYS_READ: u64 = 63;
+pub const SYS_WRITE: u64 = 64;
+pub const SYS_READV: u64 = 65;
+pub const SYS_WRITEV: u64 = 66;
+pub const SYS_PREAD64: u64 = 67;
+pub const SYS_PWRITE64: u64 = 68;
+pub const SYS_READLINKAT: u64 = 78;
+pub const SYS_NEWFSTATAT: u64 = 79;
+pub const SYS_FSTAT: u64 = 80;
+pub const SYS_EXIT: u64 = 93;
+pub const SYS_EXIT_GROUP: u64 = 94;
+pub const SYS_SET_TID_ADDRESS: u64 = 96;
+pub const SYS_FUTEX: u64 = 98;
+pub const SYS_SET_ROBUST_LIST: u64 = 99;
+pub const SYS_NANOSLEEP: u64 = 101;
+pub const SYS_CLOCK_GETTIME: u64 = 113;
+pub const SYS_CLOCK_GETRES: u64 = 114;
+pub const SYS_CLOCK_NANOSLEEP: u64 = 115;
+pub const SYS_SCHED_GETAFFINITY: u64 = 123;
+pub const SYS_SCHED_YIELD: u64 = 124;
+pub const SYS_KILL: u64 = 129;
+pub const SYS_TKILL: u64 = 130;
+pub const SYS_TGKILL: u64 = 131;
+pub const SYS_RT_SIGACTION: u64 = 134;
+pub const SYS_RT_SIGPROCMASK: u64 = 135;
+pub const SYS_TIMES: u64 = 153;
+pub const SYS_UNAME: u64 = 160;
+pub const SYS_GETRUSAGE: u64 = 165;
+pub const SYS_GETTIMEOFDAY: u64 = 169;
+pub const SYS_GETPID: u64 = 172;
+pub const SYS_GETPPID: u64 = 173;
+pub const SYS_GETUID: u64 = 174;
+pub const SYS_GETEUID: u64 = 175;
+pub const SYS_GETGID: u64 = 176;
+pub const SYS_GETEGID: u64 = 177;
+pub const SYS_GETTID: u64 = 178;
+pub const SYS_SYSINFO: u64 = 179;
+pub const SYS_BRK: u64 = 214;
+pub const SYS_MUNMAP: u64 = 215;
+pub const SYS_MREMAP: u64 = 216;
+pub const SYS_CLONE: u64 = 220;
+pub const SYS_EXECVE: u64 = 221;
+pub const SYS_MMAP: u64 = 222;
+pub const SYS_MPROTECT: u64 = 226;
+pub const SYS_MADVISE: u64 = 233;
+pub const SYS_RISCV_HWPROBE: u64 = 258;
+pub const SYS_RISCV_FLUSH_ICACHE: u64 = 259;
+pub const SYS_PRLIMIT64: u64 = 261;
+pub const SYS_RENAMEAT2: u64 = 276;
+pub const SYS_GETRANDOM: u64 = 278;
+pub const SYS_STATX: u64 = 291;
+pub const SYS_RSEQ: u64 = 293;
+pub const SYS_CLONE3: u64 = 435;
+pub const SYS_FACCESSAT2: u64 = 439;
 
 const MAP_FIXED: u64 = 0x10;
 const MAP_ANONYMOUS: u64 = 0x20;
 const MREMAP_MAYMOVE: u64 = 1;
 const AT_EMPTY_PATH: u64 = 0x1000;
-const AT_REMOVEDIR: u64 = 0x200;
 const TCGETS: u32 = 0x5401;
 /// `TCGETS2`, which glibc 2.42's `tcgetattr` (and so `isatty`) uses.
 const TCGETS2: u32 = 0x802c_542a;
@@ -258,29 +260,31 @@ const fn ok(value: u64) -> SysResult {
 impl Sys<'_> {
     fn dispatch(&mut self, number: u64, a: [u64; 6]) -> SysResult {
         let at = |i: usize| VirtAddr::new(a[i]);
+        let fd = Fd::from_arg(a[0]);
         match number {
-            SYS_WRITE => self.write(Fd::from_arg(a[0]), at(1), a[2]),
-            SYS_READ => self.read(Fd::from_arg(a[0]), at(1), a[2]),
-            SYS_WRITEV => self.writev(Fd::from_arg(a[0]), at(1), a[2]),
-            SYS_READV => self.readv(Fd::from_arg(a[0]), at(1), a[2]),
-            SYS_PREAD64 => self.pread(Fd::from_arg(a[0]), at(1), a[2], a[3]),
-            SYS_PWRITE64 => self.pwrite(Fd::from_arg(a[0]), at(1), a[2], a[3]),
-            SYS_OPENAT => self.openat(Fd::from_arg(a[0]), at(1), a[2], a[3]),
-            SYS_CLOSE => self.process.files.close(Fd::from_arg(a[0])).map(|()| Reply::Value(0)),
-            SYS_LSEEK => {
-                self.process.files.seek(Fd::from_arg(a[0]), a[1] as i64, a[2]).and_then(ok)
+            SYS_WRITE => self.file_calls().write(fd, at(1), a[2]).and_then(ok),
+            SYS_READ => self.file_calls().read(fd, at(1), a[2]).and_then(ok),
+            SYS_WRITEV => self.writev(fd, at(1), a[2]),
+            SYS_READV => self.readv(fd, at(1), a[2]),
+            SYS_PREAD64 => self.file_calls().pread(fd, at(1), a[2], a[3]).and_then(ok),
+            SYS_PWRITE64 => self.file_calls().pwrite(fd, at(1), a[2], a[3]).and_then(ok),
+            SYS_OPENAT => self.openat(fd, at(1), a[2], a[3]),
+            SYS_CLOSE => self.process.files.close(fd).map(|()| Reply::Value(0)),
+            SYS_LSEEK => self.process.files.seek(fd, a[1] as i64, a[2]).and_then(ok),
+            SYS_FSTAT => self.file_calls().fstat(fd, at(1)).and_then(ok),
+            SYS_NEWFSTATAT => self.fstatat(fd, at(1), at(2), a[3]),
+            SYS_FACCESSAT | SYS_FACCESSAT2 => {
+                file_calls::access(&self.resolve(fd, at(1))?).and_then(ok)
             }
-            SYS_FSTAT => self.fstat(Fd::from_arg(a[0]), at(1)),
-            SYS_NEWFSTATAT => self.fstatat(Fd::from_arg(a[0]), at(1), at(2), a[3]),
-            SYS_FACCESSAT | SYS_FACCESSAT2 => self.faccessat(Fd::from_arg(a[0]), at(1)),
-            SYS_READLINKAT => self.readlinkat(Fd::from_arg(a[0]), at(1), at(2), a[3]),
-            SYS_MKDIRAT => self.mkdirat(Fd::from_arg(a[0]), at(1)),
-            SYS_UNLINKAT => self.unlinkat(Fd::from_arg(a[0]), at(1), a[2]),
+            SYS_READLINKAT => self.readlinkat(fd, at(1), at(2), a[3]),
+            SYS_MKDIRAT => file_calls::make_dir(&self.resolve(fd, at(1))?).and_then(ok),
+            SYS_UNLINKAT => file_calls::unlink(&self.resolve(fd, at(1))?, a[2]).and_then(ok),
             SYS_RENAMEAT | SYS_RENAMEAT2 => {
-                self.renameat(Fd::from_arg(a[0]), at(1), Fd::from_arg(a[2]), at(3))
+                let from = self.resolve(fd, at(1))?;
+                file_calls::rename(&from, &self.resolve(Fd::from_arg(a[2]), at(3))?).and_then(ok)
             }
-            SYS_GETCWD => self.getcwd(at(0), a[1]),
-            SYS_IOCTL => self.ioctl(Fd::from_arg(a[0]), a[1], at(2)),
+            SYS_GETCWD => self.file_calls().getcwd(at(0), a[1]).and_then(ok),
+            SYS_IOCTL => self.ioctl(fd, a[1], at(2)),
             SYS_BRK => {
                 let brk = self.process.set_brk(self.memory, self.frames, at(0));
                 ok(brk.val())
@@ -341,30 +345,6 @@ impl Sys<'_> {
     fn resolve(&mut self, dirfd: Fd, path: VirtAddr) -> Result<std::path::PathBuf, Errno> {
         let path = self.read_path(path)?;
         self.process.files.resolve(dirfd, &path)
-    }
-
-    fn write(&mut self, fd: Fd, buf: VirtAddr, len: u64) -> SysResult {
-        let bytes = self.read_user(buf, len)?;
-        self.process.files.write(fd, &bytes).and_then(|n| ok(n as u64))
-    }
-
-    fn read(&mut self, fd: Fd, buf: VirtAddr, len: u64) -> SysResult {
-        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
-        let bytes = self.process.files.read(fd, len)?;
-        self.write_user(buf, &bytes)?;
-        ok(bytes.len() as u64)
-    }
-
-    fn pread(&mut self, fd: Fd, buf: VirtAddr, len: u64, offset: u64) -> SysResult {
-        let len = usize::try_from(len).map_err(|_| Errno::EINVAL)?;
-        let bytes = self.process.files.pread(fd, len, offset)?;
-        self.write_user(buf, &bytes)?;
-        ok(bytes.len() as u64)
-    }
-
-    fn pwrite(&mut self, fd: Fd, buf: VirtAddr, len: u64, offset: u64) -> SysResult {
-        let bytes = self.read_user(buf, len)?;
-        self.process.files.pwrite(fd, &bytes, offset).and_then(|n| ok(n as u64))
     }
 
     /// The `(base, len)` pairs of an `iovec` array.
@@ -435,83 +415,34 @@ impl Sys<'_> {
         Some(list.into_bytes())
     }
 
-    fn fstat(&mut self, fd: Fd, buf: VirtAddr) -> SysResult {
-        let stat = self.process.files.stat(fd)?;
-        self.write_user(buf, &stat.to_bytes())?;
-        ok(0)
-    }
-
     fn fstatat(&mut self, dirfd: Fd, path: VirtAddr, buf: VirtAddr, flags: u64) -> SysResult {
         let path_bytes = self.read_path(path)?;
         let stat = if path_bytes.is_empty() && flags & AT_EMPTY_PATH != 0 {
             self.process.files.stat(dirfd)?
         } else {
-            let host = self.process.files.resolve(dirfd, &path_bytes)?;
-            std::fs::metadata(&host).map(|meta| Stat::from_metadata(&meta))?
+            file_calls::stat(&self.process.files.resolve(dirfd, &path_bytes)?)?
         };
-        self.write_user(buf, &stat.to_bytes())?;
-        ok(0)
-    }
-
-    fn faccessat(&mut self, dirfd: Fd, path: VirtAddr) -> SysResult {
-        let host = self.resolve(dirfd, path)?;
-        std::fs::metadata(&host).map(drop)?;
-        ok(0)
+        self.file_calls().write_stat(stat, buf).and_then(ok)
     }
 
     fn readlinkat(&mut self, dirfd: Fd, path: VirtAddr, buf: VirtAddr, size: u64) -> SysResult {
         let path_bytes = self.read_path(path)?;
-        let target: Vec<u8> = if path_bytes == b"/proc/self/exe" {
+        let target = if path_bytes == b"/proc/self/exe" {
             let program = self.process.program.as_deref().ok_or(Errno::ENOENT)?;
-            std::path::absolute(program).map(|p| p.to_string_lossy().into_owned().into_bytes())?
+            std::path::absolute(program)?.into_os_string().into_encoded_bytes()
         } else {
-            let host = self.process.files.resolve(dirfd, &path_bytes)?;
-            std::fs::read_link(&host).map(|p| p.to_string_lossy().into_owned().into_bytes())?
+            file_calls::read_link(&self.process.files.resolve(dirfd, &path_bytes)?)?
         };
-        let len = target.len().min(usize::try_from(size).map_err(|_| Errno::EINVAL)?);
-        self.write_user(buf, &target[..len])?;
-        ok(len as u64)
+        self.file_calls().write_link_target(&target, buf, size).and_then(ok)
     }
 
-    fn mkdirat(&mut self, dirfd: Fd, path: VirtAddr) -> SysResult {
-        let host = self.resolve(dirfd, path)?;
-        std::fs::create_dir(&host)?;
-        ok(0)
-    }
-
-    fn unlinkat(&mut self, dirfd: Fd, path: VirtAddr, flags: u64) -> SysResult {
-        let host = self.resolve(dirfd, path)?;
-        let removed = if flags & AT_REMOVEDIR != 0 {
-            std::fs::remove_dir(&host)
-        } else {
-            std::fs::remove_file(&host)
-        };
-        removed?;
-        ok(0)
-    }
-
-    fn renameat(
-        &mut self,
-        old_dirfd: Fd,
-        old: VirtAddr,
-        new_dirfd: Fd,
-        new: VirtAddr,
-    ) -> SysResult {
-        let from = self.resolve(old_dirfd, old)?;
-        let to = self.resolve(new_dirfd, new)?;
-        std::fs::rename(&from, &to)?;
-        ok(0)
-    }
-
-    fn getcwd(&mut self, buf: VirtAddr, size: u64) -> SysResult {
-        let mut cwd =
-            std::env::current_dir().map(|p| p.to_string_lossy().into_owned().into_bytes())?;
-        cwd.push(0);
-        if cwd.len() as u64 > size {
-            return Err(Errno::ERANGE);
+    /// The process's descriptors and address space, for the file calls
+    /// HTIF serves too.
+    const fn file_calls(&mut self) -> FileCalls<'_, UserMemory<'_>> {
+        FileCalls {
+            files: &mut self.process.files,
+            memory: UserMemory { space: &self.process.space, memory: self.memory },
         }
-        self.write_user(buf, &cwd)?;
-        ok(cwd.len() as u64)
     }
 
     fn ioctl(&mut self, fd: Fd, request: u64, arg: VirtAddr) -> SysResult {
