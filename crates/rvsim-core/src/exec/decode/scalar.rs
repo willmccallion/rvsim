@@ -18,6 +18,7 @@ use crate::isa::encoding::zicboz;
 use crate::isa::fence::Fence;
 use crate::isa::fp::{FpFormat, Rounding};
 use crate::isa::instruction::{Decoded, InstructionBits};
+use crate::isa::op::AmoOp;
 use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::op::{
     AluOp, ArithOp, AtomicOp, BitOp, ClmulOp, CountOp, CsrOp, DivOp, FmaSigns, FpArithOp,
@@ -249,15 +250,15 @@ const fn atomic_op(funct5: u32) -> Option<AtomicOp> {
     Some(match funct5 {
         a_funct5::LR => AtomicOp::Lr,
         a_funct5::SC => AtomicOp::Sc,
-        a_funct5::AMOSWAP => AtomicOp::Swap,
-        a_funct5::AMOADD => AtomicOp::Add,
-        a_funct5::AMOXOR => AtomicOp::Xor,
-        a_funct5::AMOAND => AtomicOp::And,
-        a_funct5::AMOOR => AtomicOp::Or,
-        a_funct5::AMOMIN => AtomicOp::Min,
-        a_funct5::AMOMAX => AtomicOp::Max,
-        a_funct5::AMOMINU => AtomicOp::MinU,
-        a_funct5::AMOMAXU => AtomicOp::MaxU,
+        a_funct5::AMOSWAP => AtomicOp::Amo(AmoOp::Swap),
+        a_funct5::AMOADD => AtomicOp::Amo(AmoOp::Add),
+        a_funct5::AMOXOR => AtomicOp::Amo(AmoOp::Xor),
+        a_funct5::AMOAND => AtomicOp::Amo(AmoOp::And),
+        a_funct5::AMOOR => AtomicOp::Amo(AmoOp::Or),
+        a_funct5::AMOMIN => AtomicOp::Amo(AmoOp::Min),
+        a_funct5::AMOMAX => AtomicOp::Amo(AmoOp::Max),
+        a_funct5::AMOMINU => AtomicOp::Amo(AmoOp::MinU),
+        a_funct5::AMOMAXU => AtomicOp::Amo(AmoOp::MaxU),
         _ => return None,
     })
 }

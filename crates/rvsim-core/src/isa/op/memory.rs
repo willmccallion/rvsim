@@ -5,34 +5,31 @@
 pub enum AtomicOp {
     /// Load-reserved (atomic load with reservation).
     Lr,
-
     /// Store-conditional (atomic store if reservation valid).
     Sc,
+    /// A read-modify-write.
+    Amo(AmoOp),
+}
 
+/// The read-modify-write an AMO performs on the memory word and `rs2`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AmoOp {
     /// Atomic swap.
     Swap,
-
     /// Atomic add.
     Add,
-
     /// Atomic XOR.
     Xor,
-
     /// Atomic AND.
     And,
-
     /// Atomic OR.
     Or,
-
     /// Atomic minimum (signed).
     Min,
-
     /// Atomic maximum (signed).
     Max,
-
     /// Atomic minimum (unsigned).
     MinU,
-
     /// Atomic maximum (unsigned).
     MaxU,
 }

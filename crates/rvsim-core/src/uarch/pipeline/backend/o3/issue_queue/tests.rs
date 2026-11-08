@@ -5,7 +5,7 @@ use crate::common::VirtAddr;
 use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::instruction::InstSize;
-use crate::isa::op::{DivOp, IntAluOp};
+use crate::isa::op::{AmoOp, DivOp, IntAluOp};
 use crate::isa::reg::RegIdx;
 use crate::uarch::pipeline::backend::o3::RenamedRegisters;
 use crate::uarch::pipeline::latches::RenameIssueEntry;
@@ -336,7 +336,7 @@ fn test_queue_snapshot_sorted() {
 fn a_vector_load_waits_behind_an_incomplete_acquire_atomic() {
     let mut rob = Rob::new(8);
     let acquire = ControlSignals {
-        atomic_op: Some(crate::isa::op::AtomicOp::Swap),
+        atomic_op: Some(crate::isa::op::AtomicOp::Amo(AmoOp::Swap)),
         acquire: true,
         mem_read: true,
         mem_write: true,

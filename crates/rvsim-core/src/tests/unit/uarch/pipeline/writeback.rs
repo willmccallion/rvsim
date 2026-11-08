@@ -4,7 +4,7 @@ use crate::common::VirtAddr;
 use crate::exec::signals::JumpKind;
 use crate::exec::signals::{ControlFlow, ControlSignals};
 use crate::isa::instruction::InstSize;
-use crate::isa::op::AtomicOp;
+use crate::isa::op::{AmoOp, AtomicOp};
 use crate::uarch::pipeline::latches::{InFlightOp, Mem2WbEntry};
 
 const PC: u64 = 0x8000_0000;
@@ -33,7 +33,7 @@ fn a_load_that_read_zero_writes_zero_not_its_address() {
 
 #[test]
 fn an_atomic_writes_the_old_value_it_read() {
-    let amo = ControlSignals { atomic_op: Some(AtomicOp::Add), ..Default::default() };
+    let amo = ControlSignals { atomic_op: Some(AtomicOp::Amo(AmoOp::Add)), ..Default::default() };
 
     assert_eq!(entry(amo, ADDRESS, 7).written_value(), 7);
 }
