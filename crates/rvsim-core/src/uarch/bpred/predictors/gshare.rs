@@ -14,6 +14,7 @@
 //! - **Best Case:** Correlated branches where outcome depends on recent history
 //! - **Worst Case:** Uncorrelated branches or history length too short/long for pattern
 
+use crate::common::VirtAddr;
 use crate::uarch::bpred::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 
 /// Size of the Pattern History Table (2^12 entries).
@@ -71,16 +72,16 @@ impl DirectionPredictor for GSharePredictor {
     type History = GShareHistory;
 
     /// Predicts taken when the 2-bit counter at the hashed index is 2 or 3.
-    fn lookup(&self, pc: u64, _target: u64) -> (bool, GShareHistory) {
-        let taken = self.pht[Self::index(pc, self.ghr)] >= 2;
+    fn lookup(&self, pc: VirtAddr, _target: VirtAddr) -> (bool, GShareHistory) {
+        let taken = self.pht[Self::index(pc.val(), self.ghr)] >= 2;
         (taken, GShareHistory { ghr: self.ghr })
     }
 
-    fn unconditional(&self, _pc: u64, _jump: Jump) -> GShareHistory {
+    fn unconditional(&self, _pc: VirtAddr, _jump: Jump) -> GShareHistory {
         GShareHistory { ghr: self.ghr }
     }
 
-    fn update_histories(&mut self, _pc: u64, taken: bool, _history: &GShareHistory) {
+    fn update_histories(&mut self, _pc: VirtAddr, taken: bool, _history: &GShareHistory) {
         self.ghr = Self::shifted(self.ghr, taken);
     }
 
@@ -88,16 +89,16 @@ impl DirectionPredictor for GSharePredictor {
         self.ghr = history.ghr;
     }
 
-    fn correct(&mut self, _pc: u64, taken: bool, history: &GShareHistory) {
+    fn correct(&mut self, _pc: VirtAddr, taken: bool, history: &GShareHistory) {
         self.ghr = Self::shifted(history.ghr, taken);
     }
 
     /// Trains the 2-bit counter the prediction read.
-    fn commit(&mut self, pc: u64, retired: Retired, history: &GShareHistory) {
+    fn commit(&mut self, pc: VirtAddr, retired: Retired, history: &GShareHistory) {
         if retired.class != BranchClass::Conditional {
             return;
         }
-        let counter = &mut self.pht[Self::index(pc, history.ghr)];
+        let counter = &mut self.pht[Self::index(pc.val(), history.ghr)];
         if retired.taken && *counter < 3 {
             *counter += 1;
         } else if !retired.taken && *counter > 0 {

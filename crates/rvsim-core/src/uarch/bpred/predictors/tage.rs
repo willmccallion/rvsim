@@ -5,6 +5,7 @@
 //! NOT include a loop predictor — the "L" in SC-L-TAGE belongs to that
 //! composed predictor only.
 
+use crate::common::VirtAddr;
 use crate::config::TageConfig;
 use crate::uarch::bpred::components::tage_core::{TageCore, TagePrediction};
 use crate::uarch::bpred::components::tage_history::{HistoryBranch, HistoryCheckpoint};
@@ -39,18 +40,18 @@ impl TagePredictor {
 impl DirectionPredictor for TagePredictor {
     type History = TageHistory;
 
-    fn lookup(&self, pc: u64, _target: u64) -> (bool, TageHistory) {
+    fn lookup(&self, pc: VirtAddr, _target: VirtAddr) -> (bool, TageHistory) {
         let prediction = self.tage.predict(pc);
         let mut history = self.record(HistoryBranch::Conditional);
         history.prediction = Some(prediction);
         (prediction.taken(), history)
     }
 
-    fn unconditional(&self, _pc: u64, jump: Jump) -> TageHistory {
+    fn unconditional(&self, _pc: VirtAddr, jump: Jump) -> TageHistory {
         self.record(HistoryBranch::from(jump))
     }
 
-    fn update_histories(&mut self, pc: u64, taken: bool, history: &TageHistory) {
+    fn update_histories(&mut self, pc: VirtAddr, taken: bool, history: &TageHistory) {
         self.tage.speculate(pc, taken, history.branch);
     }
 
@@ -58,14 +59,14 @@ impl DirectionPredictor for TagePredictor {
         self.tage.restore(&history.checkpoint);
     }
 
-    fn correct(&mut self, pc: u64, taken: bool, history: &TageHistory) {
+    fn correct(&mut self, pc: VirtAddr, taken: bool, history: &TageHistory) {
         self.tage.restore(&history.checkpoint);
         self.tage.speculate(pc, taken, history.branch);
     }
 
     /// Trains the entries the prediction read, as gem5 trains those its
     /// `BranchInfo` recorded.
-    fn commit(&mut self, _pc: u64, retired: Retired, history: &TageHistory) {
+    fn commit(&mut self, _pc: VirtAddr, retired: Retired, history: &TageHistory) {
         if retired.class == BranchClass::Conditional
             && let Some(prediction) = &history.prediction
         {
@@ -93,15 +94,15 @@ mod tests {
     fn squashing_younger_predictions_restores_the_history_they_shifted() {
         let mut tage = TagePredictor::new(&test_config());
         for i in 0u64..20 {
-            let (_, history) = tage.lookup(0x8000_1000 + i * 4, 0);
-            tage.update_histories(0, i % 2 == 0, &history);
+            let (_, history) = tage.lookup(VirtAddr::new(0x8000_1000 + i * 4), VirtAddr::new(0));
+            tage.update_histories(VirtAddr::new(0), i % 2 == 0, &history);
         }
         let before = tage.tage.checkpoint();
 
         let mut squashed = Vec::new();
         for _ in 0..30 {
-            let (_, history) = tage.lookup(0x2000, 0);
-            tage.update_histories(0x2000, true, &history);
+            let (_, history) = tage.lookup(VirtAddr::new(0x2000), VirtAddr::new(0));
+            tage.update_histories(VirtAddr::new(0x2000), true, &history);
             squashed.push(history);
         }
         for history in squashed.iter().rev() {

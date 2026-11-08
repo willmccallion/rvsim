@@ -11,6 +11,7 @@
 //! only when its BTB hits; here every conditional branch is predicted,
 //! which differs only before the BTB has learned a branch.
 
+use crate::common::VirtAddr;
 use crate::config::BhtConfig;
 use crate::uarch::bpred::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 
@@ -113,19 +114,19 @@ impl DirectionPredictor for BhtPredictor {
     type History = BhtHistory;
 
     /// Predicts taken when the counter's low bit is set (`BHTResp.taken`).
-    fn lookup(&self, pc: u64, _target: u64) -> (bool, BhtHistory) {
-        let value = self.table[self.index(pc, self.history)];
+    fn lookup(&self, pc: VirtAddr, _target: VirtAddr) -> (bool, BhtHistory) {
+        let value = self.table[self.index(pc.val(), self.history)];
         let history = BhtHistory { history: self.history, value, class: BranchClass::Conditional };
         (value & 1 == 1, history)
     }
 
-    fn unconditional(&self, _pc: u64, _jump: Jump) -> BhtHistory {
+    fn unconditional(&self, _pc: VirtAddr, _jump: Jump) -> BhtHistory {
         BhtHistory { history: self.history, value: 0, class: BranchClass::Unconditional }
     }
 
     /// Advances the history with a predicted branch's direction
     /// (`advanceHistory`); a jump leaves it alone.
-    fn update_histories(&mut self, _pc: u64, taken: bool, history: &BhtHistory) {
+    fn update_histories(&mut self, _pc: VirtAddr, taken: bool, history: &BhtHistory) {
         if history.class == BranchClass::Conditional {
             self.history = self.shifted(history.history, taken);
         }
@@ -138,7 +139,7 @@ impl DirectionPredictor for BhtPredictor {
     /// Rebuilds the history from a mispredicted branch's fetch-time history
     /// and its real direction (`updateHistory`), or resets it to a
     /// mispredicted jump's (`resetHistory`).
-    fn correct(&mut self, _pc: u64, taken: bool, history: &BhtHistory) {
+    fn correct(&mut self, _pc: VirtAddr, taken: bool, history: &BhtHistory) {
         self.history = match history.class {
             BranchClass::Conditional => self.shifted(history.history, taken),
             BranchClass::Unconditional => history.history,
@@ -146,11 +147,11 @@ impl DirectionPredictor for BhtPredictor {
     }
 
     /// Trains the counter the prediction read, from the value it read.
-    fn commit(&mut self, pc: u64, retired: Retired, history: &BhtHistory) {
+    fn commit(&mut self, pc: VirtAddr, retired: Retired, history: &BhtHistory) {
         if retired.class != BranchClass::Conditional {
             return;
         }
-        let index = self.index(pc, history.history);
+        let index = self.index(pc.val(), history.history);
         self.table[index] = self.trained(history.value, retired.taken);
     }
 }

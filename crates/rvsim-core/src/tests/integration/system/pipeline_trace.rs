@@ -2,6 +2,7 @@
 //! squash, in stage order, on both backends; the Kanata writer turns it
 //! into the log Konata reads.
 
+use crate::common::VirtAddr;
 use crate::tests::support::regs::{A0, T0, T1, X0};
 use std::sync::{Arc, Mutex};
 
@@ -15,7 +16,7 @@ use crate::uarch::pipeline::trace::{Departure, PipelineTrace, Stage};
 /// What the trace was told about one instruction.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Seen {
-    pc: Option<u64>,
+    pc: Option<VirtAddr>,
     inst: Option<u32>,
     stages: Vec<Stage>,
     left: Option<Departure>,
@@ -55,7 +56,7 @@ impl Recording {
 }
 
 impl PipelineTrace for Recording {
-    fn fetched(&mut self, _cycle: u64, hart: HartId, seq: InstSeq, pc: u64) {
+    fn fetched(&mut self, _cycle: u64, hart: HartId, seq: InstSeq, pc: VirtAddr) {
         self.with(hart, seq, |seen| {
             seen.pc = Some(pc);
             seen.stages.push(Stage::Fetch);
@@ -134,7 +135,11 @@ fn every_retired_instruction_passes_its_stages_in_order() {
             seen.iter().filter(|s| s.left == Some(Departure::Retired)).collect();
         assert_eq!(retired.len(), straight_line().len(), "{backend:?}: {seen:?}");
         for (index, inst) in retired.iter().enumerate() {
-            assert_eq!(inst.pc, Some(PROGRAM_BASE + 4 * index as u64), "{backend:?}");
+            assert_eq!(
+                inst.pc,
+                Some(VirtAddr::new(PROGRAM_BASE + 4 * index as u64)),
+                "{backend:?}"
+            );
             assert_eq!(inst.inst, Some(straight_line()[index]), "{backend:?}");
             let order = [
                 Stage::Fetch,
@@ -190,12 +195,12 @@ fn the_kanata_log_has_the_header_cycles_stages_and_retirements() {
     let hart = HartId::new(0);
     let mut writer = KanataWriter::new(Vec::new(), "test.kanata").expect("the header writes");
 
-    writer.fetched(10, hart, InstSeq::new(7), 0x8000_0000);
+    writer.fetched(10, hart, InstSeq::new(7), VirtAddr::new(0x8000_0000));
     writer.decoded(11, hart, InstSeq::new(7), 0x0010_0093);
     writer.entered(11, hart, InstSeq::new(7), Stage::Decode);
     writer.entered(12, hart, InstSeq::new(7), Stage::Execute);
     writer.entered(12, hart, InstSeq::new(7), Stage::Execute);
-    writer.fetched(12, hart, InstSeq::new(8), 0x8000_0004);
+    writer.fetched(12, hart, InstSeq::new(8), VirtAddr::new(0x8000_0004));
     writer.entered(14, hart, InstSeq::new(7), Stage::Commit);
     writer.left(14, hart, InstSeq::new(7), Departure::Retired);
     writer.left(15, hart, InstSeq::new(8), Departure::Squashed);

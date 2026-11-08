@@ -13,6 +13,7 @@
 
 use super::folded_history::FoldedHistory;
 use super::tagged_bank::MAX_BANKS;
+use crate::common::VirtAddr;
 use crate::config::TageHistoryMode;
 use crate::uarch::bpred::direction::Jump;
 
@@ -117,7 +118,8 @@ impl TageHistories {
     /// Shifts in the instruction at `pc` going `taken`: `TAGEBase` pushes
     /// its direction and one PC bit of path; TAGE-SC-L pushes two PC-hashed
     /// bits (three for an indirect jump) and a path bit with each.
-    pub fn speculate(&mut self, pc: u64, taken: bool, branch: HistoryBranch) {
+    pub fn speculate(&mut self, pc: VirtAddr, taken: bool, branch: HistoryBranch) {
+        let pc = pc.val();
         match self.mode {
             TageHistoryMode::Direction => {
                 self.push(taken);
@@ -204,7 +206,7 @@ mod tests {
         let mut h = histories(TageHistoryMode::Direction);
 
         for i in 0u64..400 {
-            h.speculate(0x8000_0000 + 4 * i, i % 3 != 0, HistoryBranch::Conditional);
+            h.speculate(VirtAddr::new(0x8000_0000 + 4 * i), i % 3 != 0, HistoryBranch::Conditional);
         }
 
         for bank in 0..4 {
@@ -216,13 +218,13 @@ mod tests {
     fn restoring_a_checkpoint_undoes_every_later_update() {
         let mut h = histories(TageHistoryMode::PcBits);
         for i in 0u64..100 {
-            h.speculate(0x8000_0000 + 4 * i, i % 2 == 0, HistoryBranch::Conditional);
+            h.speculate(VirtAddr::new(0x8000_0000 + 4 * i), i % 2 == 0, HistoryBranch::Conditional);
         }
         let checkpoint = h.checkpoint();
         let before = ((0..4).map(|bank| h.folds(bank)).collect::<Vec<_>>(), h.path());
 
         for i in 0u64..300 {
-            h.speculate(0x8000_4000 + 4 * i, true, HistoryBranch::IndirectJump);
+            h.speculate(VirtAddr::new(0x8000_4000 + 4 * i), true, HistoryBranch::IndirectJump);
         }
         h.restore(&checkpoint);
 
@@ -237,9 +239,9 @@ mod tests {
         let mut h = histories(TageHistoryMode::PcBits);
         let start = h.head;
 
-        h.speculate(0x8000_0000, true, HistoryBranch::Conditional);
-        h.speculate(0x8000_0010, true, HistoryBranch::DirectJump);
-        h.speculate(0x8000_0020, true, HistoryBranch::IndirectJump);
+        h.speculate(VirtAddr::new(0x8000_0000), true, HistoryBranch::Conditional);
+        h.speculate(VirtAddr::new(0x8000_0010), true, HistoryBranch::DirectJump);
+        h.speculate(VirtAddr::new(0x8000_0020), true, HistoryBranch::IndirectJump);
 
         assert_eq!(h.head - start, 7);
     }
@@ -249,7 +251,7 @@ mod tests {
         let mut h = TageHistories::new(&[5], &[9], 8, 27, TageHistoryMode::PcBits);
 
         for i in 0u64..100 {
-            h.speculate(0x8765_4320 + 4 * i, true, HistoryBranch::Conditional);
+            h.speculate(VirtAddr::new(0x8765_4320 + 4 * i), true, HistoryBranch::Conditional);
         }
 
         assert_eq!(h.path() >> 27, 0);

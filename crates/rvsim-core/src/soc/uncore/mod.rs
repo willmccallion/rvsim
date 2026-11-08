@@ -193,7 +193,7 @@ impl Uncore {
     /// fetched from `pc`.
     pub fn trace_fetched(&mut self, hart: HartId, seq: InstSeq, pc: VirtAddr) {
         if let Some(trace) = &mut self.host.pipeline_trace {
-            trace.fetched(self.kernel.cycle, hart, seq, pc.val());
+            trace.fetched(self.kernel.cycle, hart, seq, pc);
         }
     }
 

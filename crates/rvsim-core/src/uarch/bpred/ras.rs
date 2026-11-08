@@ -4,6 +4,8 @@
 //! pop past the bottom wraps to it. Each prediction keeps a [`RasHistory`]
 //! of what it did, which a squash undoes youngest first.
 
+use crate::common::VirtAddr;
+
 /// The stack operations one prediction performed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RasHistory {
@@ -15,14 +17,14 @@ pub struct RasHistory {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PoppedEntry {
     tos: usize,
-    entry: Option<u64>,
+    entry: Option<VirtAddr>,
 }
 
 /// Return Address Stack structure.
 #[derive(Debug)]
 pub struct Ras {
     /// The entries; `None` until first written.
-    stack: Vec<Option<u64>>,
+    stack: Vec<Option<VirtAddr>>,
     /// Index of the top of stack.
     tos: usize,
 }
@@ -34,7 +36,7 @@ impl Ras {
     }
 
     /// Pushes a call's return address, recording the push in `history`.
-    pub fn push(&mut self, addr: u64, history: &mut RasHistory) {
+    pub fn push(&mut self, addr: VirtAddr, history: &mut RasHistory) {
         if self.stack.is_empty() {
             return;
         }
@@ -44,7 +46,7 @@ impl Ras {
     }
 
     /// Pops a return's predicted target, recording the pop in `history`.
-    pub fn pop(&mut self, history: &mut RasHistory) -> Option<u64> {
+    pub fn pop(&mut self, history: &mut RasHistory) -> Option<VirtAddr> {
         let entry = self.top();
         if self.stack.is_empty() {
             return entry;
@@ -55,7 +57,7 @@ impl Ras {
     }
 
     /// The address a return would predict now.
-    pub fn top(&self) -> Option<u64> {
+    pub fn top(&self) -> Option<VirtAddr> {
         self.stack.get(self.tos).copied().flatten()
     }
 

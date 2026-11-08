@@ -146,11 +146,11 @@ fn bht_learns_taken_under_a_history_it_has_been_trained_under() {
 #[test]
 fn bht_indexes_by_the_word_address_with_the_hashed_history_above_it() {
     let bp = bht();
-    let pc = 0x8000_0010;
+    let pc = VirtAddr::new(0x8000_0010);
 
-    assert_eq!(bp.index(pc, 0), 4);
+    assert_eq!(bp.index(pc.val(), 0), 4);
     // 221 * 160 = 35360, whose low byte 32 has 1 in its top three bits.
-    assert_eq!(bp.index(pc, 160), 4 ^ (1 << 6));
+    assert_eq!(bp.index(pc.val(), 160), 4 ^ (1 << 6));
 }
 
 /// Two branches a few instructions apart never share a counter, whatever

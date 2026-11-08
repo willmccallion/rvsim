@@ -11,6 +11,7 @@
 //! 3. SC correction -> may flip direction if confident base is wrong
 //! 4. Target: ITTAGE for indirect jumps, the unit's BTB otherwise
 
+use crate::common::VirtAddr;
 use crate::config::{IttageConfig, LoopConfig, ScConfig, TageConfig};
 use crate::uarch::bpred::Ghr;
 use crate::uarch::bpred::components::{
@@ -74,7 +75,7 @@ impl ScLTagePredictor {
         }
     }
 
-    fn push_speculative(&mut self, pc: u64, taken: bool, branch: HistoryBranch) {
+    fn push_speculative(&mut self, pc: VirtAddr, taken: bool, branch: HistoryBranch) {
         self.tage.speculate(pc, taken, branch);
         self.ittage.speculate(taken, &self.spec_ghr);
         self.spec_ghr.push(taken);
@@ -99,7 +100,7 @@ impl ScLTagePredictor {
         self.sc.squash(&prediction.sc);
     }
 
-    fn train_direction(&mut self, pc: u64, taken: bool, prediction: &ConditionalPrediction) {
+    fn train_direction(&mut self, pc: VirtAddr, taken: bool, prediction: &ConditionalPrediction) {
         self.sc.update(&prediction.sc, taken);
         self.loop_pred.commit(pc, taken, prediction.tage.taken(), prediction.sc.taken());
         self.tage.update(taken, &prediction.tage, prediction.sc.taken());
@@ -109,7 +110,7 @@ impl ScLTagePredictor {
 impl DirectionPredictor for ScLTagePredictor {
     type History = ScLTageHistory;
 
-    fn lookup(&self, pc: u64, target: u64) -> (bool, ScLTageHistory) {
+    fn lookup(&self, pc: VirtAddr, target: VirtAddr) -> (bool, ScLTageHistory) {
         let tage = self.tage.predict(pc);
         let loop_prediction = self.loop_pred.predict(pc);
         let before_sc = match loop_prediction.confident() {
@@ -123,11 +124,11 @@ impl DirectionPredictor for ScLTagePredictor {
         (sc.taken(), history)
     }
 
-    fn unconditional(&self, _pc: u64, jump: Jump) -> ScLTageHistory {
+    fn unconditional(&self, _pc: VirtAddr, jump: Jump) -> ScLTageHistory {
         self.record(HistoryBranch::from(jump))
     }
 
-    fn update_histories(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
+    fn update_histories(&mut self, pc: VirtAddr, taken: bool, history: &ScLTageHistory) {
         self.push_speculative(pc, taken, history.branch);
         if let Some(prediction) = &history.conditional {
             self.speculate_conditional(prediction, taken);
@@ -146,7 +147,7 @@ impl DirectionPredictor for ScLTagePredictor {
         self.ittage.repair_history(&self.spec_ghr);
     }
 
-    fn correct(&mut self, pc: u64, taken: bool, history: &ScLTageHistory) {
+    fn correct(&mut self, pc: VirtAddr, taken: bool, history: &ScLTageHistory) {
         self.spec_ghr = history.ghr;
         self.tage.restore(&history.checkpoint);
         self.ittage.repair_history(&self.spec_ghr);
@@ -157,7 +158,7 @@ impl DirectionPredictor for ScLTagePredictor {
         }
     }
 
-    fn commit(&mut self, pc: u64, retired: Retired, history: &ScLTageHistory) {
+    fn commit(&mut self, pc: VirtAddr, retired: Retired, history: &ScLTageHistory) {
         if let Some(prediction) = &history.conditional {
             self.train_direction(pc, retired.taken, prediction);
         }
@@ -166,7 +167,7 @@ impl DirectionPredictor for ScLTagePredictor {
         }
     }
 
-    fn indirect_target(&self, pc: u64) -> Option<u64> {
+    fn indirect_target(&self, pc: VirtAddr) -> Option<VirtAddr> {
         self.ittage.predict(pc)
     }
 }
@@ -208,7 +209,7 @@ mod tests {
 
     #[test]
     fn an_untrained_branch_follows_the_weakly_not_taken_bimodal() {
-        let (taken, _) = predictor().lookup(0x8000_1004, 0x8000_1040);
+        let (taken, _) = predictor().lookup(VirtAddr::new(0x8000_1004), VirtAddr::new(0x8000_1040));
 
         assert!(!taken);
     }
@@ -217,14 +218,14 @@ mod tests {
     fn squashing_younger_predictions_restores_the_history_they_shifted() {
         let mut pred = predictor();
         for i in 0u64..20 {
-            let history = pred.unconditional(0x1000 + i * 4, Jump::Direct);
-            pred.update_histories(0x1000 + i * 4, i % 2 == 0, &history);
+            let history = pred.unconditional(VirtAddr::new(0x1000 + i * 4), Jump::Direct);
+            pred.update_histories(VirtAddr::new(0x1000 + i * 4), i % 2 == 0, &history);
         }
         let before = (pred.spec_ghr, pred.tage.checkpoint());
         let mut squashed = Vec::new();
         for _ in 0..10 {
-            let (_, history) = pred.lookup(0x2000, 0x2040);
-            pred.update_histories(0x2000, true, &history);
+            let (_, history) = pred.lookup(VirtAddr::new(0x2000), VirtAddr::new(0x2040));
+            pred.update_histories(VirtAddr::new(0x2000), true, &history);
             squashed.push(history);
         }
 
@@ -239,8 +240,8 @@ mod tests {
     #[test]
     fn a_committed_indirect_jump_teaches_ittage_its_target() {
         let mut pred = predictor();
-        let pc = 0x8000_2000u64;
-        let target = 0x8000_5000u64;
+        let pc = VirtAddr::new(0x8000_2000);
+        let target = VirtAddr::new(0x8000_5000);
         let history = pred.unconditional(pc, Jump::Indirect);
 
         pred.commit(

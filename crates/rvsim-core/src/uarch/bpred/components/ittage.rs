@@ -9,6 +9,7 @@
 //! into speculate/repair calls, avoiding redundant 128-byte copies.
 
 use super::tagged_bank::GeoBankSet;
+use crate::common::VirtAddr;
 use crate::config::IttageConfig;
 use crate::uarch::bpred::Ghr;
 
@@ -17,8 +18,8 @@ use crate::uarch::bpred::Ghr;
 struct IttageEntry {
     /// Tag for matching the history/PC hash.
     tag: u16,
-    /// Predicted target address.
-    target: u64,
+    /// Predicted target address; zero while the entry is untrained.
+    target: VirtAddr,
     /// 2-bit useful counter for replacement policy.
     u: u8,
 }
@@ -78,12 +79,12 @@ impl Ittage {
     }
 
     /// Predicts the target for an indirect branch. Returns `Some(target)` on hit.
-    pub fn predict(&self, pc: u64) -> Option<u64> {
+    pub fn predict(&self, pc: VirtAddr) -> Option<VirtAddr> {
         for i in (0..self.banks.num_banks()).rev() {
-            let idx = self.banks.spec_index(pc, i);
-            let tag = self.banks.spec_tag(pc, i);
+            let idx = self.banks.spec_index(pc.val(), i);
+            let tag = self.banks.spec_tag(pc.val(), i);
             let entry = &self.tables[i][idx];
-            if entry.tag == tag && entry.target != 0 {
+            if entry.tag == tag && entry.target != VirtAddr::default() {
                 return Some(entry.target);
             }
         }
@@ -91,7 +92,7 @@ impl Ittage {
     }
 
     /// Updates ITTAGE at commit time with the actual target.
-    pub fn update(&mut self, pc: u64, target: u64, ghr_snapshot: &Ghr) {
+    pub fn update(&mut self, pc: VirtAddr, target: VirtAddr, ghr_snapshot: &Ghr) {
         self.clock_counter += 1;
         if self.clock_counter >= self.reset_interval {
             self.clock_counter = 0;
@@ -104,7 +105,7 @@ impl Ittage {
 
         let num_banks = self.banks.num_banks();
 
-        let (indices, tags) = self.banks.snapshot_all(pc, ghr_snapshot);
+        let (indices, tags) = self.banks.snapshot_all(pc.val(), ghr_snapshot);
 
         let mut provider = None;
         for i in (0..num_banks).rev() {
@@ -190,8 +191,8 @@ mod tests {
     #[test]
     fn a_branch_predicts_no_target_until_trained_with_one() {
         let mut ittage = Ittage::new(&test_config());
-        let pc = 0x8000_2000u64;
-        let target = 0x8000_3000u64;
+        let pc = VirtAddr::new(0x8000_2000);
+        let target = VirtAddr::new(0x8000_3000);
         let ghr = Ghr::with_len(32);
 
         // Initially no prediction (default entries have target=0, filtered out).
@@ -205,8 +206,8 @@ mod tests {
     #[test]
     fn a_history_repair_realigns_prediction_with_the_snapshot() {
         let mut ittage = Ittage::new(&test_config());
-        let pc = 0x8000_1000u64;
-        let target = 0x8000_5000u64;
+        let pc = VirtAddr::new(0x8000_1000);
+        let target = VirtAddr::new(0x8000_5000);
         let mut ghr = Ghr::with_len(32);
 
         // Push some speculative history.
@@ -226,10 +227,12 @@ mod tests {
         ittage.repair_history(&ghr);
 
         let banks = 0..ittage.banks.num_banks();
-        let (indices, tags) = ittage.banks.snapshot_all(pc, &ghr);
+        let (indices, tags) = ittage.banks.snapshot_all(pc.val(), &ghr);
         let speculative: Vec<_> = banks
             .clone()
-            .map(|bank| (ittage.banks.spec_index(pc, bank), ittage.banks.spec_tag(pc, bank)))
+            .map(|bank| {
+                (ittage.banks.spec_index(pc.val(), bank), ittage.banks.spec_tag(pc.val(), bank))
+            })
             .collect();
         let recomputed: Vec<_> = banks.map(|bank| (indices[bank], tags[bank])).collect();
         assert_eq!(speculative, recomputed);

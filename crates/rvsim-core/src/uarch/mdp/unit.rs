@@ -116,9 +116,9 @@ impl MemDepUnit {
             }
             (PredictorKind::StoreSet(predictor), MemDepAccess::Load | MemDepAccess::Store) => {
                 predictor.note_mem_op();
-                let prediction = predictor.predict(pc.val());
+                let prediction = predictor.predict(pc);
                 if access == MemDepAccess::Store {
-                    predictor.register_store(pc.val(), rob_tag);
+                    predictor.register_store(pc, rob_tag);
                 }
                 match prediction {
                     MemPrediction::DepOn(barrier) if barrier.is_older_than(rob_tag) => {
@@ -159,7 +159,7 @@ impl MemDepUnit {
     pub fn violation(&mut self, load_pc: VirtAddr, store_pc: VirtAddr) {
         self.stats.violations += 1;
         if let PredictorKind::StoreSet(predictor) = &mut self.predictor {
-            predictor.train(load_pc.val(), store_pc.val());
+            predictor.train(load_pc, store_pc);
         }
     }
 
@@ -190,7 +190,7 @@ impl MemDepUnit {
             predictor.flush_after(keep_tag);
             for entry in rob.iter() {
                 if entry.ctrl.mem_write {
-                    predictor.rebuild_lfst_entry(entry.pc.val(), entry.tag);
+                    predictor.rebuild_lfst_entry(entry.pc, entry.tag);
                 }
             }
         }
@@ -284,25 +284,19 @@ mod tests {
     fn a_load_trained_against_a_store_waits_for_it() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
-        let load_pc = 0x1000;
-        let store_pc = 0x2000;
+        let load_pc = VirtAddr::new(0x1000);
+        let store_pc = VirtAddr::new(0x2000);
 
         // Train violation.
-        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
+        mdu.violation(load_pc, store_pc);
 
         // Dispatch store — registers in LFST.
         let s1 = RobTag::new(5);
-        assert_eq!(
-            mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store),
-            MemDepState::None
-        );
+        assert_eq!(mdu.dispatch(store_pc, s1, MemDepAccess::Store), MemDepState::None);
 
         // Dispatch load — depends on store.
         let l1 = RobTag::new(10);
-        assert_eq!(
-            mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load),
-            MemDepState::WaitFor(s1)
-        );
+        assert_eq!(mdu.dispatch(load_pc, l1, MemDepAccess::Load), MemDepState::WaitFor(s1));
         assert_eq!(mdu.stats().predictions_wait_for, 1);
     }
 
@@ -325,14 +319,14 @@ mod tests {
     fn issuing_a_load_drops_its_dependence() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
-        let load_pc = 0x1000;
-        let store_pc = 0x2000;
+        let load_pc = VirtAddr::new(0x1000);
+        let store_pc = VirtAddr::new(0x2000);
 
-        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
+        mdu.violation(load_pc, store_pc);
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store);
+        let _ = mdu.dispatch(store_pc, s1, MemDepAccess::Store);
         let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load);
+        let _ = mdu.dispatch(load_pc, l1, MemDepAccess::Load);
 
         // Issue the load — dep record removed.
         mdu.issued(l1);
@@ -343,14 +337,14 @@ mod tests {
     fn a_flush_drops_every_dependence() {
         let config = store_set_config();
         let mut mdu = MemDepUnit::new(&config);
-        let load_pc = 0x1000;
-        let store_pc = 0x2000;
+        let load_pc = VirtAddr::new(0x1000);
+        let store_pc = VirtAddr::new(0x2000);
 
-        mdu.violation(VirtAddr::new(load_pc), VirtAddr::new(store_pc));
+        mdu.violation(load_pc, store_pc);
         let s1 = RobTag::new(5);
-        let _ = mdu.dispatch(VirtAddr::new(store_pc), s1, MemDepAccess::Store);
+        let _ = mdu.dispatch(store_pc, s1, MemDepAccess::Store);
         let l1 = RobTag::new(10);
-        let _ = mdu.dispatch(VirtAddr::new(load_pc), l1, MemDepAccess::Load);
+        let _ = mdu.dispatch(load_pc, l1, MemDepAccess::Load);
 
         mdu.flush();
         assert!(mdu.deps.is_empty());

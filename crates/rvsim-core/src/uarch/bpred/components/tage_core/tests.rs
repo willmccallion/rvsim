@@ -18,7 +18,7 @@ fn a_branch_never_seen_is_predicted_not_taken() {
     let tage = TageCore::new(&test_config());
 
     // Its tags are not 0, which every empty tagged entry holds.
-    let prediction = tage.predict(0x8000_1004);
+    let prediction = tage.predict(VirtAddr::new(0x8000_1004));
 
     assert!(!prediction.taken());
 }
@@ -26,15 +26,15 @@ fn a_branch_never_seen_is_predicted_not_taken() {
 #[test]
 fn restoring_a_checkpoint_restores_the_prediction() {
     let mut tage = TageCore::new(&test_config());
-    let pc = 0x8000_1234u64;
+    let pc = VirtAddr::new(0x8000_1234);
     for i in 0u64..50 {
-        tage.speculate(0x8000_0000, i % 3 != 0, HistoryBranch::Conditional);
+        tage.speculate(VirtAddr::new(0x8000_0000), i % 3 != 0, HistoryBranch::Conditional);
     }
     let checkpoint = tage.checkpoint();
     let saved = tage.predict(pc);
 
     for _ in 0..30 {
-        tage.speculate(0x8000_0000, true, HistoryBranch::Conditional);
+        tage.speculate(VirtAddr::new(0x8000_0000), true, HistoryBranch::Conditional);
     }
     tage.restore(&checkpoint);
 
@@ -45,16 +45,16 @@ fn restoring_a_checkpoint_restores_the_prediction() {
 fn a_branch_trains_the_entries_its_prediction_read() {
     let mut tage = TageCore::new(&test_config());
     for i in 0u64..40 {
-        tage.speculate(0x8000_0000 + 4 * i, i % 3 == 0, HistoryBranch::Conditional);
+        tage.speculate(VirtAddr::new(0x8000_0000 + 4 * i), i % 3 == 0, HistoryBranch::Conditional);
     }
     let at_prediction = tage.checkpoint();
-    let pc = 0x8000_2040u64;
+    let pc = VirtAddr::new(0x8000_2040);
 
     for _ in 0..30 {
         tage.restore(&at_prediction);
         let prediction = tage.predict(pc);
         for _ in 0..8 {
-            tage.speculate(0x8000_0000, true, HistoryBranch::Conditional);
+            tage.speculate(VirtAddr::new(0x8000_0000), true, HistoryBranch::Conditional);
         }
         tage.update(false, &prediction, prediction.taken());
     }
@@ -79,7 +79,7 @@ fn a_wide_path_folds_as_tagebase_f_does() {
 #[test]
 fn the_path_history_separates_branches_with_the_same_global_history() {
     let mut tage = TageCore::new(&test_config());
-    let pc = 0x8000_2040u64;
+    let pc = VirtAddr::new(0x8000_2040);
 
     tage.histories.set_path(0b1010);
     let one_path = tage.predict(pc);
@@ -175,7 +175,7 @@ fn the_alternate_trains_while_the_provider_has_not_proved_useful() {
 #[test]
 fn training_turns_the_prediction_to_each_outcome() {
     let mut tage = TageCore::new(&test_config());
-    let pc = 0x8000_1000u64;
+    let pc = VirtAddr::new(0x8000_1000);
     let mut train = |taken: bool| {
         for _ in 0..50 {
             let prediction = tage.predict(pc);
@@ -355,8 +355,8 @@ fn enabled_banks_take_consecutive_slices_of_their_array() {
 #[test]
 fn a_disabled_bank_never_provides() {
     let mut tage = TageCore::new(&banked_config());
-    let pc = 0x8000_1234;
-    let (indices, tags) = tage.indices_and_tags(pc);
+    let pc = VirtAddr::new(0x8000_1234);
+    let (indices, tags) = tage.indices_and_tags(pc.val());
     let entry = &mut tage.storage[tage.bank_storage[3]][indices[3]];
     entry.tag = tags[3];
     entry.ctr = 3;

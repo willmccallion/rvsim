@@ -7,6 +7,7 @@
 //! predictions advance and a squash restores; commit trains with the
 //! committed count, as gem5's `LoopPredictor` does.
 
+use crate::common::VirtAddr;
 use crate::config::LoopConfig;
 use crate::uarch::bpred::components::xorshift64;
 
@@ -82,8 +83,8 @@ impl LoopPredictor {
     /// Looks the branch at `pc` up, predicting from the speculative
     /// iteration counts.
     #[must_use]
-    pub fn predict(&self, pc: u64) -> LoopPrediction {
-        self.lookup(pc, true)
+    pub fn predict(&self, pc: VirtAddr) -> LoopPrediction {
+        self.lookup(pc.val(), true)
     }
 
     /// Whether confident loop predictions are currently used.
@@ -111,8 +112,8 @@ impl LoopPredictor {
     /// Trains with a committed branch: `tage_taken` is TAGE's prediction
     /// and `final_taken` the one fetch followed. As gem5 does with
     /// speculation, it looks the entry up again with the committed count.
-    pub fn commit(&mut self, pc: u64, taken: bool, tage_taken: bool, final_taken: bool) {
-        let committed = self.lookup(pc, false);
+    pub fn commit(&mut self, pc: VirtAddr, taken: bool, tage_taken: bool, final_taken: bool) {
+        let committed = self.lookup(pc.val(), false);
         if committed.valid && final_taken != committed.taken {
             self.use_counter = step_signed(
                 self.use_counter,
@@ -344,7 +345,7 @@ mod tests {
     /// Runs `runs` full runs of a loop at `pc` of `iterations` taken
     /// branches and one exit, committing each as it is predicted; fetch
     /// predicts taken throughout, so only the exits are mispredicted.
-    fn run_loop(lp: &mut LoopPredictor, pc: u64, iterations: usize, runs: usize) {
+    fn run_loop(lp: &mut LoopPredictor, pc: VirtAddr, iterations: usize, runs: usize) {
         for _ in 0..runs {
             for i in 0..=iterations {
                 let taken = i < iterations;
@@ -358,7 +359,7 @@ mod tests {
     #[test]
     fn a_learnt_loop_predicts_its_exit() {
         let mut lp = LoopPredictor::new(&config());
-        let pc = 0x8000_1000u64;
+        let pc = VirtAddr::new(0x8000_1000);
         run_loop(&mut lp, pc, 10, 40);
 
         for i in 0..=10 {
@@ -371,7 +372,7 @@ mod tests {
     #[test]
     fn predictions_ahead_of_commit_count_the_iterations_in_flight() {
         let mut lp = LoopPredictor::new(&config());
-        let pc = 0x8000_1000u64;
+        let pc = VirtAddr::new(0x8000_1000);
         run_loop(&mut lp, pc, 10, 40);
 
         for _ in 0..10 {
@@ -385,7 +386,7 @@ mod tests {
     #[test]
     fn a_squash_restores_the_speculative_iteration_count() {
         let mut lp = LoopPredictor::new(&config());
-        let pc = 0x8000_1000u64;
+        let pc = VirtAddr::new(0x8000_1000);
         run_loop(&mut lp, pc, 10, 40);
         let before = lp.predict(pc);
 
