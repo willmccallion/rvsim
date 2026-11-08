@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format is based on 
   in place of a string, and `privilege` is a `rvsim.Privilege`. Each is a
   `str` enum equal to the string it replaces, so comparisons such as
   `reason == "exit"` and `privilege == "U"` still hold.
+- The native stats class is `rvsim._core.StatsTree`, so `rvsim.Stats`, the
+  dict `Stats.from_core` builds, is the package's only `Stats`.
 - A run fails when a hart outside WFI retires no instruction for
   `Simulator.stall_limit` cycles (1,000,000 by default; `None` turns the
   check off), with an error naming the hart and its PC, instead of running

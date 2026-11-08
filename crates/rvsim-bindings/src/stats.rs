@@ -1,6 +1,7 @@
 //! Statistics Python binding.
 //!
-//! Exposes the hierarchical stats tree as `rvsim.Stats`. Path lookups
+//! Exposes the hierarchical stats tree as `rvsim._core.StatsTree`, which
+//! `sim.stats` returns and `rvsim.Stats.from_core` flattens. Path lookups
 //! (`stats["core0.commit.op.load"]`), wildcard queries (`stats.query("**.hits")`),
 //! subject aggregation, and the auto-summary all live on one class — no
 //! separate dict interface.
@@ -19,7 +20,7 @@ use std::collections::BTreeMap;
 /// Constructed by `PySimulator::stats` as a snapshot at
 /// the read time. Supports path lookups, wildcard queries, subject-grouped
 /// aggregation, and rendering the auto-generated summary.
-#[pyclass(name = "Stats", module = "rvsim._core")]
+#[pyclass(name = "StatsTree", module = "rvsim._core")]
 #[derive(Clone, Debug)]
 pub struct PyStats {
     stats: Stats,
@@ -160,7 +161,7 @@ impl PyStats {
 
     fn __repr__(&self) -> String {
         format!(
-            "Stats(cycles={}, instructions_retired={}, ipc={:.4})",
+            "StatsTree(cycles={}, instructions_retired={}, ipc={:.4})",
             self.cycles,
             self.instructions_retired,
             self.ipc()
