@@ -19,7 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::PhysAddr;
+use crate::common::{PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -301,8 +301,8 @@ impl Device for Htif {
         Ok(())
     }
 
-    fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, 16)
+    fn region(&self) -> PhysRange {
+        PhysRange::new(self.base_addr, 16)
     }
 
     fn quiet_ticks(&self) -> Option<u64> {

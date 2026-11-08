@@ -28,7 +28,8 @@ fn test_syscon_address_range() {
     let exit_signal = ExitSignal::new();
     let syscon = SysCon::new(base_addr, exit_signal);
 
-    let (base, size) = syscon.address_range();
+    let region = syscon.region();
+    let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, base_addr);
     assert_eq!(size, 0x1000);
 }

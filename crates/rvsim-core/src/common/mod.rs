@@ -15,8 +15,8 @@ pub use access::AccessType;
 /// Nanoseconds in a second.
 pub const NANOS_PER_SECOND: u64 = 1_000_000_000;
 pub use addr::{
-    Asid, IrqId, LineAddr, PAGE_OFFSET_MASK, PAGE_SHIFT, PhysAddr, Ppn, VPN_MASK, VirtAddr, Vpn,
-    crosses_cache_line,
+    Asid, IrqId, LineAddr, PAGE_OFFSET_MASK, PAGE_SHIFT, PhysAddr, PhysRange, Ppn, VPN_MASK,
+    VirtAddr, Vpn, crosses_cache_line,
 };
 pub use error::SimError;
 pub use ids::{CoreId, FetchSeq, HartId, InstSeq};

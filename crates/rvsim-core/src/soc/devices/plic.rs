@@ -15,7 +15,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::HartId;
+use crate::common::{HartId, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -366,8 +366,8 @@ impl Device for Plic {
     fn kind(&self) -> DeviceKind {
         DeviceKind::Plic
     }
-    fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, crate::config::PLIC_REGION_BYTES)
+    fn region(&self) -> PhysRange {
+        PhysRange::new(self.base_addr, crate::config::PLIC_REGION_BYTES)
     }
 
     /// Quiet once the claims in the delay line all equal what the current

@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::IrqId;
+use crate::common::{IrqId, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::ComponentId;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -420,8 +420,8 @@ impl Device for Uart {
     fn kind(&self) -> DeviceKind {
         DeviceKind::Uart
     }
-    fn address_range(&self) -> (u64, u64) {
-        (self.base_addr, crate::config::UART_REGION_BYTES)
+    fn region(&self) -> PhysRange {
+        PhysRange::new(self.base_addr, crate::config::UART_REGION_BYTES)
     }
 
     fn tick(&mut self) -> bool {

@@ -5,7 +5,7 @@
 //! `Device` itself describes the device's location on the bus, its lifecycle
 //! tick, and type-specific upcasts that the bus uses for IRQ aggregation.
 
-use crate::common::{IrqId, LineAddr, PhysAddr};
+use crate::common::{IrqId, LineAddr, PhysAddr, PhysRange};
 use crate::config::DeviceKind;
 use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
@@ -34,7 +34,8 @@ pub fn serve_mmio<D: MmioRegisters>(
     ctx: &mut HandleCtx<'_>,
 ) {
     let Packet::MemReq { req_id, paddr, size, op, .. } = packet else { return };
-    let value = device.access(paddr.val().saturating_sub(device.address_range().0), size, op, ctx);
+    let value =
+        device.access(paddr.val().saturating_sub(device.region().base.val()), size, op, ctx);
     let answered_at = ctx.cycle + ctx.config.system.device_access_cycles(device.kind());
     ctx.scheduler.schedule(answered_at, source, ctx.self_id, mmio_response(req_id, paddr, value));
 }
@@ -107,8 +108,8 @@ pub trait Device: Handle + Send + Sync + Any {
     fn name(&self) -> &'static str {
         self.kind().name()
     }
-    /// Returns (`base_address`, `size_in_bytes`) for this device's MMIO region.
-    fn address_range(&self) -> (u64, u64);
+    /// Its register window.
+    fn region(&self) -> PhysRange;
 
     /// Advances device state by one cycle; returns `true` if an IRQ was raised
     /// (e.g., timer).

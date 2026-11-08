@@ -19,7 +19,8 @@ fn clint_name() {
 #[test]
 fn clint_address_range() {
     let clint = Clint::new(0x200_0000, 10, 1);
-    let (base, size) = clint.address_range();
+    let region = clint.region();
+    let (base, size) = (region.base.val(), region.size);
     assert_eq!(base, 0x200_0000);
     assert_eq!(size, 0x10000);
 }
