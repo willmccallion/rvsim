@@ -6,6 +6,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -25,7 +26,7 @@ const PTE_LEAF_RWX_AD: u64 = 0b1100_1111;
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u64) {
     let index = (va >> (12 + 9 * level)) & 0x1ff;
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 #[test]
@@ -37,7 +38,11 @@ fn one_walk_of_a_megapage_translates_every_page_in_it() {
         let i = InstructionBuilder::new;
         let program = [i().lui(10, (DATA_VA >> 12) as i32).build(), i().ld(11, 10, 0).build()];
         for (n, inst) in program.iter().chain(&[i().jal(0, 0).build()]).enumerate() {
-            ctx.sim.probe_mem_store(PhysAddr::new(CODE + 4 * n as u64), u64::from(*inst), 4);
+            ctx.sim.probe_mem_store(
+                PhysAddr::new(CODE + 4 * n as u64),
+                u64::from(*inst),
+                ProbeWidth::B4,
+            );
         }
         write_pte(&mut ctx, ROOT_PPN, CODE, 2, (L1_PPN << 10) | PTE_V);
         write_pte(&mut ctx, L1_PPN, CODE, 1, ((CODE >> 12) << 10) | PTE_LEAF_RWX_AD);

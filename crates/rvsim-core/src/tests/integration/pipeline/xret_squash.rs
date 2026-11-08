@@ -12,6 +12,7 @@ use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, MRET};
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -89,7 +90,7 @@ fn target_code() -> Vec<u32> {
 }
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 /// `(t0, t1, t6)`: the target's result, the fault flag, and the ecall count.
@@ -100,10 +101,18 @@ fn run(backend: BackendKind, width: usize) -> (u64, u64, u64) {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, word) in machine_code().iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(CODE + (n as u64) * 4), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(CODE + (n as u64) * 4),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
     for (n, word) in target_code().iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(TARGET_PA + (n as u64) * 4), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(TARGET_PA + (n as u64) * 4),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, CODE_L1_PPN, (CODE >> 21) & 0x1ff, ((CODE >> 12) << 10) | PTE_LEAF_RWX_AD);

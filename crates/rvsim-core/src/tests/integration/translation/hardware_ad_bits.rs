@@ -9,6 +9,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -37,12 +38,12 @@ const LOADED: u64 = 0x1234;
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u64) {
     let index = (va >> (12 + 9 * level)) & 0x1ff;
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 fn leaf_pte(ctx: &mut TestContext, va: u64) -> u64 {
     let index = (va >> 12) & 0x1ff;
-    ctx.sim.probe_mem_load(PhysAddr::new((L0_PPN << 12) | (index * 8)), 8)
+    ctx.sim.probe_mem_load(PhysAddr::new((L0_PPN << 12) | (index * 8)), ProbeWidth::B8)
 }
 
 /// Runs `program` then `j .` in supervisor mode on a Svadu hart with
@@ -61,10 +62,14 @@ fn run_with(
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().chain(&[JAL_SELF]).enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(CODE_PA + 4 * n as u64), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(CODE_PA + 4 * n as u64),
+            u64::from(*inst),
+            ProbeWidth::B4,
+        );
     }
-    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), 4);
-    ctx.sim.probe_mem_store(PhysAddr::new(DATA_PA + 8), LOADED, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), ProbeWidth::B4);
+    ctx.sim.probe_mem_store(PhysAddr::new(DATA_PA + 8), LOADED, ProbeWidth::B8);
 
     write_pte(&mut ctx, ROOT_PPN, CODE_VA, 2, (L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, L1_PPN, CODE_VA, 1, (L0_PPN << 10) | PTE_V);
@@ -121,7 +126,7 @@ fn a_store_to_a_clean_unaccessed_page_completes_and_sets_a_and_d() {
         let mut ctx = run(backend, &store_program(), PTE_RWX_AD, PTE_RW);
 
         assert_eq!(ctx.sim.state.harts[0].csrs.mcause, 0, "{backend:?}: no trap");
-        let stored = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA), 8);
+        let stored = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA), ProbeWidth::B8);
         assert_eq!(stored, STORED, "{backend:?}: the store retired");
         assert_eq!(leaf_pte(&mut ctx, DATA_VA) & (PTE_A | PTE_D), PTE_A | PTE_D, "{backend:?}");
     }
@@ -153,7 +158,7 @@ fn a_store_crossing_into_a_second_clean_page_sets_d_on_both() {
         let mut ctx = run(backend, &crossing_store_program(), PTE_RWX_AD, PTE_RW);
 
         assert_eq!(ctx.sim.state.harts[0].csrs.mcause, 0, "{backend:?}: no trap");
-        let stored = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA + 0xFFC), 8);
+        let stored = ctx.sim.probe_mem_load(PhysAddr::new(DATA_PA + 0xFFC), ProbeWidth::B8);
         assert_eq!(stored, STORED, "{backend:?}: the store retired");
         let pages = [leaf_pte(&mut ctx, DATA_VA), leaf_pte(&mut ctx, NEXT_VA)].map(|p| p & PTE_D);
         assert_eq!(pages, [PTE_D, PTE_D], "{backend:?}");

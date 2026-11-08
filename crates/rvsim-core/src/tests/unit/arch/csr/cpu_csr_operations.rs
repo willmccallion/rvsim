@@ -9,6 +9,7 @@ use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::PagingMode;
 use crate::system::SystemState;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::build_simulator;
 
 /// Helper function to create a test CPU instance.
@@ -404,7 +405,7 @@ fn sstc_raises_stip_once_the_clint_time_reaches_stimecmp() {
     let config = Config::minimal();
     let mut sim = build_simulator(&config);
     let mtime = crate::common::PhysAddr::new(config.system.clint_base.val() + 0xBFF8);
-    sim.probe_mem_store(mtime, 5000, 8);
+    sim.probe_mem_store(mtime, 5000, ProbeWidth::B8);
     let mut state = sim.state.core_ctx(0);
     state.csr_write(csr::MENVCFG, csr::MENVCFG_STCE);
     state.csr_write(csr::STIMECMP, 4000);

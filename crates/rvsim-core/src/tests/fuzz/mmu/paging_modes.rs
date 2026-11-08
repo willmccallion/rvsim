@@ -12,6 +12,7 @@ use crate::arch::translation::TranslationResult;
 use crate::common::{AccessType, PhysAddr, VirtAddr};
 use crate::isa::csr;
 use crate::isa::privileged::{PagingMode, PrivilegeMode, Trap};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
 use crate::uarch::mmu::tlb::TlbGeometry;
 use crate::uarch::mmu::{Mmu, TranslateOutcome};
@@ -34,7 +35,7 @@ fn translate_sync(
         match outcome {
             TranslateOutcome::Ready(result) => return result,
             TranslateOutcome::NeedPte { pte_addr, state } => {
-                let raw_pte = ctx.sim.probe_mem_load(pte_addr, 8);
+                let raw_pte = ctx.sim.probe_mem_load(pte_addr, ProbeWidth::B8);
                 outcome = mmu.continue_walk(state, raw_pte, csrs, None, 0);
             }
         }
@@ -63,7 +64,7 @@ fn make_pte(ppn: u64, perms: u64) -> u64 {
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, vpn_index: u64, pte: u64) {
     let addr = (table_ppn << PAGE_SHIFT) | (vpn_index * PTE_SIZE);
-    ctx.sim.probe_mem_store(PhysAddr::new(addr), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new(addr), pte, ProbeWidth::B8);
 }
 
 fn mode_to_satp(mode: u64) -> u64 {

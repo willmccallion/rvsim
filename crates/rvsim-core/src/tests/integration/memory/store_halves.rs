@@ -4,6 +4,7 @@
 
 use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, MemDepPredictorKind};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -60,7 +61,7 @@ fn a_load_of_a_store_whose_data_comes_late_reads_that_data() {
 fn a_store_whose_data_comes_late_writes_that_data() {
     let mut tc = run(MemDepPredictorKind::Blind);
     let address = PhysAddr::new(BASE_ADDR + DATA_OFFSET as u64);
-    assert_eq!(tc.sim.probe_mem_load(address, 8), 100 / 7);
+    assert_eq!(tc.sim.probe_mem_load(address, ProbeWidth::B8), 100 / 7);
 }
 
 #[test]

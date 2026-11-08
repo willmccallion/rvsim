@@ -6,6 +6,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
 
 const RAM_BASE: u64 = 0x8000_0000;
@@ -47,7 +48,11 @@ fn warm_iteration_cycles(backend: BackendKind, program: &[u16]) -> u64 {
     config.cache.l1_i.latency = I_CACHE_LATENCY;
     let mut tc = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (i, half) in program.iter().enumerate() {
-        tc.sim.probe_mem_store(PhysAddr::new(RAM_BASE + 2 * i as u64), u64::from(*half), 2);
+        tc.sim.probe_mem_store(
+            PhysAddr::new(RAM_BASE + 2 * i as u64),
+            u64::from(*half),
+            ProbeWidth::B2,
+        );
     }
     tc.sim.state.harts[0].pc = VirtAddr::new(RAM_BASE);
     tc.sim.sync_arch_regs();

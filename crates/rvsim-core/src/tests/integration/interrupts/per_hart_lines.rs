@@ -4,6 +4,7 @@ use crate::Simulator;
 use crate::common::PhysAddr;
 use crate::config::Config;
 use crate::isa::csr::{MIP_MEIP, MIP_MSIP, MIP_MTIP};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::build_simulator;
 
 const CLINT_BASE: u64 = 0x0200_0000;
@@ -15,14 +16,14 @@ fn two_hart_sim() -> Simulator {
     config.system.hart_count = std::num::NonZero::new(2).unwrap();
     config.system.console = crate::config::Console::Quiet;
     let mut sim = build_simulator(&config);
-    sim.probe_mem_store(config.system.ram_base, 0x0000_006F, 4);
+    sim.probe_mem_store(config.system.ram_base, 0x0000_006F, ProbeWidth::B4);
     sim
 }
 
 #[test]
 fn msip_write_raises_software_interrupt_on_that_hart_only() {
     let mut sim = two_hart_sim();
-    sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 4), 1, 4);
+    sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 4), 1, ProbeWidth::B4);
 
     sim.tick().unwrap();
 
@@ -33,7 +34,7 @@ fn msip_write_raises_software_interrupt_on_that_hart_only() {
 #[test]
 fn mtimecmp_of_second_hart_raises_its_timer_line_only() {
     let mut sim = two_hart_sim();
-    sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 0x4008), 0, 8);
+    sim.probe_mem_store(PhysAddr::new(CLINT_BASE + 0x4008), 0, ProbeWidth::B8);
 
     sim.tick().unwrap();
 
@@ -47,9 +48,9 @@ fn plic_context_of_second_hart_drives_its_external_line_only() {
     // UART is PLIC source 10; give it a priority and enable it for hart 1's
     // M-mode context (context 2) only, then make the UART raise its line by
     // enabling its transmit-empty interrupt (IER bit 1) with an empty FIFO.
-    sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 10 * 4), 1, 4);
-    sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 0x2000 + 2 * 0x80), 1 << 10, 4);
-    sim.probe_mem_store(PhysAddr::new(0x1000_0000 + 1), 0b10, 1);
+    sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 10 * 4), 1, ProbeWidth::B4);
+    sim.probe_mem_store(PhysAddr::new(PLIC_BASE + 0x2000 + 2 * 0x80), 1 << 10, ProbeWidth::B4);
+    sim.probe_mem_store(PhysAddr::new(0x1000_0000 + 1), 0b10, ProbeWidth::B1);
 
     // The UART raises its line 225 ns (540 cycles) on, the PLIC 3 cycles later.
     for _ in 0..560 {

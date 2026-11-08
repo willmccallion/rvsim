@@ -5,6 +5,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -47,7 +48,7 @@ fn an_amo_on_a_mispredicted_path_never_reaches_memory() {
         let mispredicts =
             ctx.sim.state.uncore.kernel.stats.get(paths.committed_mispredicts).unwrap_or(0.0);
         assert!(mispredicts >= 1.0, "{backend:?}: the branch was predicted not taken");
-        assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(DATA), 8), 0, "{backend:?}");
+        assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(DATA), ProbeWidth::B8), 0, "{backend:?}");
     }
 }
 
@@ -95,6 +96,6 @@ fn an_amo_behind_a_trap_takes_effect_once() {
 
         ctx.run_until(5_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("program finished");
 
-        assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(DATA), 8), 1, "{backend:?}");
+        assert_eq!(ctx.sim.probe_mem_load(PhysAddr::new(DATA), ProbeWidth::B8), 1, "{backend:?}");
     }
 }

@@ -6,6 +6,7 @@ use super::program::{
 };
 use super::{Recorder, accounting_checks};
 use crate::config::{BackendKind, Config};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -375,7 +376,11 @@ fn supervisor_loads(backend: BackendKind, paged: bool) -> (TestContext, u64) {
     let mut ctx = system_with(&config, &program, &[]);
     let gigapage = super::program::PROGRAM_BASE >> 30;
     let pte = ((super::program::PROGRAM_BASE >> 12) << 10) | LEAF_RWXAD;
-    ctx.sim.probe_mem_store(crate::common::PhysAddr::new(PAGE_TABLE + 8 * gigapage), pte, 8);
+    ctx.sim.probe_mem_store(
+        crate::common::PhysAddr::new(PAGE_TABLE + 8 * gigapage),
+        pte,
+        ProbeWidth::B8,
+    );
     let hart = &mut ctx.sim.state.harts[0];
     let supervisor = u64::from(PrivilegeMode::Supervisor.to_u8()) << 11;
     hart.csrs.mstatus = (hart.csrs.mstatus & !MSTATUS_MPP) | supervisor;

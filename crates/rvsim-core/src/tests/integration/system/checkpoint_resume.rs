@@ -9,6 +9,7 @@ use crate::isa::privileged::PrivilegeMode;
 use crate::isa::rvv::Vxrm;
 use crate::soc::coherence::CoherenceFabric;
 use crate::system::checkpoint::CheckpointError;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
@@ -53,8 +54,9 @@ fn config(backend: BackendKind) -> Config {
 
 /// The final sum, every stored sum, and the instructions retired.
 fn outcome(ctx: &mut TestContext) -> (u64, Vec<u64>, u64) {
-    let stored =
-        (0..SQUARES).map(|i| ctx.sim.probe_mem_load(PhysAddr::new(DATA + 8 * i), 8)).collect();
+    let stored = (0..SQUARES)
+        .map(|i| ctx.sim.probe_mem_load(PhysAddr::new(DATA + 8 * i), ProbeWidth::B8))
+        .collect();
     (ctx.get_reg(X8 as usize), stored, ctx.sim.state.harts[0].instructions_retired)
 }
 
@@ -199,12 +201,15 @@ fn ram_that_was_zero_at_the_save_is_zero_after_a_restore_and_costs_no_space() {
     let far = PROGRAM_BASE + 0x40_0000;
     let checkpoint = saved(&mut system);
     let mut restored = TestContext::new_with_config(&config(BackendKind::InOrder));
-    restored.sim.probe_mem_store(PhysAddr::new(far), 0x1234, 8);
+    restored.sim.probe_mem_store(PhysAddr::new(far), 0x1234, ProbeWidth::B8);
 
     restored.sim.restore_checkpoint(&mut checkpoint.as_slice()).expect("restore");
 
-    assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(far), 8), 0);
-    assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(PROGRAM_BASE), 4), 0x0000_1297);
+    assert_eq!(restored.sim.probe_mem_load(PhysAddr::new(far), ProbeWidth::B8), 0);
+    assert_eq!(
+        restored.sim.probe_mem_load(PhysAddr::new(PROGRAM_BASE), ProbeWidth::B4),
+        0x0000_1297
+    );
     let ram =
         restored.sim.state.uncore.kernel.memory.ram().expect("the system has RAM").size() as usize;
     assert!(

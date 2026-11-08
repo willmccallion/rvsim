@@ -5,6 +5,7 @@ use crate::Simulator;
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::build_simulator;
 
 /// Where multi-hart test programs are loaded; every hart starts here.
@@ -28,7 +29,7 @@ impl MultiHart {
         let mut sim = build_simulator(&config);
         for (index, word) in program.iter().enumerate() {
             let addr = PROGRAM_BASE + (index as u64) * 4;
-            sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), 4);
+            sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), ProbeWidth::B4);
         }
         for hart in &mut sim.state.harts {
             hart.pc = VirtAddr::new(PROGRAM_BASE);
@@ -49,7 +50,7 @@ impl MultiHart {
     }
 
     pub fn read_u64(&mut self, addr: u64) -> u64 {
-        self.sim.probe_mem_load(PhysAddr::new(addr), 8)
+        self.sim.probe_mem_load(PhysAddr::new(addr), ProbeWidth::B8)
     }
 }
 
@@ -60,7 +61,7 @@ impl MultiHart {
         let mut sim = build_simulator(config);
         for (index, word) in program.iter().enumerate() {
             let addr = PROGRAM_BASE + (index as u64) * 4;
-            sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), 4);
+            sim.probe_mem_store(PhysAddr::new(addr), u64::from(*word), ProbeWidth::B4);
         }
         for hart in &mut sim.state.harts {
             hart.pc = VirtAddr::new(PROGRAM_BASE);

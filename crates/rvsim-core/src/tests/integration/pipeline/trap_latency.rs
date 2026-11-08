@@ -4,6 +4,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -70,7 +71,11 @@ fn run_until_trap(backend: BackendKind, trap_latency: u64, program: &[u32]) -> T
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, program);
     for (i, word) in handler().iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(HANDLER + (i as u64) * 4), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(HANDLER + (i as u64) * 4),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();

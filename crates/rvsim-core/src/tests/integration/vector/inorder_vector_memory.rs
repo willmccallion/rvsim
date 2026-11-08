@@ -4,6 +4,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -61,13 +62,14 @@ fn a_scalar_load_forwards_from_an_in_order_vector_store() {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     for byte in 0..ELEMENTS {
-        ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, 1);
+        ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }
 
     ctx.run(600);
 
     assert_eq!(ctx.get_reg(A2 as usize), 0x0908_0706_0504_0302, "the stored bytes, forwarded");
-    let stored: Vec<u64> =
-        (0..ELEMENTS).map(|b| ctx.sim.probe_mem_load(PhysAddr::new(DEST + b), 1)).collect();
+    let stored: Vec<u64> = (0..ELEMENTS)
+        .map(|b| ctx.sim.probe_mem_load(PhysAddr::new(DEST + b), ProbeWidth::B1))
+        .collect();
     assert_eq!(stored, (2..=ELEMENTS + 1).collect::<Vec<_>>(), "the vector store reached memory");
 }

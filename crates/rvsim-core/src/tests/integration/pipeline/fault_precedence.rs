@@ -6,6 +6,7 @@
 use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -45,7 +46,11 @@ fn handler() -> Vec<u32> {
 
 fn store_program(ctx: &mut TestContext, base: u64, program: &[u32]) {
     for (i, word) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(base + (i as u64) * 4), u64::from(*word), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(base + (i as u64) * 4),
+            u64::from(*word),
+            ProbeWidth::B4,
+        );
     }
 }
 
@@ -56,12 +61,12 @@ fn run(backend: BackendKind) -> (u64, u64, u64) {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     store_program(&mut ctx, HANDLER, &handler());
-    ctx.sim.probe_mem_store(PhysAddr::new(DATA), 0x1234_5678, 4);
+    ctx.sim.probe_mem_store(PhysAddr::new(DATA), 0x1234_5678, ProbeWidth::B4);
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();
 
     ctx.run(500);
-    let memory = ctx.sim.probe_mem_load(PhysAddr::new(DATA), 4);
+    let memory = ctx.sim.probe_mem_load(PhysAddr::new(DATA), ProbeWidth::B4);
     (ctx.get_reg(A2 as usize), ctx.get_reg(A3 as usize), memory)
 }
 

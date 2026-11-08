@@ -8,6 +8,7 @@ use crate::config::{BackendKind, Config, Console, MemoryControllerKind};
 use crate::isa::csr::{MSTATUS_FS_INIT, MSTATUS_VS_INIT};
 use crate::soc::exit::ExitSignal;
 use crate::system::SystemState;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::harness::valid;
@@ -76,7 +77,7 @@ fn context(backend: BackendKind, latency: u64) -> TestContext {
 /// The handler's copies once it has finished.
 fn copies(backend: BackendKind) -> Vec<u64> {
     let mut ctx = context(backend, LATENCY);
-    ctx.sim.probe_mem_store(PhysAddr::new(DATA), LOADED, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new(DATA), LOADED, ProbeWidth::B8);
     ctx.sim.state.harts[0].csrs.mtvec = PROGRAM_BASE + 4 * HANDLER_INDEX as u64;
     ctx.sim.sync_arch_regs();
 

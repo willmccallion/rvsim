@@ -6,6 +6,7 @@ use crate::config::BackendKind;
 use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::privileged::PrivilegeMode;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::open_pmp;
@@ -24,7 +25,7 @@ fn run(backend: BackendKind) -> (PrivilegeMode, u64, u64) {
     let spin = [InstructionBuilder::new().jal(0, 0).build()];
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &spin);
     for handler in [M_HANDLER, S_HANDLER] {
-        ctx.sim.probe_mem_store(PhysAddr::new(handler), u64::from(spin[0]), 4);
+        ctx.sim.probe_mem_store(PhysAddr::new(handler), u64::from(spin[0]), ProbeWidth::B4);
     }
     {
         let hart = &mut ctx.sim.state.harts[0];

@@ -5,6 +5,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::isa::csr::{MIP, MIP_SEIP, MIP_STIP};
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -35,13 +36,13 @@ fn clearing_another_mip_bit_while_seip_is_high_does_not_latch_seip() {
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::new_with_config(&config).load_program(PROGRAM_BASE, &program());
     // The UART's transmit-empty interrupt, enabled for hart 0's S context, holds SEIP high.
-    ctx.sim.probe_mem_store(PhysAddr::new(PLIC_BASE + UART_SOURCE * 4), 1, 4);
+    ctx.sim.probe_mem_store(PhysAddr::new(PLIC_BASE + UART_SOURCE * 4), 1, ProbeWidth::B4);
     ctx.sim.probe_mem_store(
         PhysAddr::new(PLIC_BASE + 0x2000 + HART0_S_CONTEXT * 0x80),
         1 << UART_SOURCE,
-        4,
+        ProbeWidth::B4,
     );
-    ctx.sim.probe_mem_store(PhysAddr::new(UART_IER), 0b10, 1);
+    ctx.sim.probe_mem_store(PhysAddr::new(UART_IER), 0b10, ProbeWidth::B1);
 
     ctx.run(800);
     assert_ne!(ctx.sim.state.harts[0].csrs.mip & MIP_SEIP, 0, "the line is high");
@@ -51,7 +52,7 @@ fn clearing_another_mip_bit_while_seip_is_high_does_not_latch_seip() {
         "the CSRRC ran and the spin began"
     );
 
-    ctx.sim.probe_mem_store(PhysAddr::new(UART_IER), 0, 1);
+    ctx.sim.probe_mem_store(PhysAddr::new(UART_IER), 0, ProbeWidth::B1);
     ctx.run(20);
 
     assert_eq!(ctx.sim.state.harts[0].csrs.mip & MIP_SEIP, 0, "SEIP follows the line");

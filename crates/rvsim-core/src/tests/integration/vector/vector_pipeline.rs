@@ -11,6 +11,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Config;
 use crate::isa::privileged::cause::exception;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
 
 /// `jal x0, 0`: holds the program at its end instead of running into zeros.
@@ -65,7 +66,7 @@ fn load_program(config: &Config, program: &[u32]) -> TestContext {
     let mut ctx = TestContext::new_with_config(config).with_memory(RAM_SIZE, RAM_BASE);
     for (i, inst) in program.iter().enumerate() {
         let addr = RAM_BASE + (i as u64) * 4;
-        ctx.sim.probe_mem_store(PhysAddr::new(addr), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(PhysAddr::new(addr), u64::from(*inst), ProbeWidth::B4);
     }
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     ctx
@@ -264,7 +265,11 @@ fn cycles_through_four(funct6: u32, funct3: u32) -> u64 {
     let mut ctx =
         TestContext::new_with_config(&wide_inorder_config()).with_memory(RAM_SIZE, RAM_BASE);
     for (i, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + (i as u64) * 4), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(RAM_BASE + (i as u64) * 4),
+            u64::from(*inst),
+            ProbeWidth::B4,
+        );
     }
     ctx.sim.set_pc(0, VirtAddr::new(RAM_BASE));
     for cycle in 1..=2_000 {

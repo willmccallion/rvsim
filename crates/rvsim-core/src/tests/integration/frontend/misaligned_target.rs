@@ -7,6 +7,7 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::TestContext;
 
@@ -34,9 +35,13 @@ fn run(backend: BackendKind, program: &[u32]) -> Outcome {
     config.isa.string = Some("rv64imafd".to_owned());
     let mut ctx = TestContext::new_with_config(&config).with_memory(RAM_SIZE, RAM_BASE);
     for (n, inst) in program.iter().chain(&[JAL_SELF]).enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(RAM_BASE + 4 * n as u64), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(RAM_BASE + 4 * n as u64),
+            u64::from(*inst),
+            ProbeWidth::B4,
+        );
     }
-    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), 4);
+    ctx.sim.probe_mem_store(PhysAddr::new(TRAP_PARK), u64::from(JAL_SELF), ProbeWidth::B4);
     ctx.sim.state.harts[0].csrs.mtvec = TRAP_PARK;
     ctx.sim.state.harts[0].pc = VirtAddr::new(RAM_BASE);
     ctx.sim.sync_arch_regs();

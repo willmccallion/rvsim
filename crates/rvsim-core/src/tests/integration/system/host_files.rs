@@ -3,6 +3,7 @@
 //! bare-metal image, a user program under SE mode and a paged supervisor
 //! alike, reaching the memory through the hart's own translation.
 
+use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::build_simulator;
 use crate::tests::support::open_pmp;
 use std::fs;
@@ -202,7 +203,7 @@ fn run_se(backend: BackendKind, host: &Host, program: &[u32]) -> (Simulator, Opt
 
 fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u64) {
     let index = (va >> (12 + 9 * level)) & 0x1ff;
-    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, 8);
+    ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
 /// Runs `program` in supervisor mode on `backend`, its one page mapped
@@ -211,7 +212,11 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, va: u64, level: u32, pte: u6
 fn run_paged(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext, Option<u64>) {
     let mut ctx = TestContext::new_with_config(&config(backend)).with_memory(RAM_SIZE, BARE_BASE);
     for (n, inst) in program.iter().enumerate() {
-        ctx.sim.probe_mem_store(PhysAddr::new(CODE_PA + 4 * n as u64), u64::from(*inst), 4);
+        ctx.sim.probe_mem_store(
+            PhysAddr::new(CODE_PA + 4 * n as u64),
+            u64::from(*inst),
+            ProbeWidth::B4,
+        );
     }
     write_pte(&mut ctx, ROOT_PPN, CODE_VA, 2, (L1_PPN << 10) | PTE_V);
     write_pte(&mut ctx, L1_PPN, CODE_VA, 1, (L0_PPN << 10) | PTE_V);
@@ -244,7 +249,8 @@ fn a_bare_metal_image_exchanges_files_with_the_host() {
 
         assert_eq!(exit, Some(script_length()), "{backend:?}: the whole script, then its end");
         assert_eq!(host.output().as_deref(), Some(SCRIPT), "{backend:?}");
-        let first_word = ctx.sim.probe_mem_load(PhysAddr::new(BARE_BASE + BUFFER_OFFSET as u64), 4);
+        let first_word =
+            ctx.sim.probe_mem_load(PhysAddr::new(BARE_BASE + BUFFER_OFFSET as u64), ProbeWidth::B4);
         assert_eq!(
             first_word.to_le_bytes()[..4],
             SCRIPT[..4],
@@ -276,7 +282,7 @@ fn a_user_program_exchanges_files_with_the_host() {
         let buffer = sim
             .translate_now(0, crate::common::VirtAddr::new(SE_PROGRAM_BASE + BUFFER_OFFSET as u64))
             .expect("the buffer is mapped");
-        let first_word = sim.probe_mem_load(buffer, 4);
+        let first_word = sim.probe_mem_load(buffer, ProbeWidth::B4);
         assert_eq!(
             first_word.to_le_bytes()[..4],
             SCRIPT[..4],
@@ -294,7 +300,8 @@ fn a_paged_supervisor_exchanges_files_through_its_page_tables() {
 
         assert_eq!(exit, Some(script_length()), "{backend:?}");
         assert_eq!(host.output().as_deref(), Some(SCRIPT), "{backend:?}");
-        let first_word = ctx.sim.probe_mem_load(PhysAddr::new(CODE_PA + BUFFER_OFFSET as u64), 4);
+        let first_word =
+            ctx.sim.probe_mem_load(PhysAddr::new(CODE_PA + BUFFER_OFFSET as u64), ProbeWidth::B4);
         assert_eq!(
             first_word.to_le_bytes()[..4],
             SCRIPT[..4],
