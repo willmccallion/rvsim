@@ -61,11 +61,28 @@ pub struct Bus {
     /// `ReqId` so the matching `MemResp` from the controller can be routed back
     /// to the originating upstream component (typically the LLC).
     pending: HashMap<ReqId, (ComponentId, usize)>,
-    /// Cycle the request channel is free again: each transaction occupies
-    /// it for its transfer time, so back-to-back requests queue.
-    request_busy_until: u64,
-    /// Cycle the response channel is free again.
-    response_busy_until: u64,
+    /// The channel requests cross.
+    request: Channel,
+    /// The channel responses cross.
+    response: Channel,
+}
+
+/// One direction of the bus: each transaction occupies it for its
+/// transfer time, so back-to-back transactions queue.
+#[derive(Clone, Copy, Debug, Default)]
+struct Channel {
+    /// Cycle the channel is free again.
+    busy_until: u64,
+}
+
+impl Channel {
+    /// Takes the channel for `cycles` from `now` or once it frees,
+    /// returning when the transaction starts.
+    const fn claim(&mut self, now: u64, cycles: u64) -> u64 {
+        let start = if now > self.busy_until { now } else { self.busy_until };
+        self.busy_until = start + cycles;
+        start
+    }
 }
 
 impl std::fmt::Debug for Bus {
@@ -96,8 +113,8 @@ impl Bus {
             ram: None,
             htif_range: None,
             pending: HashMap::new(),
-            request_busy_until: 0,
-            response_busy_until: 0,
+            request: Channel::default(),
+            response: Channel::default(),
         }
     }
 
@@ -186,17 +203,13 @@ impl Bus {
     /// Claims the request channel from `now`, returning when the request
     /// has crossed the bus.
     const fn send_request(&mut self, now: u64, bytes: usize) -> u64 {
-        let start = if now > self.request_busy_until { now } else { self.request_busy_until };
-        self.request_busy_until = start + self.transfer_cycles(bytes);
-        start + self.transit_cycles(bytes)
+        self.request.claim(now, self.transfer_cycles(bytes)) + self.transit_cycles(bytes)
     }
 
     /// Claims the response channel from `now`, returning when the response
     /// has crossed the bus.
     const fn send_response(&mut self, now: u64, bytes: usize) -> u64 {
-        let start = if now > self.response_busy_until { now } else { self.response_busy_until };
-        self.response_busy_until = start + self.transfer_cycles(bytes);
-        start + self.transit_cycles(bytes)
+        self.response.claim(now, self.transfer_cycles(bytes)) + self.transit_cycles(bytes)
     }
 
     /// Returns whether the given physical address is backed by any device or RAM.
