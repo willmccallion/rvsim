@@ -7,15 +7,13 @@ use crate::common::PhysAddr;
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::builder::instruction::{InstructionBuilder, trap_recorder};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
 use crate::tests::support::regs::{A1, A2, A3, T0, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 const DATA: u64 = PROGRAM_BASE + 0x200;
 const MSTATUS: u32 = 0x300;
-const MCAUSE: u32 = 0x342;
-const MTVAL: u32 = 0x343;
 const ILLEGAL_INSTRUCTION: u64 = 2;
 /// `fsw ft0, 0(a1)`.
 const FSW_FT0_A1: u32 = 0x0005_A027;
@@ -34,16 +32,6 @@ fn program() -> Vec<u32> {
     ]
 }
 
-/// Records `mcause` and `mtval`, then spins.
-fn handler() -> Vec<u32> {
-    let i = InstructionBuilder::new;
-    vec![
-        i().csrrs(A2, MCAUSE, X0).build(),
-        i().csrrs(A3, MTVAL, X0).build(),
-        i().jal(X0, 0).build(),
-    ]
-}
-
 fn store_program(ctx: &mut TestContext, base: u64, program: &[u32]) {
     store_words(&mut ctx.sim, base, program);
 }
@@ -54,7 +42,7 @@ fn run(backend: BackendKind) -> (u64, u64, u64) {
     config.pipeline.width = 4;
     config.system.console = crate::config::Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
-    store_program(&mut ctx, HANDLER, &handler());
+    store_program(&mut ctx, HANDLER, &trap_recorder());
     ctx.sim.probe_mem_store(PhysAddr::new(DATA), 0x1234_5678, ProbeWidth::B4);
     ctx.sim.state.harts[0].csrs.mtvec = HANDLER;
     ctx.sim.sync_arch_regs();

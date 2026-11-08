@@ -1,10 +1,11 @@
+use crate::isa::csr::{MCAUSE, MTVAL};
 use crate::isa::encode::{BType, IType, JType, RType, SType, UType};
 use crate::isa::encoding::privileged::{CSRRC, CSRRS, CSRRW, OP_SYSTEM};
 use crate::isa::encoding::rv64a::funct5::{AMOADD, LR, SC};
 use crate::isa::encoding::rv64a::opcodes::OP_AMO;
 use crate::isa::encoding::rv64i::opcodes::*;
 use crate::isa::reg::RegIdx;
-use crate::tests::support::regs::{A0, A1, ZERO};
+use crate::tests::support::regs::{A0, A1, A2, A3, ZERO};
 
 /// `jal x0, 0`: a loop of one instruction, where a test program ends.
 pub const JAL_SELF: u32 = 0x0000_006F;
@@ -21,6 +22,17 @@ pub const M5_FAIL: u32 = crate::isa::op::pseudo::PseudoOp::encode(0x22);
 #[must_use]
 pub fn exit_with_a0() -> [u32; 2] {
     [InstructionBuilder::new().addi(A1, A0, 0).build(), M5_FAIL]
+}
+/// A machine-mode trap handler that records `mcause` in `a2` and `mtval`
+/// in `a3`, then spins.
+#[must_use]
+pub fn trap_recorder() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().csrrs(A2, MCAUSE.as_u32(), ZERO).build(),
+        i().csrrs(A3, MTVAL.as_u32(), ZERO).build(),
+        i().jal(ZERO, 0).build(),
+    ]
 }
 /// `mret`.
 pub const MRET: u32 = 0x3020_0073;
