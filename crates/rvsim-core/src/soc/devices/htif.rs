@@ -34,7 +34,7 @@ use crate::system::process::files::{AT_FDCWD, Fd, FileTable, PATH_MAX};
 use crate::system::process::syscall::{
     SYS_CHDIR, SYS_CLOSE, SYS_EXIT, SYS_FACCESSAT, SYS_FCNTL, SYS_FSTAT, SYS_FTRUNCATE, SYS_GETCWD,
     SYS_LSEEK, SYS_MKDIRAT, SYS_NEWFSTATAT, SYS_OPENAT, SYS_PREAD64, SYS_PWRITE64, SYS_READ,
-    SYS_READLINKAT, SYS_RENAMEAT, SYS_UNLINKAT, SYS_WRITE,
+    SYS_READLINKAT, SYS_RENAMEAT, SYS_UNLINKAT, SYS_WRITE, SyscallArgs,
 };
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
@@ -112,65 +112,68 @@ impl Htif {
         let words: Vec<u64> =
             bytes.as_chunks::<8>().0.iter().map(|word| u64::from_le_bytes(*word)).collect();
         let number = words[0];
-        let a: [u64; 6] = std::array::from_fn(|i| words[i + 1]);
-        let result = self.dispatch(number, a, memory).unwrap_or_else(Errno::return_value);
-        tracing::trace!(target: "rvsim::htif", number, a0 = a[0], a1 = a[1], a2 = a[2], result, "syscall");
+        let args = SyscallArgs::new(std::array::from_fn(|i| words[i + 1]));
+        let result = self.dispatch(number, args, memory).unwrap_or_else(Errno::return_value);
+        tracing::trace!(target: "rvsim::htif", number, a0 = args.raw(0), a1 = args.raw(1), a2 = args.raw(2), result, "syscall");
         memory.write_bytes(Writer::External, PhysAddr::new(block), &result.to_le_bytes());
     }
 
     fn dispatch(
         &mut self,
         number: u64,
-        a: [u64; 6],
+        args: SyscallArgs,
         memory: &mut GlobalMemory,
     ) -> Result<u64, Errno> {
-        let at = |i: usize| PhysAddr::new(a[i]);
-        let fd = Fd::from_arg(a[0]);
         let mut calls = FileCalls { files: &mut self.files, memory: PhysicalMemory(memory) };
         match number {
             SYS_EXIT => {
-                self.exit_signal.signal(a[0]);
+                self.exit_signal.signal(args.raw(0));
                 Ok(0)
             }
-            SYS_WRITE => calls.write(fd, at(1), a[2]),
-            SYS_READ => calls.read(fd, at(1), a[2]),
-            SYS_PREAD64 => calls.pread(fd, at(1), a[2], a[3]),
-            SYS_PWRITE64 => calls.pwrite(fd, at(1), a[2], a[3]),
+            SYS_WRITE => calls.write(args.fd(0), args.paddr(1), args.raw(2)),
+            SYS_READ => calls.read(args.fd(0), args.paddr(1), args.raw(2)),
+            SYS_PREAD64 => calls.pread(args.fd(0), args.paddr(1), args.raw(2), args.raw(3)),
+            SYS_PWRITE64 => calls.pwrite(args.fd(0), args.paddr(1), args.raw(2), args.raw(3)),
             SYS_OPENAT => {
-                let path = fesvr_path(&mut calls, a[1], a[2])?;
-                calls.files.open(path, a[3], a[4]).map(Fd::return_value)
+                let path = fesvr_path(&mut calls, args.raw(1), args.raw(2))?;
+                calls.files.open(path, args.raw(3), args.raw(4)).map(Fd::return_value)
             }
-            SYS_CLOSE => calls.files.close(fd).map(|()| 0),
-            SYS_LSEEK => calls.files.seek(fd, a[1] as i64, a[2]),
-            SYS_FSTAT => calls.fstat(fd, at(1)),
+            SYS_CLOSE => calls.files.close(args.fd(0)).map(|()| 0),
+            SYS_LSEEK => calls.files.seek(args.fd(0), args.raw(1) as i64, args.raw(2)),
+            SYS_FSTAT => calls.fstat(args.fd(0), args.paddr(1)),
             SYS_NEWFSTATAT => {
-                let stat = file_calls::stat(&fesvr_path(&mut calls, a[1], a[2])?)?;
-                calls.write_stat(stat, at(3))
+                let stat = file_calls::stat(&fesvr_path(&mut calls, args.raw(1), args.raw(2))?)?;
+                calls.write_stat(stat, args.paddr(3))
             }
             SYS_LSTAT => {
-                let stat = file_calls::lstat(&fesvr_path(&mut calls, a[0], a[1])?)?;
-                calls.write_stat(stat, at(2))
+                let stat = file_calls::lstat(&fesvr_path(&mut calls, args.raw(0), args.raw(1))?)?;
+                calls.write_stat(stat, args.paddr(2))
             }
-            SYS_FTRUNCATE => calls.files.truncate(fd, a[1]).map(|()| 0),
-            SYS_FACCESSAT => file_calls::access(&fesvr_path(&mut calls, a[1], a[2])?),
-            SYS_MKDIRAT => file_calls::make_dir(&fesvr_path(&mut calls, a[1], a[2])?),
-            SYS_UNLINKAT => file_calls::unlink(&fesvr_path(&mut calls, a[1], a[2])?, a[3]),
+            SYS_FTRUNCATE => calls.files.truncate(args.fd(0), args.raw(1)).map(|()| 0),
+            SYS_FACCESSAT => file_calls::access(&fesvr_path(&mut calls, args.raw(1), args.raw(2))?),
+            SYS_MKDIRAT => file_calls::make_dir(&fesvr_path(&mut calls, args.raw(1), args.raw(2))?),
+            SYS_UNLINKAT => {
+                file_calls::unlink(&fesvr_path(&mut calls, args.raw(1), args.raw(2))?, args.raw(3))
+            }
             SYS_RENAMEAT => {
-                let from = fesvr_path(&mut calls, a[1], a[2])?;
-                file_calls::rename(&from, &fesvr_path(&mut calls, a[4], a[5])?)
+                let from = fesvr_path(&mut calls, args.raw(1), args.raw(2))?;
+                file_calls::rename(&from, &fesvr_path(&mut calls, args.raw(4), args.raw(5))?)
             }
             SYS_READLINKAT => {
-                let target = file_calls::read_link(&fesvr_path(&mut calls, a[1], a[2])?)?;
-                calls.write_link_target(&target, at(3), a[4])
+                let target =
+                    file_calls::read_link(&fesvr_path(&mut calls, args.raw(1), args.raw(2))?)?;
+                calls.write_link_target(&target, args.paddr(3), args.raw(4))
             }
-            SYS_GETCWD => calls.getcwd(at(0), a[1]),
+            SYS_GETCWD => calls.getcwd(args.paddr(0), args.raw(1)),
             SYS_CHDIR => {
-                let path = cstr(&calls.memory, at(0))?;
+                let path = cstr(&calls.memory, args.paddr(0))?;
                 std::env::set_current_dir(OsStr::from_bytes(&path))?;
                 Ok(0)
             }
             SYS_FCNTL => Ok(0),
-            SYS_GETMAINVARS => getmainvars(&mut calls.memory, &self.args, at(0), a[1]),
+            SYS_GETMAINVARS => {
+                getmainvars(&mut calls.memory, &self.args, args.paddr(0), args.raw(1))
+            }
             _ => {
                 tracing::warn!(target: "rvsim::htif", number, "unimplemented HTIF syscall; returning ENOSYS");
                 Err(Errno::ENOSYS)

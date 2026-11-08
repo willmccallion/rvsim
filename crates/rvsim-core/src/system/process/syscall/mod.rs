@@ -13,11 +13,48 @@ use super::file_calls::{self, FileCalls, UserMemory};
 use super::files::{Fd, PATH_MAX, open_flags};
 use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, ThreadRef, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
-use crate::common::VirtAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::isa::extension::{Extension, Isa};
 use crate::isa::reg::{self, RegIdx};
 use crate::sim::memory::GlobalMemory;
 use crate::uarch::ctx::CoreCtx;
+
+/// A syscall's six argument registers, `a0` to `a5`, read as what each
+/// argument is.
+#[derive(Clone, Copy, Debug)]
+pub struct SyscallArgs([u64; 6]);
+
+impl SyscallArgs {
+    /// The arguments in `registers`, `a0` first.
+    #[must_use]
+    pub const fn new(registers: [u64; 6]) -> Self {
+        Self(registers)
+    }
+
+    /// Argument `n` as its register holds it: a length, flags or a value.
+    #[must_use]
+    pub const fn raw(self, n: usize) -> u64 {
+        self.0[n]
+    }
+
+    /// Argument `n` as a file descriptor.
+    #[must_use]
+    pub const fn fd(self, n: usize) -> Fd {
+        Fd::from_arg(self.0[n])
+    }
+
+    /// Argument `n` as an address in the caller's address space.
+    #[must_use]
+    pub const fn vaddr(self, n: usize) -> VirtAddr {
+        VirtAddr::new(self.0[n])
+    }
+
+    /// Argument `n` as a physical address, which HTIF's target passes.
+    #[must_use]
+    pub const fn paddr(self, n: usize) -> PhysAddr {
+        PhysAddr::new(self.0[n])
+    }
+}
 
 /// What retiring the `ecall` leads to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,7 +188,8 @@ const CPU_PRESENT: &str = "/sys/devices/system/cpu/present";
 /// process another hart ended this cycle ends here instead.
 pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
     let number = state.hart.regs.read(reg::REG_A7);
-    let args: [u64; 6] = std::array::from_fn(|i| state.hart.regs.read(RegIdx::new(10 + i as u8)));
+    let args =
+        SyscallArgs::new(std::array::from_fn(|i| state.hart.regs.read(RegIdx::new(10 + i as u8))));
     let hart = state.hart.hart_id;
     let Some(caller) = state.uncore.processes.thread_on(hart) else {
         state.uncore.processes.release_stopping(hart);
@@ -170,8 +208,8 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
         call.dispatch(number, args).unwrap_or_else(|| process_call(state, caller, number, args));
     tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc.val()), tid = caller.tid.as_u64(),
         number, name = name_of(number),
-        a0 = %crate::common::trace::Hex(args[0]), a1 = %crate::common::trace::Hex(args[1]),
-        a2 = %crate::common::trace::Hex(args[2]), a3 = %crate::common::trace::Hex(args[3]),
+        a0 = %crate::common::trace::Hex(args.raw(0)), a1 = %crate::common::trace::Hex(args.raw(1)),
+        a2 = %crate::common::trace::Hex(args.raw(2)), a3 = %crate::common::trace::Hex(args.raw(3)),
         result = ?result, "syscall");
     match result {
         Ok(Reply::Value(value)) => Outcome::Continue { a0: value as u64 },
@@ -189,7 +227,7 @@ fn process_call(
     state: &mut CoreCtx<'_>,
     caller: ThreadRef,
     number: u64,
-    args: [u64; 6],
+    args: SyscallArgs,
 ) -> SysResult {
     let cycle = state.uncore.cycle;
     let ram_bytes = state.uncore.config.memory.ram_size as u64;
@@ -258,44 +296,66 @@ const fn ok(value: u64) -> SysResult {
 }
 
 impl Sys<'_> {
-    fn dispatch(&mut self, number: u64, a: [u64; 6]) -> SysResult {
-        let at = |i: usize| VirtAddr::new(a[i]);
-        let fd = Fd::from_arg(a[0]);
+    fn dispatch(&mut self, number: u64, args: SyscallArgs) -> SysResult {
         match number {
-            SYS_WRITE => self.file_calls().write(fd, at(1), a[2]).and_then(ok),
-            SYS_READ => self.file_calls().read(fd, at(1), a[2]).and_then(ok),
-            SYS_WRITEV => self.writev(fd, at(1), a[2]),
-            SYS_READV => self.readv(fd, at(1), a[2]),
-            SYS_PREAD64 => self.file_calls().pread(fd, at(1), a[2], a[3]).and_then(ok),
-            SYS_PWRITE64 => self.file_calls().pwrite(fd, at(1), a[2], a[3]).and_then(ok),
-            SYS_OPENAT => self.openat(fd, at(1), a[2], a[3]),
-            SYS_CLOSE => self.process.files.close(fd).map(|()| Reply::Value(0)),
-            SYS_LSEEK => self.process.files.seek(fd, a[1] as i64, a[2]).and_then(ok),
-            SYS_FSTAT => self.file_calls().fstat(fd, at(1)).and_then(ok),
-            SYS_NEWFSTATAT => self.fstatat(fd, at(1), at(2), a[3]),
+            SYS_WRITE => {
+                self.file_calls().write(args.fd(0), args.vaddr(1), args.raw(2)).and_then(ok)
+            }
+            SYS_READ => self.file_calls().read(args.fd(0), args.vaddr(1), args.raw(2)).and_then(ok),
+            SYS_WRITEV => self.writev(args.fd(0), args.vaddr(1), args.raw(2)),
+            SYS_READV => self.readv(args.fd(0), args.vaddr(1), args.raw(2)),
+            SYS_PREAD64 => self
+                .file_calls()
+                .pread(args.fd(0), args.vaddr(1), args.raw(2), args.raw(3))
+                .and_then(ok),
+            SYS_PWRITE64 => self
+                .file_calls()
+                .pwrite(args.fd(0), args.vaddr(1), args.raw(2), args.raw(3))
+                .and_then(ok),
+            SYS_OPENAT => self.openat(args.fd(0), args.vaddr(1), args.raw(2), args.raw(3)),
+            SYS_CLOSE => self.process.files.close(args.fd(0)).map(|()| Reply::Value(0)),
+            SYS_LSEEK => {
+                self.process.files.seek(args.fd(0), args.raw(1) as i64, args.raw(2)).and_then(ok)
+            }
+            SYS_FSTAT => self.file_calls().fstat(args.fd(0), args.vaddr(1)).and_then(ok),
+            SYS_NEWFSTATAT => self.fstatat(args.fd(0), args.vaddr(1), args.vaddr(2), args.raw(3)),
             SYS_FACCESSAT | SYS_FACCESSAT2 => {
-                file_calls::access(&self.resolve(fd, at(1))?).and_then(ok)
+                file_calls::access(&self.resolve(args.fd(0), args.vaddr(1))?).and_then(ok)
             }
-            SYS_READLINKAT => self.readlinkat(fd, at(1), at(2), a[3]),
-            SYS_MKDIRAT => file_calls::make_dir(&self.resolve(fd, at(1))?).and_then(ok),
-            SYS_UNLINKAT => file_calls::unlink(&self.resolve(fd, at(1))?, a[2]).and_then(ok),
+            SYS_READLINKAT => {
+                self.readlinkat(args.fd(0), args.vaddr(1), args.vaddr(2), args.raw(3))
+            }
+            SYS_MKDIRAT => {
+                file_calls::make_dir(&self.resolve(args.fd(0), args.vaddr(1))?).and_then(ok)
+            }
+            SYS_UNLINKAT => {
+                file_calls::unlink(&self.resolve(args.fd(0), args.vaddr(1))?, args.raw(2))
+                    .and_then(ok)
+            }
             SYS_RENAMEAT | SYS_RENAMEAT2 => {
-                let from = self.resolve(fd, at(1))?;
-                file_calls::rename(&from, &self.resolve(Fd::from_arg(a[2]), at(3))?).and_then(ok)
+                let from = self.resolve(args.fd(0), args.vaddr(1))?;
+                file_calls::rename(&from, &self.resolve(args.fd(2), args.vaddr(3))?).and_then(ok)
             }
-            SYS_GETCWD => self.file_calls().getcwd(at(0), a[1]).and_then(ok),
-            SYS_IOCTL => self.ioctl(fd, a[1], at(2)),
+            SYS_GETCWD => self.file_calls().getcwd(args.vaddr(0), args.raw(1)).and_then(ok),
+            SYS_IOCTL => self.ioctl(args.fd(0), args.raw(1), args.vaddr(2)),
             SYS_BRK => {
-                let brk = self.process.set_brk(self.memory, self.frames, at(0));
+                let brk = self.process.set_brk(self.memory, self.frames, args.vaddr(0));
                 ok(brk.val())
             }
-            SYS_MMAP => self.mmap(user_pointer(a[0]), a[1], a[2], a[3], Fd::from_arg(a[4]), a[5]),
+            SYS_MMAP => self.mmap(
+                user_pointer(args.raw(0)),
+                args.raw(1),
+                args.raw(2),
+                args.raw(3),
+                args.fd(4),
+                args.raw(5),
+            ),
             SYS_MUNMAP => {
-                self.process.unmap(self.memory, at(0), a[1]);
+                self.process.unmap(self.memory, args.vaddr(0), args.raw(1));
                 ok(0)
             }
-            SYS_MREMAP => self.mremap(at(0), a[1], a[2], a[3]),
-            SYS_MPROTECT => self.mprotect(at(0), a[1], a[2]),
+            SYS_MREMAP => self.mremap(args.vaddr(0), args.raw(1), args.raw(2), args.raw(3)),
+            SYS_MPROTECT => self.mprotect(args.vaddr(0), args.raw(1), args.raw(2)),
             SYS_FCNTL
             | SYS_GETPPID
             | SYS_GETUID
@@ -307,19 +367,21 @@ impl Sys<'_> {
             | SYS_NANOSLEEP
             | SYS_CLOCK_NANOSLEEP
             | SYS_SET_ROBUST_LIST => ok(0),
-            SYS_MADVISE => self.madvise(at(0), a[1], a[2]),
-            SYS_RT_SIGACTION => self.zero_if_given(user_pointer(a[2]), 24),
-            SYS_RT_SIGPROCMASK => self.zero_if_given(user_pointer(a[2]), a[3] as usize),
-            SYS_CLOCK_GETTIME => self.clock_gettime(a[0], at(1)),
-            SYS_CLOCK_GETRES => self.write_timespec(at(1), 0, 1),
-            SYS_GETTIMEOFDAY => self.gettimeofday(user_pointer(a[0])),
-            SYS_TIMES => self.times(user_pointer(a[0])),
-            SYS_GETRUSAGE => self.getrusage(at(1)),
-            SYS_UNAME => self.uname(at(0)),
-            SYS_SYSINFO => self.sysinfo(at(0)),
-            SYS_PRLIMIT64 => self.prlimit(a[1], user_pointer(a[3])),
-            SYS_GETRANDOM => self.getrandom(at(0), a[1]),
-            SYS_RISCV_HWPROBE => self.hwprobe(at(0), a[1], a[4]),
+            SYS_MADVISE => self.madvise(args.vaddr(0), args.raw(1), args.raw(2)),
+            SYS_RT_SIGACTION => self.zero_if_given(user_pointer(args.raw(2)), 24),
+            SYS_RT_SIGPROCMASK => {
+                self.zero_if_given(user_pointer(args.raw(2)), args.raw(3) as usize)
+            }
+            SYS_CLOCK_GETTIME => self.clock_gettime(args.raw(0), args.vaddr(1)),
+            SYS_CLOCK_GETRES => self.write_timespec(args.vaddr(1), 0, 1),
+            SYS_GETTIMEOFDAY => self.gettimeofday(user_pointer(args.raw(0))),
+            SYS_TIMES => self.times(user_pointer(args.raw(0))),
+            SYS_GETRUSAGE => self.getrusage(args.vaddr(1)),
+            SYS_UNAME => self.uname(args.vaddr(0)),
+            SYS_SYSINFO => self.sysinfo(args.vaddr(0)),
+            SYS_PRLIMIT64 => self.prlimit(args.raw(1), user_pointer(args.raw(3))),
+            SYS_GETRANDOM => self.getrandom(args.vaddr(0), args.raw(1)),
+            SYS_RISCV_HWPROBE => self.hwprobe(args.vaddr(0), args.raw(1), args.raw(4)),
             // What a kernel without them answers; glibc falls back.
             SYS_CLONE3 | SYS_EXECVE | SYS_STATX | SYS_RSEQ => Err(Errno::ENOSYS),
             _ => {

@@ -7,7 +7,7 @@
 use super::{
     REALTIME_EPOCH_SECONDS, Reply, SYS_CLONE, SYS_EXIT, SYS_EXIT_GROUP, SYS_FUTEX, SYS_GETPID,
     SYS_GETTID, SYS_KILL, SYS_SCHED_GETAFFINITY, SYS_SET_TID_ADDRESS, SYS_TGKILL, SYS_TKILL,
-    SysResult, ok, user_pointer,
+    SysResult, SyscallArgs, ok, user_pointer,
 };
 use crate::arch::Hart;
 use crate::common::NANOS_PER_SECOND;
@@ -80,24 +80,38 @@ pub(super) struct ThreadCall<'a> {
 impl ThreadCall<'_> {
     /// Serves syscall `number` when it is one of these; `None` for any
     /// other.
-    pub(super) fn dispatch(&mut self, number: u64, a: [u64; 6]) -> Option<SysResult> {
+    pub(super) fn dispatch(&mut self, number: u64, args: SyscallArgs) -> Option<SysResult> {
         let result = match number {
             SYS_GETPID => ok(self.caller.tgid.as_u64()),
             SYS_GETTID => ok(self.caller.tid.as_u64()),
             SYS_SET_TID_ADDRESS => {
-                self.processes.set_clear_child_tid(self.caller, user_pointer(a[0]));
+                self.processes.set_clear_child_tid(self.caller, user_pointer(args.raw(0)));
                 ok(self.caller.tid.as_u64())
             }
-            SYS_CLONE => self.clone(a[0], user_pointer(a[1]), VirtAddr::new(a[2]), a[3], a[4]),
-            SYS_EXIT => Ok(self.exit(a[0] & 0xff)),
-            SYS_EXIT_GROUP => Ok(self.exit_group(a[0] & 0xff)),
-            SYS_FUTEX => self.futex(VirtAddr::new(a[0]), a[1] as u32, a[2] as u32, a[3], a[5]),
-            SYS_KILL => self.kill(a[0] as i32, a[1]),
-            SYS_TKILL => self.tkill(a[0] as i32, a[1]),
-            SYS_TGKILL => self.tgkill(a[0] as i32, a[1] as i32, a[2]),
-            SYS_SCHED_GETAFFINITY => {
-                self.sched_getaffinity(a[0] as i32, a[1] as u32, VirtAddr::new(a[2]))
-            }
+            SYS_CLONE => self.clone(
+                args.raw(0),
+                user_pointer(args.raw(1)),
+                VirtAddr::new(args.raw(2)),
+                args.raw(3),
+                args.raw(4),
+            ),
+            SYS_EXIT => Ok(self.exit(args.raw(0) & 0xff)),
+            SYS_EXIT_GROUP => Ok(self.exit_group(args.raw(0) & 0xff)),
+            SYS_FUTEX => self.futex(
+                VirtAddr::new(args.raw(0)),
+                args.raw(1) as u32,
+                args.raw(2) as u32,
+                args.raw(3),
+                args.raw(5),
+            ),
+            SYS_KILL => self.kill(args.raw(0) as i32, args.raw(1)),
+            SYS_TKILL => self.tkill(args.raw(0) as i32, args.raw(1)),
+            SYS_TGKILL => self.tgkill(args.raw(0) as i32, args.raw(1) as i32, args.raw(2)),
+            SYS_SCHED_GETAFFINITY => self.sched_getaffinity(
+                args.raw(0) as i32,
+                args.raw(1) as u32,
+                VirtAddr::new(args.raw(2)),
+            ),
             _ => return None,
         };
         Some(result)
