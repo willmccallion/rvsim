@@ -1,24 +1,22 @@
-//! Typed component identifiers for arena-indexed lookup, and a `ComponentId`
-//! enum that names every addressable target on the event queue.
+//! Typed component identifiers, and a `ComponentId` enum that names every
+//! addressable target on the event queue.
 //!
-//! Components (caches, memory controllers, pipelines, devices) live in flat
-//! `Vec<T>` arenas on the [`Simulator`](crate::system::simulator::Simulator).
-//! Cross-references travel as typed ID newtypes so the compiler refuses to
-//! mix, say, a `CacheId` with a `MemCtrlId` even though both wrap `u32`.
+//! Each kind of component has its own ID newtype, so the compiler refuses
+//! to mix, say, a `CacheId` with a `MemCtrlId` even though both wrap `u32`.
 
-/// Index of a cache (any level) in the `Simulator.caches` arena.
+/// A cache at any level; the topology says which core's, or the LLC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct CacheId(u32);
 
-/// Index of a pipeline in the `Simulator.pipelines` arena.
+/// A core's pipeline, by the core's index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct PipelineId(u32);
 
-/// Index of a memory controller in the `Simulator.mem_ctrls` arena.
+/// A memory controller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct MemCtrlId(u32);
 
-/// Index of a device in the `Simulator.devices` arena.
+/// A bus device, by its place in the bus's address order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct DeviceId(u32);
 
