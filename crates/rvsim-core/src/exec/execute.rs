@@ -542,6 +542,17 @@ mod tests {
     }
 
     #[test]
+    fn an_unsigned_zero_converts_to_positive_zero_half_in_every_rounding_mode() {
+        let unsigned_long = AluOp::Fp(FpOp::FromInt(IntWidth::Double, Signedness::Unsigned));
+        for rm in [RoundingMode::Rne, RoundingMode::Rtz, RoundingMode::Rdn, RoundingMode::Rup] {
+            let (res, flags) =
+                compute_alu(unsigned_long, 0, 0, 0, OperandFormat::Fp(FpFormat::Half), Some(rm));
+            assert_eq!(res, 0xFFFF_FFFF_FFFF_0000, "{rm:?}");
+            assert_eq!(flags, FpFlags::NONE, "{rm:?}");
+        }
+    }
+
+    #[test]
     fn widening_a_signaling_nan_half_raises_invalid_in_both_formats() {
         let boxed_signaling_half = 0xFFFF_FFFF_FFFF_7C01;
         let from_half = AluOp::Fp(FpOp::FromFloat(FpFormat::Half));

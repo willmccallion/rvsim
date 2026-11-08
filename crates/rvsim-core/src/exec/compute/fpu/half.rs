@@ -461,8 +461,11 @@ fn execute_f16_inner(op: FpOp, a: u64, b: u64, c: u64, rm: RoundingMode) -> (u64
             let (bits, flags) = f64_to_f16(r, rm);
             (box_f16(bits), flags)
         }
+        // `0u64 as f64` gives -0 under the host's round-down mode, which
+        // execute_f16 sets, so zero is explicit; `black_box` keeps LLVM,
+        // which assumes round-to-nearest, from folding the branch away.
         FpOp::FromInt(IntWidth::Double, Signedness::Unsigned) => {
-            let r = a as f64;
+            let r = if a == 0 { 0.0 } else { std::hint::black_box(a) as f64 };
             let (bits, flags) = f64_to_f16(r, rm);
             (box_f16(bits), flags)
         }
