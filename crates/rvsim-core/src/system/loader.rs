@@ -66,6 +66,26 @@ const DEFAULT_KERNEL: &str = "software/linux/output/Image";
 const DEFAULT_FW_JUMP: &str = "software/linux/output/fw_jump.bin";
 const DEFAULT_FW_DYNAMIC: &str = "software/linux/output/fw_dynamic.bin";
 
+/// Loads the kernel `boot` names at `addr`, or the default image when it
+/// names none; without either the firmware boots alone.
+///
+/// # Errors
+///
+/// [`SimError::FileRead`] when a named kernel, or the default image that
+/// exists, cannot be read.
+fn load_kernel(state: &mut SystemState, boot: &KernelBoot, addr: PhysAddr) -> Result<(), SimError> {
+    let path = match boot.kernel.as_deref() {
+        Some(path) => path,
+        None if fs::metadata(DEFAULT_KERNEL).is_ok() => DEFAULT_KERNEL,
+        None => {
+            tracing::warn!(target: "rvsim::loader", path = DEFAULT_KERNEL, "no kernel image; booting firmware only");
+            return Ok(());
+        }
+    };
+    state.load_binary_at(&load_binary(path)?, addr);
+    Ok(())
+}
+
 /// Where a kernel boot places the device tree, from RAM base.
 const DTB_OFFSET: u64 = 0x0220_0000;
 
@@ -101,14 +121,7 @@ pub(crate) fn setup_kernel_load(
         let sbi_data = load_binary(firmware.path())?;
         state.load_binary_at(&sbi_data, PhysAddr::new(opensbi_addr));
 
-        let kernel_path = boot.kernel.as_deref().unwrap_or(DEFAULT_KERNEL);
-
-        if fs::metadata(kernel_path).is_ok() {
-            let kernel_data = load_binary(kernel_path)?;
-            state.load_binary_at(&kernel_data, PhysAddr::new(kernel_addr));
-        } else {
-            tracing::warn!(target: "rvsim::loader", path = kernel_path, "no kernel image; booting firmware only");
-        }
+        load_kernel(state, boot, PhysAddr::new(kernel_addr))?;
 
         // Every hart starts in OpenSBI with its own id in a0; the firmware's
         // boot lottery picks the cold-boot hart and parks the rest.

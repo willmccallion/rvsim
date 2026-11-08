@@ -151,6 +151,24 @@ fn a_missing_explicit_firmware_is_an_error() {
     assert!(result.is_err());
 }
 
+/// A kernel the boot names must be there; booting the firmware alone is
+/// only for when none was named and the default image is missing.
+#[test]
+fn a_missing_explicit_kernel_is_an_error() {
+    let mut state = create_test_cpu();
+    let config = Config::minimal();
+    let firmware = create_temp_binary(&[0x73, 0x00, 0x20, 0x30]);
+    let boot = loader::KernelBoot {
+        kernel: Some("/nonexistent/Image".to_string()),
+        firmware: Some(firmware.path().to_str().unwrap().to_string()),
+        ..loader::KernelBoot::default()
+    };
+
+    let result = loader::setup_kernel_load(&mut state, &config, &boot);
+
+    assert!(result.is_err());
+}
+
 #[test]
 fn test_setup_kernel_load_register_a2_is_zero() {
     let mut state = create_test_cpu();
