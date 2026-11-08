@@ -11,8 +11,8 @@ use crate::sim::components::{ComponentId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
 use crate::sim::packet::{AccessSize, HitLevel, MemOp, MemRespData, MesiState, Packet};
-use crate::soc::devices::{Clint, Plic, Uart};
 use serde::de::DeserializeOwned;
+use std::any::Any;
 
 /// The line size an MMIO response's address is rounded to. Devices have no
 /// cache lines; the requester matches the response by its id.
@@ -99,7 +99,7 @@ pub fn parse_state<T: DeserializeOwned>(
 /// All data accesses go through the device's [`Handle`] impl; this trait only
 /// describes layout (name + address range), per-cycle lifecycle (`tick`), and
 /// device-class upcasts the bus uses for routing IRQs and panic detection.
-pub trait Device: Handle + Send + Sync {
+pub trait Device: Handle + Send + Sync + Any {
     /// Which device this is.
     fn kind(&self) -> DeviceKind;
 
@@ -129,23 +129,6 @@ pub trait Device: Handle + Send + Sync {
 
     /// Returns the IRQ ID for this device if it can raise interrupts.
     fn get_irq_id(&self) -> Option<IrqId> {
-        None
-    }
-
-    /// Returns a reference as `Clint` if this device is the CLINT.
-    fn as_clint(&self) -> Option<&Clint> {
-        None
-    }
-    /// Returns a mutable reference as `Clint` if this device is the CLINT.
-    fn as_clint_mut(&mut self) -> Option<&mut Clint> {
-        None
-    }
-    /// Returns a mutable reference as `Plic` if this device is the PLIC.
-    fn as_plic_mut(&mut self) -> Option<&mut Plic> {
-        None
-    }
-    /// Returns a mutable reference as `Uart` if this device is a UART.
-    fn as_uart_mut(&mut self) -> Option<&mut Uart> {
         None
     }
 

@@ -467,8 +467,4 @@ impl Device for Uart {
         self.set_state(&state);
         Ok(())
     }
-
-    fn as_uart_mut(&mut self) -> Option<&mut Uart> {
-        Some(self)
-    }
 }
