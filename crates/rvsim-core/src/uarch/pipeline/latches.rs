@@ -117,6 +117,14 @@ impl<T> Latch<T> {
         taken
     }
 
+    /// Returns `entries` the consumer took at `now` but could not accept,
+    /// to be taken again before anything written since.
+    pub fn put_back(&mut self, now: u64, entries: Vec<T>) {
+        if !entries.is_empty() {
+            self.bundles.push_front(Bundle { ready_at: now, entries });
+        }
+    }
+
     /// Drops every bundle.
     pub fn clear(&mut self) {
         self.bundles.clear();

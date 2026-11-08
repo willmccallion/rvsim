@@ -513,3 +513,23 @@ fn the_queue_snapshot_lists_entries_oldest_first_across_the_tag_wrap() {
 
     assert_eq!(snapshot, tags);
 }
+
+#[test]
+fn dispatch_into_a_full_queue_leaves_the_rest_for_next_cycle() {
+    let mut config = crate::config::Config::minimal();
+    config.pipeline.issue_queue_size = 2;
+    let mut sys = crate::system::SystemState::build(&config);
+    let mut state = sys.core_ctx(0);
+    let mut engine = crate::uarch::pipeline::backend::o3::O3Engine::new(
+        &config,
+        crate::sim::components::PipelineId::new(0),
+        crate::sim::components::CacheId::new(0),
+        crate::sim::components::CacheId::new(1),
+    );
+    let mut renamed = vec![make_entry(0), make_entry(1), make_entry(2)];
+
+    engine.dispatch(&mut state, &mut renamed);
+
+    assert_eq!(engine.issue_queue.available_slots(), 0);
+    assert_eq!(renamed.iter().map(|entry| entry.rob_tag).collect::<Vec<_>>(), [RobTag::new(2)]);
+}
