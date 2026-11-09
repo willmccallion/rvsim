@@ -149,16 +149,22 @@ impl WriteLog {
         Some(first..last + 1)
     }
 
+    /// The latest write to the line containing `paddr` by a writer other
+    /// than `reader`, if there has been one.
+    #[must_use]
+    pub fn latest_by_other(&self, paddr: PhysAddr, reader: HartId) -> Option<WriteSeq> {
+        let line = self.lines[self.line_index(paddr)?];
+        let reader_tag = Self::writer_tag(Writer::Hart(reader));
+        let by_other =
+            if line.latest.tag() == reader_tag { line.latest_by_other } else { line.latest };
+        (by_other != Write::NONE).then(|| WriteSeq(by_other.seq()))
+    }
+
     /// True when a writer other than `reader` has written the line
     /// containing `paddr` after `since`.
     #[must_use]
     pub fn written_by_other_since(&self, paddr: PhysAddr, reader: HartId, since: WriteSeq) -> bool {
-        let Some(index) = self.line_index(paddr) else { return false };
-        let line = self.lines[index];
-        let reader_tag = Self::writer_tag(Writer::Hart(reader));
-        let by_other =
-            if line.latest.tag() == reader_tag { line.latest_by_other } else { line.latest };
-        by_other != Write::NONE && by_other.seq() > since.0
+        self.latest_by_other(paddr, reader).is_some_and(|write| write > since)
     }
 }
 
