@@ -612,7 +612,10 @@ impl TageCore {
         for bank in banks {
             if self.enabled(bank) {
                 indices[bank] += slice << self.table_bits;
-                slice = (slice + 1) % slices;
+                slice += 1;
+                if slice == slices {
+                    slice = 0;
+                }
             }
         }
     }
