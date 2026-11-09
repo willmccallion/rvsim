@@ -88,11 +88,11 @@ impl<E: ExecutionEngine> Frontend<E> {
             && let Some(fetched) = self.fetch2_decode.ready(now)
         {
             let vector = engine.vector_config(&state.hart().csrs);
-            let mut decoded = Vec::new();
-            let outcome =
-                decode::decode_stage(state, fetched, &mut decoded, engine.bundle_hazard(), vector);
+            let hazard = engine.bundle_hazard();
+            let outcome = self.decode_rename.push_with(now, |decoded| {
+                decode::decode_stage(state, fetched, decoded, hazard, vector)
+            });
             engine.common_mut().vector_config_unresolved = outcome.ended_at_vsetvl;
-            self.decode_rename.push(now, decoded);
             if self.decode_rename.delay() == 0 {
                 self.rename_pass(state, engine, rename_output);
             }
@@ -110,9 +110,8 @@ impl<E: ExecutionEngine> Frontend<E> {
         if self.fetch2_decode.has_room()
             && let Some(mut landed) = self.fetch1_fetch2.ready(now).map(std::mem::take)
         {
-            let mut decoded = Vec::new();
-            fetch2::fetch2_stage(state, &mut landed, &mut decoded);
-            self.fetch2_decode.push(now, decoded);
+            self.fetch2_decode
+                .push_with(now, |decoded| fetch2::fetch2_stage(state, &mut landed, decoded));
         }
 
         if engine.common().commit.trap.stops_fetch() {
@@ -147,9 +146,8 @@ impl<E: ExecutionEngine> Frontend<E> {
         if rename_output.has_room()
             && let Some(decoded) = self.decode_rename.ready(now)
         {
-            let mut renamed = Vec::new();
-            rename::rename_stage(state, decoded, engine, &mut renamed);
-            rename_output.push(now, renamed);
+            rename_output
+                .push_with(now, |renamed| rename::rename_stage(state, decoded, engine, renamed));
         }
     }
 
