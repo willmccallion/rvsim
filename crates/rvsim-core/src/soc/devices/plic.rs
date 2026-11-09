@@ -168,13 +168,16 @@ impl Plic {
     /// `UPDATE_DELAY_CYCLES`. Call once per cycle after
     /// [`Plic::update_irqs`].
     pub fn check_interrupts(&mut self) {
-        let computed = (0..self.context_count()).map(|ctx| self.calc_max_id(ctx)).collect();
-        self.updates.push_back(computed);
-        if self.updates.len() > UPDATE_DELAY_CYCLES
+        // The claims leaving the delay line give their buffer to the new ones.
+        let mut computed = Vec::new();
+        if self.updates.len() == UPDATE_DELAY_CYCLES
             && let Some(visible) = self.updates.pop_front()
         {
-            self.claims = visible;
+            computed = std::mem::replace(&mut self.claims, visible);
+            computed.clear();
         }
+        computed.extend((0..self.context_count()).map(|ctx| self.calc_max_id(ctx)));
+        self.updates.push_back(computed);
     }
 
     /// External interrupt lines for `hart` as of the last
