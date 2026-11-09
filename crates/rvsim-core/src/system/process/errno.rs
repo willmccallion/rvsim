@@ -53,6 +53,7 @@ impl Errno {
     /// The Linux number of the host's `errno` `code`. The host numbers its
     /// errors its own way (macOS's `EAGAIN` is 35, Linux's 11), so each is
     /// translated by name; one a file syscall cannot raise reads as `EIO`.
+    #[cfg(unix)]
     const fn of_host(code: i32) -> Self {
         match code {
             libc::EPERM => Self::EPERM,
@@ -94,16 +95,20 @@ impl Errno {
 }
 
 impl From<io::Error> for Errno {
+    /// By the host's `errno` on Unix; elsewhere the host's error codes are
+    /// not `errno`s, so by the error's kind alone.
     fn from(error: io::Error) -> Self {
-        error.raw_os_error().map_or_else(
-            || match error.kind() {
-                io::ErrorKind::NotFound => Self::ENOENT,
-                io::ErrorKind::PermissionDenied => Self::EACCES,
-                io::ErrorKind::AlreadyExists => Self::EEXIST,
-                _ => Self::EINVAL,
-            },
-            Self::of_host,
-        )
+        #[cfg(unix)]
+        if let Some(code) = error.raw_os_error() {
+            return Self::of_host(code);
+        }
+        match error.kind() {
+            io::ErrorKind::NotFound => Self::ENOENT,
+            io::ErrorKind::PermissionDenied => Self::EACCES,
+            io::ErrorKind::AlreadyExists => Self::EEXIST,
+            io::ErrorKind::Unsupported => Self::ENOSYS,
+            _ => Self::EINVAL,
+        }
     }
 }
 
@@ -121,10 +126,12 @@ mod tests {
     use super::Errno;
     use std::io;
 
+    #[cfg(unix)]
     fn guest_errno(host_code: i32) -> Errno {
         Errno::from(io::Error::from_raw_os_error(host_code))
     }
 
+    #[cfg(unix)]
     #[test]
     fn host_errors_reach_the_guest_under_their_linux_numbers() {
         assert_eq!(guest_errno(libc::EAGAIN).return_value(), (-11_i64).cast_unsigned());
@@ -136,6 +143,7 @@ mod tests {
         assert_eq!(guest_errno(libc::EDQUOT).return_value(), (-122_i64).cast_unsigned());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_host_error_no_file_syscall_raises_reads_as_eio() {
         assert_eq!(guest_errno(libc::EHOSTUNREACH), Errno::EIO);

@@ -19,7 +19,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-libc = { workspace = true }
 object = { workspace = true }
 thiserror = { workspace = true }
 tracing = "0.1"
@@ -36,3 +35,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [lints]
 workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }

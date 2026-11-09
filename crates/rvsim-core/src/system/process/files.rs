@@ -1,14 +1,15 @@
 //! The process's file descriptors, served by the host's filesystem as
 //! gem5's SE mode serves them.
+//!
+//! Host files are reached through Unix's byte paths and metadata. On other
+//! hosts the console and generated files still work, and the calls that
+//! would reach a host file fail with `ENOSYS`.
 
 use super::errno::Errno;
 use crate::soc::terminal::SharedTerminal;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
 
 /// The longest path a guest may pass, as Linux's `PATH_MAX`.
 pub const PATH_MAX: usize = 4096;
@@ -82,29 +83,6 @@ pub struct Stat {
 }
 
 impl Stat {
-    /// The host file's metadata as the guest sees it.
-    #[must_use]
-    pub fn from_metadata(meta: &std::fs::Metadata) -> Self {
-        Self {
-            dev: meta.dev(),
-            ino: meta.ino(),
-            mode: meta.mode(),
-            nlink: u32::try_from(meta.nlink()).unwrap_or(u32::MAX),
-            uid: meta.uid(),
-            gid: meta.gid(),
-            rdev: meta.rdev(),
-            size: i64::try_from(meta.size()).unwrap_or(i64::MAX),
-            blksize: i32::try_from(meta.blksize()).unwrap_or(4096),
-            blocks: i64::try_from(meta.blocks()).unwrap_or(0),
-            atime: meta.atime(),
-            atime_nsec: u64::try_from(meta.atime_nsec()).unwrap_or(0),
-            mtime: meta.mtime(),
-            mtime_nsec: u64::try_from(meta.mtime_nsec()).unwrap_or(0),
-            ctime: meta.ctime(),
-            ctime_nsec: u64::try_from(meta.ctime_nsec()).unwrap_or(0),
-        }
-    }
-
     /// A read-only file of `size` bytes, as a generated file reports itself.
     #[must_use]
     pub const fn read_only_file(size: i64) -> Self {
@@ -224,9 +202,9 @@ impl FileTable {
     /// working directory when relative; `dirfd` other than `AT_FDCWD`
     /// resolves against that descriptor's path.
     pub fn resolve(&mut self, dirfd: Fd, path: &[u8]) -> Result<PathBuf, Errno> {
-        let path = Path::new(OsStr::from_bytes(path));
+        let path = host_path(path)?;
         if path.is_absolute() || dirfd == AT_FDCWD {
-            return Ok(path.to_path_buf());
+            return Ok(path);
         }
         match self.slot(dirfd)? {
             HostFile::File { path: dir, .. } => Ok(dir.join(path)),
@@ -246,8 +224,7 @@ impl FileTable {
             .truncate(flags & open_flags::O_TRUNC != 0)
             .append(flags & open_flags::O_APPEND != 0);
         if flags & open_flags::O_CREAT != 0 {
-            use std::os::unix::fs::OpenOptionsExt;
-            let _ = options.mode(u32::try_from(mode & 0o7777).unwrap_or(0o644));
+            set_create_mode(&mut options, mode);
         }
         if flags & open_flags::O_DIRECTORY != 0 && !path.is_dir() {
             return Err(Errno::ENOTDIR);
@@ -305,10 +282,9 @@ impl FileTable {
 
     /// Reads up to `len` bytes at `offset` without moving the position.
     pub fn pread(&mut self, fd: Fd, len: usize, offset: u64) -> Result<Vec<u8>, Errno> {
-        use std::os::unix::fs::FileExt;
         let mut buffer = vec![0u8; len];
         let read = match self.slot(fd)? {
-            HostFile::File { file, .. } => file.read_at(&mut buffer, offset)?,
+            HostFile::File { file, .. } => read_at(file, &mut buffer, offset)?,
             HostFile::Generated { contents, .. } => copy_from(contents, offset, &mut buffer),
             _ => return Err(Errno::ESPIPE),
         };
@@ -329,9 +305,8 @@ impl FileTable {
     }
 
     pub fn pwrite(&mut self, fd: Fd, bytes: &[u8], offset: u64) -> Result<usize, Errno> {
-        use std::os::unix::fs::FileExt;
         match self.slot(fd)? {
-            HostFile::File { file, .. } => file.write_at(bytes, offset).map_err(Errno::from),
+            HostFile::File { file, .. } => write_at(file, bytes, offset).map_err(Errno::from),
             HostFile::Generated { .. } => Err(Errno::EBADF),
             _ => Err(Errno::ESPIPE),
         }
@@ -363,9 +338,7 @@ impl FileTable {
     pub fn stat(&mut self, fd: Fd) -> Result<Stat, Errno> {
         match self.slot(fd)? {
             HostFile::Stdin | HostFile::Stdout | HostFile::Stderr => Ok(Stat::character_device()),
-            HostFile::File { file, .. } => {
-                file.metadata().map(|meta| Stat::from_metadata(&meta)).map_err(Errno::from)
-            }
+            HostFile::File { file, .. } => stat_of(&file.metadata()?),
             HostFile::Generated { contents, .. } => {
                 Ok(Stat::read_only_file(i64::try_from(contents.len()).unwrap_or(i64::MAX)))
             }
@@ -376,6 +349,80 @@ impl FileTable {
     pub fn is_console(&mut self, fd: Fd) -> bool {
         matches!(self.slot(fd), Ok(HostFile::Stdin | HostFile::Stdout | HostFile::Stderr))
     }
+}
+
+/// A host file's metadata as the guest sees it.
+#[cfg(unix)]
+#[expect(clippy::unnecessary_wraps, reason = "fails on hosts without Unix metadata")]
+pub fn stat_of(meta: &std::fs::Metadata) -> Result<Stat, Errno> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(Stat {
+        dev: meta.dev(),
+        ino: meta.ino(),
+        mode: meta.mode(),
+        nlink: u32::try_from(meta.nlink()).unwrap_or(u32::MAX),
+        uid: meta.uid(),
+        gid: meta.gid(),
+        rdev: meta.rdev(),
+        size: i64::try_from(meta.size()).unwrap_or(i64::MAX),
+        blksize: i32::try_from(meta.blksize()).unwrap_or(4096),
+        blocks: i64::try_from(meta.blocks()).unwrap_or(0),
+        atime: meta.atime(),
+        atime_nsec: u64::try_from(meta.atime_nsec()).unwrap_or(0),
+        mtime: meta.mtime(),
+        mtime_nsec: u64::try_from(meta.mtime_nsec()).unwrap_or(0),
+        ctime: meta.ctime(),
+        ctime_nsec: u64::try_from(meta.ctime_nsec()).unwrap_or(0),
+    })
+}
+
+/// Host metadata is not Unix's here, so no host file has a guest `stat`.
+#[cfg(not(unix))]
+pub const fn stat_of(_meta: &std::fs::Metadata) -> Result<Stat, Errno> {
+    Err(Errno::ENOSYS)
+}
+
+/// A path the guest gave, as the host names it: the same bytes.
+#[cfg(unix)]
+#[expect(clippy::unnecessary_wraps, reason = "fails on hosts without byte paths")]
+pub fn host_path(bytes: &[u8]) -> Result<PathBuf, Errno> {
+    use std::os::unix::ffi::OsStrExt;
+    Ok(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
+}
+
+/// Host paths are not byte strings here, so no guest path names one.
+#[cfg(not(unix))]
+pub const fn host_path(_bytes: &[u8]) -> Result<PathBuf, Errno> {
+    Err(Errno::ENOSYS)
+}
+
+#[cfg(unix)]
+fn set_create_mode(options: &mut OpenOptions, mode: u64) {
+    use std::os::unix::fs::OpenOptionsExt;
+    let _ = options.mode(u32::try_from(mode & 0o7777).unwrap_or(0o644));
+}
+
+#[cfg(not(unix))]
+const fn set_create_mode(_options: &mut OpenOptions, _mode: u64) {}
+
+#[cfg(unix)]
+fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, buffer, offset)
+}
+
+#[cfg(unix)]
+fn write_at(file: &File, bytes: &[u8], offset: u64) -> io::Result<usize> {
+    std::os::unix::fs::FileExt::write_at(file, bytes, offset)
+}
+
+#[cfg(not(unix))]
+fn read_at(_file: &File, _buffer: &mut [u8], _offset: u64) -> io::Result<usize> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+
+#[cfg(not(unix))]
+fn write_at(_file: &File, _bytes: &[u8], _offset: u64) -> io::Result<usize> {
+    Err(io::ErrorKind::Unsupported.into())
 }
 
 /// Copies `contents` from `offset` into `buffer`, as far as both go, and
@@ -392,7 +439,6 @@ mod tests {
     use super::{AT_FDCWD, Fd, FileTable};
     use crate::config::Console;
     use crate::soc::terminal::Terminal;
-    use std::os::unix::ffi::OsStrExt;
 
     #[test]
     fn a_descriptor_argument_is_read_as_an_int() {
@@ -400,8 +446,10 @@ mod tests {
         assert_eq!(Fd::from_arg(1 << 32 | 1), Fd::from_arg(1));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_path_need_not_be_utf_8() {
+        use std::os::unix::ffi::OsStrExt;
         let mut files = FileTable::new(Terminal::shared(Console::Quiet));
 
         let path = files.resolve(AT_FDCWD, b"/data/\xff.bin");
