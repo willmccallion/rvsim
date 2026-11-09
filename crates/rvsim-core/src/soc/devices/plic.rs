@@ -201,21 +201,17 @@ impl Plic {
         let mut max_id = 0;
 
         for word in 0..num_words {
-            let active = self.pending[word] & !self.claimed[word] & self.enables[ctx][word];
-            if active == 0 {
-                continue;
-            }
-            for bit in 0..32 {
-                let irq_id = word * 32 + bit;
-                if irq_id == 0 {
+            let mut active = self.pending[word] & !self.claimed[word] & self.enables[ctx][word];
+            while active != 0 {
+                let irq_id = word * 32 + active.trailing_zeros() as usize;
+                active &= active - 1;
+                if irq_id == 0 || irq_id >= self.priorities.len() {
                     continue;
                 }
-                if (active & (1 << bit)) != 0 && irq_id < self.priorities.len() {
-                    let prio = self.priorities[irq_id];
-                    if prio > max_prio && prio > threshold {
-                        max_prio = prio;
-                        max_id = irq_id as u32;
-                    }
+                let prio = self.priorities[irq_id];
+                if prio > max_prio && prio > threshold {
+                    max_prio = prio;
+                    max_id = irq_id as u32;
                 }
             }
         }

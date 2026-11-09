@@ -111,6 +111,23 @@ fn plic_claim_returns_highest_priority_id() {
 }
 
 #[test]
+fn plic_claim_breaks_a_priority_tie_toward_the_lowest_id() {
+    let mut plic = Plic::new(PhysAddr::new(0), 1);
+    for (source, priority) in [(2_u64, 1_u64), (3, 4), (34, 4)] {
+        probe::write(&mut plic, PhysAddr::new(4 * source), priority, ProbeWidth::B4);
+    }
+    probe::write(&mut plic, PhysAddr::new(0x2000), (1 << 2) | (1 << 3), ProbeWidth::B4);
+    probe::write(&mut plic, PhysAddr::new(0x2004), 1 << (34 - 32), ProbeWidth::B4);
+    probe::write(&mut plic, PhysAddr::new(0x200000), 0_u64, ProbeWidth::B4);
+
+    plic.update_irqs((1 << 2) | (1 << 3) | (1 << 34));
+    settle(&mut plic);
+
+    let claim = probe::read(&mut plic, PhysAddr::new(0x200004), ProbeWidth::B4);
+    assert_eq!(claim, 3);
+}
+
+#[test]
 fn plic_claim_clears_pending() {
     let mut plic = Plic::new(PhysAddr::new(0), 1);
     probe::write(&mut plic, PhysAddr::new(4), 3_u64, ProbeWidth::B4);
