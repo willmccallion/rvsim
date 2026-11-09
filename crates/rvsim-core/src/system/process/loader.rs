@@ -95,6 +95,11 @@ pub fn load_processes(
     mode: PagingMode,
     clock_hz: NonZeroU64,
 ) -> Result<(), SimError> {
+    if !cfg!(unix) {
+        return Err(SimError::UnsupportedProgram {
+            reason: "SE mode needs a Unix host such as Linux or macOS".to_string(),
+        });
+    }
     let harts = state.harts.len();
     if programs.is_empty() || programs.len() > harts {
         return Err(SimError::UnsupportedProgram {

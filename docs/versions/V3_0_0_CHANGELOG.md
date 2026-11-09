@@ -56,6 +56,10 @@ unchanged, and the package needs Python 3.11.
   A syscall costs the pipeline a flush and nothing else. `make se-verify`
   checks the output and exit code of a set of programs, and Embench-IoT
   with `EMBENCH=1`, against `qemu-riscv64`. See [SE mode](../se-mode.md).
+- SE mode needs a Unix host, Linux or macOS. On Windows a user program is
+  refused with an error saying so; bare-metal images and full-system runs
+  work there as before, and CI now checks that the crates build on Windows
+  and macOS.
 - SE mode loads static position-independent executables (`-static-pie`),
   placing one at the address static executables are linked at; only
   dynamically linked programs are refused. `make se-verify` checks a
