@@ -15,7 +15,7 @@ use crate::sim::stats::{Formula, Stats, Unit};
 use crate::soc::memory::ddr5::state::{Bank, Subchannel};
 
 /// Counters for one subchannel.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct SubchannelCounters {
     /// Demand reads admitted to the read queue.
     pub reads: u64,
@@ -51,12 +51,18 @@ pub struct SubchannelCounters {
     pub read_admission_stalls: u64,
     /// Clocks an arrived write waited for a write-queue slot.
     pub write_admission_stalls: u64,
+}
+
+/// Histogram samples for one subchannel, kept between publications so
+/// their buffers are reused.
+#[derive(Clone, Debug, Default)]
+pub struct SubchannelSamples {
     /// Arrival-to-burst-end latency of each demand read, in DRAM clocks.
-    pub read_latency_samples: Vec<u64>,
+    pub read_latency: Vec<u64>,
     /// Read-queue occupancy seen by each admitted read.
-    pub read_queue_depth_samples: Vec<u64>,
+    pub read_queue_depth: Vec<u64>,
     /// Write-queue occupancy seen by each admitted write.
-    pub write_queue_depth_samples: Vec<u64>,
+    pub write_queue_depth: Vec<u64>,
 }
 
 /// Counters for one bank.
@@ -223,35 +229,35 @@ impl ControllerStatPaths {
     ) {
         let entry = &self.subchannels[channel * self.subchannels_per_channel + subchannel_index];
         let paths = &entry.paths;
-        let c = &mut subchannel.counters;
-        stats.counter(paths.reads).add(c.reads);
-        stats.counter(paths.writes).add(c.writes);
-        stats.counter(paths.writes_merged).add(c.writes_merged);
-        stats.counter(paths.reads_hit_write_queue).add(c.reads_hit_write_queue);
-        stats.counter(paths.scrub_reads).add(c.scrub_reads);
-        stats.counter(paths.activates).add(c.activates);
-        stats.counter(paths.precharges).add(c.precharges);
-        stats.counter(paths.precharge_alls).add(c.precharge_alls);
-        stats.counter(paths.refreshes).add(c.refreshes);
-        stats.counter(paths.row_hits).add(c.row_hits);
-        stats.counter(paths.row_misses).add(c.row_misses);
-        stats.counter(paths.power_down_entries).add(c.power_down_entries);
-        stats.counter(paths.power_down_exits).add(c.power_down_exits);
-        stats.counter(paths.bus_busy_clocks).add(c.bus_busy_clocks);
-        stats.counter(paths.clocks).add(c.clocks);
-        stats.counter(paths.read_admission_stalls).add(c.read_admission_stalls);
-        stats.counter(paths.write_admission_stalls).add(c.write_admission_stalls);
-        for sample in c.read_latency_samples.drain(..) {
+        let c = std::mem::take(&mut subchannel.counters);
+        add_counts(stats, paths.reads, c.reads);
+        add_counts(stats, paths.writes, c.writes);
+        add_counts(stats, paths.writes_merged, c.writes_merged);
+        add_counts(stats, paths.reads_hit_write_queue, c.reads_hit_write_queue);
+        add_counts(stats, paths.scrub_reads, c.scrub_reads);
+        add_counts(stats, paths.activates, c.activates);
+        add_counts(stats, paths.precharges, c.precharges);
+        add_counts(stats, paths.precharge_alls, c.precharge_alls);
+        add_counts(stats, paths.refreshes, c.refreshes);
+        add_counts(stats, paths.row_hits, c.row_hits);
+        add_counts(stats, paths.row_misses, c.row_misses);
+        add_counts(stats, paths.power_down_entries, c.power_down_entries);
+        add_counts(stats, paths.power_down_exits, c.power_down_exits);
+        add_counts(stats, paths.bus_busy_clocks, c.bus_busy_clocks);
+        add_counts(stats, paths.clocks, c.clocks);
+        add_counts(stats, paths.read_admission_stalls, c.read_admission_stalls);
+        add_counts(stats, paths.write_admission_stalls, c.write_admission_stalls);
+        let samples = &mut subchannel.samples;
+        for sample in samples.read_latency.drain(..) {
             stats.histogram(paths.read_latency).record(sample);
         }
-        for sample in c.read_queue_depth_samples.drain(..) {
+        for sample in samples.read_queue_depth.drain(..) {
             stats.histogram(paths.read_queue_depth).record(sample);
         }
-        for sample in c.write_queue_depth_samples.drain(..) {
+        for sample in samples.write_queue_depth.drain(..) {
             stats.histogram(paths.write_queue_depth).record(sample);
         }
         let had_bank_activity = c.activates + c.row_hits + c.row_misses > 0;
-        *c = SubchannelCounters::default();
         if !had_bank_activity {
             return;
         }
@@ -261,6 +267,14 @@ impl ControllerStatPaths {
                 publish_bank(stats, bank_paths, bank);
             }
         }
+    }
+}
+
+/// Adds `count` to `stat`. Every subchannel counter is registered before
+/// the first publication, so skipping a zero count changes nothing.
+fn add_counts(stats: &mut Stats, stat: StatId, count: u64) {
+    if count != 0 {
+        stats.counter(stat).add(count);
     }
 }
 
