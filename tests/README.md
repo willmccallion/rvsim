@@ -11,7 +11,6 @@ simulator from Python.
 | `conformance/vector/` | chipsalliance RVV tests, cosimulated against spike | `make vector-test` |
 | `conformance/vector_tests.py` | The RVV cosim suite on every pipeline config | `make vector-test-multi` |
 | `conformance/multicore_tests.py` | Multi-hart programs from `software/bin/multicore` at 2 and 4 harts | `.venv/bin/python tests/conformance/multicore_tests.py` |
-| `conformance/spike_compare.py` | riscv-tests commit traces diffed against spike | `.venv/bin/python tests/conformance/spike_compare.py --help` |
 | `conformance/lockstep.py` | riscv-tests, programs and benchmarks replayed on spike in lockstep, every pipeline config | `make lockstep`, or `make lockstep-smoke` |
 | `run_all.py` | Every conformance suite on every pipeline config | `make test-all`, or `make conformance-smoke` for the smoke subsets |
 
