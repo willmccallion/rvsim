@@ -21,7 +21,7 @@ commit-log = ["rvsim-core/commit-log"]
 
 
 [dependencies]
-rvsim-core = { path = "../rvsim-core", version = "2.1.0" }
+rvsim-core = { path = "../rvsim-core", version = "3.0.0" }
 serde      = { workspace = true }
 serde_json = { workspace = true }
 serde_path_to_error = { workspace = true }
