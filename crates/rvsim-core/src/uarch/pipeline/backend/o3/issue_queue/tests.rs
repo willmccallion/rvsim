@@ -84,7 +84,19 @@ fn select(
         memory_blocked: false,
         head: HeadAtCycleStart::latch(rob),
     };
-    iq.select(&budget, store_buffer, rob).entries
+    selection_under(iq, &budget, store_buffer, rob).entries
+}
+
+/// What `iq` selects under `budget`, in a fresh selection.
+fn selection_under(
+    iq: &mut IssueQueue,
+    budget: &IssueBudget<'_>,
+    store_buffer: &StoreBuffer,
+    rob: &Rob,
+) -> Selection {
+    let mut selection = Selection::default();
+    iq.select(budget, store_buffer, rob, &mut selection);
+    selection
 }
 
 /// One ALU slot, one load and one store port, from `units`.
@@ -119,7 +131,12 @@ fn a_ready_op_whose_unit_is_busy_lets_a_younger_op_issue_in_its_place() {
         ControlSignals { alu: AluOp::Int(IntAluOp::Div(DivOp::Div)), ..Default::default() };
     let mut iq = queue_of(8, [ready_entry(1, divide), ready_nop(2)]);
 
-    let selection = iq.select(&single_issue(&units, 1, false), &StoreBuffer::new(4), &Rob::new(8));
+    let selection = selection_under(
+        &mut iq,
+        &single_issue(&units, 1, false),
+        &StoreBuffer::new(4),
+        &Rob::new(8),
+    );
 
     assert_eq!((issued_tags(&selection.entries), selection.unit_stalls), (vec![2], 1));
 }
@@ -130,7 +147,12 @@ fn a_blocked_memory_pipeline_holds_loads_but_not_alu_ops() {
     let load = ControlSignals { mem_read: true, ..Default::default() };
     let mut iq = queue_of(8, [ready_entry(1, load), ready_nop(2)]);
 
-    let selection = iq.select(&single_issue(&units, 0, true), &StoreBuffer::new(4), &Rob::new(8));
+    let selection = selection_under(
+        &mut iq,
+        &single_issue(&units, 0, true),
+        &StoreBuffer::new(4),
+        &Rob::new(8),
+    );
 
     assert_eq!(issued_tags(&selection.entries), vec![2]);
 }
@@ -432,7 +454,12 @@ fn the_issue_hold_reports_the_oldest_entry_across_the_tag_wrap() {
     });
     let units = FuPool::new(&FuConfig::default());
 
-    let selection = iq.select(&single_issue(&units, 0, false), &StoreBuffer::new(4), &Rob::new(8));
+    let selection = selection_under(
+        &mut iq,
+        &single_issue(&units, 0, false),
+        &StoreBuffer::new(4),
+        &Rob::new(8),
+    );
 
     assert_eq!(selection.oldest, Some(IssueHold::Operands));
 }

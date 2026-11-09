@@ -304,6 +304,9 @@ pub struct IssueQueue {
     capacity: usize,
     /// Current number of occupied slots.
     count: usize,
+    /// The cycle's ready entries as `select` collects them, kept so the
+    /// buffer is reused.
+    ready: Vec<(usize, IssuePart, RobTag)>,
 }
 
 impl IssueQueue {
@@ -311,7 +314,7 @@ impl IssueQueue {
     pub fn new(capacity: usize) -> Self {
         let mut slots = Vec::with_capacity(capacity);
         slots.resize_with(capacity, || None);
-        Self { slots, capacity, count: 0 }
+        Self { slots, capacity, count: 0, ready: Vec::new() }
     }
 
     /// A free slot, if the queue has one.
@@ -366,13 +369,17 @@ impl IssueQueue {
     /// place, when every unit of its class is busy, when it is a load or
     /// store beyond the cycle's load or store ports, or when it is a memory
     /// op while the memory pipeline is blocked.
+    ///
+    /// The choice is written to `selection`, whose buffers are reused.
     pub fn select(
         &mut self,
         budget: &IssueBudget<'_>,
         store_buffer: &StoreBuffer,
         rob: &Rob,
-    ) -> Selection {
-        let mut ready: Vec<(usize, IssuePart, RobTag)> = Vec::new();
+        selection: &mut Selection,
+    ) {
+        let mut ready = std::mem::take(&mut self.ready);
+        ready.clear();
         for (i, slot) in self.slots.iter().enumerate() {
             let Some(iq) = slot else { continue };
             let Some(part) = iq.ready_part() else { continue };
@@ -386,10 +393,10 @@ impl IssueQueue {
 
         ready.sort_by(|a, b| a.2.age_cmp(b.2));
 
-        let mut selection = Selection {
-            oldest: self.oldest_hold(store_buffer, rob, budget.head),
-            ..Selection::default()
-        };
+        selection.entries.clear();
+        selection.store_data.clear();
+        selection.unit_stalls = 0;
+        selection.oldest = self.oldest_hold(store_buffer, rob, budget.head);
         let mut loads_issued = 0usize;
         let mut stores_issued = 0usize;
         let mut units_taken = [0usize; FU_TYPE_COUNT];
@@ -445,8 +452,7 @@ impl IssueQueue {
             };
             selection.entries.push(SelectedEntry { entry, fu_type, unit, data_follows });
         }
-
-        selection
+        self.ready = ready;
     }
 
     /// What holds the oldest queued instruction this cycle, before any is

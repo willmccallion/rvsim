@@ -50,7 +50,7 @@ use crate::uarch::vector::chaining::VecPendingResult;
 use crate::uarch::vector::lane_model::NumLanes;
 
 use self::fu_pool::FuPool;
-use self::issue_queue::IssueQueue;
+use self::issue_queue::{IssueQueue, Selection};
 
 /// Physical registers the integer and floating-point architectural state
 /// holds: the GPRs first, then the FPRs.
@@ -103,6 +103,8 @@ pub struct O3Engine {
     committed_rename_map: RenameMap,
     /// CAM-style issue queue with wakeup/select.
     issue_queue: IssueQueue,
+    /// The issue queue's choice each cycle, kept so its buffers are reused.
+    selection: Selection,
     /// Functional unit pool for structural hazard modeling.
     fu_pool: FuPool,
     /// Non-memory results their unit is still producing.
@@ -213,6 +215,7 @@ impl O3Engine {
             rename_map: RenameMap::new(),
             committed_rename_map: RenameMap::new(),
             issue_queue: IssueQueue::new(config.pipeline.issue_queue_size),
+            selection: Selection::default(),
             fu_pool,
             pending_results: Vec::new(),
             pending_addresses: Vec::new(),

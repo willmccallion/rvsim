@@ -68,16 +68,18 @@ impl O3Engine {
             memory_blocked,
             head: self.common.commit.head_at_cycle_start,
         };
-        let selection = self.issue_queue.select(&budget, &self.store_buffer, &self.rob);
+        let mut selection = std::mem::take(&mut self.selection);
+        self.issue_queue.select(&budget, &self.store_buffer, &self.rob, &mut selection);
         let issued_any = !selection.entries.is_empty() || !selection.store_data.is_empty();
         count_issue_stalls(state, selection.unit_stalls > 0, issued_any, selection.oldest);
-        for selected in selection.entries {
+        for selected in selection.entries.drain(..) {
             self.issue_one(state, selected, now);
         }
-        for data in selection.store_data {
+        for data in selection.store_data.drain(..) {
             self.store_buffer.resolve_data(data.rob_tag, data.value);
             state.uncore.kernel.stats.counter(state.core.stat_paths.lsq.split_stores).inc();
         }
+        self.selection = selection;
     }
 
     /// Issues one selected instruction: reserves its unit, executes it, and
