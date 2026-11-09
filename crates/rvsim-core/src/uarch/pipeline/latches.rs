@@ -41,6 +41,8 @@ use crate::uarch::pipeline::rob::RobTag;
 #[derive(Clone, Debug)]
 pub struct Latch<T> {
     bundles: VecDeque<Bundle<T>>,
+    /// Emptied bundles' buffers, reused for the bundles written next.
+    spare: Vec<Vec<T>>,
     delay: u64,
 }
 
@@ -55,7 +57,7 @@ impl<T> Latch<T> {
     /// they are written.
     #[must_use]
     pub const fn new(delay: u64) -> Self {
-        Self { bundles: VecDeque::new(), delay }
+        Self { bundles: VecDeque::new(), spare: Vec::new(), delay }
     }
 
     /// Cycles a bundle takes to become visible.
@@ -92,9 +94,12 @@ impl<T> Latch<T> {
         match self.bundles.back_mut() {
             Some(bundle) if bundle.ready_at == ready_at => bundle.entries.extend(entries),
             _ => {
-                let entries: Vec<T> = entries.into_iter().collect();
-                if !entries.is_empty() {
-                    self.bundles.push_back(Bundle { ready_at, entries });
+                let mut buffer = self.spare.pop().unwrap_or_default();
+                buffer.extend(entries);
+                if buffer.is_empty() {
+                    self.spare.push(buffer);
+                } else {
+                    self.bundles.push_back(Bundle { ready_at, entries: buffer });
                 }
             }
         }
@@ -120,14 +125,19 @@ impl<T> Latch<T> {
     /// Returns `entries` the consumer took at `now` but could not accept,
     /// to be taken again before anything written since.
     pub fn put_back(&mut self, now: u64, entries: Vec<T>) {
-        if !entries.is_empty() {
+        if entries.is_empty() {
+            self.spare.push(entries);
+        } else {
             self.bundles.push_front(Bundle { ready_at: now, entries });
         }
     }
 
     /// Drops every bundle.
     pub fn clear(&mut self) {
-        self.bundles.clear();
+        for mut bundle in self.bundles.drain(..) {
+            bundle.entries.clear();
+            self.spare.push(bundle.entries);
+        }
     }
 
     /// The entries held, oldest first, for a snapshot.
@@ -138,7 +148,9 @@ impl<T> Latch<T> {
     /// Forgets the bundles the consumer has emptied.
     fn drop_consumed(&mut self) {
         while self.bundles.front().is_some_and(|bundle| bundle.entries.is_empty()) {
-            let _ = self.bundles.pop_front();
+            if let Some(bundle) = self.bundles.pop_front() {
+                self.spare.push(bundle.entries);
+            }
         }
     }
 }
