@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- The single- and double-precision fused multiply-adds, scalar and
+  vector, raise the invalid flag for 0 × ∞ with a quiet-NaN addend, as
+  RISC-V requires; only half precision did. `vfncvt.rod.f.f.w` raises the
+  flags its rounding does, inexact included, where it raised none at
+  SEW=32 and dropped inexact at SEW=16. The full lockstep sweep against
+  spike stopped on both.
 - Simulation is faster with every result unchanged, cycle for cycle: a
   two-hart Linux boot runs 25% faster, and a program under SE mode 16% on
   the out-of-order backend and 18% on the in-order one. The DDR5
