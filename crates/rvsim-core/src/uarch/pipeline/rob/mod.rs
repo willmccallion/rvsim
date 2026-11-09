@@ -22,7 +22,7 @@ use std::collections::VecDeque;
 
 use crate::arch::reservation::LrScRecord;
 use crate::arch::translation::{DirtyUpdates, SfenceVmaInfo};
-use crate::common::{InstSeq, VirtAddr};
+use crate::common::{InstSeq, VirtAddr, usize_of};
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::{ElementWrite, VectorWrites};
 use crate::exec::execute::{CsrRequest, CsrWrite};
@@ -674,7 +674,24 @@ impl Rob {
     }
 
     /// Where `tag`'s entry sits, oldest first, if it is in flight.
+    ///
+    /// Tags are handed out in sequence, so an entry usually sits as far
+    /// from the oldest (or the youngest) as its tag is; a squash leaves a
+    /// gap in the tags, and the search covers entries across one.
     fn position(&self, tag: RobTag) -> Option<usize> {
+        let at = |index: usize| self.entries.get(index).is_some_and(|entry| entry.tag == tag);
+        let oldest = self.entries.front()?.tag;
+        let from_oldest = usize_of(u64::from(tag.0.wrapping_sub(oldest.0)));
+        if at(from_oldest) {
+            return Some(from_oldest);
+        }
+        let youngest = self.entries.back()?.tag;
+        let back_offset = usize_of(u64::from(youngest.0.wrapping_sub(tag.0)));
+        if let Some(from_youngest) = (self.entries.len() - 1).checked_sub(back_offset)
+            && at(from_youngest)
+        {
+            return Some(from_youngest);
+        }
         self.entries.binary_search_by(|entry| entry.tag.age_cmp(tag)).ok()
     }
 

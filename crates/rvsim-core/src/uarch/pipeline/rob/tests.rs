@@ -154,6 +154,40 @@ fn allocation_wraps_around_after_repeated_fill_and_drain() {
     }
 }
 
+#[test]
+fn entries_between_squash_gaps_are_found_by_tag() {
+    let mut rob = Rob::new(8);
+    let first = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
+    let squashed = alloc(&mut rob, 0x1004, 2, make_ctrl(true, false)).unwrap();
+    rob.flush_after(first);
+    let middle = alloc(&mut rob, 0x2000, 3, make_ctrl(true, false)).unwrap();
+    alloc(&mut rob, 0x2004, 4, make_ctrl(true, false)).unwrap();
+    rob.flush_after(middle);
+    let last = alloc(&mut rob, 0x3000, 5, make_ctrl(true, false)).unwrap();
+
+    let pc_of = |tag| rob.find_entry(tag).map(|entry| entry.pc.val());
+
+    assert_eq!(
+        [pc_of(first), pc_of(middle), pc_of(last), pc_of(squashed)],
+        [Some(0x1000), Some(0x2000), Some(0x3000), None]
+    );
+}
+
+#[test]
+fn entries_on_both_sides_of_the_tag_wrap_are_found_by_tag() {
+    let mut rob = Rob::new(8);
+    rob.start_tags_at(RobTag::new(u32::MAX - 1));
+    let tags: Vec<RobTag> = (0..4)
+        .map(|i| alloc(&mut rob, 0x1000 + 4 * i, 1, make_ctrl(true, false)).unwrap())
+        .collect();
+
+    let pcs: Vec<_> =
+        tags.iter().map(|&tag| rob.find_entry(tag).map(|entry| entry.pc.val())).collect();
+
+    assert_eq!(pcs, [Some(0x1000), Some(0x1004), Some(0x1008), Some(0x100C)]);
+    assert_eq!(tags[2].raw(), 1, "tag 0 is skipped at the wrap");
+}
+
 /// Encode a FENCE instruction with given pred/succ bits.
 /// FENCE encoding: opcode=0x0F, funct3=0, pred in bits[27:24], succ in bits[23:20].
 fn encode_fence(pred: u8, succ: u8) -> u32 {
