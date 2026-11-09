@@ -28,6 +28,7 @@ def needs(path: str) -> Callable[[_Test], _Test]:
 
 
 LOAD_ADDRESS = 0x1_0000
+RAM_BASE = 0x8000_0000
 CODE_OFFSET = 0x80
 ECALL = 0x0000_0073
 SYS_EXIT = 93
@@ -95,14 +96,23 @@ def sw(rs2: int, rs1: int, imm: int) -> int:
 
 def user_elf(code: list[int]) -> bytes:
     """A static riscv64 executable with one RWX segment holding ``code``."""
-    entry = LOAD_ADDRESS + CODE_OFFSET
+    return _elf(code, LOAD_ADDRESS)
+
+
+def bare_metal_elf(code: list[int]) -> bytes:
+    """``code`` in an image at the start of RAM, which rvsim runs bare metal."""
+    return _elf(code, RAM_BASE)
+
+
+def _elf(code: list[int], load_address: int) -> bytes:
+    entry = load_address + CODE_OFFSET
     header = b"\x7fELF" + bytes([2, 1, 1, 0]) + bytes(8)
     header += struct.pack(
         "<HHIQQQIHHHHHH", 2, 243, 1, entry, 64, 0, 0, 64, 56, 1, 0, 0, 0
     )
     size = CODE_OFFSET + 4 * len(code)
     phdr = struct.pack(
-        "<IIQQQQQQ", 1, 7, 0, LOAD_ADDRESS, LOAD_ADDRESS, size, size, 0x1000
+        "<IIQQQQQQ", 1, 7, 0, load_address, load_address, size, size, 0x1000
     )
     image = header + phdr
     image += bytes(CODE_OFFSET - len(image))
