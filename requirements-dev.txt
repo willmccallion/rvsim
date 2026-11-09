@@ -1,4 +1,4 @@
 maturin>=1.0,<2.0
 ruff==0.16.9
-mypy==2.4.0
+mypy==2.4.1
 -r docs/requirements.txt
