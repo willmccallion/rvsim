@@ -245,6 +245,22 @@ fn a_fence_waits_only_for_older_accesses_it_orders() {
 }
 
 #[test]
+fn a_fence_still_holds_loads_after_a_younger_fence_is_squashed() {
+    let mut rob = Rob::new(8);
+    let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
+    alloc_fence(&mut rob, 0b0011, 0b0011).unwrap();
+    let kept = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+    alloc_fence(&mut rob, 0b0011, 0b0011).unwrap();
+    alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+    rob.flush_after(kept);
+    let load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+
+    let held = rob.has_fence_blocking(load, FenceSet::memory(true, false));
+
+    assert!(held);
+}
+
+#[test]
 fn a_fence_w_r_blocks_younger_loads_but_not_stores() {
     let mut rob = Rob::new(8);
 
