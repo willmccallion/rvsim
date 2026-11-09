@@ -19,7 +19,6 @@
 #![allow(clippy::float_cmp)]
 mod arith;
 mod compare;
-mod convert;
 mod estimate;
 mod float;
 mod fma;
@@ -296,6 +295,57 @@ mod tests {
         vpr.write_element(v2, ElemIdx::new(0), src_sew, src);
         let flags = vec_fp_execute(op, &mut vpr, v4, v2, vector_sources(v2), &ctx).fp_flags;
         (vpr.read_element(v4, ElemIdx::new(0), dst_sew), flags)
+    }
+
+    const ROUND_TO_ODD: VecFpOp = VecFpOp::NarrowConvert(FpNarrowConvertOp::FloatRoundToOdd);
+
+    #[test]
+    fn a_round_to_odd_narrowing_to_single_jams_the_low_bit_and_raises_inexact() {
+        let inexact = 1.0 + f64::powi(2.0, -40);
+
+        let (bits, flags) = convert_one_on(
+            false,
+            ROUND_TO_ODD,
+            Sew::E32,
+            (Sew::E64, inexact.to_bits()),
+            Sew::E32,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!((bits, flags), (0x3f80_0001, FpFlags::NX));
+    }
+
+    #[test]
+    fn a_round_to_odd_narrowing_that_overflows_raises_overflow_and_inexact() {
+        let (bits, flags) = convert_one_on(
+            false,
+            ROUND_TO_ODD,
+            Sew::E32,
+            (Sew::E64, 1e300f64.to_bits()),
+            Sew::E32,
+            RoundingMode::Rne,
+        );
+
+        assert_eq!((bits, flags), (0x7f7f_ffff, FpFlags::OF | FpFlags::NX));
+    }
+
+    #[test]
+    fn a_round_to_odd_narrowing_to_half_raises_inexact_with_overflow_or_underflow() {
+        let narrow = |value: f32| {
+            convert_one_on(
+                true,
+                ROUND_TO_ODD,
+                Sew::E16,
+                (Sew::E32, u64::from(value.to_bits())),
+                Sew::E16,
+                RoundingMode::Rne,
+            )
+            .1
+        };
+
+        assert_eq!(narrow(70000.0), FpFlags::OF | FpFlags::NX);
+        assert_eq!(narrow(1e-8), FpFlags::UF | FpFlags::NX);
+        assert_eq!(narrow(1.5), FpFlags::NONE);
     }
 
     #[test]

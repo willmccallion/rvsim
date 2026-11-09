@@ -1,11 +1,11 @@
 //! Widening and narrowing operations, including widening FMA.
 
-use super::convert::f64_to_f32_round_to_odd;
 use super::fma::fma_operands;
 use super::{elem_to_f32, elem_to_f64, float_to_int};
 use crate::exec::compute::fpu::exact::{Exact, on_host_f32};
 use crate::exec::compute::fpu::float::{Float, SoftF16};
 use crate::exec::compute::fpu::half::{f16_to_f32, f64_to_f16, is_snan_f16};
+use crate::exec::compute::fpu::host::{restore_host_round_mode, set_host_round_mode};
 use crate::exec::compute::fpu::nan_handling::{box_f32_canon, canonicalize_f64_bits, is_snan_f32};
 use crate::exec::compute::vector::context::FillTarget;
 use crate::exec::compute::vector::context::{
@@ -281,10 +281,19 @@ fn narrow_to_single(op: FpNarrowConvertOp, raw: u64, frm: RoundingMode) -> (u64,
             let (r, f) = on_host_f32(frm, || black_box(value) as f32, || Exact::of_f64(value));
             (zext_word(box_f32_canon(r)), f)
         }
-        // Round-to-odd: truncate to f32 precision and jam the LSB to 1 if
-        // any bit was lost. It does not raise the inexact flag (per Zvfh).
+        // Round-to-odd: round toward zero, then set the low bit when that
+        // was inexact. Its flags are the rounding's, inexact included.
         FpNarrowConvertOp::FloatRoundToOdd => {
-            (zext_word(box_f32_canon(f64_to_f32_round_to_odd(value))), FpFlags::NONE)
+            let saved = set_host_round_mode(RoundingMode::Rtz);
+            let (truncated, f) =
+                on_host_f32(RoundingMode::Rtz, || black_box(value) as f32, || Exact::of_f64(value));
+            restore_host_round_mode(saved);
+            let odd = if f.contains(FpFlags::NX) && truncated.is_finite() {
+                f32::from_bits(truncated.to_bits() | 1)
+            } else {
+                truncated
+            };
+            (zext_word(box_f32_canon(odd)), f)
         }
         FpNarrowConvertOp::Int(IntConvert::ToInt(signedness, rounding)) => {
             float_to_int(value, (signedness, rounding), 32, frm)
@@ -316,14 +325,13 @@ fn narrow_to_half(op: FpNarrowConvertOp, raw: u64, frm: RoundingMode) -> (u64, F
             let (bits, f) = f64_to_f16(f64::from(value), frm);
             (u64::from(bits), f)
         }
-        // Round-to-odd: round toward zero into f16, then jam the mantissa LSB
-        // to 1 if rounding was inexact. It suppresses NX (per Zvfh).
+        // Round-to-odd: round toward zero, then set the low bit when that
+        // was inexact. Its flags are the rounding's, inexact included.
         FpNarrowConvertOp::FloatRoundToOdd => {
             let (bits, f) = f64_to_f16(f64::from(value), RoundingMode::Rtz);
-            let inexact = f.bits() & FpFlags::NX.bits() != 0;
             let finite = !value.is_nan() && !value.is_infinite();
-            let jammed = if inexact && finite { bits | 1 } else { bits };
-            (u64::from(jammed), FpFlags::from_bits(f.bits() & !FpFlags::NX.bits()))
+            let odd = if f.contains(FpFlags::NX) && finite { bits | 1 } else { bits };
+            (u64::from(odd), f)
         }
         FpNarrowConvertOp::Int(IntConvert::ToInt(signedness, rounding)) => {
             float_to_int(f64::from(value), (signedness, rounding), 16, frm)
