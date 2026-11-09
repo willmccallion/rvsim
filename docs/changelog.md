@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+- Simulation is faster with every result unchanged, cycle for cycle: a
+  two-hart Linux boot runs 25% faster, and a program under SE mode 16% on
+  the out-of-order backend and 18% on the in-order one. The DDR5
+  controller, the branch predictor's history, the issue queue, the ROB's
+  ordering checks, the TLB, the interrupt controller and the coherence
+  network do less work each cycle, and the pipeline reuses its buffers.
 - rvsim needs Python 3.11 or newer, and its wheels are built for 3.11's
   stable ABI.
 - Errors have classes: `rvsim.SimulationError`, a `RuntimeError`, is the
