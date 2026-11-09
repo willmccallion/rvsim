@@ -31,6 +31,8 @@ pub struct RoutedNetwork<T: NetworkTopology> {
     neighbours: Vec<Vec<usize>>,
     /// Output queues indexed `[node][neighbour index][class]`.
     queues: Vec<Vec<[VecDeque<Routed>; 4]>>,
+    /// Messages waiting in `queues`.
+    queued: usize,
     /// Cycle each `[node][neighbour index][class]` link frees.
     link_free_at: Vec<Vec<[u64; 4]>>,
     in_flight: BinaryHeap<Reverse<InFlight>>,
@@ -71,6 +73,7 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
             bytes_per_cycle: bytes_per_cycle.get(),
             neighbours,
             queues,
+            queued: 0,
             link_free_at,
             in_flight: BinaryHeap::new(),
             next_seq: 0,
@@ -87,9 +90,13 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
         let next = self.topology.next_hop(node, routed.to_node);
         let link = self.neighbours[node].iter().position(|n| *n == next).unwrap_or_default();
         self.queues[node][link][routed.msg.class().index()].push_back(routed);
+        self.queued += 1;
     }
 
     fn forward(&mut self, now: u64, stats: &mut Stats) {
+        if self.queued == 0 {
+            return;
+        }
         for node in 0..self.queues.len() {
             for (link, &next) in self.neighbours[node].iter().enumerate() {
                 for class in MsgClass::ALL {
@@ -98,6 +105,7 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
                         continue;
                     }
                     let Some(routed) = self.queues[node][link][c].pop_front() else { continue };
+                    self.queued -= 1;
                     if routed.arrived < now {
                         stats.counter(self.stat_paths.blocked_cycles).add(now - routed.arrived);
                     }
@@ -145,11 +153,7 @@ impl<T: NetworkTopology> Interconnect for RoutedNetwork<T> {
     }
 
     fn is_idle(&self) -> bool {
-        self.in_flight.is_empty()
-            && self
-                .queues
-                .iter()
-                .all(|links| links.iter().all(|qs| qs.iter().all(VecDeque::is_empty)))
+        self.in_flight.is_empty() && self.queued == 0
     }
 
     fn topology(&self) -> TopologyInfo {
