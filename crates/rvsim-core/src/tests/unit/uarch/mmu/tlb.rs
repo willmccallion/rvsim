@@ -267,6 +267,17 @@ fn a_superpage_entry_translates_every_page_it_covers() {
 }
 
 #[test]
+fn a_base_page_translates_ahead_of_a_superpage_covering_it() {
+    let mut tlb = fully_associative(8);
+    tlb.insert(Vpn::new(0x200), Ppn::new(0x8_0000), PTE_V | PTE_R, Asid::new(0), PageSize::Mib2);
+    tlb.insert(Vpn::new(0x234), Ppn::new(0x9_0000), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
+
+    let hit = tlb.lookup(Vpn::new(0x234), Asid::new(0)).map(|hit| hit.ppn);
+
+    assert_eq!(hit, Some(Ppn::new(0x9_0000)));
+}
+
+#[test]
 fn flushing_an_address_removes_the_superpage_covering_it() {
     let mut tlb = fully_associative(4);
     tlb.insert(Vpn::new(0x200), Ppn::new(0x8_0000), PTE_V | PTE_R, Asid::new(1), PageSize::Mib2);
