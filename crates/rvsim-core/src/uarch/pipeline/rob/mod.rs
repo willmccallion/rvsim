@@ -315,6 +315,9 @@ pub struct Rob {
     next_tag: u32,
     /// Entries carrying a `vec_csr_update`.
     vec_config_updates: usize,
+    /// FENCEs and acquiring atomics, the entries that can hold back a
+    /// younger memory access.
+    ordering_barriers: usize,
 }
 
 impl Rob {
@@ -325,6 +328,7 @@ impl Rob {
             capacity,
             next_tag: 1,
             vec_config_updates: 0,
+            ordering_barriers: 0,
         }
     }
 
@@ -373,6 +377,9 @@ impl Rob {
             self.next_tag = 1;
         }
 
+        if is_ordering_barrier(&inst.ctrl) {
+            self.ordering_barriers += 1;
+        }
         self.entries.push_back(RobEntry {
             tag,
             seq,
@@ -634,6 +641,9 @@ impl Rob {
         if committed.vec_csr_update.is_some() {
             self.vec_config_updates -= 1;
         }
+        if is_ordering_barrier(&committed.ctrl) {
+            self.ordering_barriers -= 1;
+        }
         Some(committed)
     }
 
@@ -654,15 +664,16 @@ impl Rob {
     pub fn flush_all(&mut self) {
         self.entries.clear();
         self.vec_config_updates = 0;
+        self.ordering_barriers = 0;
     }
 
     /// Flushes all entries allocated *after* the given tag (exclusive).
     /// The entry with `tag` itself is kept.
     pub fn flush_after(&mut self, tag: RobTag) {
         let Some(keep) = self.position(tag) else { return };
-        let squashed_updates =
-            self.entries.range(keep + 1..).filter(|entry| entry.vec_csr_update.is_some()).count();
-        self.vec_config_updates -= squashed_updates;
+        let squashed = self.entries.range(keep + 1..);
+        self.vec_config_updates -= squashed.clone().filter(|e| e.vec_csr_update.is_some()).count();
+        self.ordering_barriers -= squashed.filter(|e| is_ordering_barrier(&e.ctrl)).count();
         self.entries.truncate(keep + 1);
     }
 
@@ -763,12 +774,18 @@ impl Rob {
     /// the instruction is blocked.
     pub fn has_fence_blocking(&self, tag: RobTag, accesses: FenceSet) -> bool {
         accesses.has_memory()
+            && self.ordering_barriers > 0
             && self.older_than(tag).any(|entry| {
                 (accesses.r && entry.ctrl.acquire && entry.state == RobState::Issued)
                     || matches!(entry.ctrl.system_op,
                         SystemOp::Fence(fence) if fence.succ.orders(accesses))
             })
     }
+}
+
+/// Whether an entry is one [`Rob::has_fence_blocking`] looks for.
+const fn is_ordering_barrier(ctrl: &ControlSignals) -> bool {
+    ctrl.acquire || matches!(ctrl.system_op, SystemOp::Fence(_))
 }
 
 #[cfg(test)]
