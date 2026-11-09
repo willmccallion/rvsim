@@ -8,6 +8,10 @@ use std::io;
 pub struct Errno(u16);
 
 #[allow(missing_docs, reason = "each is the Linux error of that name")]
+#[cfg_attr(
+    not(unix),
+    allow(dead_code, reason = "only the Unix host's errors map to some of these")
+)]
 impl Errno {
     pub const EPERM: Self = Self(1);
     pub const ENOENT: Self = Self(2);
@@ -43,7 +47,9 @@ impl Errno {
     pub const EOVERFLOW: Self = Self(75);
     pub const ETIMEDOUT: Self = Self(110);
     pub const EDQUOT: Self = Self(122);
+}
 
+impl Errno {
     /// What the syscall leaves in `a0`: the number, negated.
     #[must_use]
     pub const fn return_value(self) -> u64 {

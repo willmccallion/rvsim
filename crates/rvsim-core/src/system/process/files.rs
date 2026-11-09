@@ -436,9 +436,7 @@ fn copy_from(contents: &[u8], offset: u64, buffer: &mut [u8]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{AT_FDCWD, Fd, FileTable};
-    use crate::config::Console;
-    use crate::soc::terminal::Terminal;
+    use super::{AT_FDCWD, Fd};
 
     #[test]
     fn a_descriptor_argument_is_read_as_an_int() {
@@ -449,6 +447,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_path_need_not_be_utf_8() {
+        use super::FileTable;
+        use crate::config::Console;
+        use crate::soc::terminal::Terminal;
         use std::os::unix::ffi::OsStrExt;
         let mut files = FileTable::new(Terminal::shared(Console::Quiet));
 
