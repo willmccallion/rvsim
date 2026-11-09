@@ -27,6 +27,8 @@ pub struct RoutedNetwork<T: NetworkTopology> {
     line_bytes: usize,
     hop_latency: u64,
     bytes_per_cycle: usize,
+    /// Each node's neighbours, in the topology's order.
+    neighbours: Vec<Vec<usize>>,
     /// Output queues indexed `[node][neighbour index][class]`.
     queues: Vec<Vec<[VecDeque<Routed>; 4]>>,
     /// Cycle each `[node][neighbour index][class]` link frees.
@@ -54,21 +56,20 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
     ) -> Self {
         let nodes = topology.node_count();
         assert!(nodes > cores, "topology must have a node per core plus the home");
-        let queues = (0..nodes)
-            .map(|node| {
-                (0..topology.neighbours(node).len())
-                    .map(|_| std::array::from_fn(|_| VecDeque::new()))
-                    .collect()
-            })
+        let neighbours: Vec<Vec<usize>> =
+            (0..nodes).map(|node| topology.neighbours(node)).collect();
+        let queues = neighbours
+            .iter()
+            .map(|links| links.iter().map(|_| std::array::from_fn(|_| VecDeque::new())).collect())
             .collect();
-        let link_free_at =
-            (0..nodes).map(|node| vec![[0; 4]; topology.neighbours(node).len()]).collect();
+        let link_free_at = neighbours.iter().map(|links| vec![[0; 4]; links.len()]).collect();
         Self {
             topology,
             cores,
             line_bytes,
             hop_latency,
             bytes_per_cycle: bytes_per_cycle.get(),
+            neighbours,
             queues,
             link_free_at,
             in_flight: BinaryHeap::new(),
@@ -84,15 +85,13 @@ impl<T: NetworkTopology> RoutedNetwork<T> {
     /// Queues `routed` at `node` on the link towards its destination.
     fn enqueue(&mut self, node: usize, routed: Routed) {
         let next = self.topology.next_hop(node, routed.to_node);
-        let link =
-            self.topology.neighbours(node).iter().position(|n| *n == next).unwrap_or_default();
+        let link = self.neighbours[node].iter().position(|n| *n == next).unwrap_or_default();
         self.queues[node][link][routed.msg.class().index()].push_back(routed);
     }
 
     fn forward(&mut self, now: u64, stats: &mut Stats) {
         for node in 0..self.queues.len() {
-            let neighbours = self.topology.neighbours(node);
-            for (link, &next) in neighbours.iter().enumerate() {
+            for (link, &next) in self.neighbours[node].iter().enumerate() {
                 for class in MsgClass::ALL {
                     let c = class.index();
                     if self.link_free_at[node][link][c] > now {
