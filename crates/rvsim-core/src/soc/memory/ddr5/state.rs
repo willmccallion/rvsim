@@ -127,6 +127,9 @@ pub struct Rank {
     /// Refresh commands issued so far on this rank; selects the bank set
     /// for same-bank refresh.
     pub refresh_seq: u64,
+    /// No refreshing bank finishes before this cycle; `None` when no bank
+    /// is refreshing.
+    pub earliest_refresh_end: Option<u64>,
     /// Cycle at which the last command targeting this rank was issued;
     /// enforces per-rank command-bus serialization without cross-rank
     /// interference. Zero before any command.
@@ -154,11 +157,18 @@ impl Rank {
             next_refresh: first_refresh,
             refresh_phase: RefreshPhase::Idle,
             refresh_seq: 0,
+            earliest_refresh_end: None,
             last_command_cycle: 0,
             last_precharge: 0,
             power: PowerState::Active,
             power_up_at: 0,
         }
+    }
+
+    /// Notes when the first of the rank's refreshing banks finishes.
+    pub fn note_refresh_ends(&mut self) {
+        let refreshing = self.banks.iter().filter(|bank| bank.state == BankState::Refreshing);
+        self.earliest_refresh_end = refreshing.map(|bank| bank.refresh_end).min();
     }
 
     /// Earliest cycle the rank's command bus accepts a new command: after

@@ -18,11 +18,15 @@ impl Ddr5Controller {
     ) {
         let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
         for rank in &mut sc.ranks {
+            if rank.earliest_refresh_end.is_none_or(|end| end > now) {
+                continue;
+            }
             for bank in &mut rank.banks {
                 if bank.state == BankState::Refreshing && bank.refresh_end <= now {
                     bank.state = BankState::Idle;
                 }
             }
+            rank.note_refresh_ends();
         }
     }
 
@@ -182,6 +186,7 @@ impl Ddr5Controller {
                     bank.open_row = None;
                 }
             }
+            rank_mut.note_refresh_ends();
             let set = rank_mut.refresh_seq;
             rank_mut.refresh_seq += 1;
             rank_mut.next_refresh += interval;
