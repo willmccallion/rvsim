@@ -9,7 +9,7 @@ use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::{BankGroupId, ComponentId, RankId, ReqId, RowId};
 use crate::sim::packet::{AccessSize, MemOp};
 use crate::soc::memory::address::DramLocation;
-use crate::soc::memory::ddr5::stats::{BankCounters, SubchannelCounters};
+use crate::soc::memory::ddr5::stats::{BankCounters, SubchannelCounters, SubchannelSamples};
 
 /// One DRAM bank's row-buffer and command-timing state.
 #[derive(Clone, Copy, Debug)]
@@ -301,8 +301,10 @@ pub struct Subchannel {
     /// Bank group of the most recent column command (RD or WR); `None` before
     /// the first column command.
     pub last_column_bg: Option<BankGroupId>,
-    /// Counters and samples, published to the stats tree each controller tick.
+    /// Counters, published to the stats tree each controller tick.
     pub counters: SubchannelCounters,
+    /// Histogram samples, published with the counters.
+    pub samples: SubchannelSamples,
 }
 
 impl Subchannel {
@@ -329,6 +331,7 @@ impl Subchannel {
             last_write_end: 0,
             last_column_bg: None,
             counters: SubchannelCounters::default(),
+            samples: SubchannelSamples::default(),
         }
     }
 

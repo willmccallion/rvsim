@@ -61,7 +61,7 @@ impl Ddr5Controller {
                 } else {
                     sc.counters.reads += 1;
                 }
-                sc.counters.read_queue_depth_samples.push(sc.read_queue.len() as u64);
+                sc.samples.read_queue_depth.push(sc.read_queue.len() as u64);
                 sc.read_queue.push_back(request);
                 continue;
             }
@@ -80,7 +80,7 @@ impl Ddr5Controller {
                 sc.counters.writes_merged += 1;
             } else {
                 sc.counters.writes += 1;
-                sc.counters.write_queue_depth_samples.push(sc.write_queue.len() as u64);
+                sc.samples.write_queue_depth.push(sc.write_queue.len() as u64);
                 sc.write_queue.push_back(request);
             }
         }

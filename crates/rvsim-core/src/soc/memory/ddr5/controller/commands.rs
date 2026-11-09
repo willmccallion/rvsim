@@ -244,9 +244,7 @@ impl Ddr5Controller {
         if is_read {
             bank.counters.reads += 1;
             if !request.scrub {
-                sc.counters
-                    .read_latency_samples
-                    .push(data_end.saturating_sub(request.arrival_cycle));
+                sc.samples.read_latency.push(data_end.saturating_sub(request.arrival_cycle));
             }
         } else {
             bank.counters.writes += 1;
