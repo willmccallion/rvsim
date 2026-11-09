@@ -3,7 +3,7 @@
 
 use super::AddressSpace;
 use super::errno::Errno;
-use super::files::{Fd, FileTable, Stat};
+use super::files::{Fd, FileTable, Stat, stat_of};
 use crate::common::{PhysAddr, VirtAddr};
 use crate::sim::memory::GlobalMemory;
 use crate::sim::memory::write_log::Writer;
@@ -145,12 +145,12 @@ pub fn buffer_len(len: u64) -> Result<usize, Errno> {
 
 /// The `struct stat` of what `path` names, following a final link.
 pub fn stat(path: &Path) -> Result<Stat, Errno> {
-    Ok(Stat::from_metadata(&std::fs::metadata(path)?))
+    stat_of(&std::fs::metadata(path)?)
 }
 
 /// The `struct stat` of `path` itself, even when it is a link.
 pub fn lstat(path: &Path) -> Result<Stat, Errno> {
-    Ok(Stat::from_metadata(&std::fs::symlink_metadata(path)?))
+    stat_of(&std::fs::symlink_metadata(path)?)
 }
 
 /// What the link at `path` points to.

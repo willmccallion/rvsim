@@ -32,14 +32,12 @@ use crate::soc::terminal::SharedTerminal;
 use crate::soc::traits::{MmioRegisters, RestoreError, parse_state, serve_mmio};
 use crate::system::process::errno::Errno;
 use crate::system::process::file_calls::{self, FileCalls, GuestMemory, PhysicalMemory};
-use crate::system::process::files::{AT_FDCWD, Fd, FileTable, PATH_MAX};
+use crate::system::process::files::{AT_FDCWD, Fd, FileTable, PATH_MAX, host_path};
 use crate::system::process::syscall::{
     SYS_CHDIR, SYS_CLOSE, SYS_EXIT, SYS_FACCESSAT, SYS_FCNTL, SYS_FSTAT, SYS_FTRUNCATE, SYS_GETCWD,
     SYS_LSEEK, SYS_MKDIRAT, SYS_NEWFSTATAT, SYS_OPENAT, SYS_PREAD64, SYS_PWRITE64, SYS_READ,
     SYS_READLINKAT, SYS_RENAMEAT, SYS_UNLINKAT, SYS_WRITE, SyscallArgs,
 };
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 
 const DEVICE_SHIFT: u64 = 56;
@@ -169,7 +167,7 @@ impl Htif {
             SYS_GETCWD => calls.getcwd(args.paddr(0), args.raw(1)),
             SYS_CHDIR => {
                 let path = cstr(&calls.memory, args.paddr(0))?;
-                std::env::set_current_dir(OsStr::from_bytes(&path))?;
+                std::env::set_current_dir(host_path(&path)?)?;
                 Ok(0)
             }
             SYS_FCNTL => Ok(0),
