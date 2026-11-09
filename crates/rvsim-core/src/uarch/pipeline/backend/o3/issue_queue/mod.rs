@@ -380,8 +380,12 @@ impl IssueQueue {
     ) {
         let mut ready = std::mem::take(&mut self.ready);
         ready.clear();
+        let mut oldest: Option<&IssueQueueEntry> = None;
         for (i, slot) in self.slots.iter().enumerate() {
             let Some(iq) = slot else { continue };
+            if oldest.is_none_or(|o| iq.entry.rob_tag.is_older_than(o.entry.rob_tag)) {
+                oldest = Some(iq);
+            }
             let Some(part) = iq.ready_part() else { continue };
             if part != IssuePart::StoreData
                 && !Self::may_issue_now(iq, store_buffer, rob, budget.head)
@@ -396,7 +400,7 @@ impl IssueQueue {
         selection.entries.clear();
         selection.store_data.clear();
         selection.unit_stalls = 0;
-        selection.oldest = self.oldest_hold(store_buffer, rob, budget.head);
+        selection.oldest = oldest.and_then(|o| Self::hold_on(o, store_buffer, rob, budget.head));
         let mut loads_issued = 0usize;
         let mut stores_issued = 0usize;
         let mut units_taken = [0usize; FU_TYPE_COUNT];
@@ -455,16 +459,14 @@ impl IssueQueue {
         self.ready = ready;
     }
 
-    /// What holds the oldest queued instruction this cycle, before any is
-    /// chosen: its operands, the ordering rules, or nothing.
-    fn oldest_hold(
-        &self,
+    /// What holds `oldest`, the oldest queued instruction this cycle, before
+    /// any is chosen: its operands, the ordering rules, or nothing.
+    fn hold_on(
+        oldest: &IssueQueueEntry,
         store_buffer: &StoreBuffer,
         rob: &Rob,
         head: HeadAtCycleStart,
     ) -> Option<IssueHold> {
-        let oldest =
-            self.slots.iter().flatten().min_by(|a, b| a.entry.rob_tag.age_cmp(b.entry.rob_tag))?;
         let Some(part) = oldest.ready_part() else { return Some(IssueHold::Operands) };
         let ordered =
             part == IssuePart::StoreData || Self::may_issue_now(oldest, store_buffer, rob, head);
