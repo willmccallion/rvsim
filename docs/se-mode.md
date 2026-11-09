@@ -12,6 +12,11 @@ riscv64-linux-gnu-gcc -O2 -static -march=rv64gc -mabi=lp64d prog.c -o prog
 python -m rvsim ./prog -- --iterations 100 input.txt
 ```
 
+SE mode needs a Unix host, Linux or macOS, since it reaches the host's
+files through Unix paths and metadata. On Windows, loading a user program
+fails with an error that says so; bare-metal images and full-system runs
+work there as everywhere.
+
 Everything after the program is its command line; `--` is needed only
 when the first argument starts with a dash. `--env NAME=VALUE` adds to
 its environment, which is empty by default, and `--mode se` or `--mode
