@@ -192,6 +192,23 @@ fn a_half_precision_fused_zero_times_infinity_is_invalid_even_with_a_quiet_nan_a
 }
 
 #[test]
+fn a_fused_zero_times_infinity_is_invalid_with_a_quiet_nan_addend_in_every_format() {
+    let single = |a: f32, b: f32, c: f32| {
+        let operands = [to_register(a), to_register(b), to_register(c)];
+        fpu::execute(FpOp::Fma(FmaSigns::Macc), operands, FpFormat::Single, RoundingMode::Rne).1
+    };
+    let double = |a: f64, b: f64, c: f64| {
+        let operands = [a.to_bits(), b.to_bits(), c.to_bits()];
+        fpu::execute(FpOp::Fma(FmaSigns::Macc), operands, FpFormat::Double, RoundingMode::Rne).1
+    };
+
+    assert!(single(0.0, f32::INFINITY, f32::NAN).contains(FpFlags::NV));
+    assert!(double(f64::INFINITY, 0.0, f64::NAN).contains(FpFlags::NV));
+    assert!(!single(1.0, f32::INFINITY, f32::NAN).contains(FpFlags::NV));
+    assert!(!double(f64::NAN, 0.0, 1.0).contains(FpFlags::NV));
+}
+
+#[test]
 fn a_half_precision_fma_whose_f64_step_rounds_away_the_product_is_inexact() {
     // -2^-24 × 2^-24 - 32 is -32 - 2^-48, half an f64 ulp below -32: the f64
     // fused step rounds it to -32 exactly, which converts to f16 exactly.

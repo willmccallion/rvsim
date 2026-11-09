@@ -305,12 +305,16 @@ macro_rules! host_float {
                 $on_host(rm, || black_box(self).sqrt(), || exact::sqrt(Exact::$exact(self)))
             }
 
+            /// The host signals no invalid operation for 0 × ∞ with a quiet-NaN
+            /// addend, which RISC-V counts as one.
             fn mul_add(self, b: Self, c: Self, rm: RoundingMode) -> (Self, FpFlags) {
-                $on_host(
+                let (result, flags) = $on_host(
                     rm,
                     || black_box(self).mul_add(black_box(b), black_box(c)),
                     || exact::mul_add(Exact::$exact(self), Exact::$exact(b), Exact::$exact(c)),
-                )
+                );
+                let invalid = fused_is_invalid(self.to_f64(), b.to_f64(), c.to_f64());
+                (result, if invalid { flags | FpFlags::NV } else { flags })
             }
 
             fn min(self, other: Self) -> Self {
