@@ -339,6 +339,9 @@ impl LoadQueue {
         log: &WriteLog,
         reader: HartId,
     ) -> Option<RobTag> {
+        // Every load that can violate is in `paddr`'s line, so one look-up
+        // serves them all, and a line no other writer touched has none.
+        let written = log.latest_by_other(paddr, reader)?;
         let line_bytes = log.line_bytes();
         let line = paddr.val() / line_bytes;
         let mut oldest: Option<RobTag> = None;
@@ -349,9 +352,7 @@ impl LoadQueue {
             let (Some(entry_paddr), Some(observed)) = (entry.paddr, entry.observed) else {
                 continue;
             };
-            if entry_paddr.val() / line_bytes != line
-                || !log.written_by_other_since(entry_paddr, reader, observed)
-            {
+            if entry_paddr.val() / line_bytes != line || written <= observed {
                 continue;
             }
             match oldest {
