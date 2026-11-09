@@ -90,19 +90,25 @@ impl<T> Latch<T> {
     /// Adds `entries`, visible from `now + delay`, to the bundle written
     /// this cycle or as a new one.
     pub fn push(&mut self, now: u64, entries: impl IntoIterator<Item = T>) {
+        self.push_with(now, |buffer| buffer.extend(entries));
+    }
+
+    /// Lends `fill` an empty buffer for this cycle's entries, visible from
+    /// `now + delay` like those [`Latch::push`] adds, and returns what
+    /// `fill` returns.
+    pub fn push_with<R>(&mut self, now: u64, fill: impl FnOnce(&mut Vec<T>) -> R) -> R {
+        let mut buffer = self.spare.pop().unwrap_or_default();
+        let filled = fill(&mut buffer);
         let ready_at = now.saturating_add(self.delay);
         match self.bundles.back_mut() {
-            Some(bundle) if bundle.ready_at == ready_at => bundle.entries.extend(entries),
-            _ => {
-                let mut buffer = self.spare.pop().unwrap_or_default();
-                buffer.extend(entries);
-                if buffer.is_empty() {
-                    self.spare.push(buffer);
-                } else {
-                    self.bundles.push_back(Bundle { ready_at, entries: buffer });
-                }
+            Some(bundle) if bundle.ready_at == ready_at => {
+                bundle.entries.append(&mut buffer);
+                self.spare.push(buffer);
             }
+            _ if buffer.is_empty() => self.spare.push(buffer),
+            _ => self.bundles.push_back(Bundle { ready_at, entries: buffer }),
         }
+        filled
     }
 
     /// The oldest bundle, if the consumer may see it at `now`.
