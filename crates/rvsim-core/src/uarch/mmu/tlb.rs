@@ -23,8 +23,9 @@ const PTE_U: u64 = 1 << 4;
 const PTE_G: u64 = 1 << 5;
 const PTE_D: u64 = 1 << 7;
 
-/// The size of the page a leaf PTE maps, from the level it was found at.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The size of the page a leaf PTE maps, from the level it was found at,
+/// ordered smallest first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PageSize {
     /// A base page, from a level-0 leaf.
     Kib4,
@@ -229,16 +230,40 @@ impl Tlb {
         base..base + self.ways
     }
 
-    /// The slot translating base page `vpn` in address space `asid`.
+    /// The slot translating base page `vpn` in address space `asid`, the
+    /// smallest page's when several do.
     fn find(&self, vpn: Vpn, asid: Asid) -> Option<usize> {
         if self.slots.is_empty() {
             return None;
+        }
+        if self.set_mask == 0 {
+            return self.find_in_only_set(vpn, asid);
         }
         PageSize::ALL.into_iter().find_map(|size| {
             self.set_of(vpn, size).find(|&i| {
                 self.slots[i].mapping.is_some_and(|m| m.size == size && m.translates(vpn, asid))
             })
         })
+    }
+
+    /// [`Tlb::find`] in a TLB of one set, which every page size indexes:
+    /// one pass over it rather than one per size, ending at a base page,
+    /// which no other page outranks.
+    fn find_in_only_set(&self, vpn: Vpn, asid: Asid) -> Option<usize> {
+        let mut found: Option<(PageSize, usize)> = None;
+        for (index, slot) in self.slots.iter().enumerate() {
+            let Some(mapping) = slot.mapping else { continue };
+            if !mapping.translates(vpn, asid) {
+                continue;
+            }
+            if mapping.size == PageSize::Kib4 {
+                return Some(index);
+            }
+            if found.is_none_or(|(size, _)| mapping.size < size) {
+                found = Some((mapping.size, index));
+            }
+        }
+        found.map(|(_, index)| index)
     }
 
     /// Looks up base page `vpn` in address space `asid`, marking the entry
