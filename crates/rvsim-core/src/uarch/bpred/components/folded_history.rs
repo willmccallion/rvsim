@@ -19,20 +19,28 @@ pub struct FoldedHistory {
     fold_width: usize,
     /// History length for this bank (how many GHR bits contribute).
     hist_length: usize,
-    /// The low `fold_width` bits.
+    /// The low `fold_width` bits; zero, as is every value, for no bits.
     mask: u64,
     /// Where the bit leaving the history lands: `hist_length % fold_width`.
     outpoint: usize,
+    /// Where the bit rotating out of the top sits.
+    msb_shift: usize,
 }
 
 impl FoldedHistory {
     /// Creates a new CSR that folds `hist_length` GHR bits into `fold_width` bits.
     pub const fn new(fold_width: usize, hist_length: usize) -> Self {
         if fold_width == 0 {
-            return Self { val: 0, fold_width, hist_length, mask: 0, outpoint: 0 };
+            return Self { val: 0, fold_width, hist_length, mask: 0, outpoint: 0, msb_shift: 0 };
         }
-        let mask = (1u64 << fold_width) - 1;
-        Self { val: 0, fold_width, hist_length, mask, outpoint: hist_length % fold_width }
+        Self {
+            val: 0,
+            fold_width,
+            hist_length,
+            mask: (1u64 << fold_width) - 1,
+            outpoint: hist_length % fold_width,
+            msb_shift: fold_width - 1,
+        }
     }
 
     /// Incrementally updates the CSR when a new bit is pushed into the GHR.
@@ -41,16 +49,14 @@ impl FoldedHistory {
     /// the bit about to leave this bank's history window.
     ///
     /// Formula: `CSR = rotate_left(CSR, 1, fold_width) ^ new_bit ^ (old_bit << (hist_length % fold_width))`
+    ///
+    /// Branch-free, so a bank's folds update together: the incoming and
+    /// leaving bits fall inside the mask, so one final mask suffices.
     #[inline]
     pub const fn update(&mut self, new_bit: bool, old_bit: bool) {
-        if self.fold_width == 0 {
-            return;
-        }
-        let msb = (self.val >> (self.fold_width - 1)) & 1;
-        self.val = ((self.val << 1) | msb) & self.mask;
-        self.val ^= new_bit as u64;
-        self.val ^= (old_bit as u64) << self.outpoint;
-        self.val &= self.mask;
+        let msb = (self.val >> self.msb_shift) & 1;
+        let rotated = (self.val << 1) | msb;
+        self.val = (rotated ^ new_bit as u64 ^ ((old_bit as u64) << self.outpoint)) & self.mask;
     }
 
     /// Recomputes the CSR from scratch using word-level XOR-folding.
