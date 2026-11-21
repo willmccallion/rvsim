@@ -54,8 +54,7 @@ pub struct Process {
     file_maps: BTreeMap<VirtAddr, u64>,
     /// How many syscalls were served, by number.
     pub syscall_counts: BTreeMap<u64, u64>,
-    /// The path it was started from, its `argv[0]`, which `/proc/self/exe`
-    /// names.
+    /// The host path of its executable, which `/proc/self/exe` names.
     pub(crate) program: Option<String>,
 }
 

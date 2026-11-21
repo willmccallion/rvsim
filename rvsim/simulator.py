@@ -11,6 +11,7 @@ The simulator.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -62,19 +63,27 @@ class DebugEnd(StrEnum):
         return self.value
 
 
+def _program_name(binary: str) -> str:
+    """The ``argv[0]`` a program run from ``binary`` gets: its file name,
+    not the host path, so where the binary sits does not move the stack."""
+    return os.path.basename(binary)
+
+
 @dataclass(frozen=True)
 class Program:
     """A static Linux user program for SE mode: its binary, its command
-    line after its name, and its environment as ``NAME=value`` entries."""
+    line after its name, and its environment as ``NAME=value`` entries.
+    Its ``argv[0]`` is the binary's file name."""
 
     binary: str
     args: Sequence[str] = ()
     env: Sequence[str] = ()
 
-    def _loaded(self) -> tuple[bytes, list[str], list[str]]:
+    def _loaded(self) -> tuple[bytes, list[str], list[str], str]:
         with open(self.binary, "rb") as f:
             data = f.read()
-        return data, [self.binary, *self.args], list(self.env)
+        argv = [_program_name(self.binary), *self.args]
+        return data, argv, list(self.env), os.path.abspath(self.binary)
 
 
 class Simulator(_CoreSimulator):
@@ -85,6 +94,10 @@ class Simulator(_CoreSimulator):
     ``se.py -n N --cmd "a;b"`` does; the run ends when the last of them
     exits, with the first non-zero exit code in program order, and
     ``exit_codes`` holds each program's.
+
+    A user program in ``binary`` gets ``args`` as its whole command line,
+    ``argv[0]`` included, or by default its file name alone; either way
+    its ``/proc/self/exe`` names the binary on the host.
 
     ``script`` names the file the guest's readfile pseudo-operation reads
     and ``outdir`` the directory its writefile pseudo-operation writes
@@ -128,12 +141,14 @@ class Simulator(_CoreSimulator):
                 elf_data = f.read()
 
         if args is None and binary is not None:
-            args = [binary]
+            args = [_program_name(binary)]
+        program_path = os.path.abspath(binary) if binary is not None else None
         loaded = [program._loaded() for program in programs] if programs else None
         return _CoreSimulator.__new__(
             cls,
             config_dict,
             elf_data=elf_data,
+            program_path=program_path,
             args=args,
             env=env,
             mode=mode,

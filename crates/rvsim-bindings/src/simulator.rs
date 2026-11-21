@@ -18,9 +18,10 @@ use rvsim_core::system::simulator::{PipelineTraceFormat, ProcessArgs, ProgramIma
 use rvsim_core::system::simulator::{ProbeWidth, StopAt, StopReason};
 use std::num::NonZeroU64;
 
-/// A user program as Python hands it over: its ELF bytes, `argv` and `envp`.
+/// A user program as Python hands it over: its ELF bytes, `argv`, `envp`
+/// and the host path `/proc/self/exe` names.
 #[derive(FromPyObject)]
-struct PyProgram(Vec<u8>, Vec<String>, Vec<String>);
+struct PyProgram(Vec<u8>, Vec<String>, Vec<String>, String);
 
 /// How a lone binary loads: as a process or bare-metal image, or as its
 /// ELF says.
@@ -48,7 +49,9 @@ impl<'py> FromPyObject<'py> for LoadMode {
 fn load_programs(sim: &mut Simulator, programs: Vec<PyProgram>) -> PyResult<()> {
     let loaded: Vec<(Vec<u8>, ProcessArgs)> = programs
         .into_iter()
-        .map(|PyProgram(data, argv, envp)| (data, ProcessArgs { argv, envp }))
+        .map(|PyProgram(data, argv, envp, program)| {
+            (data, ProcessArgs { argv, envp, program: Some(program) })
+        })
         .collect();
     let images: Vec<ProgramImage<'_>> =
         loaded.iter().map(|(data, args)| ProgramImage { data, args }).collect();
@@ -234,9 +237,12 @@ impl PySimulator {
     /// Args:
     ///     config_dict: The nested config dict (from ``Config.to_dict()``).
     ///     elf_data: Raw bytes of an ELF binary (bare-metal mode). Optional.
+    ///     program_path: The host path of ``elf_data``'s file, which a user
+    ///         program's ``/proc/self/exe`` names; ``argv[0]`` if absent.
     ///     programs: Several static Linux user programs to run under SE
     ///         mode, one per hart from hart 0 up, each as ``(elf_data,
-    ///         argv, envp)``. Optional; exclusive with ``elf_data``.
+    ///         argv, envp, program_path)``. Optional; exclusive with
+    ///         ``elf_data``.
     ///     kernel_path: Path to a kernel image (kernel mode). Optional.
     ///     firmware_path: Path to an `OpenSBI` ``fw_jump`` image (kernel
     ///         mode). Optional; found under ``software/linux/output`` if absent.
@@ -252,11 +258,12 @@ impl PySimulator {
     )]
     #[new]
     #[allow(clippy::too_many_arguments, reason = "the constructor's keyword arguments")]
-    #[pyo3(signature = (config_dict, *, elf_data=None, args=None, env=None, mode=None, programs=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None, script_path=None, outdir=None))]
+    #[pyo3(signature = (config_dict, *, elf_data=None, program_path=None, args=None, env=None, mode=None, programs=None, kernel_path=None, firmware_path=None, dtb_path=None, disk_path=None, script_path=None, outdir=None))]
     fn new(
         py: Python<'_>,
         config_dict: &Bound<'_, PyAny>,
         elf_data: Option<Vec<u8>>,
+        program_path: Option<String>,
         args: Option<Vec<String>>,
         env: Option<Vec<String>>,
         mode: Option<LoadMode>,
@@ -282,8 +289,11 @@ impl PySimulator {
             }
             (Some(programs), None) => load_programs(&mut sim, programs)?,
             (None, Some(data)) => {
-                let args =
-                    ProcessArgs { argv: args.unwrap_or_default(), envp: env.unwrap_or_default() };
+                let args = ProcessArgs {
+                    argv: args.unwrap_or_default(),
+                    envp: env.unwrap_or_default(),
+                    program: program_path,
+                };
                 load_binary(&mut sim, &data, &args, mode.unwrap_or_default())?;
             }
             (None, None) => {}

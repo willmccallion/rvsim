@@ -182,7 +182,7 @@ fn run_bare(backend: BackendKind, host: &Host, program: &[u32]) -> (TestContext,
 /// returns the exit code.
 fn run_se(backend: BackendKind, host: &Host, program: &[u32]) -> (Simulator, Option<u64>) {
     let mut sim = build_simulator(&config(backend));
-    let args = ProcessArgs { argv: vec!["prog".to_string()], envp: vec![] };
+    let args = ProcessArgs { argv: vec!["prog".to_string()], ..ProcessArgs::default() };
     sim.load_process(&user_elf(program, ET_EXEC), &args).expect("the program loads");
     host.attach(&mut sim);
     let stop = sim

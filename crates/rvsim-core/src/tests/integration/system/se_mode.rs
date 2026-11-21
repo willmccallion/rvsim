@@ -83,7 +83,10 @@ fn config(backend: BackendKind) -> Config {
 /// A simulator on `config` with `code` loaded as a process with `argv`.
 fn simulator_on(config: &Config, code: &[u32], argv: &[&str]) -> Simulator {
     let mut sim = build_simulator(config);
-    let args = ProcessArgs { argv: argv.iter().map(ToString::to_string).collect(), envp: vec![] };
+    let args = ProcessArgs {
+        argv: argv.iter().map(ToString::to_string).collect(),
+        ..ProcessArgs::default()
+    };
     sim.load_process(&user_elf(code, ET_EXEC), &args).expect("the program loads");
     sim
 }
@@ -561,7 +564,7 @@ fn simulator_with_programs_in(
 ) -> Simulator {
     config.system.hart_count = std::num::NonZero::new(hart_count).unwrap();
     let mut sim = build_simulator(&config);
-    let args = ProcessArgs { argv: vec!["prog".to_string()], envp: vec![] };
+    let args = ProcessArgs { argv: vec!["prog".to_string()], ..ProcessArgs::default() };
     let images: Vec<Vec<u8>> = programs.iter().map(|code| user_elf(code, ET_EXEC)).collect();
     let loaded: Vec<ProgramImage<'_>> =
         images.iter().map(|data| ProgramImage { data, args: &args }).collect();
@@ -1451,5 +1454,26 @@ fn proc_self_exe_names_the_guest_program() {
 
             assert_eq!(stop, StopReason::Exited(expected), "{backend:?} {argv0}");
         }
+    }
+}
+
+/// A program path given apart from `argv` is what `/proc/self/exe` names,
+/// whatever `argv[0]` says.
+#[test]
+fn proc_self_exe_names_the_program_path_over_argv0() {
+    let program = "/opt/guest/bin/program";
+    let args = ProcessArgs {
+        argv: vec!["program".to_string()],
+        program: Some(program.to_string()),
+        ..ProcessArgs::default()
+    };
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = build_simulator(&config(backend));
+        sim.load_process(&user_elf(&read_proc_self_exe(), ET_EXEC), &args)
+            .expect("the program loads");
+
+        let stop = run_for(&mut sim, 50_000);
+
+        assert_eq!(stop, StopReason::Exited(program.len() as u64), "{backend:?}");
     }
 }

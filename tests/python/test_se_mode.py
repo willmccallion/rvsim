@@ -12,6 +12,8 @@ from _programs import (
     COUNT_THEN_EXIT,
     ECALL,
     EXIT_WITH_ARGC,
+    EXIT_WITH_STACK_POINTER,
+    LONG_NAME,
     M5_FAIL,
     SCRIPT,
     SYS_EXIT,
@@ -25,6 +27,7 @@ from _programs import (
     sub,
     sw,
     user_elf,
+    words,
 )
 
 from rvsim import Config, Environment, LoadError, Program, Simulator
@@ -145,6 +148,66 @@ class SeMode(unittest.TestCase):
     def test_an_unknown_load_mode_is_refused(self):
         with self.assertRaisesRegex(ValueError, "mode must be 'se' or 'bare'"):
             Simulator(Config(), elf_data=user_elf(EXIT_WITH_ARGC), mode="kernel")
+
+
+AT_FDCWD = -100
+SYS_READLINKAT = 78
+LINK_BUFFER_BYTES = 255
+# exit(readlinkat(AT_FDCWD, "/proc/self/exe", sp - 256, 255)).
+READ_PROC_SELF_EXE = [
+    addi(10, 0, AT_FDCWD),
+    auipc(11, 0),
+    addi(11, 11, 8 * 4),
+    addi(12, 2, -LINK_BUFFER_BYTES - 1),
+    addi(13, 0, LINK_BUFFER_BYTES),
+    addi(17, 0, SYS_READLINKAT),
+    ECALL,
+    addi(17, 0, SYS_EXIT),
+    ECALL,
+    *words(b"/proc/self/exe\0\0"),
+]
+
+
+class ProgramPath(unittest.TestCase):
+    """A program's ``argv[0]`` is its file name, so the path that names the
+    binary does not move its stack, and ``/proc/self/exe`` names the binary."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+        os.mkdir(os.path.join(self.tmp, LONG_NAME))
+
+    def write(self, code):
+        path = os.path.join(self.tmp, "prog.elf")
+        with open(path, "wb") as f:
+            f.write(user_elf(code))
+        return path, os.path.join(self.tmp, LONG_NAME, os.pardir, "prog.elf")
+
+    def test_a_longer_path_to_the_binary_leaves_the_stack_where_it_was(self):
+        paths = self.write(EXIT_WITH_STACK_POINTER)
+
+        exit_codes = [Simulator(Config(), binary=path).run() for path in paths]
+
+        self.assertEqual(exit_codes[0], exit_codes[1])
+
+    def test_a_longer_path_to_a_program_leaves_the_stack_where_it_was(self):
+        paths = self.write(EXIT_WITH_STACK_POINTER)
+
+        exit_codes = []
+        for path in paths:
+            cpu = Simulator(Config(), programs=[Program(path)])
+            cpu.run()
+            exit_codes.append(cpu.exit_codes[0])
+
+        self.assertEqual(exit_codes[0], exit_codes[1])
+
+    def test_proc_self_exe_names_the_binary_on_the_host(self):
+        path, _ = self.write(READ_PROC_SELF_EXE)
+
+        exit_code = Simulator(Config(), binary=path).run()
+
+        self.assertEqual(exit_code, len(os.path.abspath(path)))
 
 
 class Threads(unittest.TestCase):

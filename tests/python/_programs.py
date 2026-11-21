@@ -40,6 +40,14 @@ def addi(rd: int, rs1: int, imm: int) -> int:
     return ((imm & 0xFFF) << 20) | (rs1 << 15) | (rd << 7) | 0x13
 
 
+def andi(rd: int, rs1: int, imm: int) -> int:
+    return ((imm & 0xFFF) << 20) | (rs1 << 15) | (7 << 12) | (rd << 7) | 0x13
+
+
+def srli(rd: int, rs1: int, shamt: int) -> int:
+    return (shamt << 20) | (rs1 << 15) | (5 << 12) | (rd << 7) | 0x13
+
+
 def ld(rd: int, rs1: int, imm: int) -> int:
     return ((imm & 0xFFF) << 20) | (rs1 << 15) | (3 << 12) | (rd << 7) | 0x03
 
@@ -94,6 +102,11 @@ def sw(rs2: int, rs1: int, imm: int) -> int:
     )
 
 
+def words(text: bytes) -> list[int]:
+    """``text``, a multiple of four bytes long, as little-endian words."""
+    return [int.from_bytes(text[i : i + 4], "little") for i in range(0, len(text), 4)]
+
+
 def user_elf(code: list[int]) -> bytes:
     """A static riscv64 executable with one RWX segment holding ``code``."""
     return _elf(code, LOAD_ADDRESS)
@@ -122,6 +135,16 @@ def _elf(code: list[int], load_address: int) -> bytes:
 
 # argc from the stack into a0, then exit(a0).
 EXIT_WITH_ARGC = [ld(10, 2, 0), addi(17, 0, SYS_EXIT), ECALL]
+# exit((sp >> 4) & 0xFF): where the loader left the 16-byte-aligned stack.
+EXIT_WITH_STACK_POINTER = [
+    srli(10, 2, 4),
+    andi(10, 10, 0xFF),
+    addi(17, 0, SYS_EXIT),
+    ECALL,
+]
+# A directory name longer than the stack's 16-byte alignment, so a path
+# through it moves everything the loader places below the program's strings.
+LONG_NAME = "x" * 64
 # Counts to 300 in t0, then exit(9).
 COUNT_THEN_EXIT = [
     addi(5, 0, 0),
@@ -163,5 +186,5 @@ def file_exchange() -> list[int]:
     ]
     code += [0] * (NAME_OFFSET // 4 - len(code))
     name = b"out.txt\0"
-    code += [int.from_bytes(name[i : i + 4], "little") for i in range(0, 8, 4)]
+    code += words(name)
     return code

@@ -13,6 +13,8 @@ import unittest
 from _programs import (
     COUNT_THEN_EXIT,
     EXIT_WITH_ARGC,
+    EXIT_WITH_STACK_POINTER,
+    LONG_NAME,
     ROOT,
     SCRIPT,
     bundled,
@@ -190,6 +192,25 @@ class UserPrograms(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 3, result.stderr)
+
+    def test_where_rvsim_runs_from_does_not_move_the_programs_stack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prog.elf")
+            with open(path, "wb") as f:
+                f.write(user_elf(EXIT_WITH_STACK_POINTER))
+            elsewhere = os.path.join(tmp, LONG_NAME)
+            os.mkdir(elsewhere)
+            exit_codes = [
+                subprocess.run(
+                    [sys.executable, "-m", "rvsim", binary, "--quiet"],
+                    cwd=cwd,
+                    capture_output=True,
+                    check=False,
+                ).returncode
+                for cwd, binary in ((tmp, "prog.elf"), (elsewhere, path))
+            ]
+
+        self.assertEqual(exit_codes[0], exit_codes[1])
 
 
 class KernelImages(unittest.TestCase):

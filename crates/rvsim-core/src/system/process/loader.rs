@@ -67,6 +67,9 @@ pub struct ProcessArgs {
     pub argv: Vec<String>,
     /// `envp` entries as `NAME=value`.
     pub envp: Vec<String>,
+    /// The host path of the executable, which `/proc/self/exe` names;
+    /// `argv[0]` when absent.
+    pub program: Option<String>,
 }
 
 /// A program to load: its ELF image and command line.
@@ -174,7 +177,7 @@ fn place(
     }
 
     let mut process = Process::new(space, image_end.page_ceil(), clock_hz, terminal);
-    process.program = args.argv.first().cloned();
+    process.program = args.program.clone().or_else(|| args.argv.first().cloned());
     let stack_bytes = process.stack_bytes();
     let stack_bottom = process.stack_top().wrapping_sub(stack_bytes);
     process
