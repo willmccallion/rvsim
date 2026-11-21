@@ -259,6 +259,16 @@ make run-linux                      # Boot 8 SMP cores (login: root, no password
 rvsim tools/boot_linux.py --harts 1   # Single core
 ```
 
+## Debugging and Validation
+
+- **GDB**: `rvsim prog.elf --gdb 1234` waits for `target remote :1234`; breakpoints, single steps, registers and memory, with each hart a thread. `Simulator.gdb(port)` does the same from Python. See [Debugging with GDB](https://willmccallion.github.io/rvsim/gdb/).
+- **Pipeline trace**: `--pipeline-trace FILE` (or `Simulator.open_pipeline_trace`) writes every instruction's stage each cycle as a Kanata log for [Konata](https://github.com/shioyadan/Konata). See [Pipeline trace](https://willmccallion.github.io/rvsim/pipeline-trace/).
+- **Lockstep against spike**: `make lockstep` replays every retired instruction on spike and compares its PC, privilege, register and CSR writes and memory accesses.
+- **SE mode against qemu**: `make se-verify` checks that programs print the same output and exit with the same code under rvsim and `qemu-riscv64`.
+- **Timing references**: `make rtl-compare RTL_CORE=rocket|boom` compares retire timing with Chipyard's Rocket and BOOM RTL under Verilator (the first build takes about an hour, in `nix develop .#rtl`), and `make compare-gem5` compares cycle counts with gem5's O3 CPU. See [Error against Rocket](https://willmccallion.github.io/rvsim/rtl-rocket/), [Error against BOOM](https://willmccallion.github.io/rvsim/rtl-boom/) and [Error against gem5](https://willmccallion.github.io/rvsim/error/).
+
+[Validation](https://willmccallion.github.io/rvsim/validation/) lists every check, how often it runs and where the numbers stand. `make help` lists the targets.
+
 ## Documentation
 
 Full documentation including architecture deep-dives, API reference, and examples:
