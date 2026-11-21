@@ -74,7 +74,7 @@ help:
 	@printf "    %-$(HELP_W)s  Check every program against spike in lockstep, all PIPELINES\n" "make lockstep"
 	@printf "    %-$(HELP_W)s  Lockstep against spike on the smoke configs\n" "make lockstep-smoke"
 	@printf "    %-$(HELP_W)s  Build the Rocket and BOOM Verilator simulators (one-time, ~1 h; nix develop .#rtl)\n" "make rtl-build"
-	@printf "    %-$(HELP_W)s  Compare retire timing with the RTL cores (CORE=rocket|boom)\n" "make rtl-compare"
+	@printf "    %-$(HELP_W)s  Compare retire timing with the RTL cores (RTL_CORE=rocket|boom)\n" "make rtl-compare"
 	@printf "    %-$(HELP_W)s  Build Embench-IoT as static Linux programs for SE mode\n" "make embench-build"
 	@printf "    %-$(HELP_W)s  Check SE mode against qemu-riscv64 (EMBENCH=1, BUNDLED=1 add programs; SLOW=1 the long ones)\n" "make se-verify"
 	@printf "    %-$(HELP_W)s  Run EVERY suite x EVERY PIPELINES (very slow)\n" "make test-all"
