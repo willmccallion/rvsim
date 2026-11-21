@@ -199,7 +199,7 @@ _OPTIONS = (
 
 _MODES = (
     (".elf", "static Linux user program (SE mode) or bare-metal image"),
-    (".py", "Python script: use the rvsim API for full control"),
+    (".py", "Python script using the rvsim API; the words after it are its own"),
     ("other", "kernel image"),
 )
 
@@ -317,6 +317,11 @@ def _parse_invocation(
     program_args = args.positional_args[1:] + remaining
     if program_args[:1] == ["--"]:
         program_args = program_args[1:]
+    if mode == "script":
+        parser.error(
+            "rvsim's options do not apply to a script: put the script first and "
+            "its own options after the script"
+        )
     if mode == "kernel" and program_args:
         parser.error(f"unrecognized arguments: {' '.join(program_args)}")
     for entry in args.env:
@@ -450,6 +455,13 @@ def _write_json(path: str, sim: Simulator) -> None:
         json.dump(Stats.from_core(sim.stats), f, indent=2)
 
 
+def _run_script(path: str, script_args: list[str]) -> None:
+    """Runs the script at ``path`` as ``__main__`` with ``script_args``,
+    every word after its path, as its own command line."""
+    sys.argv = [path, *script_args]
+    runpy.run_path(path, run_name="__main__")
+
+
 def main() -> None:
     argv = sys.argv[1:]
     if not argv or argv in (["-h"], ["--help"]):
@@ -463,16 +475,16 @@ def main() -> None:
 
         sys.exit(bench(argv[1:]))
 
+    if _detect_mode(argv[0]) == "script":
+        _run_script(argv[0], argv[1:])
+        return
+
     parser = _build_parser()
     args, remaining = parser.parse_known_args(argv)
     if not args.positional_args:
         _print_help()
         sys.exit(0)
     run = _parse_invocation(parser, args, remaining)
-    if run.mode == "script":
-        sys.argv = [run.target, *run.program_args]
-        runpy.run_path(run.target, run_name="__main__")
-        return
 
     cfg = _select_config(args, run.mode)
 
