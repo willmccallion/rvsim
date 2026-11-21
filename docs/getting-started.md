@@ -236,16 +236,14 @@ cpu = Simulator(Config(width=4), binary="software/bin/programs/qsort.elf")
 for _ in range(1000):
     cpu.tick()
 
-# Run until a specific PC, or until code runs in user mode
-cpu.run_until(pc=0x80001234)
-cpu.run_until(privilege="U")
+# Run until a condition holds; pc= and privilege= stop there too
+cpu.run_until(lambda sim: sim.instructions_retired >= 100_000)
 
 # Inspect state
-print(f"PC: {cpu.pc:#x}")
+print(f"PC: {cpu.pc:#x}, {cpu.privilege}")
 print(f"a0: {cpu.regs[reg.A0]:#x}")
-print(f"sp: {cpu.regs[reg.SP]:#x}")
-print(f"mstatus: {cpu.csrs[csr.MSTATUS]:#x}")
-print(f"mem[0x80001000]: {cpu.mem64[0x80001000]:#x}")
+print(f"satp: {cpu.csrs[csr.SATP]:#x}")
+print(f"top of stack: {cpu.vmem64[cpu.regs[reg.SP]]:#x}")
 
 # Every hart, in a multi-core run
 for hart in cpu.harts:
@@ -258,6 +256,10 @@ cpu.pipeline_snapshot().visualize()
 cpu.save("checkpoint.bin")
 cpu.restore("checkpoint.bin")
 ```
+
+The bundled programs run in SE mode, so PCs and `vmem64` addresses are the
+program's virtual addresses; `mem64` reads physical memory, which is where
+a bare-metal image (`software/bin-htif/`, loaded at `0x8000_0000`) lives.
 
 ## Next Steps
 
