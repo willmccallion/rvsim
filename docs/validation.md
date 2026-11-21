@@ -36,7 +36,7 @@ prerelease` runs it and boots Linux.
 | riscv-vector-tests, full set | 3,023 programs, every element of every vector register and every memory access against spike | 3,023 of 3,023 at VLEN 128 (2026-09-28) |
 | Lockstep against spike (`make lockstep`) | Every retired instruction's PC, privilege, destination register, CSR write and memory access, replayed on spike one instruction at a time, over the riscv-tests, the bundled programs, the benchmarks and the vector tests | clean on all configurations (2026-10-10); vector register contents are not yet compared, interrupts are taken from rvsim |
 | Multi-core programs | As above, on 2, 4 and 8 harts | clean |
-| Linux boot | Linux 6.6 through OpenSBI to a BusyBox shell | boots on one and eight harts |
+| Linux boot | Linux 6.6 through OpenSBI to a BusyBox shell, a login and a power-off | on two harts after each merge to `main` and nightly (`.github/workflows/linux.yml`), on eight by `make prerelease` |
 
 ## Timing
 
