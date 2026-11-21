@@ -27,6 +27,8 @@ Requires Python 3.11+. Pre-built abi3 wheels cover Linux (x86_64, aarch64), macO
 
 ## Quick Start
 
+The examples run the bundled programs, which a source checkout builds with `make -C software` (see [Building from Source](#building-from-source)). They are static Linux user binaries, run in SE mode.
+
 ```python
 from rvsim import Config, BranchPredictor, Cache, Environment
 
@@ -42,11 +44,11 @@ print(result.stats.query(r"^ipc$|bp\.committed\.(accuracy|mispredicts)|(l1d|l2)\
 ```
 
 ```
-core0.bp.committed.accuracy      0.8750
-core0.bp.committed.mispredicts  386,904
-core0.cache.l1d.miss_rate        0.0914
-core0.cache.l2.miss_rate         0.5149
-ipc                              1.1588
+core0.bp.committed.accuracy      0.8729
+core0.bp.committed.mispredicts  389,173
+core0.cache.l1d.miss_rate        0.0184
+core0.cache.l2.miss_rate         0.1581
+ipc                              1.5129
 ```
 
 Stats are keyed by path (`core0.cache.l1d.misses`, `hart0.retired_insts`);
@@ -110,8 +112,8 @@ from rvsim import BranchPredictor, Config, Environment, Stats
 
 rows = {}
 for name, bp in [("GShare", BranchPredictor.GShare()), ("Tage", BranchPredictor.Tage())]:
-    r = Environment("program.elf", Config(branch_predictor=bp)).run()
-    rows[name] = r.stats
+    r = Environment("software/bin/programs/maze.elf", Config(branch_predictor=bp)).run()
+    rows[name] = r.stats.query(r"^ipc$|bp\.committed\.accuracy")
 
 print(Stats.tabulate(rows, title="Branch Predictor Comparison"))
 ```
@@ -124,7 +126,7 @@ print(Stats.tabulate(rows, title="Branch Predictor Comparison"))
 from rvsim import Sweep, Config, Cache
 
 results = Sweep(
-    binaries=["qsort.elf", "mandelbrot.elf", "maze.elf"],
+    binaries=[f"software/bin/programs/{p}.elf" for p in ["qsort", "mandelbrot", "maze"]],
     configs={
         f"L1={s}": Config(l1d=Cache(s, ways=8, mshr_count=8), console="Quiet")
         for s in ["8KB", "16KB", "32KB", "64KB"]
@@ -139,21 +141,23 @@ results.compare(metrics=["ipc", "core0.cache.l1d.misses"], baseline="L1=8KB")
 ```python
 from rvsim import Simulator, Config, reg, csr
 
-cpu = Simulator(Config(width=4), binary="program.elf")
+cpu = Simulator(Config(width=4), binary="software/bin/programs/qsort.elf")
 
 for _ in range(1000):
     cpu.tick()
-    cpu.pipeline_snapshot().visualize()
 
-cpu.run_until(pc=0x80001234)
-cpu.run_until(privilege="U")
+cpu.run_until(lambda sim: sim.instructions_retired >= 100_000)
+cpu.pipeline_snapshot().visualize()
 
-print(hex(cpu.regs[reg.A0]))
-print(hex(cpu.csrs[csr.MSTATUS]))
-print(cpu.mem64[0x80001000])
+print(hex(cpu.pc), cpu.privilege)
+print(hex(cpu.csrs[csr.SATP]))
+print(hex(cpu.vmem64[cpu.regs[reg.SP]]))
 
 cpu.save("checkpoint.bin")
+cpu.restore("checkpoint.bin")
 ```
+
+`run_until` also stops at a PC (`pc=`) or a privilege level (`privilege=`). In SE mode PCs and `vmem64` addresses are the program's virtual addresses; `mem64` reads physical memory, which is where a bare-metal image (`software/bin-htif/`, loaded at `0x8000_0000`) lives.
 
 ## Analysis Scripts
 
