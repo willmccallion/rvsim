@@ -13,7 +13,7 @@ Cycle-level RISC-V 64-bit system simulator with a composable Python API for arch
 
 ---
 
-rvsim models a complete superscalar processor cycle by cycle. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 188 [`riscv-tests`](https://github.com/riscv-software-src/riscv-tests). The chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite is cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
+rvsim models a complete superscalar processor cycle by cycle. It implements two pluggable microarchitectural backends — out-of-order and in-order — sharing a common frontend, memory hierarchy, and SoC device layer. It runs static Linux user programs directly in SE mode, boots Linux 6.6 through OpenSBI to a BusyBox shell and passes all 188 [`riscv-tests`](https://github.com/riscv-software-src/riscv-tests). The chipsalliance [`riscv-vector-tests`](https://github.com/chipsalliance/riscv-vector-tests) suite is cross-checked against [spike](https://github.com/riscv-software-src/riscv-isa-sim).
 
 > **Accuracy.** rvsim simulates every cycle, but it is not cycle-accurate to any one machine yet. It models how real cores behave and measures itself two ways: against gem5's O3 CPU, where compute- and branch-bound kernels are within a few percent and memory- and vector-bound ones are still 10 to 60% apart ([Error against gem5](https://willmccallion.github.io/rvsim/error/)), and against hardware, where configurations calibrated to the SiFive P550 and the Cortex-A72 reproduce their measured cache and memory latencies and the A72 one runs CoreMark within 6% of a Raspberry Pi 4 ([Linux Benchmarks](https://willmccallion.github.io/rvsim/examples/linux-benchmarks/)). We are working to close the remaining gaps.
 
@@ -27,7 +27,7 @@ Requires Python 3.11+. Pre-built abi3 wheels cover Linux (x86_64, aarch64), macO
 
 ## Quick Start
 
-The examples run the bundled programs, which a source checkout builds with `make -C software` (see [Building from Source](#building-from-source)). They are static Linux user binaries, run in SE mode.
+The examples run the bundled programs, which a source checkout builds with `make -C software` (see [Building from Source](#building-from-source)). They are static Linux user binaries, run in [SE mode](#se-mode).
 
 ```python
 from rvsim import Config, BranchPredictor, Cache, Environment
@@ -53,6 +53,19 @@ ipc                              1.5129
 
 Stats are keyed by path (`core0.cache.l1d.misses`, `hart0.retired_insts`);
 see [Stats & Observability](https://willmccallion.github.io/rvsim/architecture/stats/).
+
+### Command Line
+
+```bash
+rvsim software/bin/programs/qsort.elf                  # run an ELF, print stats on exit
+rvsim software/bin/programs/qsort.elf --watch          # live dashboard: IPC, cache hit rates, stalls
+rvsim software/bin/programs/qsort.elf --preset boom --json stats.json
+rvsim examples/analysis/branch_predict.py              # run a script that uses the API
+rvsim list                                             # list the bundled programs
+rvsim bench coremark dhrystone                         # run benchmarks inside Linux
+```
+
+`rvsim` picks the mode from the file: an `.elf` runs as a program, a `.py` as a script, anything else as a kernel image. `--config FILE` loads a `Config` from a Python file, `--limit 5M` caps the cycles and `--harts N` sets the hart count. `rvsim bench` boots the Linux image from `make linux` once (cached), switches to the configuration under study and measures CoreMark, Dhrystone, Whetstone, STREAM, mbw, `lat_mem_rd` and stress-ng each as its own region. `rvsim --help` and `rvsim bench --help` list the rest.
 
 ## Features
 
@@ -105,6 +118,17 @@ CLINT timer, PLIC interrupt controller, 16550A UART, VirtIO MMIO block device, G
 
 ## Python API
 
+### Configurations and Presets
+
+`Config()` with no arguments is a desktop-class out-of-order core of the mid-2020s at 4 GHz: 6 wide, a 320-entry ROB, the 64KB TAGE-SC-L, a 48KB L1D, 1MB L2 and 32MB L3 with every prefetcher on, and two channels of DDR5-5600. Every field can be overridden (`Config(width=4)`) or changed on a copy (`config.replace(...)`). The `presets` module adds ready-made machines:
+
+- `presets.basic()`: the default machine, identical to `Config()`
+- `presets.fast()`: an Apple M4 P-core class core, 8 wide at 4.4 GHz with a 630-entry ROB
+- `presets.rocket()`, `presets.boom()`: Chipyard 1.14's Rocket and Medium BOOM, as their RTL builds them
+- `presets.linux(harts=8, core=...)`: a core placed in the multi-core system the bundled Linux image boots on
+
+`basic`, `fast`, `rocket` and `boom` are also the CLI's `--preset` names. See [Configuration](https://willmccallion.github.io/rvsim/configuration/) for every parameter.
+
 ### Comparing Configurations
 
 ```python
@@ -135,6 +159,23 @@ results = Sweep(
 
 results.compare(metrics=["ipc", "core0.cache.l1d.misses"], baseline="L1=8KB")
 ```
+
+### Sessions
+
+`Session` runs one workload in phases: fast-forward to a point of interest, switch to the configuration under study, warm it up, and measure regions. Fast-forwards are cached, so the second run of an experiment restores the Linux boot in seconds:
+
+```python
+from rvsim import Backend, Session, presets
+
+s = Session.linux(harts=1)
+s.fast_forward(until=Session.LOGIN_SHELL)        # boots once, then restored from the cache
+s.switch(presets.linux(harts=1, core=presets.fast().replace(backend=Backend.InOrder())))
+s.warm_up(command="coremark 0x0 0x0 0x66 20 7 1 2000")
+r = s.measure("coremark 0x0 0x0 0x66 20 7 1 2000")
+print(r.cycles, r.instructions, r.ipc)
+```
+
+Runs stop at `Cycles`, `Instructions`, `Pc`, `Marker`, `Console`, `Exit` or `When` (combined with `|`), and `Session(binary=...)` runs a bare-metal ELF the same way. See [Linux Boot](https://willmccallion.github.io/rvsim/examples/linux-boot/) and the [API Reference](https://willmccallion.github.io/rvsim/api/#sessions).
 
 ### Low-Level Control
 
@@ -193,12 +234,24 @@ maturin develop --release
 make -C software
 ```
 
+## SE Mode
+
+SE mode runs a static Linux user program without a kernel, as gem5's SE mode and QEMU's user mode do: rvsim loads the ELF, builds its Sv39 page tables and stack, runs it in user mode and serves its syscalls against the host's files, with time taken from the simulated clock. The bundled programs run this way; anything built with a Linux cross toolchain and linked `-static` or `-static-pie` runs unchanged.
+
+```bash
+riscv64-linux-gnu-gcc -O2 -static -march=rv64gc -mabi=lp64d prog.c -o prog.elf
+rvsim prog.elf --env LANG=C -- --iterations 100 input.txt
+rvsim software/bin/programs/fib.elf --program software/bin/programs/qsort.elf   # one per hart
+```
+
+Each thread a program starts takes a hart of its own, so give the run as many harts as it has threads (`--harts N`). `Simulator(programs=[Program(...), ...])` and `Environment(binary=..., args=..., env=...)` do the same from Python, and checkpoints carry every thread. Programs mark regions to measure with gem5's m5op [pseudo-operations](https://willmccallion.github.io/rvsim/pseudo-ops/), which bare-metal images and programs inside the Linux guest use too. See [SE mode](https://willmccallion.github.io/rvsim/se-mode/).
+
 ## Linux Boot
 
 Boots Linux 6.6 through OpenSBI to a BusyBox shell. The
 default boot is eight out-of-order cores from the `fast` preset (64KB
 TAGE-SC-L) with coherent private caches over a mesh and four channels of
-DDR5-5600.
+DDR5-5600. CI boots it on two harts, logs in and powers off after every merge to `main` and nightly. The root filesystem carries a benchmark suite (CoreMark, Dhrystone, Whetstone, STREAM, lmbench, mbw, stress-ng and others) and an `rvsim` guest tool that marks regions for the stats and exchanges files with the host.
 
 ```bash
 make linux                          # Build kernel + rootfs via Buildroot
