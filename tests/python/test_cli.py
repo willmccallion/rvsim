@@ -241,3 +241,33 @@ class SeveralPrograms(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 9, result.stderr)
+
+
+class Scripts(unittest.TestCase):
+    """A Python script gets every word after its path."""
+
+    def run_script(self, before, after):
+        with tempfile.TemporaryDirectory() as tmp:
+            script = os.path.join(tmp, "echo_argv.py")
+            with open(script, "w") as f:
+                f.write("import json, sys\nprint(json.dumps(sys.argv[1:]))\n")
+            return subprocess.run(
+                [sys.executable, "-m", "rvsim", *before, script, *after],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_options_after_the_script_are_the_scripts(self):
+        words = ["--harts", "1", "--limit", "5M", "extra"]
+
+        result = self.run_script([], words)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), words)
+
+    def test_rvsims_options_before_a_script_are_an_error(self):
+        result = self.run_script(["--harts", "1"], [])
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("after the script", result.stderr)
