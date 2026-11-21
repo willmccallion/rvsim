@@ -23,7 +23,7 @@ rvsim models a complete superscalar processor cycle by cycle. It implements two 
 pip install rvsim
 ```
 
-Requires Python 3.11+. Ships pre-built wheels for Linux x86_64.
+Requires Python 3.11+. Pre-built abi3 wheels cover Linux (x86_64, aarch64), macOS (x86_64, arm64) and Windows (x86_64). SE mode needs a Linux or macOS host; bare-metal and full-system runs work on all three.
 
 ## Quick Start
 
@@ -67,9 +67,9 @@ Both backends enforce identical serialization semantics: system/CSR instructions
 - **SV39 / SV48 / SV57 virtual memory** — separate iTLB/dTLB, an optional shared L2 TLB, a hardware page table walker whose PTE reads go through the L1D, and Svade or Svadu A/D handling
 - **L1i / L1d / L2 / L3 caches** — independently configurable size, associativity, latency, and replacement policy (LRU, PLRU, FIFO, Random, MRU)
 - **Non-blocking caches at every level** via MSHRs with request coalescing and writeback buffers; caches hold tags only and every access takes effect where it is served
-- **Hardware prefetchers** per cache level: next-line, stride, stream, tagged
+- **Hardware prefetchers** per cache level: next-line, stride, stream, tagged; plus a PC-indexed stride prefetcher in the load/store unit (`LoadPrefetcher.Stride`) and a store-miss stream prefetcher into the L2 (`StorePrefetcher.Stream`)
 - **Inclusion policies**: non-inclusive, inclusive (back-invalidation), exclusive (L1-L2 swap)
-- **Memory controllers** — fixed latency, a row-buffer DRAM model, or a JEDEC DDR5 controller with command timing, refresh and power-down
+- **Memory controllers** — fixed latency with a bandwidth limit, a row-buffer DRAM model, or a JEDEC DDR5 controller with command timing, refresh, power-down, ECC (SEC-DED or ChipKill) and patrol scrubbing
 
 ### Branch Prediction
 
@@ -89,7 +89,7 @@ RAS recognizes both x1 and x5 as link registers per RISC-V spec Table 2.1, inclu
 
 ### ISA & Privileged Architecture
 
-**RV64IMAFDC + V** — base integer, multiply/divide, atomics (LR/SC + AMO), single/double float with IEEE 754 NaN-boxing, compressed instructions, and the V vector extension (RVV 1.0), with Zba, Zbb, Zbc, Zbs, Zbkb, Zbkx and Zfh. M/S/U privilege modes, trap delegation, MRET/SRET, WFI, SFENCE.VMA, FENCE/FENCE.I, PMP (16 regions), Sstc, Svadu and Sdtrig triggers. Cache management ops via Zicbom and Zicboz.
+**RV64IMAFDC + V** — base integer, multiply/divide, atomics (LR/SC + AMO), single/double float with IEEE 754 NaN-boxing, compressed instructions, and the V vector extension (RVV 1.0), with Zicsr, Zifencei, Zicntr, Zihpm, Zihintpause, Zba, Zbb, Zbc, Zbs, Zbkb, Zbkc, Zbkx and Zfh. M/S/U privilege modes, trap delegation, MRET/SRET, WFI, SFENCE.VMA, FENCE/FENCE.I, PMP (16 regions), Sstc, Svadu, and two Sdtrig `mcontrol` exact-address triggers. Cache management ops via Zicbom and Zicboz.
 
 Multi-core systems (`Config(hart_count=N)`) give every hart its own core and private caches behind a MESI coherence fabric: a broadcast or snoop-filter home agent at the LLC and a crossbar, ring, mesh, torus or hypercube interconnect, with per-hart CLINT and PLIC contexts and a device tree that enumerates every hart.
 
@@ -191,13 +191,13 @@ make -C software
 
 ## Linux Boot
 
-Boots Linux 6.6 through OpenSBI to a BusyBox shell on both backends. The
+Boots Linux 6.6 through OpenSBI to a BusyBox shell. The
 default boot is eight out-of-order cores from the `fast` preset (64KB
 TAGE-SC-L) with coherent private caches over a mesh and four channels of
 DDR5-5600.
 
 ```bash
-make -C software linux              # Build kernel + rootfs via Buildroot
+make linux                          # Build kernel + rootfs via Buildroot
 make run-linux                      # Boot 8 SMP cores (login: root, no password)
 rvsim tools/boot_linux.py --harts 1   # Single core
 ```
