@@ -18,7 +18,11 @@ fails with an error that says so; bare-metal images and full-system runs
 work there as everywhere.
 
 Everything after the program is its command line; `--` is needed only
-when the first argument starts with a dash. `--env NAME=VALUE` adds to
+when the first argument starts with a dash. Its `argv[0]` is the binary's
+file name, not the path it was given: the strings at the top of the stack
+set where everything below them lands, so a longer path would shift the
+stack and change the timing with the directory rvsim runs from.
+`/proc/self/exe` still names the binary on the host. `--env NAME=VALUE` adds to
 its environment, which is empty by default, and `--mode se` or `--mode
 bare` overrides the detection: an executable whose entry lies below RAM
 with no `tohost` symbol is a user program, anything else a bare-metal

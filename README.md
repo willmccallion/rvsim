@@ -44,11 +44,11 @@ print(result.stats.query(r"^ipc$|bp\.committed\.(accuracy|mispredicts)|(l1d|l2)\
 ```
 
 ```
-core0.bp.committed.accuracy      0.8729
-core0.bp.committed.mispredicts  389,173
+core0.bp.committed.accuracy      0.8731
+core0.bp.committed.mispredicts  388,580
 core0.cache.l1d.miss_rate        0.0184
 core0.cache.l2.miss_rate         0.1581
-ipc                              1.5129
+ipc                              1.5140
 ```
 
 Stats are keyed by path (`core0.cache.l1d.misses`, `hart0.retired_insts`);

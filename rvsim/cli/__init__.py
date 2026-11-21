@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from ..config import ConsoleMode
 from ..config._units import _parse_cycles
 from ..presets import PRESETS
-from ..simulator import DebugEnd
+from ..simulator import DebugEnd, _program_name
 
 if TYPE_CHECKING:
     from rich.table import Table
@@ -385,7 +385,7 @@ def _build_simulator(
         return Simulator(
             cfg,
             binary=run.target,
-            args=[run.target, *run.program_args],
+            args=[_program_name(run.target), *run.program_args],
             env=args.env,
             mode=args.mode,
             **host_files,

@@ -16,7 +16,7 @@ __all__ = ["Environment", "Result"]
 
 from .config import Config
 from .config._config import _config_to_dict
-from .simulator import Simulator
+from .simulator import Simulator, _program_name
 from .stats import Stats, _compare_flat, _compare_matrix
 
 
@@ -38,7 +38,7 @@ class Environment:
 
     args: list[str] = field(default_factory=list)
     """The program's command line after its name, for a Linux user program
-    run in SE mode (its ``argv[0]`` is ``binary``)."""
+    run in SE mode (its ``argv[0]`` is ``binary``'s file name)."""
 
     env: list[str] | None = None
     """The program's environment as ``NAME=value`` entries, for SE mode;
@@ -81,12 +81,10 @@ class Environment:
         config = self.get_config()
         t0 = time.perf_counter()
         try:
-            with open(self.binary, "rb") as f:
-                elf_data = f.read()
             cpu = Simulator(
                 config,
-                elf_data=elf_data,
-                args=[self.binary, *self.args],
+                binary=self.binary,
+                args=[_program_name(self.binary), *self.args],
                 env=list(self.env or []),
                 mode=self.mode,
                 disk=self.disk,
