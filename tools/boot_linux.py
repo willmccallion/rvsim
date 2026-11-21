@@ -5,10 +5,10 @@ Download Buildroot, build Linux (kernel + rootfs + OpenSBI), then boot in the si
 Everything runs under software/linux: download, build, and artifacts (output/).
 Run from repo root:
 
-  sim script tools/boot_linux.py            # build if needed, then boot
-  sim script tools/boot_linux.py --no-boot  # only download & build
-  sim script tools/boot_linux.py --no-build # boot only (fail if no Image)
-  sim script tools/boot_linux.py --rebuild --no-boot  # rebuild after package changes
+  rvsim tools/boot_linux.py            # build if needed, then boot
+  rvsim tools/boot_linux.py --no-boot  # only download & build
+  rvsim tools/boot_linux.py --no-build # boot only (fail if no Image)
+  rvsim tools/boot_linux.py --rebuild --no-boot  # rebuild after package changes
 
 The Buildroot configuration is software/guest/buildroot.defconfig, with
 software/guest/linux.fragment applied over the kernel's default config and
