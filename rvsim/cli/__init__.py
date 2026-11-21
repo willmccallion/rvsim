@@ -45,14 +45,21 @@ _PROGRAM_DESCRIPTIONS = {
 }
 
 
-def _detect_mode(filepath: str) -> str:
-    _, ext = os.path.splitext(filepath)
-    ext = ext.lower()
-    if ext == ".py":
+_ELF_MAGIC = b"\x7fELF"
+
+
+def _is_script(path: str) -> bool:
+    return path.lower().endswith(".py")
+
+
+def _detect_mode(path: str) -> str:
+    """``script`` for a ``.py`` file, ``binary`` for an ELF and ``kernel``
+    for anything else, since a kernel boot loads its image as raw bytes."""
+    if _is_script(path):
         return "script"
-    if ext == ".elf":
-        return "binary"
-    return "kernel"
+    with open(path, "rb") as f:
+        magic = f.read(len(_ELF_MAGIC))
+    return "binary" if magic == _ELF_MAGIC else "kernel"
 
 
 def _find_bundled_binaries() -> tuple[pathlib.Path, pathlib.Path] | None:
@@ -198,7 +205,7 @@ _OPTIONS = (
 )
 
 _MODES = (
-    (".elf", "static Linux user program (SE mode) or bare-metal image"),
+    ("ELF", "static Linux user program (SE mode) or bare-metal image"),
     (".py", "Python script using the rvsim API; the words after it are its own"),
     ("other", "kernel image"),
 )
@@ -263,7 +270,7 @@ def _print_help() -> None:
         console.print(f"    [cyan]rvsim[/] {usage}", highlight=False)
     console.print()
     tables = (
-        _rows("Modes (from the file extension)", _MODES, ("green", "dim")),
+        _rows("Modes (from the file)", _MODES, ("green", "dim")),
         _rows(
             "Options",
             [(option.shown, option.help) for option in _OPTIONS],
@@ -282,11 +289,11 @@ def _build_parser() -> argparse.ArgumentParser:
     `_EXAMPLES` as its description and epilog."""
     from .. import __version__
 
-    modes = "\n".join(f"  {ext:<6} {what}" for ext, what in _MODES)
+    modes = "\n".join(f"  {kind:<6} {what}" for kind, what in _MODES)
     examples = "\n".join(f"  {command:<40} {what}" for command, what in _EXAMPLES)
     parser = argparse.ArgumentParser(
         prog="rvsim",
-        description=f"rvsim: RISC-V cycle-level simulator\n\nThe mode comes from the file extension:\n{modes}\n\n{_TIP}",
+        description=f"rvsim: RISC-V cycle-level simulator\n\nThe mode comes from the file:\n{modes}\n\n{_TIP}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"examples:\n{examples}",
     )
@@ -299,7 +306,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 @dataclass(frozen=True)
 class _Invocation:
-    """What to run: the file, the mode its extension picks, and the
+    """What to run: the file, the mode its contents pick, and the
     program's own command line after it."""
 
     target: str
@@ -313,7 +320,10 @@ def _parse_invocation(
     """The file and the program's arguments, after `--` when they start
     with a dash, checked against what the mode takes."""
     target = args.positional_args[0]
-    mode = _detect_mode(target)
+    try:
+        mode = _detect_mode(target)
+    except OSError as e:
+        parser.error(f"cannot read {target}: {e.strerror}")
     program_args = args.positional_args[1:] + remaining
     if program_args[:1] == ["--"]:
         program_args = program_args[1:]
@@ -475,7 +485,7 @@ def main() -> None:
 
         sys.exit(bench(argv[1:]))
 
-    if _detect_mode(argv[0]) == "script":
+    if _is_script(argv[0]):
         _run_script(argv[0], argv[1:])
         return
 

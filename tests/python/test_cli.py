@@ -177,6 +177,50 @@ class UserPrograms(unittest.TestCase):
 
         self.assertEqual(result.returncode, 3, result.stderr)
 
+    def test_an_elf_without_the_extension_runs_as_a_program(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "prog")
+            with open(path, "wb") as f:
+                f.write(user_elf(EXIT_WITH_ARGC))
+            result = subprocess.run(
+                [sys.executable, "-m", "rvsim", path, "--quiet", "--", "-x", "two"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 3, result.stderr)
+
+
+class KernelImages(unittest.TestCase):
+    """A file that is not an ELF is a kernel image, whatever its name."""
+
+    def test_a_kernel_image_takes_no_program_arguments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "Image.elf")
+            with open(path, "wb") as f:
+                f.write(bytes(64))
+            result = subprocess.run(
+                [sys.executable, "-m", "rvsim", path, "--", "an-argument"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unrecognized arguments: an-argument", result.stderr)
+
+    def test_a_missing_file_is_an_error(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "rvsim", "no-such-file"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("no-such-file", result.stderr)
+
 
 class HostFiles(unittest.TestCase):
     """``--script`` and ``--outdir`` give the guest's readfile and writefile
