@@ -8,9 +8,11 @@
 pip install rvsim
 ```
 
-Requires Python 3.11 or later. Pre-built wheels are available for Linux
-x86-64 and run on any x86-64 CPU. The package includes the compiled Rust
-simulator core, so no Rust toolchain is needed.
+Requires Python 3.11 or later. Pre-built abi3 wheels are available for
+Linux (x86-64, aarch64), macOS (x86-64, arm64) and Windows (x86-64). The
+package includes the compiled Rust simulator core, so no Rust toolchain is
+needed. [SE mode](se-mode.md) needs a Linux or macOS host; bare-metal and
+full-system runs work on all three.
 
 ### From source
 
