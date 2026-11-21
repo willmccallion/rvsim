@@ -366,7 +366,7 @@ prerelease:
 
 run-example: software
 	@printf "$(GREEN)Running quicksort benchmark…$(RESET)\n"
-	$(PYTHON) -m rvsim -f software/bin/benchmarks/qsort.elf
+	$(PYTHON) -m rvsim software/bin/benchmarks/qsort.elf
 
 HARTS ?= 8
 run-linux:
