@@ -65,7 +65,7 @@ rvsim list                                             # list the bundled progra
 rvsim bench coremark dhrystone                         # run benchmarks inside Linux
 ```
 
-`rvsim` picks the mode from the file: an `.elf` runs as a program, a `.py` as a script, anything else as a kernel image. `--config FILE` loads a `Config` from a Python file, `--limit 5M` caps the cycles and `--harts N` sets the hart count. `rvsim bench` boots the Linux image from `make linux` once (cached), switches to the configuration under study and measures CoreMark, Dhrystone, Whetstone, STREAM, mbw, `lat_mem_rd` and stress-ng each as its own region. `rvsim --help` and `rvsim bench --help` list the rest.
+`rvsim` picks the mode from the file: an ELF runs as a program, a `.py` as a script, anything else as a kernel image. `--config FILE` loads a `Config` from a Python file, `--limit 5M` caps the cycles and `--harts N` sets the hart count. `rvsim bench` boots the Linux image from `make linux` once (cached), switches to the configuration under study and measures CoreMark, Dhrystone, Whetstone, STREAM, mbw, `lat_mem_rd` and stress-ng each as its own region. `rvsim --help` and `rvsim bench --help` list the rest.
 
 ## Features
 
