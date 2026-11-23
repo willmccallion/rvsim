@@ -114,12 +114,7 @@ def generate_spike_trace(spike_limit):
 def run_rvsim_trace(cycle_limit):
     """Boot Linux in rvsim with commit logging, return parsed trace."""
     # Import here so the script can show --help without building
-    from rvsim import presets
-    from rvsim._core import Simulator
-    from rvsim.config._config import _config_to_dict
-
-    cfg = presets.linux()
-    config_dict = _config_to_dict(cfg)
+    from rvsim import Simulator, presets
 
     fd, log_path = tempfile.mkstemp(suffix=".log", prefix="rvsim_linux_")
     os.close(fd)
@@ -128,9 +123,8 @@ def run_rvsim_trace(cycle_limit):
 
     try:
         cpu = Simulator(
-            config_dict,
+            presets.linux(),
             kernel=KERNEL_IMAGE,
-            dtb=os.path.join(LINUX_DIR, "system.dtb"),
             disk=os.path.join(OUTPUT_DIR, "disk.img"),
         )
         cpu.open_commit_log(log_path)
