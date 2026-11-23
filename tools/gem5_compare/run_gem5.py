@@ -12,7 +12,6 @@ Runs every variant in variants.VARIANTS when none are named. Requires
 gem5.opt on PATH, or GEM5_BIN set.
 """
 
-import json
 import os
 import shutil
 import subprocess
@@ -22,12 +21,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import results
 from variants import VARIANTS
 
 ROOT = Path(__file__).parent.parent.parent
-RESULTS_DIR = Path(__file__).parent / "results"
 SINGLE_SCRIPT = Path(__file__).parent / "gem5_single.py"
-PROGRAMS = ROOT / "tests/builds/compare-programs"
 OUTDIR = ROOT / "tests/builds/results/gem5-compare"
 
 GEM5_BIN = os.environ.get("GEM5_BIN", shutil.which("gem5.opt") or "gem5.opt")
@@ -51,8 +49,8 @@ STATS = {
 }
 
 
-def extract_stats(stats_path: Path) -> dict:
-    values = {}
+def extract_stats(stats_path: Path) -> results.ProgramStats:
+    values: dict[str, str] = {}
     for line in stats_path.read_text().splitlines():
         parts = line.split()
         if len(parts) >= 2:
@@ -63,7 +61,7 @@ def extract_stats(stats_path: Path) -> dict:
     }
 
 
-def run_one(job: tuple[str, Path]) -> tuple[str, str, dict]:
+def run_one(job: tuple[str, Path]) -> tuple[str, str, results.ProgramStats]:
     variant_name, binary = job
     m5out = OUTDIR / variant_name / binary.stem
     m5out.mkdir(parents=True, exist_ok=True)
@@ -88,31 +86,17 @@ def run_one(job: tuple[str, Path]) -> tuple[str, str, dict]:
     return variant_name, binary.stem, extract_stats(stats_file)
 
 
-def main():
+def main() -> None:
     variants = sys.argv[1:] or list(VARIANTS)
-    binaries = sorted(PROGRAMS.glob("*.elf"))
-    if not binaries:
-        sys.exit(
-            f"error: no programs in {PROGRAMS}; run tools/gem5_compare/programs/build.sh"
-        )
-
-    jobs = [(v, b) for v in variants for b in binaries]
-    results: dict = {v: {} for v in variants}
+    jobs = [(v, b) for v in variants for b in results.program_binaries()]
+    runs: results.Results = {v: {} for v in variants}
     with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
         for variant_name, program, stats in pool.map(run_one, jobs):
-            results[variant_name][program] = stats
-            ipc = (
-                f"IPC={stats['ipc']:.3f}" if stats.get("ipc") is not None else "FAILED"
-            )
-            print(f"  gem5 {variant_name:20} {program:22} {ipc}", flush=True)
-
-    RESULTS_DIR.mkdir(exist_ok=True)
-    out = RESULTS_DIR / "gem5.json"
-    # Variants not run this time keep their earlier results.
-    saved = json.loads(out.read_text()) if out.exists() else {}
-    saved.update(results)
-    out.write_text(json.dumps(saved, indent=2, sort_keys=True))
-    print(f"Saved: {out}")
+            runs[variant_name][program] = stats
+            ipc = stats.get("ipc")
+            outcome = "FAILED" if ipc is None else f"IPC={ipc:.3f}"
+            print(f"  gem5 {variant_name:20} {program:22} {outcome}", flush=True)
+    print(f"Saved: {results.save('gem5', runs)}")
 
 
 if __name__ == "__main__":
