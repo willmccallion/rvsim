@@ -16,7 +16,9 @@ cached and later runs start from it.
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -24,19 +26,28 @@ sys.path.insert(0, str(ROOT))
 from rvsim import Session, presets
 from tools.diag.calibration import CALIBRATED
 
+
 # Each benchmark's command, how many of its units the command runs, and
 # how its score follows from that count and the cycles the run took. The
 # scores come from the simulator's cycle count, not the guest's clock,
 # whose resolution is too coarse for runs this short; both are the per-MHz
 # figures hardware is quoted in (DMIPS/MHz divides by 1757 Dhrystones).
+class Benchmark(NamedTuple):
+    command: str
+    units: int
+    unit: str
+    # The score from `units` and the run's cycles in millions.
+    score: Callable[[int, float], float]
+
+
 BENCHMARKS = {
-    "dhrystone": (
+    "dhrystone": Benchmark(
         "dhrystone 300000",
         300_000,
         "DMIPS/MHz",
         lambda runs, mcycles: runs / mcycles / 1757.0,
     ),
-    "coremark": (
+    "coremark": Benchmark(
         "coremark 0x0 0x0 0x66 200 7 1 2000",
         200,
         "CoreMark/MHz",
@@ -51,8 +62,8 @@ PRESETS = {
 
 
 def score_of(name: str, cycles: int) -> float:
-    _, count, _, formula = BENCHMARKS[name]
-    return formula(count, cycles / 1e6)
+    benchmark = BENCHMARKS[name]
+    return benchmark.score(benchmark.units, cycles / 1e6)
 
 
 def main() -> int:
@@ -73,6 +84,8 @@ def main() -> int:
     config = presets.linux(harts=args.harts, core=core)
     session = Session.linux(config, echo=args.echo, progress=True)
     boot = session.fast_forward(until=Session.LOGIN_SHELL).last_fast_forward
+    if boot is None:
+        raise RuntimeError("the boot to the login shell recorded no fast-forward")
     print(
         f"booted on {args.preset} x{args.harts}: {boot.cycle:,} cycles"
         f" ({'cached' if boot.cached else f'{boot.host_seconds:.0f} s'})",
@@ -84,7 +97,7 @@ def main() -> int:
         f"{'benchmark':10} {'score':>14} {'unit':12} {'cycles':>13} {'insts':>13} {'ipc':>6}"
     )
     for name in names:
-        command, _, unit, _ = BENCHMARKS[name]
+        command, unit = BENCHMARKS[name].command, BENCHMARKS[name].unit
         region = session.measure(command, name=name)
         score = score_of(name, region.cycles)
         row = {

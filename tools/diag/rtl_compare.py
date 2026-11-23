@@ -28,6 +28,7 @@ from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
@@ -55,7 +56,7 @@ class Core:
 
     config: str
     preset: str
-    line: re.Pattern
+    line: re.Pattern[str]
     logs_trapped: bool
 
     @property
@@ -91,8 +92,8 @@ CORES = {
 }
 
 
-def parse_trace(text: str, line: re.Pattern) -> list[Retirement]:
-    retirements = []
+def parse_trace(text: str, line: re.Pattern[str]) -> list[Retirement]:
+    retirements: list[Retirement] = []
     for raw in text.splitlines():
         match = line.match(raw)
         if match:
@@ -108,7 +109,7 @@ def parse_rvsim_log(text: str, keep_trapped: bool) -> list[Retirement]:
     """rvsim's commit log as retirements. rvsim logs a trapping instruction's
     line before its trap line; `keep_trapped` says whether the core's trace
     has that instruction too."""
-    retirements = []
+    retirements: list[Retirement] = []
     faulted = False
     for raw in text.splitlines():
         if raw.startswith("core   0: trap "):
@@ -131,7 +132,8 @@ def elf_entry(elf: Path) -> int:
     header = elf.read_bytes()[:32]
     if header[:4] != b"\x7fELF" or header[4] != 2:
         raise ValueError(f"{elf} is not a 64-bit ELF")
-    return struct.unpack_from("<Q", header, 24)[0]
+    (entry,) = struct.unpack_from("<Q", header, 24)
+    return int(entry)
 
 
 def program_window(retirements: list[Retirement], entry: int) -> list[Retirement]:
@@ -224,21 +226,60 @@ def uncompressed(inst: int) -> bool:
     return inst & 3 == 3
 
 
+class Divergence(TypedDict):
+    """Where the two retirement streams first differ."""
+
+    index: int
+    rtl: str
+    rvsim: str
+
+
+class Growth(TypedDict):
+    """The first retirement whose timing differs by the threshold or more."""
+
+    index: int
+    pc: str
+    symbol: str
+    delta: int
+    rtl_cycle: int
+    rvsim_cycle: int
+
+
+class Contributor(TypedDict):
+    """An instruction and the cycles rvsim's timing gained across its
+    retirements."""
+
+    pc: str
+    symbol: str
+    retirements: int
+    delta: int
+
+
+class ComparisonRecord(TypedDict):
+    insts: int
+    rtl_cycles: int
+    rvsim_cycles: int
+    ratio: float
+    divergence: Divergence | None
+    first_growth: Growth | None
+    contributors: list[Contributor]
+
+
 @dataclass
 class Comparison:
     program: str
     insts: int
     rtl_cycles: int
     rvsim_cycles: int
-    divergence: dict | None
-    first_growth: dict | None
-    contributors: list[dict]
+    divergence: Divergence | None
+    first_growth: Growth | None
+    contributors: list[Contributor]
 
     @property
     def ratio(self) -> float:
         return self.rvsim_cycles / self.rtl_cycles if self.rtl_cycles else float("nan")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> ComparisonRecord:
         return {
             "insts": self.insts,
             "rtl_cycles": self.rtl_cycles,
@@ -258,7 +299,7 @@ def compare(
     threshold: int,
 ) -> Comparison:
     """Lines the two windows up and measures where their timing parts."""
-    divergence = None
+    divergence: Divergence | None = None
     aligned = min(len(rtl), len(rvsim))
     for i in range(aligned):
         same_pc = rtl[i].pc == rvsim[i].pc
@@ -287,7 +328,7 @@ def compare(
         (rvsim[i].cycle - rvsim_start) - (rtl[i].cycle - rtl_start)
         for i in range(aligned)
     ]
-    first_growth = None
+    first_growth: Growth | None = None
     for i, delta in enumerate(deltas):
         if abs(delta) >= threshold:
             first_growth = {
@@ -305,7 +346,7 @@ def compare(
     for i in range(1, aligned):
         growth_by_pc[rtl[i].pc] += deltas[i] - deltas[i - 1]
         count_by_pc[rtl[i].pc] += 1
-    contributors = [
+    contributors: list[Contributor] = [
         {
             "pc": f"{pc:#x}",
             "symbol": symbols.name(pc),
@@ -421,8 +462,8 @@ def main() -> None:
 
     print()
     print_table(comparisons, args.threshold)
-    for program, error in failures.items():
-        print(f"{program:<20} failed: {error}")
+    for program, reason in failures.items():
+        print(f"{program:<20} failed: {reason}")
     out = args.out or RESULTS / f"rtl-{args.core}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(

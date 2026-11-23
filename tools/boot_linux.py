@@ -63,7 +63,7 @@ HOST_TOOLS = (
 )
 
 
-def repo_root():
+def repo_root() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -150,7 +150,7 @@ def build(linux_dir: str) -> int:
     return 0
 
 
-def main():
+def main() -> int | None:
     root = repo_root()
     linux_dir = os.path.join(root, "software", "linux")
     out_dir = os.path.join(linux_dir, "output")

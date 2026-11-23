@@ -17,12 +17,13 @@ rvsim presets cite for a latency the RTL source does not state.
 import argparse
 import sys
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from rtl_compare import (
+from tools.diag.rtl_compare import (
     CORES,
     PROGRAMS,
     Retirement,
@@ -138,7 +139,7 @@ class Probe:
 
     program: str
     what: str
-    matches: callable
+    matches: Callable[[int], bool]
     gap: str
 
 
@@ -179,8 +180,8 @@ PROBES = [
 ]
 
 
-def gaps(window: list[Retirement], probe: Probe) -> Counter:
-    counts: Counter = Counter()
+def gaps(window: list[Retirement], probe: Probe) -> Counter[int]:
+    counts: Counter[int] = Counter()
     previous = None
     for i, r in enumerate(window):
         if not probe.matches(r.inst):
@@ -196,7 +197,7 @@ def gaps(window: list[Retirement], probe: Probe) -> Counter:
     return counts
 
 
-def describe(counts: Counter) -> str:
+def describe(counts: Counter[int]) -> str:
     total = sum(counts.values())
     if not total:
         return "no matching instruction retired"

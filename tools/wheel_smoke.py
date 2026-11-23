@@ -29,9 +29,9 @@ EXIT_WITH_SEVEN = [addi(11, 0, BARE_METAL_EXIT_CODE), 0x7B | (M5_FAIL << 25)]
 CYCLE_LIMIT = 100_000
 
 
-def run_program() -> tuple[int, int]:
-    """Runs the program this host can and returns its exit code and the one
-    it should have."""
+def run_program() -> tuple[int | None, int]:
+    """Runs the program this host can and returns its exit code, None if it
+    did not finish within the cycle limit, and the one it should have."""
     if os.name == "posix":
         elf = user_elf(EXIT_WITH_ARGC)
         sim = rvsim.Simulator(rvsim.Config(), elf_data=elf, args=ARGS)
@@ -48,6 +48,9 @@ def main() -> int:
         )
         return 1
     exit_code, expected_code = run_program()
+    if exit_code is None:
+        print(f"the program did not finish in {CYCLE_LIMIT:,} cycles", file=sys.stderr)
+        return 1
     if exit_code != expected_code:
         print(
             f"the program exited with {exit_code}, expected {expected_code}",

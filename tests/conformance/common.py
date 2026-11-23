@@ -9,7 +9,7 @@ import struct
 import subprocess
 import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -56,10 +56,42 @@ def read_signature(path):
     return bytes(out)
 
 
-def parse_log(path, skip_nops=True, skip_reset=False, max_entries=0):
+# A retired instruction in a commit log: its PC and encoding.
+TraceEntry = tuple[int, int]
+
+
+@dataclass(frozen=True)
+class PcMismatch:
+    """The first instruction, numbered from 1, at which the PCs differ."""
+
+    inst_num: int
+    spike_pc: int
+    spike_inst: int
+    rvsim_pc: int
+    rvsim_inst: int
+
+
+@dataclass(frozen=True)
+class LengthMismatch:
+    """rvsim retired more instructions than spike's trace holds."""
+
+    inst_num: int
+    spike_len: int
+    rvsim_len: int
+
+
+Divergence = PcMismatch | LengthMismatch
+
+
+def parse_log(
+    path: str | os.PathLike[str],
+    skip_nops: bool = True,
+    skip_reset: bool = False,
+    max_entries: int = 0,
+) -> list[TraceEntry]:
     """A commit log as (pc, inst) tuples, at most ``max_entries`` of them
     when it is non-zero."""
-    entries = []
+    entries: list[TraceEntry] = []
     with open(path) as f:
         for line in f:
             m = LINE_RE.search(line)
@@ -77,8 +109,11 @@ def parse_log(path, skip_nops=True, skip_reset=False, max_entries=0):
     return entries
 
 
-def compare_traces(spike_trace, rvsim_trace):
-    """Compares two traces by PC. Returns (match_count, divergence_info_or_None).
+def compare_traces(
+    spike_trace: Sequence[TraceEntry], rvsim_trace: Sequence[TraceEntry]
+) -> tuple[int, Divergence | None]:
+    """Compares two traces by PC. Returns the instructions that match and the
+    divergence, if any.
 
     Only PCs are compared, not instruction encodings, because rvsim logs
     the 32-bit expanded form of compressed instructions while spike logs
@@ -92,21 +127,10 @@ def compare_traces(spike_trace, rvsim_trace):
     """
     for i, (s, r) in enumerate(zip(spike_trace, rvsim_trace, strict=False)):
         if s[0] != r[0]:
-            return i, {
-                "inst_num": i + 1,
-                "spike_pc": s[0],
-                "spike_inst": s[1],
-                "rvsim_pc": r[0],
-                "rvsim_inst": r[1],
-            }
+            return i, PcMismatch(i + 1, s[0], s[1], r[0], r[1])
     min_len = min(len(spike_trace), len(rvsim_trace))
     if len(rvsim_trace) > len(spike_trace):
-        return min_len, {
-            "inst_num": min_len + 1,
-            "length_mismatch": True,
-            "spike_len": len(spike_trace),
-            "rvsim_len": len(rvsim_trace),
-        }
+        return min_len, LengthMismatch(min_len + 1, len(spike_trace), len(rvsim_trace))
     return min_len, None
 
 
