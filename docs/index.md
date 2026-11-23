@@ -39,7 +39,7 @@ difference between them is a difference in timing alone.
     gaps in rvsim's memory and vector models and partly from places where
     gem5 differs from hardware (see [Error against gem5](error.md)).
     Against Chipyard's Rocket and BOOM, run as their RTL, the `rocket()`
-    and `boom()` presets are 17% and 19% off on average, with each
+    and `boom()` presets are 17% and 16% off on average, with each
     remaining difference listed against the issue that names its
     mechanism (see [Error against Rocket](rtl-rocket.md) and
     [Error against BOOM](rtl-boom.md)).

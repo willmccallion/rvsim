@@ -419,9 +419,15 @@ def boom() -> Config:
         btb_size=256,
         btb_ways=2,
         ras_size=32,
-        redirect_latency=2,
-        trap_latency=4,
-        fetch_decode_latency=2,
+        # Calibrated to the RTL's 11-cycle misprediction. The redirect lands
+        # the cycle after the branch resolves, as BOOM's `brupdate.b2` does;
+        # the three cycles more that BOOM's path takes go to the front end
+        # (one) and to rename-to-issue (two: the dispatch and register-read
+        # stages the out-of-order backend lacks, #226).
+        redirect_latency=1,
+        trap_latency=1,
+        fetch_decode_latency=3,
+        rename_issue_latency=4,
         csr_squash="EveryAccess",
         fence_squash=True,
         misaligned_access_trap=True,
