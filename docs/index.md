@@ -45,7 +45,7 @@ difference between them is a difference in timing alone.
     [Error against BOOM](rtl-boom.md)).
     Against hardware, configurations calibrated to the SiFive P550 and
     the Cortex-A72 reproduce their published cache and memory latencies,
-    and the A72 one runs CoreMark within 6% of a Raspberry Pi 4 (see
+    and the A72 one runs CoreMark within 8% of a Raspberry Pi 4 (see
     [Linux Benchmarks](examples/linux-benchmarks.md)). We are working to
     close the remaining gaps.
 

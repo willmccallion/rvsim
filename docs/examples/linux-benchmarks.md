@@ -56,7 +56,7 @@ timer is too coarse to time them.
 
 ## Scores against hardware
 
-Measured 2026-10-11, one hart, from the Linux boot, with the calibrated
+Measured 2026-11-23, one hart, from the Linux boot, with the calibrated
 configurations' load/store-unit prefetchers. The hardware columns
 are published single-core figures; Dhrystone varies a lot with the
 compiler, so Arm's quoted figure and a measured Raspberry Pi 4 are both
@@ -64,10 +64,10 @@ given.
 
 | Calibrated configuration | Benchmark | rvsim | Hardware | Source |
 |---|---|---:|---:|---|
-| `cortex_a72` | CoreMark/MHz | 5.23 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
-| `cortex_a72` | DMIPS/MHz | 4.14 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
-| `p550` | CoreMark/MHz | 4.80 | not published | |
-| `p550` | DMIPS/MHz | 3.36 | not published | |
+| `cortex_a72` | CoreMark/MHz | 5.11 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
+| `cortex_a72` | DMIPS/MHz | 3.90 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
+| `p550` | CoreMark/MHz | 4.72 | not published | |
+| `p550` | DMIPS/MHz | 3.29 | not published | |
 
 SiFive publishes only SPECint2006 for the P550 (8.65 per GHz); no public
 CoreMark or Dhrystone figure for the EIC7700X was found. Its configuration
