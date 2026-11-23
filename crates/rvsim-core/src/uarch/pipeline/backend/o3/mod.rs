@@ -17,7 +17,6 @@ pub use self::rename::{O3Entry, RenamedRegisters};
 mod serialize;
 mod squash;
 
-use crate::common::VirtAddr;
 use crate::config::Config;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
@@ -45,7 +44,7 @@ use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
-use crate::uarch::pipeline::squash::SquashScope;
+use crate::uarch::pipeline::squash::{FetchRedirect, SquashScope};
 use crate::uarch::vector::chaining::VecPendingResult;
 use crate::uarch::vector::lane_model::NumLanes;
 
@@ -145,7 +144,7 @@ pub struct O3Engine {
     stores_renamed_last_cycle: usize,
     /// Stores renamed so far this cycle.
     stores_renamed_this_cycle: usize,
-    /// Cycles commit still spends squashing the ROB; rename is blocked
+    /// Cycles a squash still spends walking the ROB; rename is blocked
     /// while it does.
     squash_stall_remaining: u64,
     /// The last mispredicted branch, until the first instruction after it
@@ -313,7 +312,7 @@ impl ExecutionEngine for O3Engine {
         &mut self,
         state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<O3Entry>,
-        redirect: &mut Option<VirtAddr>,
+        redirect: &mut Option<FetchRedirect>,
     ) {
         let now = state.uncore.kernel.cycle;
 
@@ -352,7 +351,7 @@ impl ExecutionEngine for O3Engine {
     }
 
     fn can_accept(&self) -> usize {
-        // Rename waits while commit squashes the ROB.
+        // Rename waits while a squash walks the ROB.
         if self.squash_stall_remaining > 0 {
             return 0;
         }
@@ -366,8 +365,9 @@ impl ExecutionEngine for O3Engine {
         self.common.commit.data_cache_flush = DataCacheFlush::Idle;
         self.rename_map = self.committed_rename_map.clone();
         self.checkpoints.flush_all();
+        // The committed map is copied back at once; no walk is left to do.
+        self.squash_stall_remaining = 0;
         self.mispredict_recovery = None;
-        // Caller sets squash_stall_remaining after this; not cleared here.
         self.common.flush_predictions(&mut state.core.branch_predictor);
         self.debug_assert_registers_conserved();
     }
@@ -448,10 +448,6 @@ impl ExecutionEngine for O3Engine {
 
     fn bundle_hazard(&self) -> BundleHazard {
         BundleHazard::Renamed
-    }
-
-    fn fetch_squashes_for_a_cycle(&self) -> bool {
-        true
     }
 
     fn is_recovering_from_squash(&self) -> bool {

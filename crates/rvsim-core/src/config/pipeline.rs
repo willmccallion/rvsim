@@ -47,7 +47,7 @@ pub struct PipelineConfig {
 
     /// Cycles between execute resolving a misprediction, CSR write, fault
     /// or ordering violation and the pipeline squashing into the redirect;
-    /// the backend's gem5 value when unset.
+    /// the backend's default when unset.
     pub redirect_latency: Option<u64>,
 
     /// Cycles from fetch2 writing a bundle to decode reading it: one stage
@@ -170,9 +170,9 @@ pub struct PipelineConfig {
     /// Number of checkpoint slots for O(1) branch recovery (0 = disabled).
     pub checkpoint_count: usize,
 
-    /// Reorder-buffer entries commit squashes per cycle after a
-    /// misprediction, trap or ordering violation; rename is blocked until
-    /// it has finished (gem5's `squashWidth`).
+    /// Reorder-buffer entries a squash no checkpoint covers walks back per
+    /// cycle, undoing their mappings; rename is blocked until it has
+    /// finished.
     pub squash_width: usize,
 
     /// Memory dependence predictor type

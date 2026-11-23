@@ -125,6 +125,33 @@ impl SquashScope {
     }
 }
 
+/// Where fetch restarts once the backend has discarded the frontend, and
+/// which stage sent it there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchRedirect {
+    /// Execute resolved a redirect; fetch starts from it the cycle it lands.
+    Execute(VirtAddr),
+    /// Commit flushed (a trap, an xRET, a refetch); fetch learns of the
+    /// registered flush and starts from it the cycle after.
+    Commit(VirtAddr),
+}
+
+impl FetchRedirect {
+    /// The PC fetch restarts from.
+    #[must_use]
+    pub const fn target(self) -> VirtAddr {
+        match self {
+            Self::Execute(pc) | Self::Commit(pc) => pc,
+        }
+    }
+
+    /// True when fetch spends the cycle the redirect reaches it idle.
+    #[must_use]
+    pub const fn waits_a_cycle(self) -> bool {
+        matches!(self, Self::Commit(_))
+    }
+}
+
 /// A redirect waiting for its latency to elapse.
 #[derive(Clone, Copy, Debug)]
 pub struct PendingSquash {

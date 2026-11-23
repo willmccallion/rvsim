@@ -225,8 +225,8 @@ pub const IN_ORDER_LOAD_PORTS: usize = 1;
 /// Real `OoO` processors (e.g. BOOM, ARM Cortex-A77) typically have 16-64 checkpoint slots.
 pub const CHECKPOINT_COUNT: usize = 32;
 
-/// Reorder-buffer entries commit squashes per cycle after a misprediction,
-/// trap or ordering violation (gem5's O3 `squashWidth`).
+/// Reorder-buffer entries a squash no checkpoint covers walks back per
+/// cycle, undoing their mappings (gem5's O3 `squashWidth`).
 pub const SQUASH_WIDTH: usize = 8;
 /// Cycles from commit detecting a trap to the squash into its handler
 /// (gem5's O3 `trapLatency`).
@@ -237,8 +237,9 @@ pub const TRAP_LATENCY: u64 = 13;
 pub const REDIRECT_LATENCY_INORDER: u64 = 1;
 
 /// Cycles from an out-of-order execute resolving a redirect to fetch
-/// taking it: gem5's `iewToCommitDelay` plus `commitToFetchDelay`.
-pub const REDIRECT_LATENCY_O3: u64 = 2;
+/// taking it: the branch unit's registered update steers fetch the next
+/// cycle, as BOOM's `brupdate.b2` does.
+pub const REDIRECT_LATENCY_O3: u64 = 1;
 
 /// Default Physical Register File GPR size (256 entries).
 pub const PRF_GPR_SIZE: usize = 256;

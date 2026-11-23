@@ -55,6 +55,15 @@ What no rvsim setting can express:
   one; and its rename learns of freed load-queue entries two cycles after
   commit frees them (commit tells IEW, IEW tells rename) where rvsim's
   rename sees every queue's free entries one cycle after they free.
+- gem5's O3 recovers from a misprediction through commit, and rvsim, like
+  real out-of-order cores, at the branch unit. The comparison gives rvsim
+  gem5's two-cycle relay (`redirect_latency=2`) and no rename checkpoints
+  with gem5's `squashWidth` of 8, both settings real cores differ on. What
+  is left is gem5's own: its fetch idles the cycle the redirect reaches it,
+  rename resumes a cycle after the squash finishes (IEW and rename each see
+  the stage before them blocked a cycle late), and it walks its history
+  buffer even when the branch has retired, where rvsim copies back the
+  committed map. Branch-heavy kernels run faster in rvsim for it.
 - gem5's O3 issues a store only when its address and data registers are
   both ready, where rvsim, like real out-of-order cores, issues the address
   ahead of the data. Store-heavy kernels such as `store_load_forward` and

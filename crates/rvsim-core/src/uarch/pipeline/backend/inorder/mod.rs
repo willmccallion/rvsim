@@ -13,7 +13,6 @@ pub mod execute;
 pub mod issue;
 mod rename;
 
-use crate::common::VirtAddr;
 use crate::config::Config;
 use crate::exec::compute::vector::mem::{is_vec_load, is_vec_store};
 use crate::exec::compute::vector::shadow::ElementWrite;
@@ -46,8 +45,8 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
 use crate::uarch::pipeline::rename::vec_prf::VecRegGroup;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
-use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::squash::SquashScope;
+use crate::uarch::pipeline::squash::{FetchRedirect, PendingSquash};
 use crate::uarch::pipeline::trace::Departure;
 
 use self::issue::{
@@ -116,9 +115,6 @@ pub struct InOrderEngine {
     /// Whether a renamed bundle issues the cycle it reaches the backend
     /// (`rename_issue_latency` of 1): dispatch runs before issue.
     dispatch_before_issue: bool,
-    /// This cycle's redirect came from commit, which fetch learns of the
-    /// cycle after.
-    redirected_at_commit: bool,
 }
 
 impl InOrderEngine {
@@ -164,7 +160,7 @@ impl InOrderEngine {
         &mut self,
         state: &mut CoreCtx<'_>,
         squash: PendingSquash,
-        redirect: &mut Option<VirtAddr>,
+        redirect: &mut Option<FetchRedirect>,
     ) {
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
         let scope = SquashScope::keeping(keep_tag);
@@ -172,7 +168,7 @@ impl InOrderEngine {
         let keep_seq = keep_tag.and_then(|tag| self.rob.find_entry(tag)).map(|entry| entry.seq);
         self.squash_in_flight(state, scope);
 
-        *redirect = Some(squash.redirect.target);
+        *redirect = Some(FetchRedirect::Execute(squash.redirect.target));
         let now = state.uncore.kernel.cycle;
         self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
     }
@@ -315,7 +311,6 @@ impl InOrderEngine {
             common,
             redirect_latency: config.pipeline.redirect_latency(),
             dispatch_before_issue: config.pipeline.rename_issue_latency == 1,
-            redirected_at_commit: false,
         }
     }
 }
@@ -323,7 +318,7 @@ impl InOrderEngine {
 impl InOrderEngine {
     /// Commits this cycle's instructions; true when a trap or a
     /// re-execution flushed the pipeline and redirected fetch.
-    fn retire(&mut self, state: &mut CoreCtx<'_>, redirect: &mut Option<VirtAddr>) -> bool {
+    fn retire(&mut self, state: &mut CoreCtx<'_>, redirect: &mut Option<FetchRedirect>) -> bool {
         let commit_event = commit::commit_stage(
             state,
             CommitResources {
@@ -350,8 +345,7 @@ impl InOrderEngine {
                 pc
             }
         };
-        *redirect = Some(target);
-        self.redirected_at_commit = true;
+        *redirect = Some(FetchRedirect::Commit(target));
         true
     }
 
@@ -448,10 +442,9 @@ impl ExecutionEngine for InOrderEngine {
         &mut self,
         state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<InOrderEntry>,
-        redirect: &mut Option<VirtAddr>,
+        redirect: &mut Option<FetchRedirect>,
     ) {
         let now = state.uncore.kernel.cycle;
-        self.redirected_at_commit = false;
 
         if let Some(squash) = self.common.take_due_squash(now) {
             self.apply_squash(state, squash, redirect);
@@ -519,11 +512,6 @@ impl ExecutionEngine for InOrderEngine {
 
     fn bundle_hazard(&self) -> BundleHazard {
         BundleHazard::EndsBundle
-    }
-
-    /// Minor's fetch follows a branch the cycle it arrives.
-    fn fetch_squashes_for_a_cycle(&self) -> bool {
-        self.redirected_at_commit
     }
 
     fn is_recovering_from_squash(&self) -> bool {

@@ -41,8 +41,8 @@ use crate::uarch::pipeline::outstanding::OutstandingWalk;
 use crate::uarch::pipeline::outstanding::WalkContinuation;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 use crate::uarch::pipeline::snapshot::LatchSnapshot;
-use crate::uarch::pipeline::squash::PendingSquash;
 use crate::uarch::pipeline::squash::SquashScope;
+use crate::uarch::pipeline::squash::{FetchRedirect, PendingSquash};
 use crate::uarch::pipeline::trace::Departure;
 
 /// Where the next fetch1 pass starts.
@@ -92,14 +92,14 @@ pub trait ExecutionEngine {
 
     /// Run one cycle of all backend stages (reverse order internally).
     ///
-    /// The engine sets `redirect` to the PC fetch restarts from when an
+    /// The engine sets `redirect` to where fetch restarts when an
     /// instruction squashes the frontend (branch misprediction, trap,
     /// FENCE.I, MRET/SRET).
     fn tick(
         &mut self,
         state: &mut CoreCtx<'_>,
         rename_output: &mut Vec<RenameIssueEntry<Self::Regs>>,
-        redirect: &mut Option<VirtAddr>,
+        redirect: &mut Option<FetchRedirect>,
     );
 
     /// How many instructions the engine can rename this cycle: the least
@@ -131,13 +131,6 @@ pub trait ExecutionEngine {
     /// What decode does with an instruction that reads a register an
     /// earlier one in its bundle writes.
     fn bundle_hazard(&self) -> BundleHazard;
-
-    /// Whether fetch spends the cycle this tick's redirect reaches it
-    /// squashing and fetches from the target the cycle after: every
-    /// redirect on the out-of-order engine, as gem5's O3 fetch does, and a
-    /// redirect taken at commit on the in-order one, whose execute-time
-    /// redirects already wait `redirect_latency`.
-    fn fetch_squashes_for_a_cycle(&self) -> bool;
 
     /// Whether a taken squash still holds rename, so the cycle is not idle.
     fn is_recovering_from_squash(&self) -> bool;
@@ -625,10 +618,10 @@ pub struct Pipeline<E: ExecutionEngine> {
     pub engine: E,
     /// Rename → dispatch latch, consumed by the engine each cycle.
     pub rename_output: Latch<RenameIssueEntry<E::Regs>>,
-    /// The PC the backend (squash / commit) redirected fetch to this cycle
+    /// Where the backend (squash / commit) redirected fetch this cycle
     /// (branch misprediction, trap, FENCE.I, MRET/SRET); the frontend is
     /// discarded and restarted there after the engine's tick.
-    pub redirect: Option<VirtAddr>,
+    pub redirect: Option<FetchRedirect>,
     /// Set by a backend redirect until rename hands on the first bundle
     /// from the new path; each cycle in between is a control stall.
     recovering_from_redirect: bool,
@@ -713,11 +706,11 @@ impl<E: ExecutionEngine> Pipeline<E> {
         self.rename_output.put_back(now, dispatch);
 
         let fetch_squashing = match self.redirect.take() {
-            Some(pc) => {
+            Some(redirect) => {
                 self.discard_frontend_speculation(state);
-                self.frontend.fetch_pc = pc;
+                self.frontend.fetch_pc = redirect.target();
                 self.recovering_from_redirect = true;
-                self.engine.fetch_squashes_for_a_cycle()
+                redirect.waits_a_cycle()
             }
             None => false,
         };
