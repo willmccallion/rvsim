@@ -9,11 +9,19 @@ use crate::uarch::pipeline::backend::shared::commit::{
 use crate::uarch::pipeline::backend::shared::flush_stats::count_flush;
 use crate::uarch::pipeline::engine::ExecutionEngine;
 use crate::uarch::pipeline::lsq::load_queue::OrderViolation;
+use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::squash::SquashScope;
 use crate::uarch::pipeline::squash::{PendingSquash, Redirect, SquashCause};
 use crate::uarch::pipeline::trace::Departure;
 
 use super::O3Engine;
+
+/// A mispredicted branch whose correct path has yet to issue.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MispredictRecovery {
+    branch: RobTag,
+    resolved_at: u64,
+}
 
 impl O3Engine {
     /// Counts a cycle commit spends squashing the ROB, during which rename
@@ -33,6 +41,23 @@ impl O3Engine {
     /// is restored at once, as gem5 undoes its history buffer.
     pub(super) fn squash_cycles(&self, squashed: usize) -> u64 {
         squashed.div_ceil(self.squash_width.max(1)).max(1) as u64 + 1
+    }
+
+    /// Records the cycles from a mispredicted branch resolving to the first
+    /// instruction after it issuing, once that instruction is `issued`.
+    pub(super) fn note_correct_path_issue(&mut self, state: &mut CoreCtx<'_>, issued: RobTag) {
+        let Some(recovery) = self.mispredict_recovery else { return };
+        if !issued.is_newer_than(recovery.branch) {
+            return;
+        }
+        let penalty = state.uncore.kernel.cycle - recovery.resolved_at;
+        state
+            .uncore
+            .kernel
+            .stats
+            .histogram(state.core.stat_paths.bp.mispredict_penalty)
+            .record(penalty);
+        self.mispredict_recovery = None;
     }
 
     /// Retires what the ROB head allows. A trap or a re-execution at commit
@@ -116,6 +141,7 @@ impl O3Engine {
         self.common.request_squash(PendingSquash {
             keep_tag: self.rob.prev_tag_of(violating_tag),
             redirect: Redirect::to(violation_pc, cause),
+            resolved_at: now,
             apply_at: now + self.redirect_latency,
         });
     }
@@ -192,6 +218,12 @@ impl O3Engine {
         }
         self.squash_stall_remaining = self.squash_cycles(squashed);
         self.checkpoints.squash(scope);
+        self.mispredict_recovery = match (squash.redirect.cause, squash.keep_tag) {
+            (SquashCause::Branch, Some(branch)) => {
+                Some(MispredictRecovery { branch, resolved_at: squash.resolved_at })
+            }
+            _ => None,
+        };
 
         *redirect = Some(squash.redirect.target);
         let now = state.uncore.kernel.cycle;

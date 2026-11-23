@@ -433,6 +433,7 @@ impl InOrderEngine {
             self.common.request_squash(PendingSquash {
                 keep_tag: Some(tag),
                 redirect,
+                resolved_at: complete_cycle,
                 apply_at: complete_cycle + self.redirect_latency,
             });
         }

@@ -142,6 +142,7 @@ one of `l1i`, `l1d` and `l2`.
 |------|---------|
 | `core<N>.bp.committed.hits`, `.mispredicts`, `.accuracy` | Control instructions predicted right and wrong, counted at commit; accuracy is derived |
 | `core<N>.bp.spec.hits`, `.mispredicts`, `.accuracy` | The same counted at execute, wrong-path branches included |
+| `core<N>.bp.mispredict_penalty` | Histogram of the cycles from a misprediction resolving to the first instruction after it issuing (out-of-order cores) |
 | `core<N>.bp.decode_redirects` | Fetch redirects decode made (a BTB miss on a taken control instruction, a stale target, a non-branch BTB hit) |
 | `core<N>.mdp.predictions.bypass` | Loads predicted independent of every older store |
 | `core<N>.mdp.predictions.wait_all` | Loads made to wait for every older store's address: all loads under the blind predictor, LRs and AMOs under store sets |

@@ -190,6 +190,11 @@ stat_paths! {
         /// missed, a stale BTB target, or a BTB entry for a non-branch.
         decode_redirects: "bp.decode_redirects" => Events,
     }
+    histograms {
+        /// Cycles from a mispredicted branch resolving to the first
+        /// instruction after it issuing (out-of-order cores).
+        mispredict_penalty: "bp.mispredict_penalty" => Cycles,
+    }
     derived {
         /// Derived: committed prediction accuracy (hits / (hits+mispredicts)).
         committed_accuracy: "bp.committed.accuracy",

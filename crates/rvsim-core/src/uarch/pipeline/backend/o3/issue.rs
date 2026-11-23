@@ -87,6 +87,7 @@ impl O3Engine {
     fn issue_one(&mut self, state: &mut CoreCtx<'_>, selected: SelectedEntry, now: u64) {
         let SelectedEntry { entry, fu_type, unit, data_follows } = selected;
         state.trace_stage(entry.seq, Stage::Issue);
+        self.note_correct_path_issue(state, entry.rob_tag);
         if entry.inst.ctrl.mem_read || entry.inst.ctrl.uses_store_buffer() {
             self.mdp.issued(entry.rob_tag);
         }
@@ -120,6 +121,7 @@ impl O3Engine {
             self.common.request_squash(PendingSquash {
                 keep_tag: Some(result.op.rob_tag),
                 redirect,
+                resolved_at: complete_cycle,
                 apply_at: complete_cycle + self.redirect_latency,
             });
         }

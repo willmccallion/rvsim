@@ -331,6 +331,12 @@ fn a_mispredicted_loop_counts_control_and_squash_cycles(rec: &mut Recorder) {
         }
         rec.expect(&straight.sim, "core0.pipeline.stalls.control", 0, &context);
         rec.expect(&straight.sim, "core0.pipeline.stalls.squash", 0, &context);
+        // The out-of-order core times each misprediction once its correct
+        // path issues.
+        if backend == BackendKind::OutOfOrder {
+            let penalties = rec.histogram(&ctx.sim, "core0.bp.mispredict_penalty");
+            assert_eq!(penalties.count(), flushes, "{context}");
+        }
         let rob_empty = rec.read(&ctx.sim, "core0.pipeline.cycles.rob_empty");
         let idle = rec.read(&ctx.sim, "core0.commit.retire_histogram.zero");
         assert!(0 < rob_empty && rob_empty <= idle, "{context}: {rob_empty} of {idle}");

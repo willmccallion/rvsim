@@ -148,6 +148,9 @@ pub struct O3Engine {
     /// Cycles commit still spends squashing the ROB; rename is blocked
     /// while it does.
     squash_stall_remaining: u64,
+    /// The last mispredicted branch, until the first instruction after it
+    /// issues.
+    mispredict_recovery: Option<squash::MispredictRecovery>,
     /// Whether rename holds the instruction after a serializing one.
     serialization: serialize::Serialization,
     /// Cycles from a result that redirects to the squash being taken.
@@ -236,6 +239,7 @@ impl O3Engine {
             stores_renamed_last_cycle: 0,
             stores_renamed_this_cycle: 0,
             squash_stall_remaining: 0,
+            mispredict_recovery: None,
             serialization: serialize::Serialization::Off,
             redirect_latency: config.pipeline.redirect_latency(),
             vec_prf: {
@@ -362,6 +366,7 @@ impl ExecutionEngine for O3Engine {
         self.common.commit.data_cache_flush = DataCacheFlush::Idle;
         self.rename_map = self.committed_rename_map.clone();
         self.checkpoints.flush_all();
+        self.mispredict_recovery = None;
         // Caller sets squash_stall_remaining after this; not cleared here.
         self.common.flush_predictions(&mut state.core.branch_predictor);
         self.debug_assert_registers_conserved();
