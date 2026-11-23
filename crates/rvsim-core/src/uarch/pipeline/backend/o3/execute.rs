@@ -12,7 +12,7 @@ use crate::isa::op::SystemOp;
 use crate::isa::privileged::Trap;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::execute::{
-    SystemExecution, execute_system, faulted, propagate_trap, refetch_after, resolve_control_flow,
+    SystemExecution, execute_system, faulted, propagate_trap, resolve_control_flow,
 };
 use crate::uarch::pipeline::backend::shared::vector_config::set_vector_config;
 use crate::uarch::pipeline::latches::ExMem1Entry;
@@ -91,9 +91,10 @@ pub fn execute_one(
 }
 
 /// Executes a system instruction; `None` for everything else. FENCE.I,
-/// MRET, SRET and WFI refetch what follows them at once, and FENCE.I's
-/// I-cache flush waits for commit, so older stores are visible before the
-/// refill. A CSR access is performed here: rename held everything younger
+/// MRET, SRET, WFI and the pseudo-operations take effect at commit, which
+/// refetches behind those that need it; rename held everything younger
+/// (serialize-after), so there is nothing to squash here. A CSR access is
+/// performed here: rename held everything younger
 /// until the ROB drained (serialize-after), so it reads what every older
 /// instruction wrote, and the write needs no squash.
 fn execute_system_o3(
@@ -115,7 +116,7 @@ fn execute_system_o3(
                     "EX: xRET queued (privilege restore deferred to commit)"
                 );
             }
-            (ExMem1Entry::from_issue(issued, 0, 0), Some(refetch_after(issued)))
+            (ExMem1Entry::from_issue(issued, 0, 0), None)
         }
         SystemExecution::Csr(request) => {
             let access = perform_csr_access(state, &request);
@@ -186,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn fence_i_redirects_to_the_next_instruction() {
+    fn fence_i_leaves_the_refetch_to_commit() {
         let mut sys = SystemState::build(&Config::minimal());
         let mut state = sys.core_ctx(0);
         let mut rob = Rob::new(4);
@@ -195,7 +196,7 @@ mod tests {
 
         let (_result, redirect) = execute_one(&mut state.stage(), &issue, &mut rob);
 
-        assert_eq!(redirect.map(|r| r.target), Some(VirtAddr::new(PC + 4)));
+        assert!(redirect.is_none());
     }
 
     #[test]
