@@ -1,3 +1,0 @@
-[env]
-# Suppress PyO3 version check for Python 3.14+
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1"
