@@ -22,9 +22,12 @@ import json
 import os
 import sys
 import time
+from typing import NamedTuple, TypedDict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
+
+from rvsim import Config
 
 PROGRAMS = {
     "qsort": "software/bin/programs/qsort.elf",
@@ -67,7 +70,24 @@ CONFIGS = [
 ]
 
 
-def config_for(label):
+class Job(NamedTuple):
+    program: str
+    elf_path: str
+    label: str
+    limit: int
+    hart_count: int
+
+
+class Run(TypedDict):
+    program: str
+    config: str
+    cycles: int
+    instructions: int
+    exit_code: int | None
+    seconds: float
+
+
+def config_for(label: str) -> Config:
     """The config `label` names: ``preset <name>``, ``calibrated <name>``
     or a pipeline label."""
     from rvsim import presets
@@ -84,23 +104,21 @@ def config_for(label):
     return next(c for lbl, c in PIPELINES if lbl == label)
 
 
-def run_one(args):
-    name, elf_path, label, limit, hart_count = args
-    from rvsim._core import Simulator
-    from rvsim.config._config import _config_to_dict
+def run_one(job: Job) -> Run:
+    from rvsim import Simulator
 
-    cfg = config_for(label)
+    cfg = config_for(job.label)
     cfg.console = "Quiet"
-    cfg.hart_count = hart_count
-    with open(os.path.join(ROOT, elf_path), "rb") as f:
+    cfg.hart_count = job.hart_count
+    with open(os.path.join(ROOT, job.elf_path), "rb") as f:
         elf_data = f.read()
     t0 = time.time()
-    cpu = Simulator(_config_to_dict(cfg), elf_data=elf_data)
-    exit_code = cpu.run(limit=limit)
+    cpu = Simulator(cfg, elf_data=elf_data)
+    exit_code = cpu.run(limit=job.limit)
     stats = cpu.stats
     return {
-        "program": name,
-        "config": label,
+        "program": job.program,
+        "config": job.label,
         "cycles": stats.cycles,
         "instructions": stats.instructions_retired,
         "exit_code": exit_code,
@@ -108,11 +126,11 @@ def run_one(args):
     }
 
 
-def key(r):
+def key(r: Run) -> str:
     return f"{r['program']} | {r['config']}"
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None)
     ap.add_argument("--compare", default=None)
@@ -132,11 +150,11 @@ def main():
         configs = [c.strip() for c in args.configs.split(",")]
 
     work = [
-        (name, path, label, args.limit, args.hart_count)
+        Job(name, path, label, args.limit, args.hart_count)
         for name, path in programs.items()
         for label in configs
     ]
-    results = []
+    results: list[Run] = []
     with cf.ProcessPoolExecutor(max_workers=args.jobs) as pool:
         for r in pool.map(run_one, work):
             results.append(r)
@@ -153,7 +171,8 @@ def main():
 
     if args.compare:
         with open(args.compare) as f:
-            base = {key(r): r for r in json.load(f)}
+            saved: list[Run] = json.load(f)
+            base = {key(r): r for r in saved}
         diffs = 0
         for r in results:
             b = base.get(key(r))

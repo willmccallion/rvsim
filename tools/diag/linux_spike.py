@@ -28,7 +28,14 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from tests.conformance.common import compare_traces, parse_log
+from tests.conformance.common import (
+    Divergence,
+    LengthMismatch,
+    PcMismatch,
+    TraceEntry,
+    compare_traces,
+    parse_log,
+)
 
 LINUX_DIR = os.path.join(ROOT, "software", "linux")
 OUTPUT_DIR = os.path.join(LINUX_DIR, "output")
@@ -40,7 +47,7 @@ FW_JUMP_ELF = os.path.join(
 KERNEL_IMAGE = os.path.join(OUTPUT_DIR, "Image")
 
 
-def generate_spike_trace(spike_limit):
+def generate_spike_trace(spike_limit: int) -> bool:
     """Run spike -l booting Linux, capture commit trace to SPIKE_LOG.
 
     spike boots OpenSBI (from fw_jump.elf) which jumps to the kernel Image.
@@ -81,11 +88,14 @@ def generate_spike_trace(spike_limit):
                 stderr=subprocess.PIPE,
             )
 
+            stderr = proc.stderr
+            if stderr is None:
+                raise RuntimeError("spike's stderr was not captured")
             count = 0
             buf = bytearray()
             try:
                 while True:
-                    chunk = proc.stderr.read(65536)
+                    chunk = stderr.read(65536)
                     if not chunk:
                         break
                     buf.extend(chunk)
@@ -111,7 +121,7 @@ def generate_spike_trace(spike_limit):
     return True
 
 
-def run_rvsim_trace(cycle_limit):
+def run_rvsim_trace(cycle_limit: int) -> list[TraceEntry]:
     """Boot Linux in rvsim with commit logging, return parsed trace."""
     # Import here so the script can show --help without building
     from rvsim import Simulator, presets
@@ -143,7 +153,7 @@ def run_rvsim_trace(cycle_limit):
     return trace
 
 
-def try_disasm(inst):
+def try_disasm(inst: int) -> str:
     """Try to disassemble a single instruction using objdump."""
     # 32-bit instruction
     inst_bytes = inst.to_bytes(4, "little")
@@ -178,7 +188,7 @@ def try_disasm(inst):
         return ""
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description="Compare rvsim Linux boot against spike commit trace"
     )
@@ -214,7 +224,7 @@ def parse_args():
     return ap.parse_args()
 
 
-def spike_trace_ready(args):
+def spike_trace_ready(args: argparse.Namespace) -> bool:
     """Generates spike's trace, or with --skip-spike checks the cached one."""
     if not args.skip_spike:
         return generate_spike_trace(args.spike_limit)
@@ -226,13 +236,15 @@ def spike_trace_ready(args):
     return True
 
 
-def disassembled(inst, enabled):
+def disassembled(inst: int, enabled: bool) -> str:
     """`inst`'s disassembly as a column, or nothing."""
     text = try_disasm(inst) if enabled else ""
     return f"  {text}" if text else ""
 
 
-def print_match(matched, spike_trace, rvsim_trace):
+def print_match(
+    matched: int, spike_trace: list[TraceEntry], rvsim_trace: list[TraceEntry]
+) -> None:
     print("=" * 72)
     print(f"MATCH — {matched:,} instructions agree (rvsim trace is shorter or equal)")
     print("=" * 72)
@@ -244,7 +256,13 @@ def print_match(matched, spike_trace, rvsim_trace):
         )
 
 
-def print_side_by_side(spike_trace, rvsim_trace, inst_num, context, disasm):
+def print_side_by_side(
+    spike_trace: list[TraceEntry],
+    rvsim_trace: list[TraceEntry],
+    inst_num: int,
+    context: int,
+    disasm: bool,
+) -> None:
     """Both traces around instruction `inst_num`, one row per instruction."""
     start = max(0, inst_num - 1 - context)
     end = min(len(spike_trace), len(rvsim_trace), inst_num - 1 + context)
@@ -262,11 +280,11 @@ def print_side_by_side(spike_trace, rvsim_trace, inst_num, context, disasm):
         )
 
 
-def print_analysis(div, spike_trace):
+def print_analysis(div: PcMismatch, spike_trace: list[TraceEntry]) -> None:
     """What kind of divergence `div` looks like: a trap one model took, or
     a different branch or fetch."""
     print("\n── Analysis ──")
-    s_pc, r_pc, inst_num = div["spike_pc"], div["rvsim_pc"], div["inst_num"]
+    s_pc, r_pc, inst_num = div.spike_pc, div.rvsim_pc, div.inst_num
     if s_pc in (0x80000000, 0x80000004):
         print(f"  spike jumped to trap handler at 0x{s_pc:x}")
         print(f"  rvsim continued to 0x{r_pc:x} (missed the trap?)")
@@ -294,7 +312,9 @@ def print_analysis(div, spike_trace):
         )
 
 
-def print_after(name, trace, inst_num, context, disasm):
+def print_after(
+    name: str, trace: list[TraceEntry], inst_num: int, context: int, disasm: bool
+) -> None:
     """`context` instructions of `trace` from the divergence on."""
     print(f"\n── {name} trace after divergence (next {context} instructions) ──")
     for i in range(inst_num - 1, min(len(trace), inst_num - 1 + context)):
@@ -302,20 +322,25 @@ def print_after(name, trace, inst_num, context, disasm):
         print(f"  {i + 1:>8,d}  0x{pc:016x} (0x{inst:08x}){disassembled(inst, disasm)}")
 
 
-def print_divergence(div, spike_trace, rvsim_trace, args):
-    if div.get("length_mismatch"):
+def print_divergence(
+    div: Divergence,
+    spike_trace: list[TraceEntry],
+    rvsim_trace: list[TraceEntry],
+    args: argparse.Namespace,
+) -> None:
+    if isinstance(div, LengthMismatch):
         print("=" * 72)
         print(
-            f"LENGTH MISMATCH at inst #{div['inst_num']:,} — "
-            f"rvsim retired more instructions ({div['rvsim_len']:,}) than spike ({div['spike_len']:,})"
+            f"LENGTH MISMATCH at inst #{div.inst_num:,} — "
+            f"rvsim retired more instructions ({div.rvsim_len:,}) than spike ({div.spike_len:,})"
         )
         print("=" * 72)
         return
-    inst_num, disasm = div["inst_num"], not args.no_disasm
+    inst_num, disasm = div.inst_num, not args.no_disasm
     print("=" * 72)
     print(f"DIVERGENCE at instruction #{inst_num:,}")
-    print(f"  spike: PC=0x{div['spike_pc']:016x}  inst=0x{div['spike_inst']:08x}")
-    print(f"  rvsim: PC=0x{div['rvsim_pc']:016x}  inst=0x{div['rvsim_inst']:08x}")
+    print(f"  spike: PC=0x{div.spike_pc:016x}  inst=0x{div.spike_inst:08x}")
+    print(f"  rvsim: PC=0x{div.rvsim_pc:016x}  inst=0x{div.rvsim_inst:08x}")
     print("=" * 72)
     print_side_by_side(spike_trace, rvsim_trace, inst_num, args.context, disasm)
     print_analysis(div, spike_trace)
@@ -323,7 +348,7 @@ def print_divergence(div, spike_trace, rvsim_trace, args):
     print_after("rvsim", rvsim_trace, inst_num, args.context, disasm)
 
 
-def main():
+def main() -> int:
     args = parse_args()
     if not spike_trace_ready(args):
         return 1

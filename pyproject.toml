@@ -53,6 +53,22 @@ allowed-confusables = ["›", "×"]
 "tools/**" = ["E402"]
 
 [tool.mypy]
-files = ["rvsim"]
+files = ["rvsim", "tools"]
 python_version = "3.11"
 strict = true
+# The gem5 comparison's scripts run as `python tools/gem5_compare/<script>.py`
+# and import the scripts beside them by bare name; the wheel smoke test
+# imports the Python tests' program builders the same way.
+mypy_path = ["tools/gem5_compare", "tests/python"]
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+# gem5's Python packages exist only inside gem5.opt, and carry no types.
+module = ["m5", "m5.*", "gem5", "gem5.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The gem5 side of the comparison builds its machine by subclassing gem5's
+# untyped classes.
+module = ["gem5_single"]
+disallow_subclassing_any = false

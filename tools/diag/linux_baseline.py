@@ -21,7 +21,7 @@ sys.path.insert(0, ROOT)
 from rvsim import Simulator, presets
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None)
     ap.add_argument("--compare", default=None)

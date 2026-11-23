@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from rvsim import Environment, presets
+from rvsim import Config, Simulator, presets
 from tools.diag.calibration import CALIBRATED
 
 SRC = Path(__file__).parent / "latency_probe" / "chase.c"
@@ -88,9 +88,12 @@ def build(footprint: int, steps: int) -> Path:
     return Path(f"{stem}.elf")
 
 
-def cycles(binary: Path, config) -> int:
-    result = Environment(binary=str(binary), config=config).run(quiet=True)
-    return int(result.stats.get("cycles"))
+def cycles(binary: Path, config: Config) -> int:
+    sim = Simulator(config, binary=str(binary))
+    exit_code = sim.run()
+    if exit_code != 0:
+        raise RuntimeError(f"{binary.name} exited with {exit_code}")
+    return sim.stats.cycles
 
 
 def main() -> int:

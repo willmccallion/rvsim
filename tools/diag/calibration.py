@@ -24,7 +24,7 @@ from rvsim import (
 )
 
 
-def cortex_a72():
+def cortex_a72() -> Config:
     """Cortex-A72: 3-wide O3, 48KB I$, 32KB D$ (8 MSHRs), 1MB L2.
 
     ARM Cortex-A72 machine config.
@@ -148,12 +148,7 @@ def cortex_a72():
     )
 
 
-def p550(
-    *,
-    branch_predictor=None,
-    ram_size_bytes="256MB",
-    pipeline_width=3,
-):
+def p550() -> Config:
     """SiFive Performance P550 — 3-wide, 13-stage, out-of-order.
 
     Microarchitecture notes (from Chips and Cheese reverse engineering):
@@ -183,22 +178,21 @@ def p550(
         - Published SPECInt2006: 8.65/GHz
         - Observed IPC: approaching 3.0 on favorable workloads
     """
-    if branch_predictor is None:
-        # P550 has a 9.1 KiB BHT — predictor type unconfirmed.
-        # Tournament sizing to match ~9 KB budget:
-        #   global predictor:  2^13 entries × 2b = 2 KB
-        #   choice (selector): 2^13 entries × 2b = 2 KB
-        #   local hist table:  2^11 entries × 11b ≈ 2.75 KB
-        #   local predictor:   2^11 entries × 2b  = 0.5 KB
-        #   total ≈ 7.25 KB (closest we can get within the budget)
-        branch_predictor = BranchPredictor.Tournament(
-            global_size_bits=13,
-            local_hist_bits=11,
-            local_pred_bits=11,
-        )
+    # P550 has a 9.1 KiB BHT — predictor type unconfirmed.
+    # Tournament sizing to match ~9 KB budget:
+    #   global predictor:  2^13 entries × 2b = 2 KB
+    #   choice (selector): 2^13 entries × 2b = 2 KB
+    #   local hist table:  2^11 entries × 11b ≈ 2.75 KB
+    #   local predictor:   2^11 entries × 2b  = 0.5 KB
+    #   total ≈ 7.25 KB (closest we can get within the budget)
+    branch_predictor = BranchPredictor.Tournament(
+        global_size_bits=13,
+        local_hist_bits=11,
+        local_pred_bits=11,
+    )
 
     return Config(
-        width=pipeline_width,
+        width=3,
         vlen=128,
         num_vec_lanes=None,
         # Calibrated to the ~11-cycle misprediction of the 13-stage pipeline.
@@ -235,7 +229,7 @@ def p550(
                 ]
             ),
         ),
-        branch_predictor=branch_predictor,  # type: ignore[arg-type]
+        branch_predictor=branch_predictor,
         btb_size=32,  # 32-entry BTB, zero-bubble taken branches
         btb_ways=4,
         ras_size=16,  # 16-entry return stack
@@ -245,7 +239,7 @@ def p550(
         l2_tlb_size=512,
         l2_tlb_ways=4,
         l2_tlb_latency=4,
-        ram_size=ram_size_bytes,
+        ram_size="256MB",
         # L1i: 32KB, 4-way, 64B lines (SiFive data sheet)
         l1i=Cache(
             size="32KB",
