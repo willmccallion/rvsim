@@ -10,11 +10,13 @@ and prints, per variant, each program's stats on both sides, then the
 largest cycle gaps across all variants.
 """
 
-import json
 import sys
 from pathlib import Path
 
-RESULTS_DIR = Path(__file__).parent / "results"
+sys.path.insert(0, str(Path(__file__).parent))
+
+import results
+from results import ProgramStats, Results
 
 # (stat, column header): shown as rvsim/gem5 and the relative difference.
 COLUMNS = [
@@ -26,14 +28,14 @@ COLUMNS = [
 ]
 
 
-def load(name: str) -> dict:
-    path = RESULTS_DIR / f"{name}.json"
-    if not path.exists():
-        sys.exit(f"error: {path} not found. Run run_{name}.py first.")
-    return json.loads(path.read_text())
+def load(simulator: str) -> Results:
+    saved = results.load(simulator)
+    if not saved:
+        sys.exit(f"error: no {simulator} results. Run run_{simulator}.py first.")
+    return saved
 
 
-def rel(a, b):
+def rel(a: float | None, b: float | None) -> float | None:
     if a is None or b is None:
         return None
     if b == 0:
@@ -41,25 +43,28 @@ def rel(a, b):
     return (a - b) / b * 100
 
 
-def fmt_rel(value) -> str:
+def fmt_rel(value: float | None) -> str:
     return "n/a" if value is None else f"{value:+.0f}%"
 
 
-def fmt_pair(a, b) -> str:
-    def num(v):
+def fmt_pair(a: float | None, b: float | None) -> str:
+    def num(v: float | None) -> str:
         return "-" if v is None else f"{v:,.0f}"
 
     return f"{num(a)}/{num(b)}"
 
 
-def print_variant(name: str, rv: dict, g5: dict) -> None:
+def print_variant(
+    name: str, rv: dict[str, ProgramStats], g5: dict[str, ProgramStats]
+) -> None:
     print(f"\n== {name} (rvsim/gem5) ==")
     header = f"{'program':<20} {'insts':>7} {'IPC':>11}"
     for _, title in COLUMNS:
         header += f" {title:>22}"
     print(header)
     for program in sorted(set(rv) | set(g5)):
-        r, g = rv.get(program, {}), g5.get(program, {})
+        r: ProgramStats = rv.get(program, {})
+        g: ProgramStats = g5.get(program, {})
         insts_match = "=" if r.get("insts") == g.get("insts") else "!="
         ipc = f"{r.get('ipc') or 0:.2f}/{g.get('ipc') or 0:.2f}"
         line = f"{program:<20} {insts_match:>7} {ipc:>11}"
@@ -69,11 +74,11 @@ def print_variant(name: str, rv: dict, g5: dict) -> None:
         print(line)
 
 
-def print_worst(rv_all: dict, g5_all: dict, count: int = 25) -> None:
+def print_worst(rv_all: Results, g5_all: Results, count: int = 25) -> None:
     gaps = []
     for variant, programs in rv_all.items():
         for program, r in programs.items():
-            g = g5_all.get(variant, {}).get(program, {})
+            g: ProgramStats = g5_all.get(variant, {}).get(program, {})
             gap = rel(r.get("cycles"), g.get("cycles"))
             if gap is not None:
                 gaps.append((abs(gap), gap, variant, program))
@@ -86,7 +91,7 @@ def print_worst(rv_all: dict, g5_all: dict, count: int = 25) -> None:
         print(f"\n  mean |cycle gap| over {len(gaps)} runs: {mean:.1f}%")
 
 
-def main():
+def main() -> None:
     rv_all = load("rvsim")
     g5_all = load("gem5")
     for variant in rv_all:

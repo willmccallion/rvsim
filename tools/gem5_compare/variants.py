@@ -7,7 +7,7 @@ thing: the branch predictor, the cache sizes, the L1D's MSHRs, or a
 prefetcher both simulators implement the same way.
 """
 
-import copy
+from typing import Literal, TypedDict
 
 CLOCK_MHZ = 1400
 
@@ -16,7 +16,77 @@ CLOCK_MHZ = 1400
 VLEN = 256
 VECTOR_UNITS = 3
 
-BASE = {
+
+class Tournament(TypedDict):
+    """gem5's TournamentBP and rvsim's Tournament, sized in bits."""
+
+    kind: Literal["tournament"]
+    global_bits: int
+    local_hist_bits: int
+    local_pred_bits: int
+
+
+class Tage(TypedDict):
+    """gem5's TAGE in rvsim's table shape."""
+
+    kind: Literal["tage"]
+    tables: int
+    log_table_size: int
+    tag_widths: list[int]
+    min_hist: int
+    max_hist: int
+    log_u_reset: int
+
+
+class TageScL(TypedDict):
+    """Each simulator's TAGE-SC-L at its own configuration."""
+
+    kind: Literal["tage_sc_l"]
+
+
+BranchPredictor = Tournament | Tage | TageScL
+
+
+class Cache(TypedDict):
+    """A cache's geometry and its hit and response latencies."""
+
+    size_kb: int
+    assoc: int
+    mshrs: int
+    tgts: int
+    latency: int
+    response: int
+
+
+class Bus(TypedDict):
+    width_bytes: int
+    latency: int
+
+
+class Memory(TypedDict):
+    latency: int
+    bandwidth_gib_s: float
+
+
+class StridePrefetch(TypedDict):
+    degree: int
+    table_size: int
+
+
+class Variant(TypedDict):
+    """One machine, as both simulators build it."""
+
+    bp: BranchPredictor
+    l1i: Cache
+    l1d: Cache
+    l2: Cache
+    bus: Bus
+    memory: Memory
+    l1d_prefetch_degree: int | None
+    l1d_stride_prefetch: StridePrefetch | None
+
+
+BASE: Variant = {
     "bp": {
         "kind": "tournament",
         "global_bits": 13,
@@ -66,7 +136,7 @@ BASE = {
 # over a 2048-entry bimodal sharing a hysteresis bit between four entries
 # (gem5's default), 3-bit counters, 2-bit useful bits, a useful
 # reset every 2^18 updates, and gem5's geometric history lengths.
-TAGE = {
+TAGE: Tage = {
     "kind": "tage",
     "tables": 8,
     "log_table_size": 11,
@@ -88,41 +158,37 @@ def tage_history_lengths(min_hist: int, max_hist: int, tables: int) -> list[int]
     return lengths
 
 
-def _with(**changes) -> dict:
-    variant = copy.deepcopy(BASE)
-    for key, value in changes.items():
-        if key != "bp" and isinstance(variant[key], dict):
-            variant[key].update(value)
-        else:
-            variant[key] = value
-    return variant
-
-
-VARIANTS = {
-    "base": copy.deepcopy(BASE),
-    "bp_tage": _with(bp=TAGE),
+VARIANTS: dict[str, Variant] = {
+    "base": BASE,
+    "bp_tage": {**BASE, "bp": TAGE},
     # Each simulator's TAGE-SC-L at its own configuration: rvsim's SC-L-TAGE
     # defaults against gem5's 64KB CBP-5 TAGE-SC-L.
-    "bp_tage_sc_l": _with(bp={"kind": "tage_sc_l"}),
-    "bp_small_tournament": _with(
-        bp={
+    "bp_tage_sc_l": {**BASE, "bp": {"kind": "tage_sc_l"}},
+    "bp_small_tournament": {
+        **BASE,
+        "bp": {
             "kind": "tournament",
             "global_bits": 10,
             "local_hist_bits": 8,
             "local_pred_bits": 8,
-        }
-    ),
-    "caches_small": _with(
-        l1i={"size_kb": 8, "assoc": 4},
-        l1d={"size_kb": 8, "assoc": 4},
-        l2={"size_kb": 64, "assoc": 8},
-    ),
-    "caches_large": _with(
-        l1i={"size_kb": 64},
-        l1d={"size_kb": 64},
-        l2={"size_kb": 1024},
-    ),
-    "l1d_one_mshr": _with(l1d={"mshrs": 1}),
-    "l1d_prefetch": _with(l1d_prefetch_degree=2),
-    "l1d_stride_prefetch": _with(l1d_stride_prefetch={"degree": 4, "table_size": 64}),
+        },
+    },
+    "caches_small": {
+        **BASE,
+        "l1i": {**BASE["l1i"], "size_kb": 8, "assoc": 4},
+        "l1d": {**BASE["l1d"], "size_kb": 8, "assoc": 4},
+        "l2": {**BASE["l2"], "size_kb": 64, "assoc": 8},
+    },
+    "caches_large": {
+        **BASE,
+        "l1i": {**BASE["l1i"], "size_kb": 64},
+        "l1d": {**BASE["l1d"], "size_kb": 64},
+        "l2": {**BASE["l2"], "size_kb": 1024},
+    },
+    "l1d_one_mshr": {**BASE, "l1d": {**BASE["l1d"], "mshrs": 1}},
+    "l1d_prefetch": {**BASE, "l1d_prefetch_degree": 2},
+    "l1d_stride_prefetch": {
+        **BASE,
+        "l1d_stride_prefetch": {"degree": 4, "table_size": 64},
+    },
 }

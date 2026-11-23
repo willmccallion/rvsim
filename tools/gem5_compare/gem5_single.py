@@ -10,6 +10,7 @@ exactly as run_rvsim.py builds rvsim's.
 
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -49,6 +50,7 @@ from m5.objects import (
 )
 from m5.params import NULL
 from variants import CLOCK_MHZ, VARIANTS, VECTOR_UNITS, VLEN
+from variants import BranchPredictor as BranchPredictorSpec
 
 # One core clock in ticks (picoseconds), as gem5 rounds the clock period.
 CYCLE_PS = int(1e6 / CLOCK_MHZ)
@@ -64,7 +66,7 @@ import m5
 m5.options.outdir = m5out
 
 
-def branch_predictor(bp: dict):
+def branch_predictor(bp: BranchPredictorSpec) -> Any:
     """The variant's predictor. Indirect targets come from the BTB and a
     taken prediction needs a BTB hit, as in rvsim's front end, where fetch
     knows a branch only through the BTB and decode redirects for the rest."""
@@ -89,9 +91,7 @@ def branch_predictor(bp: dict):
             ),
             **common,
         )
-    if bp["kind"] == "tage_sc_l":
-        return TAGE_SC_L_64KB(**common)
-    raise ValueError(f"unknown predictor {bp['kind']}")
+    return TAGE_SC_L_64KB(**common)
 
 
 class P550Core(BaseCPUCore):
@@ -131,11 +131,11 @@ class P550Core(BaseCPUCore):
 
 
 class P550Processor(BaseCPUProcessor):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(cores=[P550Core(core_id=0)])
 
 
-def no_prefetcher():
+def no_prefetcher() -> Any:
     return NULL
 
 
@@ -144,7 +144,7 @@ class VariantCacheHierarchy(PrivateL1PrivateL2CacheHierarchy):
     variant: its size, associativity, MSHRs and targets, and no prefetcher
     unless the variant asks for the L1D's."""
 
-    def incorporate_cache(self, board) -> None:
+    def incorporate_cache(self, board: Any) -> None:
         board.connect_system_port(self.membus.cpu_side_ports)
         for _, port in board.get_memory().get_mem_ports():
             self.membus.mem_side_ports = port
@@ -157,7 +157,7 @@ class VariantCacheHierarchy(PrivateL1PrivateL2CacheHierarchy):
         stride = variant["l1d_stride_prefetch"]
         if stride:
 
-            def l1d_prefetcher():
+            def l1d_prefetcher() -> Any:
                 return StridePrefetcher(
                     degree=stride["degree"],
                     table_entries=str(stride["table_size"]),
@@ -171,7 +171,7 @@ class VariantCacheHierarchy(PrivateL1PrivateL2CacheHierarchy):
 
         elif degree:
 
-            def l1d_prefetcher():
+            def l1d_prefetcher() -> Any:
                 return TaggedPrefetcher(degree=degree)
 
         else:
