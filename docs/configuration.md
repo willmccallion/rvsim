@@ -78,7 +78,7 @@ Backend.OutOfOrder(
     prf_gpr_size=224,             # Physical integer registers
     prf_fpr_size=192,             # Physical floating-point registers
     fu_config=Fu([...]),          # Functional unit pool (see below); Fu() by default
-    checkpoint_count=0,           # Rename-map checkpoints for branch recovery (0: walk the ROB)
+    checkpoint_count=32,          # Rename-map checkpoints for branch recovery (0: walk the ROB)
     squash_width=8,               # ROB entries a squash without a checkpoint walks per cycle
     prf_vpr_size=96,              # Physical vector registers
     vec_chaining=True,            # Let a dependent vector op start on the first element group

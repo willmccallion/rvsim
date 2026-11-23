@@ -149,7 +149,6 @@ fn default_pipeline() -> PipelineConfig {
         prf_fpr_size: 192,
         prf_vpr_size: 96,
         fu_config: default_pool(),
-        checkpoint_count: 0,
         vlen: VLEN,
         ..PipelineConfig::default()
     }

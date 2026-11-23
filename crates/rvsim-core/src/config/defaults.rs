@@ -221,8 +221,9 @@ pub const STORE_PORTS: usize = 1;
 /// builds it: one load reaches memory per cycle.
 pub const IN_ORDER_LOAD_PORTS: usize = 1;
 
-/// Default checkpoint count for O(1) branch recovery (32 slots).
-/// Real `OoO` processors (e.g. BOOM, ARM Cortex-A77) typically have 16-64 checkpoint slots.
+/// Rename-map checkpoints, one per branch in flight, from which a
+/// misprediction restores the map at once. BOOM v4 keeps 8 to 20
+/// (`maxBrCount`, from its small to its mega configuration).
 pub const CHECKPOINT_COUNT: usize = 32;
 
 /// Reorder-buffer entries a squash no checkpoint covers walks back per
