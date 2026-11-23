@@ -32,14 +32,22 @@ from rvsim import (
     BranchPredictor,
     Cache,
     Config,
-    Environment,
     Fu,
     MemoryController,
     Prefetcher,
+    Simulator,
+    Stats,
 )
 
 RESULTS_DIR = Path(__file__).parent / "results"
 PROGRAMS = ROOT / "tests/builds/compare-programs"
+
+# What gem5's SE loader leaves a process, which the programs' start-up
+# relies on: a stack (software/libc/user.ld's _stack_top) and the FPU and
+# vector unit switched on.
+STACK_TOP = 0x8100_0000
+SP = 2
+MSTATUS_FS_VS_INITIAL = 0x2200
 
 
 def branch_predictor(bp: dict):
@@ -195,9 +203,13 @@ def extract(stats: dict) -> dict:
 
 def run_one(job: tuple[str, Path]) -> tuple[str, str, dict]:
     variant_name, binary = job
-    config = config_for(VARIANTS[variant_name])
-    result = Environment(binary=str(binary), config=config).run(quiet=True)
-    return variant_name, binary.stem, extract(result.stats)
+    sim = Simulator(config_for(VARIANTS[variant_name]), binary=str(binary), mode="bare")
+    sim.regs[SP] = STACK_TOP
+    sim.csrs["mstatus"] |= MSTATUS_FS_VS_INITIAL
+    exit_code = sim.run()
+    if exit_code != 0:
+        raise RuntimeError(f"{binary.name} on {variant_name} exited with {exit_code}")
+    return variant_name, binary.stem, extract(Stats.from_core(sim.stats))
 
 
 def main():
