@@ -1,4 +1,5 @@
-//! Register writes through the Python views reach the running backend.
+//! Register and CSR writes through the Python views reach the running
+//! backend.
 
 use pyo3::prelude::*;
 use rvsim_core::Simulator;
@@ -7,11 +8,13 @@ use rvsim_core::config::{BackendKind, Config, Console, ValidConfig};
 use rvsim_core::system::simulator::ProbeWidth;
 
 use crate::simulator::PySimulator;
-use crate::views::Registers;
+use crate::views::{Csrs, Registers};
 
 const PROGRAM_BASE: u64 = 0x8000_0000;
 /// `addi a1, a0, 0`.
 const COPY_A0_TO_A1: u32 = 0x0005_0593;
+/// `csrr a1, mscratch`.
+const READ_MSCRATCH_INTO_A1: u32 = 0x3400_25F3;
 const JAL_SELF: u32 = 0x0000_006F;
 const A0: usize = 10;
 const A1: usize = 11;
@@ -64,4 +67,48 @@ fn a_register_written_from_python_is_read_by_the_next_instruction_inorder() {
     let copied = copied_after_python_write(BackendKind::InOrder);
 
     assert_eq!(copied, WRITTEN);
+}
+
+/// What `a1` holds after Python wrote `mscratch` through
+/// `csrs["mscratch"] = 42` and the program read it into `a1`.
+fn read_after_python_csr_write(backend: BackendKind) -> u64 {
+    Python::initialize();
+    Python::attach(|py| {
+        let mut config = Config::minimal();
+        config.pipeline.backend = backend;
+        config.system.console = Console::Quiet;
+        let mut inner = Simulator::build(
+            &ValidConfig::try_from(config).expect("the test config is valid"),
+            None,
+        )
+        .expect("the test machine builds");
+        for (n, word) in [READ_MSCRATCH_INTO_A1, JAL_SELF].into_iter().enumerate() {
+            inner.probe_mem_store(
+                PhysAddr::new(PROGRAM_BASE + 4 * n as u64),
+                u64::from(word),
+                ProbeWidth::B4,
+            );
+        }
+        inner.set_pc(0, VirtAddr::new(PROGRAM_BASE));
+        let sim = Py::new(py, PySimulator { inner }).expect("simulator object");
+        let csrs = Py::new(py, Csrs { sim: sim.clone_ref(py), hart: 0 }).expect("view");
+        csrs.bind(py).set_item("mscratch", WRITTEN).expect("csrs['mscratch'] = 42");
+
+        for _ in 0..CYCLES_TO_COPY {
+            sim.borrow_mut(py).inner.tick().expect("tick");
+        }
+
+        let regs = Py::new(py, Registers { sim: sim.clone_ref(py), hart: 0 }).expect("view");
+        regs.bind(py).get_item(A1).and_then(|v| v.extract::<u64>()).expect("regs[11]")
+    })
+}
+
+#[test]
+fn a_csr_written_from_python_is_read_by_the_next_instruction_inorder() {
+    assert_eq!(read_after_python_csr_write(BackendKind::InOrder), WRITTEN);
+}
+
+#[test]
+fn a_csr_written_from_python_is_read_by_the_next_instruction_o3() {
+    assert_eq!(read_after_python_csr_write(BackendKind::OutOfOrder), WRITTEN);
 }

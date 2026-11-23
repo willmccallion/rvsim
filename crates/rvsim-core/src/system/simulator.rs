@@ -344,7 +344,9 @@ impl Simulator {
     }
 
     /// Writes `addr` on `hart` with `value`, as the hart's own CSR write
-    /// would, and says whether the CSR exists and can be written.
+    /// would, and says whether the CSR exists and can be written. Everything
+    /// the hart's pipeline had in flight is dropped, so the next instruction
+    /// runs under the new value.
     ///
     /// # Panics
     ///
@@ -357,6 +359,7 @@ impl Simulator {
             return false;
         }
         ctx.csr_write(addr, value);
+        self.restart_from_architectural_state(hart);
         true
     }
 

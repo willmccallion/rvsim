@@ -82,7 +82,9 @@ impl Registers {
 
 /// Subscript CSR access returned by `sim.csrs` and `sim.harts[n].csrs`.
 ///
-/// ``sim.harts[0].csrs["mstatus"]`` or ``sim.harts[0].csrs[0x300]``.
+/// ``sim.harts[0].csrs["mstatus"]`` or ``sim.harts[0].csrs[0x300]``. Writing
+/// one drops what the pipeline has in flight, so the next instruction runs
+/// under the new value.
 #[pyclass(name = "Csrs", module = "rvsim._core")]
 #[derive(Debug)]
 pub struct Csrs {
@@ -99,6 +101,17 @@ impl Csrs {
         self.sim.borrow_mut(py).inner.read_csr(self.hart, addr).ok_or_else(|| {
             PyKeyError::new_err(format!("CSR {:#x} is not implemented", addr.as_u32()))
         })
+    }
+
+    fn __setitem__(&self, py: Python<'_>, key: &Bound<'_, PyAny>, value: u64) -> PyResult<()> {
+        let addr = csr_address(key)?;
+        if self.sim.borrow_mut(py).inner.write_csr(self.hart, addr, value) {
+            return Ok(());
+        }
+        Err(PyKeyError::new_err(format!(
+            "CSR {:#x} is not implemented or is read-only",
+            addr.as_u32()
+        )))
     }
 
     fn __repr__(&self) -> String {

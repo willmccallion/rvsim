@@ -41,6 +41,21 @@ class Csrs(unittest.TestCase):
         with self.assertRaisesRegex(KeyError, "12-bit"):
             sim.csrs[0x1300]
 
+    def test_a_hart_writes_a_csr_by_name_or_address(self):
+        sim = Simulator(Config(), elf_data=user_elf(EXIT_WITH_ARGC))
+
+        sim.csrs["mscratch"] = 0x1234
+        sim.csrs[csr.MEPC] = 0x8000_0000
+
+        self.assertEqual(sim.csrs[csr.MSCRATCH], 0x1234)
+        self.assertEqual(sim.csrs["mepc"], 0x8000_0000)
+
+    def test_writing_a_read_only_csr_is_refused(self):
+        sim = Simulator(Config(), elf_data=user_elf(EXIT_WITH_ARGC))
+
+        with self.assertRaisesRegex(KeyError, "read-only"):
+            sim.csrs["mhartid"] = 1
+
     def test_an_unknown_name_is_refused(self):
         sim = Simulator(Config(), elf_data=user_elf(EXIT_WITH_ARGC))
 
