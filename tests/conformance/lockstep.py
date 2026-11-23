@@ -130,8 +130,11 @@ def lockstep_one(args):
             driver = subprocess.Popen(
                 driver_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
             )
+            # An interactive program (chess, 2048) reads end-of-input and
+            # exits, wherever the run is started from.
             sim = subprocess.Popen(
                 [PYTHON, WORKER, elf_path, label, "--commit-log", fifo],
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=sim_err,
                 env=sim_env,
