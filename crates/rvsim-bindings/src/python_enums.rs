@@ -1,18 +1,18 @@
 //! The Python package's enums, whose members the extension returns.
 
 use pyo3::prelude::*;
-use pyo3::sync::GILOnceCell;
+use pyo3::sync::PyOnceLock;
 use pyo3::types::PyType;
 use rvsim_core::isa::privileged::PrivilegeMode;
 
-static STOP_REASON: GILOnceCell<Py<PyType>> = GILOnceCell::new();
-static DEBUG_END: GILOnceCell<Py<PyType>> = GILOnceCell::new();
-static PRIVILEGE: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+static STOP_REASON: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+static DEBUG_END: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+static PRIVILEGE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
 /// The member of the enum `module.name`, looked up once, whose value is
 /// `value`.
 fn member<'py>(
-    enum_type: &GILOnceCell<Py<PyType>>,
+    enum_type: &PyOnceLock<Py<PyType>>,
     py: Python<'py>,
     (module, name): (&str, &str),
     value: &str,

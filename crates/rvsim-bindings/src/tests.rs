@@ -22,8 +22,8 @@ const CYCLES_TO_COPY: usize = 200;
 /// What `a1` holds after Python wrote `a0` through `regs[10] = 42` and the
 /// program copied `a0` into `a1`.
 fn copied_after_python_write(backend: BackendKind) -> u64 {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
         let mut config = Config::minimal();
         config.pipeline.backend = backend;
         config.system.console = Console::Quiet;

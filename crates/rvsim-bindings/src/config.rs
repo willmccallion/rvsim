@@ -12,7 +12,7 @@ use crate::conversion::{config_from_py, config_to_py_dict};
 ///
 /// Fails only if the configuration cannot be written as JSON.
 #[pyfunction]
-pub fn default_config(py: Python<'_>) -> PyResult<PyObject> {
+pub fn default_config(py: Python<'_>) -> PyResult<Py<PyAny>> {
     config_to_py_dict(py, &Config::default())
 }
 
@@ -23,7 +23,7 @@ pub fn default_config(py: Python<'_>) -> PyResult<PyObject> {
 ///
 /// Fails only if the configuration cannot be written as JSON.
 #[pyfunction]
-pub fn minimal_config(py: Python<'_>) -> PyResult<PyObject> {
+pub fn minimal_config(py: Python<'_>) -> PyResult<Py<PyAny>> {
     config_to_py_dict(py, &Config::minimal())
 }
 
@@ -34,7 +34,7 @@ pub fn minimal_config(py: Python<'_>) -> PyResult<PyObject> {
 ///
 /// Fails only if a component cannot be written as JSON.
 #[pyfunction]
-pub fn component_defaults(py: Python<'_>) -> PyResult<PyObject> {
+pub fn component_defaults(py: Python<'_>) -> PyResult<Py<PyAny>> {
     config_to_py_dict(py, &ComponentDefaults::default())
 }
 
@@ -61,6 +61,6 @@ pub fn isa_string(py: Python<'_>, config_dict: &Bound<'_, PyAny>) -> PyResult<St
 /// A ``ValueError`` when the dict is not a configuration or describes a
 /// machine the core refuses to build.
 #[pyfunction]
-pub fn check_config(py: Python<'_>, config_dict: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+pub fn check_config(py: Python<'_>, config_dict: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     config_to_py_dict(py, &*config_from_py(py, config_dict)?)
 }
