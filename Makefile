@@ -36,7 +36,7 @@ endif
 .PHONY: compare-gem5
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
-.PHONY: lockstep lockstep-build lockstep-smoke
+.PHONY: lockstep lockstep-build lockstep-smoke lockstep-ci
 .PHONY: rtl-build rtl-compare embench-build se-programs se-verify
 .PHONY: test-all conformance-smoke clean-tests
 .PHONY: run-example run-linux
@@ -73,6 +73,7 @@ help:
 	@printf "    %-$(HELP_W)s  Build the spike lockstep driver (one-time)\n" "make lockstep-build"
 	@printf "    %-$(HELP_W)s  Check every program against spike in lockstep, all PIPELINES\n" "make lockstep"
 	@printf "    %-$(HELP_W)s  Lockstep against spike on the smoke configs\n" "make lockstep-smoke"
+	@printf "    %-$(HELP_W)s  Lockstep against spike on the default and in-order machines\n" "make lockstep-ci"
 	@printf "    %-$(HELP_W)s  Build the Rocket and BOOM Verilator simulators (one-time, ~1 h; nix develop .#rtl)\n" "make rtl-build"
 	@printf "    %-$(HELP_W)s  Compare retire timing with the RTL cores (RTL_CORE=rocket|boom)\n" "make rtl-compare"
 	@printf "    %-$(HELP_W)s  Build Embench-IoT as static Linux programs for SE mode\n" "make embench-build"
@@ -300,6 +301,11 @@ lockstep: lockstep-build riscv-tests-build software python
 
 lockstep-smoke: lockstep-build riscv-tests-build software python
 	$(PYTHON) tests/conformance/lockstep.py --smoke
+
+# Every smoke workload on the default machine and the simplest in-order one:
+# both backends, in the time CI has.
+lockstep-ci: lockstep-build riscv-tests-build software python
+	$(PYTHON) tests/conformance/lockstep.py --smoke --pipelines "default,inorder w1"
 
 # RTL comparison: Chipyard's Rocket and BOOM as Verilator simulators
 # (tools/rtl/build.sh, pinned in tests/conformance/sources.mk), run on the
