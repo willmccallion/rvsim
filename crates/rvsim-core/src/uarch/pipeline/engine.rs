@@ -905,6 +905,7 @@ mod tests {
         PendingSquash {
             keep_tag: Some(RobTag::new(keep)),
             redirect: Redirect::to(VirtAddr::new(target), cause),
+            resolved_at: 10,
             apply_at: 10,
         }
     }

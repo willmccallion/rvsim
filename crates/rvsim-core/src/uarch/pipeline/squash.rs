@@ -133,6 +133,9 @@ pub struct PendingSquash {
     pub keep_tag: Option<RobTag>,
     /// What to do once the squash is taken.
     pub redirect: Redirect,
+    /// The cycle its cause was found: a branch's result completing, or a
+    /// violation detected.
+    pub resolved_at: u64,
     /// The cycle the squash is taken.
     pub apply_at: u64,
 }
@@ -187,6 +190,7 @@ mod tests {
         PendingSquash {
             keep_tag: keep_tag.map(RobTag::new),
             redirect: Redirect::to(VirtAddr::new(0), SquashCause::System),
+            resolved_at: 0,
             apply_at: 0,
         }
     }
@@ -208,6 +212,7 @@ mod tests {
         PendingSquash {
             keep_tag: Some(RobTag::new(keep_tag)),
             redirect: Redirect::to(VirtAddr::new(0), cause),
+            resolved_at: 0,
             apply_at: 0,
         }
     }
