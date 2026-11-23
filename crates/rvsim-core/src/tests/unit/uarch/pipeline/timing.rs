@@ -6,7 +6,7 @@
 use crate::config::BackendKind;
 use crate::config::{BranchPredictorKind, Config, CsrSquash, MemDepPredictorKind};
 use crate::isa::reg::RegIdx;
-use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
+use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder, JAL_SELF};
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::regs::{X0, X1, X2, X3, X4, X5, X6, X7, X10, X11, X12, X13, after};
 
@@ -163,45 +163,150 @@ fn nothing_on_the_wrong_path_retires_while_the_redirect_is_pending() {
     }
 }
 
-/// Runs the mispredicted branch on a four-wide O3 core squashing
-/// `squash_width` ROB entries per cycle; returns the squashed entries,
-/// the cycles rename was held, and the cycles to reach the target.
-fn squash_recovery(squash_width: usize) -> (f64, f64, u64) {
-    let mut config = redirect_config(BackendKind::OutOfOrder, 4, 2);
-    config.pipeline.squash_width = squash_width;
+/// How an O3 core restores its rename map after a squash.
+#[derive(Clone, Copy)]
+struct Recovery {
+    redirect_latency: u64,
+    checkpoint_count: usize,
+    squash_width: usize,
+}
+
+impl Recovery {
+    /// A branch still in flight when its squash lands, without checkpoints.
+    const fn walking(squash_width: usize) -> Self {
+        Self { redirect_latency: 1, checkpoint_count: 0, squash_width }
+    }
+}
+
+/// What recovering from the mispredicted branch cost.
+struct RecoveryCost {
+    squashed: f64,
+    rename_stalls: f64,
+    cycles: u64,
+    penalty: u64,
+}
+
+/// Runs the mispredicted branch on a four-wide O3 core recovering as
+/// `recovery` says.
+fn recover_from_the_mispredict(recovery: Recovery) -> RecoveryCost {
+    let mut config = redirect_config(BackendKind::OutOfOrder, 4, recovery.redirect_latency);
+    config.pipeline.checkpoint_count = recovery.checkpoint_count;
+    config.pipeline.squash_width = recovery.squash_width;
     let mut tc = TestContext::with_fast_memory(&config)
         .with_memory(MEM_SIZE, BASE_ADDR)
         .load_program(BASE_ADDR, &mispredicted_branch());
     let cycles = tc
         .run_until(5_000, |tc| tc.get_reg(TARGET_REG) == TARGET_VALUE)
         .expect("branch target never reached");
-    let paths = &tc.sim.state.cores[0].units.stat_paths.pipeline;
+    let paths = &tc.sim.state.cores[0].units.stat_paths;
     let stats = &tc.sim.state.uncore.kernel.stats;
-    assert_eq!(stats.get(paths.flushes_total), Some(1.0), "one squash");
-    let squashed = stats.get(paths.flushes_squashed_insns).unwrap_or(0.0);
-    (squashed, stats.get(paths.stalls_squash).unwrap_or(0.0), cycles)
+    assert_eq!(stats.get(paths.pipeline.flushes_total), Some(1.0), "one squash");
+    let penalties = stats.histogram_at(paths.bp.mispredict_penalty).expect("the squash was timed");
+    assert_eq!(penalties.count(), 1, "one misprediction");
+    RecoveryCost {
+        squashed: stats.get(paths.pipeline.flushes_squashed_insns).unwrap_or(0.0),
+        rename_stalls: stats.get(paths.pipeline.stalls_squash).unwrap_or(0.0),
+        cycles,
+        penalty: penalties.max().expect("one sample"),
+    }
 }
 
-/// Commit squashes `squash_width` ROB entries per cycle, as gem5's
-/// `squashWidth`, and rename resumes the cycle after it finishes.
+/// Without a checkpoint the squash walks the ROB back `squash_width`
+/// entries per cycle, and rename takes the correct path once it is done.
 #[test]
-fn o3_rename_waits_the_squashed_entries_over_the_squash_width_plus_a_cycle() {
+fn o3_without_a_checkpoint_rename_waits_the_squashed_entries_over_the_squash_width() {
     for squash_width in [1, 3, 8] {
-        let (squashed, stalled, _) = squash_recovery(squash_width);
-        assert!(squashed > 1.0, "the wrong path reached the ROB");
+        let cost = recover_from_the_mispredict(Recovery::walking(squash_width));
+        assert!(cost.squashed > 1.0, "the wrong path reached the ROB");
         assert_eq!(
-            stalled,
-            (squashed / squash_width as f64).ceil() + 1.0,
-            "squash width {squash_width}: {squashed} entries"
+            cost.rename_stalls,
+            (cost.squashed / squash_width as f64).ceil(),
+            "squash width {squash_width}: {} entries",
+            cost.squashed
         );
     }
 }
 
 #[test]
 fn o3_a_wider_squash_recovers_sooner() {
-    let (_, _, one) = squash_recovery(1);
-    let (_, _, eight) = squash_recovery(8);
+    let one = recover_from_the_mispredict(Recovery::walking(1)).cycles;
+    let eight = recover_from_the_mispredict(Recovery::walking(8)).cycles;
     assert!(eight < one, "one per cycle: {one}, eight per cycle: {eight}");
+}
+
+#[test]
+fn o3_a_checkpointed_branch_restores_rename_without_a_stall() {
+    let walked = recover_from_the_mispredict(Recovery::walking(1));
+    let restored =
+        recover_from_the_mispredict(Recovery { checkpoint_count: 4, ..Recovery::walking(1) });
+
+    assert!(walked.rename_stalls > 0.0, "without a checkpoint the ROB is walked");
+    assert_eq!(restored.rename_stalls, 0.0);
+    assert!(restored.cycles < walked.cycles, "{} vs {}", restored.cycles, walked.cycles);
+}
+
+/// By the time a long redirect latency lands the branch has retired and
+/// everything left in the ROB is its wrong path: the committed map is the
+/// state to resume from.
+#[test]
+fn o3_a_squash_after_its_branch_retired_restores_the_committed_map_without_a_stall() {
+    let cost =
+        recover_from_the_mispredict(Recovery { redirect_latency: 5, ..Recovery::walking(1) });
+
+    assert!(cost.squashed > 0.0, "the wrong path reached the ROB");
+    assert_eq!(cost.rename_stalls, 0.0);
+}
+
+/// The squash lands `redirect_latency` cycles after the branch resolves and
+/// fetch starts from the target in that cycle; the target then reaches
+/// fetch2, decode, rename and, `rename_issue_latency` (2) cycles later,
+/// issue: five cycles of refill on the minimal machine.
+#[test]
+fn o3_mispredict_penalty_is_the_redirect_latency_and_the_refill() {
+    const REFILL: u64 = 5;
+    for redirect_latency in [1, 5] {
+        let recovery = Recovery { redirect_latency, checkpoint_count: 4, squash_width: 8 };
+
+        let cost = recover_from_the_mispredict(recovery);
+
+        assert_eq!(cost.penalty, redirect_latency + REFILL, "latency {redirect_latency}");
+    }
+}
+
+/// An illegal instruction at the head of a ROB holding the nops behind it.
+fn illegal_instruction_then_nops() -> Vec<u32> {
+    let mut program = vec![0];
+    program.extend(std::iter::repeat_n(InstructionBuilder::new().nop().build(), 12));
+    program
+}
+
+/// A trap flushes the whole ROB from commit and copies the committed map
+/// back at once, however narrow the squash.
+#[test]
+fn o3_a_trap_restores_the_committed_map_without_a_stall() {
+    const HANDLER: u64 = BASE_ADDR + 0x100;
+    let mut config = Config::minimal();
+    config.pipeline.backend = BackendKind::OutOfOrder;
+    config.pipeline.width = 4;
+    config.pipeline.squash_width = 1;
+    let handler =
+        [InstructionBuilder::new().addi(DONE_REG, X0, DONE_VALUE as i32).build(), JAL_SELF];
+    let mut tc = TestContext::with_fast_memory(&config)
+        .with_memory(MEM_SIZE, BASE_ADDR)
+        .load_program(HANDLER, &handler)
+        .load_program(BASE_ADDR, &illegal_instruction_then_nops());
+    tc.sim.state.harts[0].csrs.mtvec = HANDLER;
+
+    tc.run_until(5_000, |tc| tc.get_reg(DONE_REG) == DONE_VALUE).expect("the trap was never taken");
+
+    let paths = &tc.sim.state.cores[0].units.stat_paths.pipeline;
+    let stats = &tc.sim.state.uncore.kernel.stats;
+    assert_eq!(stats.get(paths.flushes_trap), Some(1.0));
+    assert!(
+        stats.get(paths.flushes_squashed_insns).unwrap_or(0.0) > 0.0,
+        "the nops were in the ROB"
+    );
+    assert_eq!(stats.get(paths.stalls_squash).unwrap_or(0.0), 0.0);
 }
 
 /// A store to one address, a load from another that the blind
@@ -449,7 +554,7 @@ fn a_program_without_redirects_has_no_control_stalls() {
 /// the target: the front-end refill, not the cycles the redirect pends.
 #[test]
 fn control_stalls_count_the_refill_after_the_redirect_is_taken() {
-    for (backend, refill) in [(BackendKind::InOrder, 3.0), (BackendKind::OutOfOrder, 4.0)] {
+    for (backend, refill) in [(BackendKind::InOrder, 3.0), (BackendKind::OutOfOrder, 3.0)] {
         let quick = mispredict_control_stalls(&redirect_config(backend, 4, 1));
         let slow = mispredict_control_stalls(&redirect_config(backend, 4, 5));
 
@@ -459,8 +564,9 @@ fn control_stalls_count_the_refill_after_the_redirect_is_taken() {
 
 #[test]
 fn o3_control_stalls_include_rename_waiting_out_the_rob_squash() {
-    let (_, held, _) = squash_recovery(1);
-    let mut config = redirect_config(BackendKind::OutOfOrder, 4, 2);
+    let held = recover_from_the_mispredict(Recovery::walking(1)).rename_stalls;
+    let mut config = redirect_config(BackendKind::OutOfOrder, 4, 1);
+    config.pipeline.checkpoint_count = 0;
     config.pipeline.squash_width = 1;
 
     let stalls = mispredict_control_stalls(&config);

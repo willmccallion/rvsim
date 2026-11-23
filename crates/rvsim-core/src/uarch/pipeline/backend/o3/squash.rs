@@ -1,7 +1,6 @@
 //! Squashes: flushing after a trap or re-execution at commit, taking a
 //! pending squash, and squashing a load that read memory too early.
 
-use crate::common::VirtAddr;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
     self, CommitEvent, CommitRegisters, CommitResources,
@@ -11,7 +10,7 @@ use crate::uarch::pipeline::engine::ExecutionEngine;
 use crate::uarch::pipeline::lsq::load_queue::OrderViolation;
 use crate::uarch::pipeline::rob::RobTag;
 use crate::uarch::pipeline::squash::SquashScope;
-use crate::uarch::pipeline::squash::{PendingSquash, Redirect, SquashCause};
+use crate::uarch::pipeline::squash::{FetchRedirect, PendingSquash, Redirect, SquashCause};
 use crate::uarch::pipeline::trace::Departure;
 
 use super::O3Engine;
@@ -24,8 +23,7 @@ pub(super) struct MispredictRecovery {
 }
 
 impl O3Engine {
-    /// Counts a cycle commit spends squashing the ROB, during which rename
-    /// is blocked.
+    /// Counts a cycle rename is blocked while a squash walks the ROB.
     pub(super) fn count_squash_stall(&mut self, state: &mut CoreCtx<'_>) {
         if self.squash_stall_remaining > 0 {
             self.squash_stall_remaining -= 1;
@@ -33,14 +31,11 @@ impl O3Engine {
         }
     }
 
-    /// Cycles rename waits after a squash is taken. Commit squashes the ROB
-    /// at `squash_width` entries per cycle (gem5's `ROB::doSquash`), at
-    /// least one cycle; dispatch holds while it sees commit squashing and
-    /// rename while it sees dispatch held, each a cycle late, so rename
-    /// resumes one cycle after the squash finishes. The rename map itself
-    /// is restored at once, as gem5 undoes its history buffer.
-    pub(super) fn squash_cycles(&self, squashed: usize) -> u64 {
-        squashed.div_ceil(self.squash_width.max(1)).max(1) as u64 + 1
+    /// Cycles rename waits while a squash no checkpoint covers walks the ROB
+    /// back from its tail, undoing `squash_width` squashed entries' mappings
+    /// per cycle, as a core without rename checkpoints recovers.
+    const fn rob_walk_cycles(&self, squashed: usize) -> u64 {
+        squashed.div_ceil(self.squash_width) as u64
     }
 
     /// Records the cycles from a mispredicted branch resolving to the first
@@ -65,7 +60,7 @@ impl O3Engine {
     pub(super) fn retire(
         &mut self,
         state: &mut CoreCtx<'_>,
-        redirect: &mut Option<VirtAddr>,
+        redirect: &mut Option<FetchRedirect>,
     ) -> bool {
         let commit_event = commit::commit_stage(
             state,
@@ -92,19 +87,15 @@ impl O3Engine {
         }
         match commit_event {
             Some(CommitEvent::Trap(trap, pc)) => {
-                let squashed = self.rob.len();
                 self.flush(state);
-                self.squash_stall_remaining = self.squash_cycles(squashed);
                 state.trap(&trap, pc);
-                *redirect = Some(state.hart.pc);
+                *redirect = Some(FetchRedirect::Commit(state.hart.pc));
                 true
             }
             Some(CommitEvent::ReExecute(pc, _) | CommitEvent::SquashAfter(pc)) => {
-                let squashed = self.rob.len();
                 self.flush(state);
-                self.squash_stall_remaining = self.squash_cycles(squashed);
                 state.hart.pc = pc;
-                *redirect = Some(pc);
+                *redirect = Some(FetchRedirect::Commit(pc));
                 true
             }
             None => false,
@@ -198,7 +189,7 @@ impl O3Engine {
         &mut self,
         state: &mut CoreCtx<'_>,
         squash: PendingSquash,
-        redirect: &mut Option<VirtAddr>,
+        redirect: &mut Option<FetchRedirect>,
     ) {
         self.serialization.squash(|tag| squash.squashes(tag));
         let keep_tag = squash.keep_tag.filter(|tag| self.rob.find_entry(*tag).is_some());
@@ -208,15 +199,20 @@ impl O3Engine {
         count_flush(state, squash.redirect.cause.into(), squashed);
         self.squash_in_flight(state, scope);
 
-        let checkpoint = keep_tag
-            .filter(|_| self.checkpoints.capacity() > 0)
-            .and_then(|tag| self.checkpoints.find_by_tag(tag).map(|ckpt| ckpt.rename_map.clone()));
-        if let Some(rename_map) = checkpoint {
+        // The committed map is the state after a kept instruction that has
+        // already retired; a kept branch's checkpoint is the state after it.
+        // Either is copied back at once.
+        let restored_map = match keep_tag {
+            None => Some(self.committed_rename_map.clone()),
+            Some(tag) => self.checkpoints.find_by_tag(tag).map(|ckpt| ckpt.rename_map.clone()),
+        };
+        if let Some(rename_map) = restored_map {
             self.rename_map = rename_map;
+            self.squash_stall_remaining = 0;
         } else {
             self.rebuild_rename_map();
+            self.squash_stall_remaining = self.rob_walk_cycles(squashed);
         }
-        self.squash_stall_remaining = self.squash_cycles(squashed);
         self.checkpoints.squash(scope);
         self.mispredict_recovery = match (squash.redirect.cause, squash.keep_tag) {
             (SquashCause::Branch, Some(branch)) => {
@@ -225,7 +221,7 @@ impl O3Engine {
             _ => None,
         };
 
-        *redirect = Some(squash.redirect.target);
+        *redirect = Some(FetchRedirect::Execute(squash.redirect.target));
         let now = state.uncore.kernel.cycle;
         self.common.squash_predictions(&mut state.core.branch_predictor, &squash, keep_seq, now);
         self.debug_assert_registers_conserved();

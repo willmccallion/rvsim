@@ -36,57 +36,58 @@ program. A positive error means rvsim is slower than gem5.
 
 | Program | gem5 cycles | rvsim cycles | Error | gem5 IPC | rvsim IPC | gem5 mispredicts | rvsim mispredicts |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `alu_int_div` | 40,381 | 40,393 | +0.0% | 0.99 | 0.99 | 17 | 15 |
-| `alu_int_mul` | 160,390 | 160,400 | +0.0% | 1.00 | 1.00 | 16 | 14 |
-| `bitmanip` | 671,327 | 684,619 | +2.0% | 1.71 | 1.68 | 54 | 51 |
-| `br_nested_loops` | 82,962 | 83,986 | +1.2% | 2.36 | 2.33 | 1,085 | 1,083 |
-| `br_pattern` | 420,859 | 420,867 | +0.0% | 2.39 | 2.39 | 39 | 37 |
-| `br_random` | 406,725 | 383,913 | -5.6% | 0.69 | 0.73 | 20,065 | 20,068 |
-| `call_return` | 289,665 | 288,893 | -0.3% | 2.35 | 2.36 | 1,784 | 1,779 |
-| `fp_add_chain` | 80,500 | 80,476 | -0.0% | 1.49 | 1.49 | 16 | 20 |
-| `fp_fma_parallel` | 100,533 | 100,549 | +0.0% | 1.19 | 1.19 | 17 | 15 |
-| `indirect_calls` | 660,619 | 615,690 | -6.8% | 0.82 | 0.88 | 30,014 | 30,007 |
-| `load_use` | 183,236 | 183,335 | +0.1% | 1.32 | 1.32 | 29 | 27 |
-| `matmul` | 165,013 | 173,272 | +5.0% | 1.47 | 1.40 | 779 | 726 |
-| `mem_conflict` | 265,697 | 244,319 | -8.0% | 1.34 | 1.46 | 4,048 | 4,046 |
-| `mem_dependent_miss` | 3,140,620 | 3,223,208 | +2.6% | 0.36 | 0.35 | 29 | 27 |
-| `mem_linear` | 2,455,316 | 2,206,641 | -10.1% | 0.40 | 0.45 | 31 | 28 |
-| `mem_pointer_chase` | 13,962,525 | 10,669,785 | -23.6% | 0.19 | 0.25 | 30 | 28 |
-| `mem_random_swap` | 7,537,725 | 3,027,732 | -59.8% | 0.16 | 0.39 | 27 | 26 |
-| `mem_stride` | 5,034,283 | 5,204,378 | +3.4% | 0.32 | 0.31 | 56 | 54 |
-| `mem_write_stream` | 3,711,413 | 3,834,152 | +3.3% | 0.39 | 0.38 | 29 | 27 |
-| `quicksort` | 1,188,168 | 1,191,175 | +0.3% | 0.94 | 0.94 | 63,971 | 63,956 |
-| `store_load_forward` | 150,402 | 120,417 | -19.9% | 1.60 | 1.99 | 23 | 22 |
-| `vec_axpy` | 152,103 | 160,124 | +5.3% | 0.67 | 0.64 | 55 | 55 |
-| `vec_gather` | 763,925 | 609,411 | -20.2% | 0.55 | 0.69 | 54 | 52 |
-| `vec_memcpy` | 620,871 | 637,382 | +2.7% | 1.03 | 1.00 | 50 | 51 |
-| `vec_reduce` | 120,724 | 136,707 | +13.2% | 0.67 | 0.59 | 44 | 51 |
-| `vec_strided` | 1,371,413 | 633,716 | -53.8% | 0.37 | 0.79 | 569 | 563 |
+| `alu_int_div` | 40,381 | 40,379 | -0.0% | 0.99 | 0.99 | 17 | 15 |
+| `alu_int_mul` | 160,390 | 160,392 | +0.0% | 1.00 | 1.00 | 16 | 15 |
+| `bitmanip` | 671,327 | 684,588 | +2.0% | 1.71 | 1.68 | 54 | 51 |
+| `br_nested_loops` | 82,962 | 82,903 | -0.1% | 2.36 | 2.36 | 1,085 | 1,083 |
+| `br_pattern` | 420,859 | 420,825 | -0.0% | 2.39 | 2.39 | 39 | 37 |
+| `br_random` | 406,725 | 361,072 | -11.2% | 0.69 | 0.78 | 20,065 | 20,068 |
+| `call_return` | 289,665 | 287,118 | -0.9% | 2.35 | 2.38 | 1,784 | 1,779 |
+| `fp_add_chain` | 80,500 | 80,473 | -0.0% | 1.49 | 1.49 | 16 | 22 |
+| `fp_fma_parallel` | 100,533 | 100,535 | +0.0% | 1.19 | 1.19 | 17 | 15 |
+| `indirect_calls` | 660,619 | 585,682 | -11.3% | 0.82 | 0.92 | 30,014 | 30,007 |
+| `load_use` | 183,236 | 183,333 | +0.1% | 1.32 | 1.32 | 29 | 27 |
+| `matmul` | 165,013 | 172,544 | +4.6% | 1.47 | 1.41 | 779 | 724 |
+| `mem_conflict` | 265,697 | 240,286 | -9.6% | 1.34 | 1.48 | 4,048 | 4,046 |
+| `mem_dependent_miss` | 3,140,620 | 3,223,196 | +2.6% | 0.36 | 0.35 | 29 | 27 |
+| `mem_linear` | 2,455,316 | 2,206,629 | -10.1% | 0.40 | 0.45 | 31 | 28 |
+| `mem_pointer_chase` | 13,962,525 | 10,669,794 | -23.6% | 0.19 | 0.25 | 30 | 28 |
+| `mem_random_swap` | 7,537,725 | 3,027,731 | -59.8% | 0.16 | 0.39 | 27 | 26 |
+| `mem_stride` | 5,034,283 | 5,204,396 | +3.4% | 0.32 | 0.31 | 56 | 54 |
+| `mem_write_stream` | 3,711,413 | 3,834,140 | +3.3% | 0.39 | 0.38 | 29 | 27 |
+| `quicksort` | 1,188,168 | 1,127,077 | -5.1% | 0.94 | 1.00 | 63,971 | 63,960 |
+| `store_load_forward` | 150,402 | 120,418 | -19.9% | 1.60 | 1.99 | 23 | 22 |
+| `vec_axpy` | 152,103 | 160,118 | +5.3% | 0.67 | 0.64 | 55 | 55 |
+| `vec_gather` | 763,925 | 609,407 | -20.2% | 0.55 | 0.69 | 54 | 52 |
+| `vec_memcpy` | 620,871 | 637,378 | +2.7% | 1.03 | 1.00 | 50 | 51 |
+| `vec_reduce` | 120,724 | 136,672 | +13.2% | 0.67 | 0.59 | 44 | 51 |
+| `vec_strided` | 1,371,413 | 633,454 | -53.8% | 0.37 | 0.79 | 569 | 563 |
 
 Across these 26 programs:
 
-- **Mean absolute error:** 9.5%.
-- **Median absolute error:** 3.3%.
+- **Mean absolute error:** 10.1%.
+- **Median absolute error:** 4.0%.
 
 ## Misprediction recovery
 
-gem5's `O3PipeView` trace and rvsim's `RUST_LOG=rvsim=trace` output were
-lined up on `br_random`, cycle by cycle, around each mispredicted branch.
-Relative to the cycle the branch's result completes, both simulators now
-fetch the correct path at +3, decode it at +4, rename it at +6 and issue
-it at +8: fetch spends the squash cycle squashing; commit squashes the ROB
-at `squash_width` (8) entries per cycle; dispatch holds while it sees
-commit squashing and rename while it sees dispatch held, each a cycle
-late. Before this was modelled rvsim renamed the correct path at +9 and
-issued it at +11, three cycles behind gem5 on every misprediction, which
-is where the 2-14% on the branch-heavy kernels came from.
+rvsim recovers from a misprediction at the branch unit, as real cores do:
+the redirect lands the cycle after the branch resolves, fetch starts from
+it in that cycle, and the rename map comes back at once from the branch's
+checkpoint. gem5's O3 recovers through commit: IEW hands the
+misprediction to commit and commit to fetch, a cycle each; fetch spends
+the cycle the redirect reaches it squashing; and commit squashes the ROB
+`squashWidth` (8) entries a cycle while rename waits, seeing it a cycle
+late.
 
-What is left on those kernels: rvsim retires a completed instruction one
-cycle after it completes, gem5 two (`iewToCommitDelay` and the commit
-cycle), so rvsim frees ROB entries a cycle earlier; and rvsim's wrong path
-puts a few more instructions into the ROB before the squash, so its
-squash takes a cycle longer at times. Together they leave `br_random`
-1.1 cycles per misprediction ahead of gem5.
+The comparison gives rvsim the parts of that on which real cores differ:
+gem5's two-cycle relay (`redirect_latency=2`) and no rename checkpoints,
+so a squash walks the ROB at `squash_width=8`. It does not copy the
+rest: fetch's idle cycle, rename's extra cycle, and the walk when the
+branch has already retired, where rvsim copies back the committed map.
+That leaves rvsim about a cycle per misprediction ahead of gem5:
+`quicksort`, `indirect_calls`, `call_return` and `mem_conflict` by
+1.00 cycles, `br_random` by 1.14. These are gem5's differences from
+hardware, kept in the numbers on purpose.
 
 ## Stores issue address and data separately
 
@@ -141,19 +142,22 @@ as above.
 
 ## Known causes
 
-- **Compute-bound and branch-bound kernels match.** The ALU and FP
-  chains, `load_use`, `br_pattern`, `call_return` and `quicksort` are
-  within 0.3%; `bitmanip` and `br_nested_loops` within 2%, and
-  `br_random` 5.6% fast.
+- **Compute-bound kernels match; mispredicting kernels recover faster.**
+  The ALU and FP chains and `load_use` are within 0.1%, and `bitmanip`
+  within 2%. `br_pattern`, `br_nested_loops` and `call_return`
+  mispredict little and stay within 1%; the kernels that mispredict often
+  run about a cycle per misprediction faster than gem5, as described
+  above: `br_random` (-11.2%), `quicksort` (-5.1%) and part of
+  `indirect_calls` (-11.3%).
 - **Split stores make three kernels faster than gem5.**
-  `store_load_forward` (-19.9%), `indirect_calls` (-6.8%) and most of
-  `mem_random_swap` (-59.8%), as described above; these are gem5's
+  `store_load_forward` (-19.9%), most of `mem_random_swap` (-59.8%) and
+  the rest of `indirect_calls`, as described above; these are gem5's
   differences from hardware.
 - **Streaming and pointer-chasing kernels run 10-24% fast; strided,
   write-stream and dependent-miss kernels 3% slow.** rvsim has no
   `L2XBar` between the L1s and the L2, so a miss that goes to memory is
   cheaper, while its L1D miss handling under conflicts differs
-  (`mem_conflict` 8% fast). `matmul`, which mixes both, is 5% slow and
+  (`mem_conflict` 10% fast). `matmul`, which mixes both, is 5% slow and
   not yet root-caused.
 - **Vector kernels differ both ways.** rvsim models lanes and moves a
   datapath width per cycle where gem5 splits an instruction into one

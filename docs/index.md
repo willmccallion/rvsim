@@ -32,7 +32,9 @@ difference between them is a difference in timing alone.
     rvsim simulates every cycle, but it is not cycle-accurate to any one
     machine yet. It models how real cores behave and measures itself two
     ways. Against gem5's O3 CPU on a set of single-behaviour kernels, the
-    compute- and branch-bound programs are within a few percent; programs
+    compute-bound programs are within a few percent, and those that
+    mispredict often run 5 to 11% faster, since rvsim recovers at the
+    branch unit as real cores do and gem5 through commit; programs
     bound by memory or vector code are still 10 to 60% apart, partly from
     gaps in rvsim's memory and vector models and partly from places where
     gem5 differs from hardware (see [Error against gem5](error.md)).

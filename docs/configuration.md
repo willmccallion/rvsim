@@ -51,7 +51,7 @@ the bundled Linux image. See [Benchmark Configs](examples/benchmark-configs.md).
 | `fetch_width`, `decode_width`, `rename_width`, `issue_width`, `commit_width` | `int` | `width` | Per-stage widths |
 | `writeback_width` | `int` | `width` | Results the out-of-order backend writes back per cycle; the rest wait for later cycles |
 | `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
-| `redirect_latency` | `int` | `2` (O3), `1` (in-order) | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect; commit retires nothing the pending squash will remove |
+| `redirect_latency` | `int` | `1` | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect; commit retires nothing the pending squash will remove |
 | `fetch_decode_latency` | `int` | `1` | Cycles from fetch2 writing a bundle to decode reading it: one stage boundary, two for a front end with a stage between its cache response and decode (BOOM's F3); at least 1 |
 | `decode_rename_latency` | `int` | `1` | Cycles from decode to rename; `0` runs both in one stage, as Rocket's ID decodes and reads the registers together |
 | `rename_issue_latency` | `int` | `2` | Cycles from rename writing a bundle to the backend issuing from it: gem5's two from rename to IEW, Rocket's one from ID to EX; at least 1 |
@@ -78,8 +78,8 @@ Backend.OutOfOrder(
     prf_gpr_size=224,             # Physical integer registers
     prf_fpr_size=192,             # Physical floating-point registers
     fu_config=Fu([...]),          # Functional unit pool (see below); Fu() by default
-    checkpoint_count=0,           # Rename-map checkpoints for branch recovery (0: rebuild from the ROB)
-    squash_width=8,               # ROB entries commit squashes per cycle after a squash
+    checkpoint_count=0,           # Rename-map checkpoints for branch recovery (0: walk the ROB)
+    squash_width=8,               # ROB entries a squash without a checkpoint walks per cycle
     prf_vpr_size=96,              # Physical vector registers
     vec_chaining=True,            # Let a dependent vector op start on the first element group
     vec_store_buffer_size=8,      # In-flight vector stores
@@ -91,11 +91,12 @@ Backend.OutOfOrder(
   pool of `prf_gpr_size + prf_fpr_size` with 64 holding the architectural
   registers, so rename stalls once the rest are destinations of
   instructions in flight; the default's 352 cover its 320-entry ROB.
-- **Squash recovery.** After a misprediction, trap or ordering violation,
-  commit squashes the flushed ROB entries `squash_width` per cycle and
-  rename waits until it has finished, one cycle more; the rename map
-  itself is restored at once, from a checkpoint when the squashing branch
-  has one.
+- **Squash recovery.** A mispredicted branch with a checkpoint restores the
+  rename map from it at once, and a squash whose branch has already retired,
+  or a trap, copies back the committed map at once. Any other squash (a
+  branch without a checkpoint, an ordering violation) walks the ROB back
+  `squash_width` entries per cycle, and rename waits until it has finished.
+  Rename stalls on a branch while every checkpoint is in use.
 - **Stores** issue in two halves when their data is not ready: the
   address as soon as the base register is, the data when the value is
   (see [Pipeline](architecture/pipeline.md)).

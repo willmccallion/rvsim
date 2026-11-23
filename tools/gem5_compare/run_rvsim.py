@@ -140,6 +140,9 @@ def config_for(variant: dict) -> Config:
         # gem5's LSQ gives a forwarded load one cycle: its writeback event
         # lands in the cycle after the load executes.
         store_forward_latency=1,
+        # gem5's O3 hands a misprediction from IEW to commit and from commit
+        # to fetch, a cycle each (`iewToCommitDelay`, `commitToFetchDelay`).
+        redirect_latency=2,
         backend=Backend.OutOfOrder(
             rob_size=72,
             issue_queue_size=32,
@@ -151,6 +154,10 @@ def config_for(variant: dict) -> Config:
             store_ports=1,
             prf_vpr_size=64,
             fu_config=functional_units(),
+            # gem5's O3 keeps no rename checkpoints: it undoes its history
+            # buffer `squashWidth` entries a cycle.
+            checkpoint_count=0,
+            squash_width=8,
         ),
         branch_predictor=branch_predictor(variant["bp"]),
         btb_size=4096,  # SimpleBTB: 4096 entries, direct-mapped

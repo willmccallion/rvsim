@@ -7,20 +7,22 @@ use crate::config::Console;
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
-use crate::tests::support::regs::{T0, T1, T2, T3, T4, X0};
+use crate::tests::support::regs::{T0, T1, T2, T3, T4, T5, X0};
 
 /// Loads that issue ahead of an older store to their address, whose
 /// address waits on a divide: each is a memory-order violation until the
-/// dependence predictor learns the pair. A branch on the same divide,
-/// taken but first predicted not taken, resolves with them, so some
-/// violations are found on its wrong path and squashed by its flush.
+/// dependence predictor learns the pair. A branch on a second divide that
+/// reads the first, taken but first predicted not taken, resolves after
+/// the store's address, so violations are found on its wrong path and
+/// squashed by its flush.
 fn violating_program() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program =
         vec![i().auipc(T0, 1).build(), i().addi(T3, X0, 1).build(), i().addi(T1, X0, 7).build()];
     for _ in 0..8 {
         program.push(i().div(T2, T0, T3).build());
-        program.push(i().beq(T2, T0, 8).build());
+        program.push(i().div(T5, T2, T3).build());
+        program.push(i().beq(T5, T0, 8).build());
         program.push(i().addi(X0, X0, 0).build());
         program.push(i().sw(T2, T1, 0).build());
         program.push(i().lw(T4, T0, 0).build());

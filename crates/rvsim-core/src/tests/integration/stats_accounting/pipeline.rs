@@ -312,8 +312,7 @@ fn a_mispredicted_loop_counts_control_and_squash_cycles(rec: &mut Recorder) {
         i().addi(T1, T1, -1).build(),
         i().bne(T1, X0, -4).build(),
     ];
-    for (backend, walks_the_rob) in [(BackendKind::InOrder, false), (BackendKind::OutOfOrder, true)]
-    {
+    for backend in BACKENDS {
         let context = format!("{backend:?}");
         let config = config(backend);
 
@@ -324,11 +323,9 @@ fn a_mispredicted_loop_counts_control_and_squash_cycles(rec: &mut Recorder) {
         assert_eq!(flushes, LOOPS as u64 - 1, "{context}");
         let control = rec.read(&ctx.sim, "core0.pipeline.stalls.control");
         assert!(control >= flushes, "{context}: {control} control stalls");
-        let squash = rec.read(&ctx.sim, "core0.pipeline.stalls.squash");
-        assert_eq!(squash >= flushes, walks_the_rob, "{context}: {squash} squash stalls");
-        if !walks_the_rob {
-            assert_eq!(squash, 0, "{context}");
-        }
+        // The out-of-order core checkpoints the branch, so rename restores
+        // at once; the in-order core has no rename to wait for.
+        rec.expect(&ctx.sim, "core0.pipeline.stalls.squash", 0, &context);
         rec.expect(&straight.sim, "core0.pipeline.stalls.control", 0, &context);
         rec.expect(&straight.sim, "core0.pipeline.stalls.squash", 0, &context);
         // The out-of-order core times each misprediction once its correct
