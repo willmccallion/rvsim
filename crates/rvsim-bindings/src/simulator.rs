@@ -33,8 +33,10 @@ enum LoadMode {
     BareMetal,
 }
 
-impl<'py> FromPyObject<'py> for LoadMode {
-    fn extract_bound(mode: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'a, 'py> FromPyObject<'a, 'py> for LoadMode {
+    type Error = PyErr;
+
+    fn extract(mode: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
         match mode.extract::<String>()?.as_str() {
             "se" => Ok(Self::Process),
             "bare" => Ok(Self::BareMetal),
@@ -613,9 +615,9 @@ impl PySimulator {
             clippy::redundant_closure_for_method_calls,
             reason = "the method path is not general enough over the GIL's lifetime"
         )]
-        let mut keep_going = || interrupt.keep_going(Python::with_gil(|py| py.check_signals()));
+        let mut keep_going = || interrupt.keep_going(Python::attach(|py| py.check_signals()));
         let inner = &mut self.inner;
-        let served = py.allow_threads(move || {
+        let served = py.detach(move || {
             let stream = loop {
                 match listener.accept() {
                     Ok((stream, _)) => break stream,

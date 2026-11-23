@@ -52,7 +52,7 @@ fn without_position(error: &serde_json::Error) -> String {
 /// # Errors
 ///
 /// Returns `ValueError` if the value cannot be written as JSON.
-pub fn config_to_py_dict<T: serde::Serialize>(py: Python<'_>, value: &T) -> PyResult<PyObject> {
+pub fn config_to_py_dict<T: serde::Serialize>(py: Python<'_>, value: &T) -> PyResult<Py<PyAny>> {
     let json_str = serde_json::to_string(value)
         .map_err(|e| ConfigError::new_err(format!("Unwritable config: {e}")))?;
     let json = py.import("json")?;
