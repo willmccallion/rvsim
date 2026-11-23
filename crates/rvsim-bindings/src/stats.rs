@@ -10,8 +10,8 @@
 
 use pyo3::prelude::*;
 use pyo3::types::{PyIterator, PyList};
-use rvsim_core::stats::QueryResult;
 use rvsim_core::stats::Stats;
+use rvsim_core::stats::{Histogram, QueryResult};
 use rvsim_core::system::StatsEpoch;
 use std::collections::BTreeMap;
 
@@ -118,6 +118,11 @@ impl PyStats {
         self.stats.get(path).ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(path.to_string()))
     }
 
+    /// The histogram at `path`; `None` when nothing has been recorded there.
+    fn histogram(&self, path: &str) -> Option<PyHistogram> {
+        self.stats.histogram_at(path).cloned().map(|inner| PyHistogram { inner })
+    }
+
     /// True if the path is registered (raw counter or derived stat).
     fn __contains__(&self, path: &str) -> bool {
         self.stats.get(path).is_some()
@@ -166,6 +171,46 @@ impl PyStats {
             self.instructions_retired,
             self.ipc()
         )
+    }
+}
+
+/// A histogram's samples: how many, their sum and mean, and their extremes,
+/// which a region between two snapshots does not know.
+#[pyclass(name = "Histogram", module = "rvsim._core", frozen)]
+#[derive(Clone, Debug)]
+pub struct PyHistogram {
+    inner: Histogram,
+}
+
+#[pymethods]
+impl PyHistogram {
+    #[getter]
+    const fn count(&self) -> u64 {
+        self.inner.count()
+    }
+
+    #[getter]
+    const fn sum(&self) -> u64 {
+        self.inner.sum()
+    }
+
+    #[getter]
+    fn mean(&self) -> f64 {
+        self.inner.mean()
+    }
+
+    #[getter]
+    fn min(&self) -> Option<u64> {
+        self.inner.min()
+    }
+
+    #[getter]
+    fn max(&self) -> Option<u64> {
+        self.inner.max()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Histogram(count={}, mean={:.2})", self.inner.count(), self.inner.mean())
     }
 }
 
