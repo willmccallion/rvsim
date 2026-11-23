@@ -25,7 +25,10 @@ ARCH_FLAGS = -march=rv64gcv -mabi=lp64d
 SE_CFLAGS = $(ARCH_FLAGS) -std=gnu17 -static -g -I$(INC_DIR)
 BARE_CFLAGS = $(ARCH_FLAGS) -mcmodel=medany -ffreestanding -nostdlib -g -I$(LIB_DIR) -I$(INC_DIR)
 # One RWX segment is the shape of these images; the linker need not say so.
-BARE_LDFLAGS = -T $(LIB_DIR)/user.ld -Wl,--no-warn-rwx-segments
+# The linker script is a prerequisite of every image it lays out, so a
+# layout change (tohost's page) rebuilds them.
+BARE_LDSCRIPT = $(LIB_DIR)/user.ld
+BARE_LDFLAGS = -T $(BARE_LDSCRIPT) -Wl,--no-warn-rwx-segments
 
 PROG_C_SRCS = $(wildcard $(PROG_DIR)/*.c)
 # The bare-metal libc has no threads, so these build for SE mode alone.
@@ -106,28 +109,28 @@ $(LIBC_DIR)/%.o: $(LIB_DIR)/%.s | dirs
 	@$(CC) $(BARE_CFLAGS) -c $< -o $@
 
 # --- Multi-core programs (every hart runs smp_main) ---
-$(BIN)/multicore/%.elf: $(BENCH_DIR)/multicore/%.c $(LIB_DIR)/smp.h $(CRT0_SMP) $(LIBC) | dirs
+$(BIN)/multicore/%.elf: $(BENCH_DIR)/multicore/%.c $(LIB_DIR)/smp.h $(CRT0_SMP) $(LIBC) $(BARE_LDSCRIPT) | dirs
 	@echo "  CC (Multicore) $<"
 	@$(CC) $(BARE_CFLAGS) -O3 $(BARE_LDFLAGS) $(CRT0_SMP) $(LIBC) $< -o $@
 
 # --- Bare-metal builds of the programs and benchmarks ---
-$(BARE_BIN)/programs/%.elf: $(PROG_DIR)/%.c $(CRT0) $(LIBC) | dirs
+$(BARE_BIN)/programs/%.elf: $(PROG_DIR)/%.c $(CRT0) $(LIBC) $(BARE_LDSCRIPT) | dirs
 	@echo "  CC (bare) $<"
 	@$(CC) $(BARE_CFLAGS) -O3 $(BARE_LDFLAGS) $(CRT0) $(LIBC) $< -o $@
 
-$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/microbenchmarks/%.c $(CRT0) $(LIBC) | dirs
+$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/microbenchmarks/%.c $(CRT0) $(LIBC) $(BARE_LDSCRIPT) | dirs
 	@echo "  CC (bare) $<"
 	@$(CC) $(BARE_CFLAGS) -O0 $(BARE_LDFLAGS) $(CRT0) $(LIBC) $< -o $@
 
-$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/synthetic/%.c $(CRT0) $(LIBC) | dirs
+$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/synthetic/%.c $(CRT0) $(LIBC) $(BARE_LDSCRIPT) | dirs
 	@echo "  CC (bare) $<"
 	@$(CC) $(BARE_CFLAGS) -O3 $(BARE_LDFLAGS) $(CRT0) $(LIBC) $< -o $@
 
-$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/kernels/%.c $(CRT0) $(LIBC) | dirs
+$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/kernels/%.c $(CRT0) $(LIBC) $(BARE_LDSCRIPT) | dirs
 	@echo "  CC (bare) $<"
 	@$(CC) $(BARE_CFLAGS) -O3 $(BARE_LDFLAGS) $(CRT0) $(LIBC) $< -o $@
 
-$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/complete_prog/%.c $(CRT0) $(LIBC) | dirs
+$(BARE_BIN)/benchmarks/%.elf: $(BENCH_DIR)/complete_prog/%.c $(CRT0) $(LIBC) $(BARE_LDSCRIPT) | dirs
 	@echo "  CC (bare) $<"
 	@$(CC) $(BARE_CFLAGS) -O3 $(BARE_LDFLAGS) $(CRT0) $(LIBC) $< -o $@
 
