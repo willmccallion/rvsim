@@ -15,6 +15,7 @@ __all__ = [
     "Csrs",
     "Hart",
     "Harts",
+    "Histogram",
     "Instruction",
     "KernelPanic",
     "LoadError",
@@ -93,6 +94,22 @@ class QueryResult:
     def paths(self) -> list[str]: ...
 
 @final
+class Histogram:
+    """A histogram's samples. A region between two snapshots knows their
+    count, sum and mean but not their extremes."""
+
+    @property
+    def count(self) -> int: ...
+    @property
+    def sum(self) -> int: ...
+    @property
+    def mean(self) -> float: ...
+    @property
+    def min(self) -> int | None: ...
+    @property
+    def max(self) -> int | None: ...
+
+@final
 class StatsTree:
     """The simulator's hierarchical statistics tree."""
 
@@ -106,6 +123,8 @@ class StatsTree:
     def cpi(self) -> float: ...
     def get(self, path: str, default: float | None = None) -> float | None: ...
     def __getitem__(self, path: str, /) -> float: ...
+    def histogram(self, path: str) -> Histogram | None:
+        """The histogram at ``path``; ``None`` when nothing was recorded there."""
     def __contains__(self, path: str, /) -> bool: ...
     def query(self, pattern: str) -> QueryResult: ...
     def summary(self, sections: list[str] | None = None) -> str: ...
