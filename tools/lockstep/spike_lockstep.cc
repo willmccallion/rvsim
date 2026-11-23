@@ -509,6 +509,16 @@ ssize_t observe_commit_log(void* cookie, const char* data, size_t size) {
   return static_cast<ssize_t>(size);
 }
 
+// The instruction at `hart`'s PC, or why there is none: a hart that has
+// diverged can be at an address with nothing to fetch.
+std::string disassembly_at(processor_t& hart) {
+  try {
+    return hart.get_disassembler()->disassemble(hart.get_mmu()->load_insn(hart.get_state()->pc).insn);
+  } catch (trap_t& trap) {
+    return std::string("no instruction: ") + trap.name();
+  }
+}
+
 class Lockstep {
  public:
   Lockstep(processor_t& hart, Platform& platform, CommitLog& log, CommitObserver& commits)
@@ -1050,9 +1060,7 @@ int main(int argc, char** argv) {
     std::cout << "DIVERGED after " << lockstep.instructions() << " instructions: " << divergence.what() << "\n";
     std::cout << "rvsim log, last lines read:\n";
     for (const auto& line : log.recent()) std::cout << "  " << line << "\n";
-    insn_t insn = hart.get_mmu()->load_insn(hart.get_state()->pc).insn;
-    std::cout << "spike at " << hex(hart.get_state()->pc) << ": "
-              << hart.get_disassembler()->disassemble(insn) << "\n";
+    std::cout << "spike at " << hex(hart.get_state()->pc) << ": " << disassembly_at(hart) << "\n";
     return 1;
   } catch (const std::exception& error) {
     std::cerr << "spike_lockstep: " << error.what() << "\n";
