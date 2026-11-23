@@ -65,3 +65,32 @@ fn fetch_issues_an_mret_target_the_cycle_after_it_retires_o3() {
 
     assert_eq!(refetched, retired + 1);
 }
+
+/// System flushes once the spin at MRET's target has run for a while,
+/// with execute-time redirects taken `redirect_latency` cycles after they
+/// resolve.
+fn system_flushes_through_mret(redirect_latency: u64) -> f64 {
+    let mut config = Config::minimal();
+    config.pipeline.backend = BackendKind::OutOfOrder;
+    config.pipeline.redirect_latency = Some(redirect_latency);
+    config.system.console = Console::Quiet;
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
+
+    ctx.run(200);
+
+    let paths = &ctx.sim.state.cores[0].units.stat_paths.pipeline;
+    ctx.sim.state.uncore.kernel.stats.get(paths.flushes_system).unwrap_or(0.0)
+}
+
+/// MRET takes effect at commit, which flushes behind it; executing it
+/// redirects nothing, however soon an execute-time redirect would land.
+#[test]
+fn o3_mret_flushes_only_when_it_commits() {
+    for redirect_latency in [1, 2, 5] {
+        assert_eq!(
+            system_flushes_through_mret(redirect_latency),
+            1.0,
+            "latency {redirect_latency}"
+        );
+    }
+}
