@@ -149,9 +149,12 @@ class Registers:
 
 @final
 class Csrs:
-    """A hart's CSRs, indexed by address or lower-case name."""
+    """A hart's CSRs, indexed by address or lower-case name. Writing one
+    drops what the pipeline has in flight, so the next instruction runs
+    under the new value."""
 
     def __getitem__(self, key: int | str, /) -> int: ...
+    def __setitem__(self, key: int | str, value: int, /) -> None: ...
 
 @final
 class Hart:
