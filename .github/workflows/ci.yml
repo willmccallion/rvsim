@@ -110,6 +110,8 @@ jobs:
         run: nix develop --command make python software riscv-tests-build vector-smoke-build
       - name: Conformance smoke
         run: nix develop --command make conformance-smoke
+      - name: Lockstep against spike
+        run: nix develop --command make lockstep-ci
       - name: SE mode against qemu-riscv64
         run: nix develop --command make se-verify EMBENCH=1 BUNDLED=1
       # The Python jobs skip every test that needs a guest program, which

@@ -176,7 +176,9 @@ def main():
     )
     ap.add_argument("--filter", default=None, help="Substring filter on workload name")
     ap.add_argument(
-        "--smoke", action="store_true", help="every workload on SMOKE_PIPELINES"
+        "--smoke",
+        action="store_true",
+        help="the smoke workloads, on SMOKE_PIPELINES unless --pipelines names others",
     )
     ap.add_argument("--cycle-limit", type=int, default=2_000_000)
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
@@ -189,9 +191,8 @@ def main():
     if not workloads:
         sys.exit("ERROR: no workloads found\nRun: make riscv-tests-build software")
 
-    pipelines = select_pipelines(
-        PIPELINES, args.pipelines, SMOKE_PIPELINES if args.smoke else None
-    )
+    smoke_pipelines = SMOKE_PIPELINES if args.smoke and not args.pipelines else None
+    pipelines = select_pipelines(PIPELINES, args.pipelines, smoke_pipelines)
     pipelines = [(label, c) for label, c in pipelines if c.hart_count == 1]
     work = [
         (name, path, label, args.cycle_limit)
