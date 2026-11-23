@@ -59,6 +59,10 @@ def cortex_a72():
         width=3,
         vlen=128,
         num_vec_lanes=None,
+        # Calibrated to the ~15-cycle misprediction. Arm does not publish
+        # where the stages sit; they go after decode, so a redirect decode
+        # makes (a BTB miss) does not pay them.
+        rename_issue_latency=10,
         branch_predictor=BranchPredictor.Tage(
             num_banks=4,
             table_size=2048,
@@ -197,6 +201,10 @@ def p550(
         width=pipeline_width,
         vlen=128,
         num_vec_lanes=None,
+        # Calibrated to the ~11-cycle misprediction of the 13-stage pipeline.
+        # SiFive does not publish where the stages sit; they go after decode,
+        # so a redirect decode makes (a BTB miss) does not pay them.
+        rename_issue_latency=6,
         backend=Backend.OutOfOrder(
             rob_size=72,  # Modest, Core 2 / Goldmont Plus class
             issue_queue_size=32,  # "more scheduling capacity" than A75
