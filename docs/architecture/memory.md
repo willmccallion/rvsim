@@ -370,7 +370,7 @@ enabled cache level) and the system bus.
 
 **Simple controller** — every access takes `latency` cycles
 (120 by default) once the controller is free: each request busies it for the time its bytes take
-at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
+at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait. A writeback or a streamed line is acknowledged when the controller takes it in.
 
 **DRAM controller** — models row-buffer aware timing over 8 banks of
 2 KiB rows:
@@ -380,6 +380,7 @@ at `bandwidth_gib_s` (gem5's `SimpleMemory`), and later requests wait.
 - **Row conflict**: `t_pre + t_ras + t_cas` (precharge the open row, activate, access)
 - **Bank interleaving**: consecutive rows map to different banks, and accesses to different banks overlap; two activates are at least 4 cycles apart (tRRD)
 - **Refresh**: every 7,800 cycles all banks close their rows and are busy for 350 cycles
+- **Posted writes**: a writeback or a streamed line is acknowledged when its bank takes it in, not when the access finishes, so a run of them waits on the banks as reads do
 
 ### DDR5 Controller
 
