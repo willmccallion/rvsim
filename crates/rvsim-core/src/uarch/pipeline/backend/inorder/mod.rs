@@ -530,6 +530,10 @@ impl ExecutionEngine for InOrderEngine {
         &self.rob
     }
 
+    fn rob_mut(&mut self) -> &mut Rob {
+        &mut self.rob
+    }
+
     fn store_buffer(&self) -> &StoreBuffer {
         &self.store_buffer
     }

@@ -58,9 +58,6 @@ pub struct OutstandingLoad {
     pub vaddr: VirtAddr,
     /// The D-bit updates the access applies when it retires (an AMO's).
     pub dirty_updates: DirtyUpdates,
-    /// The access reads a device, so it was issued non-speculatively from
-    /// the ROB head and must complete before anything pre-empts it.
-    pub side_effecting: bool,
     /// What the access's cache requests have read so far.
     pub parts: LoadParts,
 }
