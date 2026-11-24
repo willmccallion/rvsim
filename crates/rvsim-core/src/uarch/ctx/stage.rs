@@ -145,7 +145,26 @@ impl<'a> StageCtx<'a> {
         access: AccessType,
         size: u64,
     ) -> TranslateOutcome {
-        memory::translate(self.core, self.hart, self.uncore, vaddr, access, size)
+        let outcome = memory::translate(self.core, self.hart, self.uncore, vaddr, access, size);
+        self.publish_tlb_counts();
+        outcome
+    }
+
+    /// Adds the lookups and walks the MMU counted to the stats.
+    fn publish_tlb_counts(&mut self) {
+        let counts = self.core.mmu.take_counts();
+        let paths = self.core.stat_paths.mmu;
+        for (stat, value) in [
+            (paths.itlb_hits, counts.itlb.hits),
+            (paths.itlb_misses, counts.itlb.misses),
+            (paths.dtlb_hits, counts.dtlb.hits),
+            (paths.dtlb_misses, counts.dtlb.misses),
+            (paths.l2_tlb_hits, counts.l2_tlb.hits),
+            (paths.l2_tlb_misses, counts.l2_tlb.misses),
+            (paths.walks, counts.walks),
+        ] {
+            self.uncore.kernel.stats.counter(stat).add(value);
+        }
     }
 
     /// Trains the load prefetcher on a load by `pc` to `vaddr`, which went

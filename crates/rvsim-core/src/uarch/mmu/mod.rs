@@ -79,6 +79,36 @@ pub struct Mmu {
     /// this is coerced to Bare on write, letting tests pin a mode without
     /// rebuilding the kernel (e.g. force a Sv57-aware Linux onto Sv39).
     pub paging_mode_max: PagingMode,
+    /// Lookups and walks since the stats last took them.
+    counts: TlbCounts,
+}
+
+/// How often one TLB level held the page it was asked for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HitsAndMisses {
+    pub hits: u64,
+    pub misses: u64,
+}
+
+impl HitsAndMisses {
+    const fn record(&mut self, hit: bool) {
+        if hit {
+            self.hits += 1;
+        } else {
+            self.misses += 1;
+        }
+    }
+}
+
+/// The translations the MMU served, level by level.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TlbCounts {
+    pub itlb: HitsAndMisses,
+    pub dtlb: HitsAndMisses,
+    /// Lookups that missed an L1 TLB; none when there is no L2 TLB.
+    pub l2_tlb: HitsAndMisses,
+    /// Page-table walks started: every TLB level missed.
+    pub walks: u64,
 }
 
 /// An access looking up its page in a TLB.
@@ -137,7 +167,14 @@ impl Mmu {
             l2_tlb: Tlb::new(l2),
             l2_tlb_latency: l2_latency,
             paging_mode_max,
+            counts: TlbCounts::default(),
         }
+    }
+
+    /// The lookups and walks counted since the last call, which starts a
+    /// new count.
+    pub fn take_counts(&mut self) -> TlbCounts {
+        std::mem::take(&mut self.counts)
     }
 
     /// Attempts to translate `vaddr`.
@@ -181,11 +218,12 @@ impl Mmu {
         let vpn = vaddr.page_number();
         let asid = satp.asid();
 
-        let l1_hit = if access == AccessType::Fetch {
-            self.itlb.lookup(vpn, asid)
+        let (l1_hit, l1_count) = if access == AccessType::Fetch {
+            (self.itlb.lookup(vpn, asid), &mut self.counts.itlb)
         } else {
-            self.dtlb.lookup(vpn, asid)
+            (self.dtlb.lookup(vpn, asid), &mut self.counts.dtlb)
         };
+        l1_count.record(l1_hit.is_some());
         let lookup = HitLookup { vaddr, access, privilege, mstatus: csrs.mstatus };
         match l1_hit.and_then(|hit| lookup.outcome(&hit)) {
             Some(Ok(paddr)) => {
@@ -196,7 +234,11 @@ impl Mmu {
         }
 
         let l2_latency = self.l2_tlb_latency;
-        if let Some(hit) = self.l2_tlb.lookup(vpn, asid) {
+        let l2_hit = self.l2_tlb.lookup(vpn, asid);
+        if self.l2_tlb.exists() {
+            self.counts.l2_tlb.record(l2_hit.is_some());
+        }
+        if let Some(hit) = l2_hit {
             match lookup.outcome(&hit) {
                 Some(Ok(paddr)) => {
                     if access == AccessType::Fetch {
@@ -216,7 +258,10 @@ impl Mmu {
         let request = WalkRequest { access, privilege, mode: paging };
         match ptw::start_walk(request, vaddr, csrs, pmp) {
             WalkStep::Done(result) => TranslateOutcome::Ready(result),
-            WalkStep::NeedPte { pte_addr, state } => TranslateOutcome::NeedPte { pte_addr, state },
+            WalkStep::NeedPte { pte_addr, state } => {
+                self.counts.walks += 1;
+                TranslateOutcome::NeedPte { pte_addr, state }
+            }
         }
     }
 

@@ -17,7 +17,7 @@ use crate::sim::memory::GlobalMemory;
 use crate::soc::uncore::Uncore;
 use crate::tests::support::harness::TestContext;
 use crate::uarch::mmu::tlb::TlbGeometry;
-use crate::uarch::mmu::{Mmu, TranslateOutcome};
+use crate::uarch::mmu::{HitsAndMisses, Mmu, TlbCounts, TranslateOutcome};
 
 /// Synchronously drives the MMU's async walker to completion. Reads each
 /// PTE from the memory image and feeds it back through
@@ -99,6 +99,17 @@ fn write_pte(memory: &mut GlobalMemory, base_ppn: u64, vpn_index: u64, pte: u64)
     memory.load(addr, &pte.to_le_bytes());
 }
 
+/// Maps the 4 KiB page holding `vaddr` to `target_ppn` with R, W, X, A and
+/// D set, using the page tables at `ROOT_PPN + 1` and `ROOT_PPN + 2`.
+fn map_4k_page(memory: &mut GlobalMemory, vaddr: u64, target_ppn: u64) {
+    let l1_table_ppn = ROOT_PPN + 1;
+    let l0_table_ppn = ROOT_PPN + 2;
+    let index = |level: u32| (vaddr >> (12 + 9 * level)) & 0x1FF;
+    write_pte(memory, ROOT_PPN, index(2), make_pte(l1_table_ppn, 0));
+    write_pte(memory, l1_table_ppn, index(1), make_pte(l0_table_ppn, 0));
+    write_pte(memory, l0_table_ppn, index(0), make_pte(target_ppn, R | W | X | A | D));
+}
+
 #[test]
 fn bare_mode_bypass() {
     let (mut mmu, mut csrs, tc) = setup_mmu();
@@ -143,25 +154,8 @@ fn sv39_4kb_page_walk() {
     let uncore = &mut tc.state_mut().uncore;
 
     let vaddr = VirtAddr::new(0x4000_1234);
-    let l2_idx = (0x4000_1234 >> 30) & 0x1FF; // 1
-    let l1_idx = (0x4000_1234 >> 21) & 0x1FF; // 0
-    let l0_idx = (0x4000_1234 >> 12) & 0x1FF; // 1
-
-    let l1_table_ppn = ROOT_PPN + 1;
-    let l0_table_ppn = ROOT_PPN + 2;
     let target_ppn = ROOT_PPN + 10;
-
-    // L2 -> points to L1 table
-    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, make_pte(l1_table_ppn, 0)); // Valid, no perms = pointer
-    // L1 -> points to L0 table
-    write_pte(&mut uncore.kernel.memory, l1_table_ppn, l1_idx, make_pte(l0_table_ppn, 0));
-    // L0 -> leaf (R/W/X)
-    write_pte(
-        &mut uncore.kernel.memory,
-        l0_table_ppn,
-        l0_idx,
-        make_pte(target_ppn, R | W | X | A | D),
-    );
+    map_4k_page(&mut uncore.kernel.memory, vaddr.val(), target_ppn);
 
     let res =
         translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
@@ -908,4 +902,107 @@ fn a_write_that_faults_on_a_clean_page_leaves_its_tlb_entry_in_place() {
 
     assert!(matches!(write.trap, Some(Trap::StorePageFault(_))), "Trap: {:?}", write.trap);
     assert!(mmu.dtlb.peek(vaddr.page_number(), Asid::new(0)).is_some());
+}
+
+/// Pages in the same L0 table, far enough apart to be distinct pages.
+const PAGES: [u64; 5] = [0x4000_0000, 0x4000_1000, 0x4000_2000, 0x4000_3000, 0x4000_4000];
+
+/// An MMU with a 4-entry L1 TLB and an `l2_entries`-entry L2 TLB, over
+/// `PAGES` mapped, and the CSRs to translate them.
+fn mmu_over_pages(l2_entries: usize) -> (Mmu, Csrs, TestContext) {
+    let (_, csrs, mut tc) = setup_mmu();
+    let mmu = Mmu::new(
+        TlbGeometry { entries: 4, ways: 0 },
+        TlbGeometry { entries: l2_entries, ways: 0 },
+        4,
+        PagingMode::Sv57,
+    );
+    for (i, page) in PAGES.into_iter().enumerate() {
+        map_4k_page(&mut tc.state_mut().uncore.kernel.memory, page, ROOT_PPN + 10 + i as u64);
+    }
+    (mmu, csrs, tc)
+}
+
+/// Translates each of `pages` in turn for `access`.
+fn translate_each(mmu: &mut Mmu, csrs: &Csrs, tc: &TestContext, access: AccessType, pages: &[u64]) {
+    for &page in pages {
+        let res = translate_sync(
+            mmu,
+            VirtAddr::new(page),
+            access,
+            PrivilegeMode::Supervisor,
+            csrs,
+            &tc.state().uncore,
+        );
+        assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
+    }
+}
+
+#[test]
+fn a_first_load_to_a_page_misses_every_tlb_and_walks() {
+    let (mut mmu, csrs, tc) = mmu_over_pages(8);
+
+    translate_each(&mut mmu, &csrs, &tc, AccessType::Read, &PAGES[..1]);
+
+    let expected = TlbCounts {
+        dtlb: HitsAndMisses { hits: 0, misses: 1 },
+        l2_tlb: HitsAndMisses { hits: 0, misses: 1 },
+        walks: 1,
+        ..TlbCounts::default()
+    };
+    assert_eq!(mmu.take_counts(), expected);
+}
+
+#[test]
+fn a_second_load_to_a_page_hits_the_data_tlb() {
+    let (mut mmu, csrs, tc) = mmu_over_pages(8);
+    translate_each(&mut mmu, &csrs, &tc, AccessType::Read, &PAGES[..1]);
+    let _ = mmu.take_counts();
+
+    translate_each(&mut mmu, &csrs, &tc, AccessType::Read, &PAGES[..1]);
+
+    let expected = TlbCounts { dtlb: HitsAndMisses { hits: 1, misses: 0 }, ..TlbCounts::default() };
+    assert_eq!(mmu.take_counts(), expected);
+}
+
+#[test]
+fn a_page_the_data_tlb_evicted_hits_the_l2_tlb() {
+    let (mut mmu, csrs, tc) = mmu_over_pages(8);
+    translate_each(&mut mmu, &csrs, &tc, AccessType::Read, &PAGES);
+    let _ = mmu.take_counts();
+
+    translate_each(&mut mmu, &csrs, &tc, AccessType::Read, &PAGES[..1]);
+
+    let expected = TlbCounts {
+        dtlb: HitsAndMisses { hits: 0, misses: 1 },
+        l2_tlb: HitsAndMisses { hits: 1, misses: 0 },
+        ..TlbCounts::default()
+    };
+    assert_eq!(mmu.take_counts(), expected);
+}
+
+#[test]
+fn a_fetch_counts_in_the_instruction_tlb() {
+    let (mut mmu, csrs, tc) = mmu_over_pages(8);
+
+    translate_each(&mut mmu, &csrs, &tc, AccessType::Fetch, &PAGES[..1]);
+
+    let expected = TlbCounts {
+        itlb: HitsAndMisses { hits: 0, misses: 1 },
+        l2_tlb: HitsAndMisses { hits: 0, misses: 1 },
+        walks: 1,
+        ..TlbCounts::default()
+    };
+    assert_eq!(mmu.take_counts(), expected);
+}
+
+#[test]
+fn a_machine_without_an_l2_tlb_counts_no_l2_lookups() {
+    let (mut mmu, csrs, tc) = mmu_over_pages(0);
+
+    translate_each(&mut mmu, &csrs, &tc, AccessType::Read, &PAGES[..1]);
+
+    let expected =
+        TlbCounts { dtlb: HitsAndMisses { hits: 0, misses: 1 }, walks: 1, ..TlbCounts::default() };
+    assert_eq!(mmu.take_counts(), expected);
 }

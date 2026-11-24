@@ -209,6 +209,26 @@ stat_paths! {
 }
 
 stat_paths! {
+    /// Address translation: TLB lookups by level and page-table walks.
+    MmuPaths {
+        /// Fetches whose page the instruction TLB held.
+        itlb_hits: "mmu.itlb.hits" => Events,
+        /// Fetches whose page the instruction TLB did not hold.
+        itlb_misses: "mmu.itlb.misses" => Events,
+        /// Loads and stores whose page the data TLB held.
+        dtlb_hits: "mmu.dtlb.hits" => Events,
+        /// Loads and stores whose page the data TLB did not hold.
+        dtlb_misses: "mmu.dtlb.misses" => Events,
+        /// L1 TLB misses the L2 TLB answered.
+        l2_tlb_hits: "mmu.l2_tlb.hits" => Events,
+        /// L1 TLB misses the L2 TLB did not hold either.
+        l2_tlb_misses: "mmu.l2_tlb.misses" => Events,
+        /// Page-table walks started.
+        walks: "mmu.walks" => Events,
+    }
+}
+
+stat_paths! {
     /// Memory-dependence predictor counters.
     MdpPaths {
         /// Loads predicted to bypass all older stores.
@@ -319,6 +339,8 @@ pub struct CorePaths {
     pub bp: BpPaths,
     /// `core<N>.mdp.*`
     pub mdp: MdpPaths,
+    /// `core<N>.mmu.*`
+    pub mmu: MmuPaths,
     /// `core<N>.lsq.*`
     pub lsq: LsqPaths,
     /// `core<N>.wcb.*`
@@ -343,6 +365,7 @@ impl CorePaths {
             pipeline: PipelinePaths::under(&subject),
             bp: BpPaths::under(&subject),
             mdp: MdpPaths::under(&subject),
+            mmu: MmuPaths::under(&subject),
             lsq: LsqPaths::under(&subject),
             wcb: WcbPaths::under(&subject),
             load_prefetch: LoadPrefetchPaths::under(&subject),

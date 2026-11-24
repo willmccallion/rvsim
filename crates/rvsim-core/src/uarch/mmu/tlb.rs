@@ -266,6 +266,13 @@ impl Tlb {
         found.map(|(_, index)| index)
     }
 
+    /// Whether this level has any entries, rather than standing for a
+    /// level the machine does not have.
+    #[must_use]
+    pub const fn exists(&self) -> bool {
+        !self.slots.is_empty()
+    }
+
     /// Looks up base page `vpn` in address space `asid`, marking the entry
     /// most recently used.
     pub fn lookup(&mut self, vpn: Vpn, asid: Asid) -> Option<TlbHit> {
