@@ -18,9 +18,15 @@ use crate::sim::stats::Stats;
 use crate::soc::memory::controller::{Bandwidth, DramConfig, DramController, SimpleController};
 use std::num::NonZeroU64;
 
-/// Issues a `MemReq::Read` at `paddr` at `cycle` and returns the latency the
-/// controller computed (`fire_at` − cycle of the scheduled `MemResp`).
-fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
+/// Sends `op` for `size` bytes at `paddr` at `cycle` and returns how long the
+/// controller takes to answer it (`fire_at` − cycle of the scheduled `MemResp`).
+fn answer_latency<H: Handle>(
+    ctrl: &mut H,
+    request: (AccessSize, MemOp),
+    paddr: u64,
+    cycle: u64,
+) -> u64 {
+    let (size, op) = request;
     let req_id = ReqId::HOST_PROBE;
     let mut queue = EventQueue::new();
     let mut stats = Stats::new();
@@ -35,14 +41,7 @@ fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
         self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
     };
     ctrl.handle(
-        Packet::MemReq {
-            req_id,
-            paddr: PhysAddr::new(paddr),
-            vaddr: None,
-            pc: None,
-            size: AccessSize::B8,
-            op: MemOp::Read,
-        },
+        Packet::MemReq { req_id, paddr: PhysAddr::new(paddr), vaddr: None, pc: None, size, op },
         ComponentId::Pipeline(PipelineId::new(0)),
         &mut ctx,
     );
@@ -56,43 +55,24 @@ fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
     panic!("no MemResp scheduled");
 }
 
+fn read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
+    answer_latency(ctrl, (AccessSize::B8, MemOp::Read), paddr, cycle)
+}
+
 fn write_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
-    let req_id = ReqId::HOST_PROBE;
-    let mut queue = EventQueue::new();
-    let mut stats = Stats::new();
-    let mut memory = GlobalMemory::new(None, 1, 64);
-    let config = Config::minimal();
-    let mut ctx = HandleCtx {
-        scheduler: &mut queue,
-        stats: &mut stats,
-        memory: &mut memory,
-        config: &config,
-        cycle,
-        self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
-    };
-    ctrl.handle(
-        Packet::MemReq {
-            req_id,
-            paddr: PhysAddr::new(paddr),
-            vaddr: None,
-            pc: None,
-            size: AccessSize::B8,
-            op: MemOp::Write {
-                data: WriteData::Small(0),
-                origin: WriteOrigin::Hart(HartId::new(0)),
-            },
-        },
-        ComponentId::Pipeline(PipelineId::new(0)),
-        &mut ctx,
-    );
-    while let Some(event) = queue.pop_ready(u64::MAX) {
-        if let Packet::MemResp { req_id: rid, .. } = event.packet
-            && rid == req_id
-        {
-            return event.fire_at - cycle;
-        }
-    }
-    panic!("no MemResp scheduled");
+    let write =
+        MemOp::Write { data: WriteData::Small(0), origin: WriteOrigin::Hart(HartId::new(0)) };
+    answer_latency(ctrl, (AccessSize::B8, write), paddr, cycle)
+}
+
+fn line_read_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
+    answer_latency(ctrl, (AccessSize::Line, MemOp::Read), paddr, cycle)
+}
+
+/// How long a cache's writeback of the line at `paddr` waits for its
+/// acknowledgement.
+fn writeback_latency<H: Handle>(ctrl: &mut H, paddr: u64, cycle: u64) -> u64 {
+    answer_latency(ctrl, (AccessSize::Line, MemOp::Writeback { dirty: true }), paddr, cycle)
 }
 
 /// A simple controller moving `bytes_per_cycle` at a 1 Hz core clock.
@@ -104,43 +84,6 @@ fn simple_with_bandwidth(latency: u64, bytes_per_cycle: u64) -> SimpleController
 /// A simple controller whose bandwidth never holds a request up.
 fn simple(latency: u64) -> SimpleController {
     simple_with_bandwidth(latency, 64)
-}
-
-/// The latency of a line read issued at `cycle`.
-fn line_read_latency(ctrl: &mut SimpleController, paddr: u64, cycle: u64) -> u64 {
-    let req_id = ReqId::HOST_PROBE;
-    let mut queue = EventQueue::new();
-    let mut stats = Stats::new();
-    let mut memory = GlobalMemory::new(None, 1, 64);
-    let config = Config::minimal();
-    let mut ctx = HandleCtx {
-        scheduler: &mut queue,
-        stats: &mut stats,
-        memory: &mut memory,
-        config: &config,
-        cycle,
-        self_id: ComponentId::MemCtrl(MemCtrlId::new(0)),
-    };
-    ctrl.handle(
-        Packet::MemReq {
-            req_id,
-            paddr: PhysAddr::new(paddr),
-            vaddr: None,
-            pc: None,
-            size: AccessSize::Line,
-            op: MemOp::Read,
-        },
-        ComponentId::Pipeline(PipelineId::new(0)),
-        &mut ctx,
-    );
-    while let Some(event) = queue.pop_ready(u64::MAX) {
-        if let Packet::MemResp { req_id: rid, .. } = event.packet
-            && rid == req_id
-        {
-            return event.fire_at - cycle;
-        }
-    }
-    panic!("no MemResp scheduled");
 }
 
 fn dram_no_refresh(t_cas: u64, t_ras: u64, t_pre: u64) -> DramController {
@@ -230,4 +173,34 @@ fn dram_independent_banks_no_conflict() {
     // Different bank: full activate again (cold), no precharge cost.
     let lat = read_latency(&mut ctrl, addr(1, 0), 100);
     assert_eq!(lat, 10 + 5);
+}
+
+#[test]
+fn simple_controller_acknowledges_a_writeback_as_it_takes_it_in() {
+    let mut ctrl = simple(120);
+
+    assert_eq!(writeback_latency(&mut ctrl, 0x1000, 0), 0);
+}
+
+#[test]
+fn simple_controller_takes_a_writeback_in_once_its_bandwidth_is_free() {
+    let mut ctrl = simple_with_bandwidth(120, 8);
+    let _ = line_read_latency(&mut ctrl, 0x1000, 0);
+
+    let waited = writeback_latency(&mut ctrl, 0x2000, 0);
+    let read_after = line_read_latency(&mut ctrl, 0x3000, 0);
+
+    assert_eq!(waited, 8, "the writeback waits for the read's 64 / 8 cycles");
+    assert_eq!(read_after, 120 + 16, "the read after both waits for their data");
+}
+
+#[test]
+fn dram_acknowledges_a_writeback_at_once_but_still_opens_its_row() {
+    let mut ctrl = dram_default();
+
+    let acknowledged = writeback_latency(&mut ctrl, addr(0, 0), 0);
+    let row_hit = read_latency(&mut ctrl, addr(0, 0) + 64, 100);
+
+    assert_eq!(acknowledged, 0);
+    assert_eq!(row_hit, 5, "the writeback left its row open");
 }
