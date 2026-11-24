@@ -204,3 +204,15 @@ fn dram_acknowledges_a_writeback_at_once_but_still_opens_its_row() {
     assert_eq!(acknowledged, 0);
     assert_eq!(row_hit, 5, "the writeback left its row open");
 }
+
+#[test]
+fn dram_takes_a_writeback_in_once_its_bank_is_free() {
+    let mut ctrl = dram_default();
+    let _ = writeback_latency(&mut ctrl, addr(0, 0), 0);
+
+    let same_bank = writeback_latency(&mut ctrl, addr(0, 0) + 64, 0);
+    let other_bank = writeback_latency(&mut ctrl, addr(1, 0), 0);
+
+    assert_eq!(same_bank, 10, "the second waits for the first's activate");
+    assert_eq!(other_bank, 0, "another bank takes its writeback at once");
+}

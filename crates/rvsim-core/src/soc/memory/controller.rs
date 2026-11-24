@@ -220,9 +220,9 @@ impl DramController {
         ready_cycle
     }
 
-    /// Computes the latency in cycles for an access at `addr` starting at
-    /// `current_cycle`. Mutates bank state and refresh tracking.
-    fn compute_latency(&mut self, addr: u64, current_cycle: u64) -> u64 {
+    /// Books the bank for an access to `addr` that arrives at
+    /// `current_cycle`, updating bank state and refresh tracking.
+    fn schedule(&mut self, addr: u64, current_cycle: u64) -> BankAccess {
         let mut ready_cycle = self.handle_refresh(current_cycle);
 
         let bank_idx = self.bank_index(addr);
@@ -232,26 +232,34 @@ impl DramController {
             ready_cycle = self.banks[bank_idx].busy_until;
         }
 
+        let started = ready_cycle;
         match self.banks[bank_idx].open_row {
             Some(open_row) if open_row == row => {
                 self.banks[bank_idx].busy_until = ready_cycle + self.t_cas;
-                (ready_cycle - current_cycle) + self.t_cas
+                BankAccess { started, done: ready_cycle + self.t_cas }
             }
             Some(_) => {
                 ready_cycle += self.t_pre;
                 ready_cycle = self.activate(ready_cycle);
                 self.banks[bank_idx].open_row = Some(row);
                 self.banks[bank_idx].busy_until = ready_cycle + self.t_ras;
-                (ready_cycle - current_cycle) + self.t_ras + self.t_cas
+                BankAccess { started, done: ready_cycle + self.t_ras + self.t_cas }
             }
             None => {
                 ready_cycle = self.activate(ready_cycle);
                 self.banks[bank_idx].open_row = Some(row);
                 self.banks[bank_idx].busy_until = ready_cycle + self.t_ras;
-                (ready_cycle - current_cycle) + self.t_ras + self.t_cas
+                BankAccess { started, done: ready_cycle + self.t_ras + self.t_cas }
             }
         }
     }
+}
+
+/// When a bank takes an access in, and when its data is ready.
+#[derive(Clone, Copy, Debug)]
+struct BankAccess {
+    started: u64,
+    done: u64,
 }
 
 impl Handle for DramController {
@@ -261,9 +269,11 @@ impl Handle for DramController {
                 acknowledge_now(req_id, paddr, source, ctx);
                 return;
             }
-            let latency = self.compute_latency(paddr.val(), ctx.cycle);
+            let access = self.schedule(paddr.val(), ctx.cycle);
             let data = service_request(paddr, size, &op, ctx.memory);
-            let answered = if is_posted(&op) { ctx.cycle } else { ctx.cycle + latency };
+            // A posted write is taken in once its bank is free, so a stream
+            // of them waits on the banks as reads do.
+            let answered = if is_posted(&op) { access.started } else { access.done };
             answer(Answer { req_id, paddr, data, at: answered }, source, ctx);
         }
     }
