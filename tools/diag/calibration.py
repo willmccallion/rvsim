@@ -17,6 +17,7 @@ from rvsim import (
     Config,
     Fu,
     LoadPrefetcher,
+    MemDepPredictor,
     MemoryController,
     PageBoundary,
     Prefetcher,
@@ -37,16 +38,22 @@ def cortex_a72() -> Config:
       as one 66-entry queue until per-pipe queues exist
     - 16-entry store queue, 32-entry load queue
     - One load AGU, one store AGU
-    - PRF: 128 integer + 128 FP physical registers
+    - 64 integer renames; the FP register file covers the whole ROB
     - Execution units (Chips and Cheese, Graviton at 2.3 GHz):
-        - 2x integer ALU (latency 1), 1x multi-cycle pipe (multiply 3,
-          divide non-pipelined)
+        - 2x integer ALU (latency 1), 1x multi-cycle pipe (multiply 5,
+          one a cycle; divide non-pipelined)
         - 2x FP/NEON pipeline (modeled as FpAdd + FpMul/FpFma per pipe)
         - 1x FP div/sqrt (latency ~17-38, non-pipelined)
         - 1x branch unit (latency 1)
     - 48KB L1-I (3-way), 32KB L1-D (2-way, 4-cycle load-to-use), 8 MSHRs
-    - 1MB L2 (16-way) on the Raspberry Pi 4's BCM2711, 21 cycles
-    - 48-entry L1 ITLB, 32-entry L1 DTLB, 1024-entry 4-way L2 TLB
+    - 1MB L2 (16-way) on the Raspberry Pi 4's BCM2711, 20 cycles
+    - Memory latency on the Pi 4 (tinymembench wiki, "Raspberry Pi 4
+      (BCM2711)", 2024-01-10): 135 ns at 16 MB with huge pages and 156 ns
+      with 4 KB pages, counting the L1 hit tinymembench leaves out
+    - 48-entry L1 ITLB, 32-entry L1 DTLB, 1024-entry 4-way L2 TLB whose
+      hit adds 7 cycles
+    - No memory dependence speculation: a load waits for every older
+      store's address; store-to-load forwarding takes 7 cycles
     - 4096-entry BTB, 31-entry return stack; mispredict penalty ~15 cycles
     - Load/store prefetcher (TRM 6.4.9): loads prefetch into the L1D and
       22 requests ahead into the L2 (CPUECTLR_EL1 reset), crossing pages
@@ -63,6 +70,9 @@ def cortex_a72() -> Config:
         # where the stages sit; they go after decode, so a redirect decode
         # makes (a BTB miss) does not pay them.
         rename_issue_latency=10,
+        # 7 cycles from a store's data to the forwarded load's result.
+        store_forward_latency=6,
+        mem_dep_predictor=MemDepPredictor.Blind(),
         branch_predictor=BranchPredictor.Tage(
             num_banks=4,
             table_size=2048,
@@ -77,13 +87,14 @@ def cortex_a72() -> Config:
             load_queue_size=32,
             load_ports=1,
             store_ports=1,
-            prf_gpr_size=128,
-            prf_fpr_size=128,
+            # 32 architectural registers plus the measured renames.
+            prf_gpr_size=32 + 64,
+            prf_fpr_size=32 + 128,
             prf_vpr_size=64,
             fu_config=Fu(
                 [
                     Fu.IntAlu(count=2, latency=1),
-                    Fu.IntMul(count=1, latency=3),
+                    Fu.IntMul(count=1, latency=5),
                     Fu.IntDiv(count=1, latency=28),
                     Fu.FpAdd(count=2, latency=5),
                     Fu.FpMul(count=2, latency=5),
@@ -102,7 +113,7 @@ def cortex_a72() -> Config:
         tlb_size=32,  # 32-entry L1 DTLB
         l2_tlb_size=1024,
         l2_tlb_ways=4,
-        l2_tlb_latency=4,
+        l2_tlb_latency=7,
         l1i=Cache(
             size="48KB",
             line="64B",
@@ -126,25 +137,26 @@ def cortex_a72() -> Config:
         ),
         store_prefetcher=StorePrefetcher.Stream(streams=4, l2_lines=8),
         wcb_entries=0,
-        # 1MB 16-way L2 on the BCM2711; 21 cycles measured on the A72.
+        # 1MB 16-way L2 on the BCM2711; 20 cycles to a 512 KB chase on the
+        # Pi 4 (13.4 ns with huge pages), 21 on Graviton 1.
         l2=Cache(
             size="1MB",
             line="64B",
             ways=16,
-            latency=20,
+            latency=16,
             mshr_count=16,
         ),
         l3=None,
         # LPDDR4-3200 on the Raspberry Pi 4: tRCD, tRP and CL of about
-        # 18 ns are 27 cycles each at 1.5 GHz; the rest of the measured
-        # 162 ns (243 cycles) random-access latency is the fabric and
+        # 18 ns are 27 cycles each at 1.5 GHz; the rest of the 135 ns
+        # (203 cycles) a 16 MB chase takes with huge pages is the fabric and
         # controller, carried by the bus crossing each way.
         memory_controller=MemoryController.Dram(
             t_cas=27,
             t_ras=27,
             t_pre=27,
         ),
-        bus_latency=67,
+        bus_latency=49,
     )
 
 
