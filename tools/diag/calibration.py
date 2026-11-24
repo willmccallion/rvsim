@@ -165,17 +165,18 @@ def p550() -> Config:
 
     Microarchitecture notes (from Chips and Cheese reverse engineering):
     - 3-wide fetch/decode/rename/retire
-    - ROB ~72 entries (comparable to Core 2 / Goldmont Plus class)
-    - Modest issue queue, ~32 entries estimated
-    - Load queue ~24 entries, store buffer ~16 entries (described as "thin")
-    - PRF sized with "plenty of capacity compared to ROB size"
+    - ROB ~96 entries, 20-entry load queue, 16-entry store queue
+    - 95 integer and 87 FP renames
+    - Modest issue queue, ~32 entries estimated (28 for FP operations)
     - 9.1 KiB branch history table with good pattern recognition
     - 32-entry BTB handles taken branches with zero bubbles
     - 32KB 4-way L1i (3-cycle), 32KB 4-way L1d (3-cycle load-to-use), 64B lines
     - 256KB 8-way private L2 at 13 cycles; 4 MB L3 at ~38 cycles on the EIC7700X
     - DRAM at 194 ns on the HiFive Premier P550 (272 cycles at 1.4 GHz)
-    - FP add, multiply and FMA at 4 cycles; one load AGU and one store AGU
-    - 32-entry fully associative L1 TLBs, 512-entry L2 TLB
+    - Two FP ports, FP add, multiply and FMA at 4 cycles; one load AGU and
+      one store AGU
+    - 32-entry fully associative L1 TLBs, 512-entry L2 TLB whose hit adds
+      9 cycles
     - 13-stage pipeline → ~11-13 cycle mispredict penalty
     - No hardware misaligned access support (trap-based emulation)
     - Prefetchers unpublished: a load stride prefetcher that keeps to the
@@ -212,12 +213,13 @@ def p550() -> Config:
         # so a redirect decode makes (a BTB miss) does not pay them.
         rename_issue_latency=6,
         backend=Backend.OutOfOrder(
-            rob_size=72,  # Modest, Core 2 / Goldmont Plus class
+            rob_size=96,
             issue_queue_size=32,  # "more scheduling capacity" than A75
-            load_queue_size=24,  # "memory ordering queues can be a bit thin"
-            store_buffer_size=16,  # Conservative estimate from "thin" description
-            prf_gpr_size=128,  # "plenty of register file capacity compared to ROB"
-            prf_fpr_size=96,  # Proportional to GPR, RV64GC needs FP regs
+            load_queue_size=20,
+            store_buffer_size=16,
+            # 32 architectural registers plus the measured renames.
+            prf_gpr_size=32 + 95,
+            prf_fpr_size=32 + 87,
             prf_vpr_size=64,
             load_ports=1,
             store_ports=1,
@@ -228,12 +230,11 @@ def p550() -> Config:
                     Fu.IntAlu(count=3, latency=1),
                     Fu.IntMul(count=1, latency=3),
                     Fu.IntDiv(count=1, latency=12),
-                    # FP — single pipeline handles add/mul/fma; model as one
-                    # of each since rvsim uses separate type classes.
-                    # Chips and Cheese measured 4 cycles for all three.
-                    Fu.FpAdd(count=1, latency=4),
-                    Fu.FpMul(count=1, latency=4),
-                    Fu.FpFma(count=1, latency=4),
+                    # Two FP ports, each taking adds, multiplies and FMAs
+                    # at 4 cycles.
+                    Fu.FpAdd(count=2, latency=4),
+                    Fu.FpMul(count=2, latency=4),
+                    Fu.FpFma(count=2, latency=4),
                     Fu.FpDivSqrt(count=1, latency=15),
                     Fu.Branch(count=1, latency=1),
                     # One load AGU and one store AGU.
@@ -250,7 +251,7 @@ def p550() -> Config:
         tlb_size=32,  # 32-entry fully associative L1 TLBs
         l2_tlb_size=512,
         l2_tlb_ways=4,
-        l2_tlb_latency=4,
+        l2_tlb_latency=9,
         ram_size="256MB",
         # L1i: 32KB, 4-way, 64B lines (SiFive data sheet)
         l1i=Cache(
