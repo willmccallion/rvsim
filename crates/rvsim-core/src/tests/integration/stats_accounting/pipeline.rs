@@ -60,17 +60,16 @@ fn a_mispredicted_branch_flushes_once_under_branch(rec: &mut Recorder) {
 }
 
 fn traps_flush_under_trap_and_returns_under_system(rec: &mut Recorder) {
-    // The loop branch is taken twice, and resolves taken on the wrong path
-    // behind an ecall before the ecall traps: behind the first two on the
-    // out-of-order backend; on the in-order one, where the ecall no longer
-    // waits to be the oldest, the wrong path runs far enough for one more.
+    // The loop branch is taken twice. On the in-order backend it also
+    // resolves taken on the wrong path behind the first two ecalls before
+    // they trap; on the out-of-order one the traps land first.
     for (backend, system_flushes, wrong_path_branches) in [
         // Six CSR accesses in the handlers and the mtvec write refetch what
         // follows them when they commit, and so does each mret.
-        (BackendKind::InOrder, 6 + 1 + 3, 3),
+        (BackendKind::InOrder, 6 + 1 + 3, 2),
         // CSR accesses serialize rename instead; each mret commits before
         // its execute-stage redirect is due, so only commit's flush is taken.
-        (BackendKind::OutOfOrder, 3, 2),
+        (BackendKind::OutOfOrder, 3, 0),
     ] {
         let context = format!("{backend:?}");
         let (program, handler) = three_handled_ecalls();

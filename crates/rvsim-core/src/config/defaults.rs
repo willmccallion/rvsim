@@ -229,9 +229,10 @@ pub const CHECKPOINT_COUNT: usize = 32;
 /// Reorder-buffer entries a squash no checkpoint covers walks back per
 /// cycle, undoing their mappings (gem5's O3 `squashWidth`).
 pub const SQUASH_WIDTH: usize = 8;
-/// Cycles from commit detecting a trap to the squash into its handler
-/// (gem5's O3 `trapLatency`).
-pub const TRAP_LATENCY: u64 = 13;
+/// Cycles from commit detecting a trap to the squash into its handler:
+/// BOOM v4 rolls back two cycles after its ROB throws the exception
+/// (`RegNext(RegNext(exception_thrown))` in `rob.scala`).
+pub const TRAP_LATENCY: u64 = 2;
 
 /// Cycles from an in-order execute resolving a redirect to fetch
 /// taking it: gem5 `MinorCPU`'s execute-to-fetch1 branch latch.

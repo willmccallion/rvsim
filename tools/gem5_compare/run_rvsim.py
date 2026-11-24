@@ -145,6 +145,8 @@ def config_for(variant: Variant) -> Config:
         # gem5's O3 hands a misprediction from IEW to commit and from commit
         # to fetch, a cycle each (`iewToCommitDelay`, `commitToFetchDelay`).
         redirect_latency=2,
+        # gem5's O3 takes a trap `trapLatency` cycles after commit finds it.
+        trap_latency=13,
         backend=Backend.OutOfOrder(
             rob_size=72,
             issue_queue_size=32,
