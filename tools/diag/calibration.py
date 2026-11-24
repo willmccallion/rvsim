@@ -180,7 +180,9 @@ def p550() -> Config:
     - 13-stage pipeline → ~11-13 cycle mispredict penalty
     - No hardware misaligned access support (trap-based emulation)
     - Prefetchers unpublished: a load stride prefetcher that keeps to the
-      page, and no store prefetcher, as the cautious reading
+      page and runs 6 lines ahead, and no store prefetcher. The distance is
+      inferred: 8 bytes a cycle from L2 and L3 with a 20-entry load queue
+      needs lines fetched well ahead of the loads, and 6 comes closest
 
         SiFive Performance P550 machine config.
 
@@ -272,7 +274,7 @@ def p550() -> Config:
         ),
         load_prefetcher=LoadPrefetcher.Stride(
             table_size=64,
-            l1_lines=1,
+            l1_lines=6,
             l2_lines=0,
             page_boundary=PageBoundary.Stop(),
         ),
