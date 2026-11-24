@@ -156,6 +156,18 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.prefetch.loads.l1`, `.l2` | Load prefetches the load/store unit sent to fill the L1D, and to fill the L2 alone |
 | `core<N>.prefetch.loads.dropped.page_boundary`, `.tlb_miss`, `.denied`, `.not_ram` | Load prefetches not sent: past the trained page under `PageBoundary.Stop()`, next page not in the data TLB, a page or region the load may not read, not RAM |
 
+### Per core: address translation
+
+Counted only while translation is on (a hart below M-mode with `satp`
+naming a paging mode), so a bare-metal run records none.
+
+| Path | Meaning |
+|------|---------|
+| `core<N>.mmu.itlb.hits`, `.misses` | Fetch translations the instruction TLB held, and did not |
+| `core<N>.mmu.dtlb.hits`, `.misses` | Load and store translations the data TLB held, and did not, wrong-path accesses included |
+| `core<N>.mmu.l2_tlb.hits`, `.misses` | L1 TLB misses the shared L2 TLB held, and did not; none without an L2 TLB |
+| `core<N>.mmu.walks` | Page-table walks started |
+
 ### Caches
 
 Every cache, `core<N>.cache.<level>` and `llc`, has the same counters:
