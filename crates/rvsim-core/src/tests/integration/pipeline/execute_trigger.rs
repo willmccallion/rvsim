@@ -5,9 +5,10 @@
 use crate::config::BackendKind;
 use crate::config::Config;
 use crate::config::Console;
+use crate::config::CsrSquash;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
-use crate::tests::support::regs::{A1, A2, A3, X0};
+use crate::tests::support::regs::{A1, A2, A3, A4, A5, X0};
 
 const HANDLER: u64 = PROGRAM_BASE + 0x100;
 const MCAUSE: u32 = 0x342;
@@ -92,5 +93,70 @@ fn tdata1_keeps_the_mcontrol_fields_written_to_it() {
         let read_back = tdata1_after_writing_every_access_and_mode(backend);
 
         assert_eq!(read_back, MCONTROL_EVERY_ACCESS_AND_MODE, "{backend:?}");
+    }
+}
+
+const TDATA2: u32 = 0x7a2;
+/// The instruction just behind the write that arms the trigger.
+const ARMED_OFFSET: u64 = 8;
+
+/// Arms an execute trigger with its own CSR writes on the instruction just
+/// behind them: `tdata2` takes `a4`'s address, `tdata1` `a5`'s `mcontrol`.
+fn arming_program() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().csrrw(X0, TDATA2, A4).build(),
+        i().csrrw(X0, TDATA1, A5).build(),
+        i().addi(A1, X0, 1).build(),
+        i().addi(A1, X0, 2).build(),
+        i().jal(X0, 0).build(),
+    ]
+}
+
+/// `mcause`, `mepc` and `a1` once the program has armed its trigger.
+fn armed_by_the_program(
+    backend: BackendKind,
+    width: usize,
+    csr_squash: Option<CsrSquash>,
+) -> (u64, u64, u64) {
+    let mut config = Config::minimal();
+    config.pipeline.backend = backend;
+    config.pipeline.width = width;
+    config.pipeline.csr_squash = csr_squash;
+    config.system.console = Console::Quiet;
+    let mut ctx =
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &arming_program());
+    store_words(&mut ctx.sim, HANDLER, &handler());
+    let csrs = &mut ctx.sim.state.harts[0].csrs;
+    csrs.mtvec = HANDLER;
+    csrs.tcontrol = TCONTROL_MTE;
+    ctx.set_reg(A4, PROGRAM_BASE + ARMED_OFFSET);
+    ctx.set_reg(A5, MCONTROL_EXECUTE_M);
+    ctx.sim.sync_arch_regs();
+
+    ctx.run(500);
+
+    (ctx.get_reg(A2), ctx.get_reg(A3), ctx.get_reg(A1))
+}
+
+/// The instructions already fetched behind a trigger CSR write run under
+/// the trigger it arms (#175): the in-order core refetches them after the
+/// write, the out-of-order core holds them at rename until it is done.
+#[test]
+fn a_trigger_armed_by_a_csr_write_fires_on_the_next_instruction() {
+    let machines = [
+        (BackendKind::InOrder, None),
+        (BackendKind::InOrder, Some(CsrSquash::AffectingWrites)),
+        (BackendKind::OutOfOrder, None),
+    ];
+    for (backend, csr_squash) in machines {
+        for width in [1, 4] {
+            let (mcause, mepc, a1) = armed_by_the_program(backend, width, csr_squash);
+
+            let context = format!("{backend:?} width {width} {csr_squash:?}");
+            assert_eq!(mcause, BREAKPOINT, "{context}: mcause is breakpoint");
+            assert_eq!(mepc, PROGRAM_BASE + ARMED_OFFSET, "{context}: mepc");
+            assert_eq!(a1, 0, "{context}: the triggering instruction did not retire");
+        }
     }
 }
