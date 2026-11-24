@@ -52,9 +52,9 @@ program. A positive error means rvsim is slower than gem5.
 | `mem_conflict` | 265,697 | 240,286 | -9.6% | 1.34 | 1.48 | 4,048 | 4,046 |
 | `mem_dependent_miss` | 3,140,620 | 3,223,196 | +2.6% | 0.36 | 0.35 | 29 | 27 |
 | `mem_linear` | 2,455,316 | 2,206,629 | -10.1% | 0.40 | 0.45 | 31 | 28 |
-| `mem_pointer_chase` | 13,962,525 | 10,669,794 | -23.6% | 0.19 | 0.25 | 30 | 28 |
-| `mem_random_swap` | 7,537,725 | 3,027,731 | -59.8% | 0.16 | 0.39 | 27 | 26 |
-| `mem_stride` | 5,034,283 | 5,204,396 | +3.4% | 0.32 | 0.31 | 56 | 54 |
+| `mem_pointer_chase` | 13,962,525 | 10,669,307 | -23.6% | 0.19 | 0.25 | 30 | 28 |
+| `mem_random_swap` | 7,537,725 | 3,027,291 | -59.8% | 0.16 | 0.39 | 27 | 26 |
+| `mem_stride` | 5,034,283 | 5,199,788 | +3.3% | 0.32 | 0.31 | 56 | 54 |
 | `mem_write_stream` | 3,711,413 | 3,834,140 | +3.3% | 0.39 | 0.38 | 29 | 27 |
 | `quicksort` | 1,188,168 | 1,127,077 | -5.1% | 0.94 | 1.00 | 63,971 | 63,960 |
 | `store_load_forward` | 150,402 | 120,418 | -19.9% | 1.60 | 1.99 | 23 | 22 |
@@ -67,7 +67,7 @@ program. A positive error means rvsim is slower than gem5.
 Across these 26 programs:
 
 - **Mean absolute error:** 10.1%.
-- **Median absolute error:** 4.0%.
+- **Median absolute error:** 3.9%.
 <!-- /accuracy -->
 
 ## Misprediction recovery
@@ -136,7 +136,10 @@ as above.
   the previous build of the programs it reproduces the numbers recorded
   2026-09-28 exactly. rvsim retires one instruction more than gem5 in
   every program: it counts the m5 exit, which gem5 does not.
-- Both use a fixed-latency memory.
+- Both use a fixed-latency memory, which takes a cache's writeback in
+  and frees its writeback slot at once: gem5's memory needs no response
+  to a `WritebackDirty`, and rvsim's posts it as a memory controller's
+  write queue does.
 - gem5's cycle counts move with where the linker puts the code and data:
   rebuilding the programs with today's start-up, a few instructions
   shorter than the one before, took 4.3% off `mem_pointer_chase` in gem5
@@ -151,16 +154,20 @@ as above.
   run about a cycle per misprediction faster than gem5, as described
   above: `br_random` (-11.2%), `quicksort` (-5.1%) and part of
   `indirect_calls` (-11.3%).
-- **Split stores make three kernels faster than gem5.**
-  `store_load_forward` (-19.9%), most of `mem_random_swap` (-59.8%) and
-  the rest of `indirect_calls`, as described above; these are gem5's
-  differences from hardware.
-- **Streaming and pointer-chasing kernels run 10-24% fast; strided,
-  write-stream and dependent-miss kernels 3% slow.** rvsim has no
-  `L2XBar` between the L1s and the L2, so a miss that goes to memory is
-  cheaper, while its L1D miss handling under conflicts differs
-  (`mem_conflict` 10% fast). `matmul`, which mixes both, is 5% slow and
-  not yet root-caused.
+- **Split stores make four kernels faster than gem5.**
+  `store_load_forward` (-19.9%), most of `mem_random_swap` (-59.8%), the
+  rest of `indirect_calls`, and `mem_pointer_chase` (-23.6%), whose time
+  is mostly the random shuffle that builds its cycle: each swap stores a
+  value a missing load returns, and gem5's store-set predictor makes the
+  next swap's loads wait for that store's data, so every swap pays a
+  memory access in gem5. These are gem5's differences from hardware.
+- **A miss to memory costs about the same; streaming and conflicting kernels
+  run 10% fast.** A dependent load that misses to memory takes 121
+  cycles in rvsim and 116 in gem5 (measured 2026-11-24 by lengthening
+  `mem_pointer_chase`'s chase), and the strided, write-stream and
+  dependent-miss kernels are within 3.5%. `mem_linear` (-10.1%) and
+  `mem_conflict` (-9.6%) run fast and `matmul` (+4.6%) slow, none yet
+  root-caused.
 - **Vector kernels differ both ways.** rvsim models lanes and moves a
   datapath width per cycle where gem5 splits an instruction into one
   micro-op per register of its group; strided and indexed accesses are
