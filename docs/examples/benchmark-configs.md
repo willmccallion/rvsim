@@ -75,7 +75,7 @@ Based on published microarchitecture analysis (Chips and Cheese, SiFive specs).
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Width | 3 | Triple-issue, 1.4 GHz (EIC7700X) |
-| Backend | OutOfOrder | 72-entry ROB, 32-entry IQ, one load and one store AGU |
+| Backend | OutOfOrder | 96-entry ROB, 32-entry IQ, 20-entry LQ, 16-entry SQ, one load and one store AGU, two FP pipes |
 | Branch Predictor | Tournament | 9.1 KiB budget, 32-entry BTB, 16-entry RAS |
 | L1D | 32KB, 4-way | 3-cycle load-to-use, 8 MSHRs |
 | Prefetch | Load/store unit | Load stride prefetcher, 1 line ahead, keeps to the page; SiFive has not published the P550's prefetchers |
@@ -97,10 +97,10 @@ Based on publicly documented microarchitecture.
 | L1I | 48KB, 3-way | NextLine prefetch |
 | L1D | 32KB, 2-way | 4-cycle load-to-use, 8 MSHRs |
 | Prefetch | Load/store unit | Loads into the L1D and 22 lines ahead into the L2, crossing pages through the TLB; store misses into the L2 (TRM §6.4.9) |
-| L2 | 1MB, 16-way | 21-cycle load-to-use, 16 MSHRs |
-| Memory | LPDDR4 DRAM | 162 ns (243 cycles) random-access load-to-use |
+| L2 | 1MB, 16-way | 20-cycle load-to-use, 16 MSHRs |
+| Memory | LPDDR4 DRAM | 135 ns (203 cycles) random-access load-to-use at 16 MB, huge pages |
 
-The latencies are the ones Chips and Cheese measured on the Cortex-A72 (Graviton), at the Pi 4's clock; `tools/diag/latency_probe.py --preset cortex_a72` reproduces them.
+The core's structure follows Chips and Cheese's measurements of the Cortex-A72 (on Graviton 1): 5-cycle multiply, 7-cycle store-to-load forwarding, no memory dependence speculation, 64 integer renames, a 7-cycle L2 TLB hit. The cache and memory latencies are a Raspberry Pi 4's, from tinymembench; `tools/diag/latency_probe.py --preset cortex_a72` reproduces them.
 
 ## Using Benchmark Configs
 

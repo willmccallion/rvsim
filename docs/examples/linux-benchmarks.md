@@ -56,7 +56,7 @@ timer is too coarse to time them.
 
 ## Scores against hardware
 
-Measured 2026-11-23, one hart, from the Linux boot, with the calibrated
+Measured 2026-11-24, one hart, from the Linux boot, with the calibrated
 configurations' load/store-unit prefetchers. The hardware columns
 are published single-core figures; Dhrystone varies a lot with the
 compiler, so Arm's quoted figure and a measured Raspberry Pi 4 are both
@@ -64,8 +64,8 @@ given.
 
 | Calibrated configuration | Benchmark | rvsim | Hardware | Source |
 |---|---|---:|---:|---|
-| `cortex_a72` | CoreMark/MHz | 5.11 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
-| `cortex_a72` | DMIPS/MHz | 3.90 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
+| `cortex_a72` | CoreMark/MHz | 5.12 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
+| `cortex_a72` | DMIPS/MHz | 3.89 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
 | `p550` | CoreMark/MHz | 4.72 | not published | |
 | `p550` | DMIPS/MHz | 3.29 | not published | |
 
@@ -77,31 +77,48 @@ is calibrated on the measured microarchitecture instead, below.
 
 `tools/diag/latency_probe.py` runs a dependent pointer chase over
 footprints that fit each level and reports cycles per load, the load-to-use
-latency hardware reviews measure the same way. Both calibrated
-configurations reproduce the measurements they were built from (Chips and
-Cheese on the HiFive Premier P550 and on a Graviton Cortex-A72).
+latency hardware reviews measure the same way. It runs each footprint
+twice: bare-metal, with no address translation, which compares with a
+measurement on huge pages; and in SE mode under 4 KB pages, where TLB
+misses and page walks add their cost. Measured 2026-11-24.
 
-| Calibrated configuration | Footprint | rvsim cycles/load | Hardware | Level |
-|---|---|---:|---:|---|
-| `p550` | 8 KB | 3.0 | 3 | L1D |
-| `p550` | 128 KB | 13.1 | 13 | L2 |
-| `p550` | 2 MB | 39.0 | ~38 | L3 |
-| `p550` | 16 MB | 267 | 272 (194 ns at 1.4 GHz) | memory |
-| `cortex_a72` | 8 KB | 4.0 | 4 | L1D |
-| `cortex_a72` | 128 KB | 20.3 | 21 | L2 |
-| `cortex_a72` | 16 MB | 242 | 243 (162 ns at 1.5 GHz) | memory |
+The P550 figures are Chips and Cheese's on the HiFive Premier P550, which
+do not say which page size they used; the configuration is fitted to the
+bare column.
+
+| `p550` footprint | Bare | 4 KB pages | Hardware | Level |
+|---|---:|---:|---:|---|
+| 8 KB | 3.0 | 3.0 | 3 | L1D |
+| 128 KB | 13.1 | 13.3 | 13 | L2 |
+| 2 MB | 39.0 | 47.6 | ~38 | L3 |
+| 16 MB | 268 | 282 | 272 (194 ns at 1.4 GHz) | memory |
+
+The Cortex-A72 figures are tinymembench's on a Raspberry Pi 4, which
+reports both page sizes, with its 4-cycle L1 hit (2.7 ns at 1.5 GHz)
+added back, since tinymembench reports only the time beyond it.
+
+| `cortex_a72` footprint | Bare | Pi 4, huge pages | 4 KB pages | Pi 4, 4 KB pages | Level |
+|---|---:|---:|---:|---:|---|
+| 512 KB | 20.1 | 20.1 (13.4 ns) | 25.4 | 25.3 (16.9 ns) | L2 |
+| 16 MB | 206 | 203 (135.0 ns) | 219 | 233 (155.6 ns) | memory |
+
+Under 4 KB pages at 16 MB, page walks cost the configuration 13 cycles a
+load and the Pi 4 about 30; the walker's own cache accesses are the
+likely difference, not yet investigated.
 
 ```bash
 python tools/diag/latency_probe.py --preset p550
 python tools/diag/latency_probe.py --preset cortex_a72 --footprints 16K,512K,8M,32M
 ```
 
-The probe needs `riscv64-elf-gcc` on `PATH`, as the repo's nix shell
-provides. A 2 MB footprint on the A72 configuration mixes L2 hits and memory, so
-it is left out of the table.
+The probe needs `riscv64-elf-gcc` and `riscv64-linux-gnu-gcc` on `PATH`,
+as the repo's nix shell provides. A 2 MB footprint on the A72 configuration
+mixes L2 hits and memory, so it is left out of the table.
 
 Sources: Chips and Cheese, "Inside SiFive's P550 Microarchitecture"
 (January 2025) and "ARM's Cortex A72: aarch64 for the Masses" (November
-2023); the SiFive Performance P550 data sheet (2022); CoreMark and
+2023); tinymembench's "Raspberry Pi 4 (BCM2711)" results
+(github.com/ssvb/tinymembench wiki, January 2024); the SiFive Performance
+P550 data sheet (2022); CoreMark and
 Dhrystone results for the Raspberry Pi 4 as collected at
 kreier.github.io/benchmark and on the Raspberry Pi forums.
