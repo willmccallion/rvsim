@@ -138,6 +138,9 @@ pub trait ExecutionEngine {
     /// The reorder buffer.
     fn rob(&self) -> &Rob;
 
+    /// The reorder buffer, to note what an in-flight instruction has done.
+    fn rob_mut(&mut self) -> &mut Rob;
+
     /// The scalar store buffer.
     fn store_buffer(&self) -> &StoreBuffer;
 
@@ -206,19 +209,8 @@ pub enum TrapProgress {
     /// No trap detected.
     #[default]
     None,
-    /// An enabled interrupt is pending: fetch stops so that everything
-    /// already fetched retires before it is taken.
-    DrainingForInterrupt,
     /// A detected trap waiting out the trap latency.
     Pending(PendingTrap),
-}
-
-impl TrapProgress {
-    /// True while fetch stops for an interrupt.
-    #[must_use]
-    pub const fn stops_fetch(&self) -> bool {
-        matches!(self, Self::DrainingForInterrupt)
-    }
 }
 
 /// Cycles from commit retiring an instruction to the branch predictor
@@ -857,8 +849,12 @@ impl PipelineDispatch {
     #[cfg(test)]
     /// Whether a device read has been sent and not yet answered.
     pub fn device_read_in_flight(&self) -> bool {
-        let common = on_pipeline!(self, p => p.engine.common());
-        common.memory.outstanding_loads.values().any(|load| load.side_effecting)
+        on_pipeline!(self, p => {
+            let rob = p.engine.rob();
+            p.engine.common().memory.outstanding_loads.values().any(|load| {
+                rob.find_entry(load.entry.op.rob_tag).is_some_and(|entry| entry.device_access)
+            })
+        })
     }
 
     #[cfg(test)]

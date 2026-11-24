@@ -895,7 +895,6 @@ fn emit_span_read<E: ExecutionEngine>(
             paddr,
             vaddr,
             dirty_updates: DirtyUpdates::NONE,
-            side_effecting: false,
             parts: LoadParts::Whole(None),
         },
     );
@@ -961,17 +960,20 @@ fn emit_load_req<E: ExecutionEngine>(
         );
     }
 
-    let side_effecting = matches!(target, ComponentId::Bus) || ex.op.ctrl.performs_at_rob_head();
+    if matches!(target, ComponentId::Bus) || ex.op.ctrl.performs_at_rob_head() {
+        engine.rob_mut().mark_device_access(ex.op.rob_tag);
+    }
     #[expect(clippy::cast_possible_truncation, reason = "a split access is at most 8 bytes")]
     let parts = low_bytes.map_or(LoadParts::Whole(None), |low| LoadParts::Split {
         low_bytes: low as u8,
         low: None,
         high: None,
     });
-    let _ = engine.common_mut().memory.outstanding_loads.insert(
-        req_id,
-        OutstandingLoad { entry: ex, paddr, vaddr, dirty_updates, side_effecting, parts },
-    );
+    let _ = engine
+        .common_mut()
+        .memory
+        .outstanding_loads
+        .insert(req_id, OutstandingLoad { entry: ex, paddr, vaddr, dirty_updates, parts });
 }
 
 /// Trains the load prefetcher on a load by `pc` to `vaddr` (at `paddr`)

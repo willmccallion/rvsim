@@ -53,29 +53,23 @@ pub(super) fn trap_or_interrupt(
 
     // Checked even with an empty ROB: a timer can fire during a stall.
     let epc = rob.peek_head().map_or(state.hart.pc, |head| head.pc);
-    let interrupt =
-        retire::pending_interrupt(state.hart).filter(|_| !device_access_in_flight(common, rob));
+    // The interrupt is taken on the instruction at the ROB head, which runs
+    // again after the handler, and everything behind it is flushed, as BOOM
+    // takes one; a head whose effect cannot be repeated retires first.
+    let interrupt = retire::pending_interrupt(state.hart).filter(|_| !head_must_retire_first(rob));
     if let Some(interrupt_trap) = interrupt {
-        // Fetch stops and everything already fetched retires first
-        // (gem5 waits for its instruction list to empty); a WFI's
-        // successors are wrong-path and are not waited for.
-        common.commit.trap = TrapProgress::DrainingForInterrupt;
-        let drained = state.hart.wfi_waiting || (rob.is_empty() && common.frontend_empty);
-        if drained {
-            trace_trap!(state.uncore.trace_trap_enabled(&interrupt_trap);
-                event      = "interrupt",
-                epc        = %Hex(epc.val()),
-                cause      = ?interrupt_trap,
-                mip        = %Hex(state.hart.csrs.mip),
-                mie        = %Hex(state.hart.csrs.mie),
-                mstatus    = %Hex(state.hart.csrs.mstatus),
-                priv_mode  = ?state.hart.privilege,
-                "CM: interrupt detected — pipeline drained"
-            );
-            state.uncore.kernel.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
-            return CommitFlow::Stop(schedule_trap(state, common, interrupt_trap, epc));
-        }
-        return CommitFlow::Continue;
+        trace_trap!(state.uncore.trace_trap_enabled(&interrupt_trap);
+            event      = "interrupt",
+            epc        = %Hex(epc.val()),
+            cause      = ?interrupt_trap,
+            mip        = %Hex(state.hart.csrs.mip),
+            mie        = %Hex(state.hart.csrs.mie),
+            mstatus    = %Hex(state.hart.csrs.mstatus),
+            priv_mode  = ?state.hart.privilege,
+            "CM: interrupt taken at the ROB head"
+        );
+        state.uncore.kernel.stats.counter(state.core.stat_paths.commit.retire_hist_zero).inc();
+        return CommitFlow::Stop(schedule_trap(state, common, interrupt_trap, epc));
     }
 
     common.commit.trap = TrapProgress::None;
@@ -304,17 +298,13 @@ fn take_pending_trap(state: &mut CoreCtx<'_>, pending: PendingTrap) -> Option<Co
     Some(CommitEvent::Trap(trap, pending.epc))
 }
 
-/// True when the ROB head has a device read outstanding. Such a read was
-/// issued non-speculatively and has already had its side effect, so the
-/// instruction must retire before an interrupt can pre-empt it.
-fn device_access_in_flight(common: &BackendCommon, rob: &Rob) -> bool {
-    rob.peek_head().is_some_and(|head| {
-        common
-            .memory
-            .outstanding_loads
-            .values()
-            .any(|l| l.side_effecting && l.entry.op.rob_tag == head.tag)
-    })
+/// True when an interrupt must wait for the ROB head to retire: running the
+/// head again after the handler would repeat an effect it may already have
+/// had. A device read has its side effect once sent (a PLIC claim consumes
+/// the interrupt it returns); an atomic performs its memory access as the
+/// oldest instruction.
+fn head_must_retire_first(rob: &Rob) -> bool {
+    rob.peek_head().is_some_and(|head| head.ctrl.atomic_op.is_some() || head.device_access)
 }
 
 /// Moves the L1D flush a FENCE.I at the head needs along: asks for it the

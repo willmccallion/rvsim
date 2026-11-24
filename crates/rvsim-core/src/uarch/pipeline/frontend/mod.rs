@@ -114,9 +114,6 @@ impl<E: ExecutionEngine> Frontend<E> {
                 .push_with(now, |decoded| fetch2::fetch2_stage(state, &mut landed, decoded));
         }
 
-        if engine.common().commit.trap.stops_fetch() {
-            return;
-        }
         if engine.common().fetch.is_waiting()
             || engine.common().fetch_held(state.uncore().kernel.cycle)
         {

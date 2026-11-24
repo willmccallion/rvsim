@@ -242,6 +242,9 @@ pub struct RobEntry {
     pub sfence_vma: Option<SfenceVmaInfo>,
     /// Deferred LR/SC reservation action for commit-time application.
     pub lr_sc: Option<LrScRecord>,
+    /// A read went to a device (or performs at the ROB head): it has had
+    /// its side effect, which running the instruction again would repeat.
+    pub device_access: bool,
     /// Write-log position when a load, LR or AMO read its value from RAM;
     /// commit re-validates LR and AMO against it.
     pub observed: Option<WriteSeq>,
@@ -401,6 +404,7 @@ impl Rob {
             dirty_updates: DirtyUpdates::NONE,
             sfence_vma: None,
             lr_sc: None,
+            device_access: false,
             observed: None,
             mem_access: None,
             checkpoint_id: None,
@@ -557,6 +561,13 @@ impl Rob {
     }
 
     /// Attaches deferred SFENCE.VMA operands to a ROB entry.
+    /// Notes that `tag`'s read has gone to a device.
+    pub fn mark_device_access(&mut self, tag: RobTag) {
+        if let Some(entry) = self.find_entry_mut(tag) {
+            entry.device_access = true;
+        }
+    }
+
     pub fn set_sfence_vma(&mut self, tag: RobTag, info: SfenceVmaInfo) {
         if let Some(entry) = self.find_entry_mut(tag) {
             entry.sfence_vma = Some(info);
