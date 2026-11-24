@@ -67,7 +67,7 @@ given.
 | `cortex_a72` | CoreMark/MHz | 5.12 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
 | `cortex_a72` | DMIPS/MHz | 3.89 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
 | `p550` | CoreMark/MHz | 4.72 | not published | |
-| `p550` | DMIPS/MHz | 3.29 | not published | |
+| `p550` | DMIPS/MHz | 3.28 | not published | |
 
 SiFive publishes only SPECint2006 for the P550 (8.65 per GHz); no public
 CoreMark or Dhrystone figure for the EIC7700X was found. Its configuration
@@ -115,10 +115,53 @@ The probe needs `riscv64-elf-gcc` and `riscv64-linux-gnu-gcc` on `PATH`,
 as the repo's nix shell provides. A 2 MB footprint on the A72 configuration
 mixes L2 hits and memory, so it is left out of the table.
 
+## Bandwidth
+
+`tools/diag/bandwidth_probe.py` streams over a footprint and reports the
+bytes a pass moves per cycle, and in MB/s at the configuration's clock:
+`read` sums the buffer with eight 8-byte loads a line, and `copy` and
+`fill` are tinymembench's "C copy" and "C fill" loops, counted as
+tinymembench counts them. Measured 2026-11-24, bare and under 4 KB pages.
+
+| `p550` read footprint | Bare B/cycle | 4 KB pages | Hardware | Level |
+|---|---:|---:|---:|---|
+| 16 KB | 7.96 | 7.96 | 8 (a load a cycle) | L1D |
+| 128 KB | 7.88 | 7.87 | 8 | L2 |
+| 2 MB | 7.52 | 7.48 | 8 | L3 |
+| 32 MB | 1.32 | 1.29 | not published | memory |
+
+The P550 reads 8 bytes a cycle from L2 and L3 with a 20-entry load queue,
+which only a prefetcher running several lines ahead of the loads allows;
+the configuration's runs 6 lines ahead, the distance that comes closest.
+
+| `cortex_a72` | Footprint | Bare MB/s | 4 KB pages | Raspberry Pi 4 |
+|---|---|---:|---:|---:|
+| read | 512 KB | 11,997 (8.00 B/cycle) | 11,862 | 8 B/cycle from L2 on Graviton 1 |
+| read | 32 MB | 4,000 | 3,132 | not published |
+| C copy | 32 MB | 935 | 793 | 2,253 |
+| C fill | 32 MB | 1,313 | 1,311 | 2,883 |
+
+The A72 configuration copies and fills memory at under half the Pi 4's
+rate: every line it writes is first read for ownership, where the
+Cortex-A72 stops allocating a run of whole-line writes, in the L1 after
+the fourth line and in the L2 after the twelfth (CPUACTLR_EL1[28:25] at
+reset, Cortex-A72 TRM), so a copy or fill writes memory without reading
+it. rvsim does not yet model write streaming. The A72's 8-byte-a-cycle L2
+figure was measured with 16-byte NEON loads; the probe's scalar loads
+reach 8 bytes a cycle from the L1 at most, so this row only shows the L2
+keeps up with them.
+
+```bash
+python tools/diag/bandwidth_probe.py --preset cortex_a72
+python tools/diag/bandwidth_probe.py --preset p550 --kernels read --footprints 16K,128K,2M
+```
+
 Sources: Chips and Cheese, "Inside SiFive's P550 Microarchitecture"
 (January 2025) and "ARM's Cortex A72: aarch64 for the Masses" (November
 2023); tinymembench's "Raspberry Pi 4 (BCM2711)" results
-(github.com/ssvb/tinymembench wiki, January 2024); the SiFive Performance
+(github.com/ssvb/tinymembench wiki, January 2024), whose copy and fill
+loops the bandwidth probe runs; the Cortex-A72 MPCore Technical Reference
+Manual (r0p1); the SiFive Performance
 P550 data sheet (2022); CoreMark and
 Dhrystone results for the Raspberry Pi 4 as collected at
 kreier.github.io/benchmark and on the Raspberry Pi forums.
