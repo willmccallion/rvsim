@@ -59,7 +59,7 @@ pub(super) fn try_drain_one_store(
 
 /// Sends a committed store's data: into the WCB for RAM when it is
 /// enabled, else as its own writes. Returns the writes the store buffer
-/// waits for, or `None` when the store must wait for a WCB entry.
+/// waits for, or `None` when the store must wait for the WCB.
 pub(super) fn send_data_store(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
@@ -77,23 +77,49 @@ pub(super) fn send_data_store(
         via_wcb    = via_wcb,
         "CM: committed store's write sent to memory"
     );
-    if !via_wcb {
-        let hart = WriteOrigin::Hart(state.hart.hart_id);
-        let store = StoreWrite { origin: hart, owner: StoreOwner::StoreBuffer };
-        return Some(emit_store_write_packet(state, common, paddr, data, width, store));
+    if via_wcb {
+        merge_into_wcb(state, paddr, data, width).then(Vec::new)
+    } else {
+        send_direct_store(state, common, paddr, data, width)
     }
+}
+
+/// Sends a store the WCB does not take as its own write, once the WCB has
+/// written every older store it holds: a device, such as HTIF, may read
+/// the memory they wrote. `None` while they are being written.
+fn send_direct_store(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    paddr: PhysAddr,
+    data: u64,
+    width: MemWidth,
+) -> Option<Vec<ReqId>> {
+    if state.core.wcb.has_pending() {
+        state.core.wcb.request_send_all();
+        return None;
+    }
+    let hart = WriteOrigin::Hart(state.hart.hart_id);
+    let store = StoreWrite { origin: hart, owner: StoreOwner::StoreBuffer };
+    Some(emit_store_write_packet(state, common, paddr, data, width, store))
+}
+
+/// Merges a store into the WCB. Returns false when it needs an entry and
+/// none is free, asking for the least recently merged line to be written.
+fn merge_into_wcb(state: &mut CoreCtx<'_>, paddr: PhysAddr, data: u64, width: MemWidth) -> bool {
     let parts = span_parts(paddr, data, usize_of(width.bytes()), state.core.wcb.entry_bytes());
     let starts: Vec<PhysAddr> = parts.iter().map(|&(part_paddr, _, _)| part_paddr).collect();
     if !state.core.wcb.has_room_for(&starts) {
-        return None;
+        state.core.wcb.request_eviction();
+        return false;
     }
+    let now = state.uncore.kernel.cycle;
     for (part_paddr, part_data, part_bytes) in parts {
         if state.core.wcb.holds_entry_for(part_paddr) {
             state.uncore.kernel.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
         }
-        state.core.wcb.merge_store(part_paddr, part_data, part_bytes);
+        state.core.wcb.merge_store(part_paddr, part_data, part_bytes, now);
     }
-    Some(Vec::new())
+    true
 }
 
 /// Sends a committed CBO to the L1D: `cbo.zero` as the hart's write of a
@@ -150,8 +176,7 @@ pub(super) fn send_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut Backen
 
 /// Sends this cycle's write to the L1D: a line the WCB must send now, else
 /// the oldest committed scalar store, else a vector store's line, else, the
-/// port being free, the WCB's oldest line, which also frees an entry for a
-/// store waiting for one once the L1D has written it.
+/// port being free, a WCB line no store has merged into for its idle time.
 pub fn send_one_write(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
@@ -162,7 +187,7 @@ pub fn send_one_write(
         && !try_drain_one_store(state, common, store_buffer, vec_store_buffer)
         && !drain_vec_store_line(state, common, vec_store_buffer)
     {
-        send_oldest_wcb_line(state, common);
+        send_idle_wcb_line(state, common);
     }
 }
 
@@ -182,9 +207,10 @@ pub(super) fn send_urgent_wcb_line(state: &mut CoreCtx<'_>, common: &mut Backend
     true
 }
 
-/// Sends the WCB's least recently merged line, if it holds one.
-pub(super) fn send_oldest_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon) {
-    if let Some(line) = state.core.wcb.take_oldest() {
+/// Sends the WCB's least recently merged line if it has been idle long
+/// enough.
+fn send_idle_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon) {
+    if let Some(line) = state.core.wcb.take_idle(state.uncore.kernel.cycle) {
         send_wcb_line(state, common, &line);
     }
 }

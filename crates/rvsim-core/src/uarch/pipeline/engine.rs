@@ -755,6 +755,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
     /// whether any committed store has yet to finish writing.
     pub fn drain_writes(&mut self, state: &mut CoreCtx<'_>) -> bool {
         drain(self, &mut state.stage());
+        state.core.wcb.request_send_all();
         self.engine.send_committed_write(state)
     }
 

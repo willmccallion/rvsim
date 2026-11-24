@@ -158,6 +158,7 @@ pub(super) fn gate_head(
     if waits_for_older_stores(head)
         && older_stores_pending(store_buffer, vec_store_buffer, &state.core.wcb)
     {
+        state.core.wcb.request_send_all();
         return CommitFlow::Stop(None);
     }
 

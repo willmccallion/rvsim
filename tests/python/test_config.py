@@ -207,6 +207,15 @@ class Validation(unittest.TestCase):
             ):
                 Config(l1d=Cache("32KB", ways=4, **{field: 0}))
 
+    def test_the_write_combining_idle_time_reaches_the_core(self):
+        cache = Config(wcb_idle_cycles=40).to_dict()["cache"]
+
+        self.assertEqual(cache["wcb_idle_cycles"], 40)
+
+    def test_a_write_combining_buffer_that_never_goes_idle_is_refused(self):
+        with self.assertRaisesRegex(ValueError, r"cache\.wcb_idle_cycles"):
+            Simulator(Config(wcb_idle_cycles=0))
+
     def test_a_config_dict_with_zero_mshrs_is_refused(self):
         config = Config().to_dict()
         config["cache"]["l1_d"]["mshr_count"] = 0

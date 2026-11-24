@@ -318,6 +318,7 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "l3": _cache_to_dict(cfg.l3),
         "inclusion_policy": _name(Cache, cfg.inclusion_policy),
         "wcb_entries": cfg.wcb_entries,
+        "wcb_idle_cycles": cfg.wcb_idle_cycles,
         "load_prefetcher": _load_prefetcher_to_dict(cfg.load_prefetcher),
         "store_prefetcher": _store_prefetcher_to_dict(cfg.store_prefetcher),
     }

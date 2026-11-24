@@ -149,6 +149,7 @@ impl CoreUnits {
             wcb: WriteCombiningBuffer::new(
                 config.cache.wcb_entries,
                 config.cache.l1_d.line_bytes.get(),
+                config.cache.wcb_idle_cycles,
             ),
             load_prefetcher: load_prefetcher(config),
             branch_predictor: BranchPredictor::new(config),

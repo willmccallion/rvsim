@@ -417,7 +417,7 @@ fn perform_atomic<E: ExecutionEngine>(
     if ex.op.ctrl.performs_at_rob_head() {
         // It follows every older store to memory, sets its PTE's D bit
         // as its translation completes, then takes effect in the cache.
-        if !takes_effect_now(engine, ex.op.rob_tag) || older_stores_pending(state, engine) {
+        if !takes_effect_now(engine, ex.op.rob_tag) || drain_older_stores(state, engine) {
             return EntryOutcome::Replay(ex);
         }
         if !apply_dirty_updates(state, engine, dirty_updates) {
@@ -678,11 +678,14 @@ fn older_store_unwritten<E: ExecutionEngine>(
         || state.core_mut().wcb.request_send(paddr, usize_of(size))
 }
 
-/// True while a committed store has yet to finish writing.
-fn older_stores_pending<E: ExecutionEngine>(state: &StageCtx<'_>, engine: &E) -> bool {
+/// True while a committed store has yet to finish writing; the WCB is
+/// asked to write every line it holds.
+fn drain_older_stores<E: ExecutionEngine>(state: &mut StageCtx<'_>, engine: &E) -> bool {
+    let wcb = &mut state.core_mut().wcb;
+    wcb.request_send_all();
     engine.store_buffer().has_committed_stores()
         || engine.vec_store_buffer().has_committed_stores()
-        || state.core().wcb.has_pending()
+        || wcb.has_pending()
 }
 
 /// Sets the D bits an atomic's translation needs before it takes effect.
