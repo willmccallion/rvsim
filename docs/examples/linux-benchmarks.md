@@ -64,8 +64,8 @@ given.
 
 | Calibrated configuration | Benchmark | rvsim | Hardware | Source |
 |---|---|---:|---:|---|
-| `cortex_a72` | CoreMark/MHz | 5.12 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
-| `cortex_a72` | DMIPS/MHz | 3.89 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
+| `cortex_a72` | CoreMark/MHz | 5.05 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
+| `cortex_a72` | DMIPS/MHz | 3.86 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
 | `p550` | CoreMark/MHz | 4.72 | not published | |
 | `p550` | DMIPS/MHz | 3.28 | not published | |
 
@@ -136,20 +136,32 @@ the configuration's runs 6 lines ahead, the distance that comes closest.
 
 | `cortex_a72` | Footprint | Bare MB/s | 4 KB pages | Raspberry Pi 4 |
 |---|---|---:|---:|---:|
-| read | 512 KB | 11,997 (8.00 B/cycle) | 11,862 | 8 B/cycle from L2 on Graviton 1 |
-| read | 32 MB | 4,000 | 3,132 | not published |
-| C copy | 32 MB | 935 | 793 | 2,253 |
-| C fill | 32 MB | 1,313 | 1,311 | 2,883 |
+| read | 512 KB | 11,997 (8.00 B/cycle) | 11,872 | 8 B/cycle from L2 on Graviton 1 |
+| read | 32 MB | 3,935 | 3,132 | not published |
+| C copy | 32 MB | 1,575 | 1,623 | 2,253 |
+| C fill | 32 MB | 5,383 | 5,365 | 2,883 |
 
-The A72 configuration copies and fills memory at under half the Pi 4's
-rate: every line it writes is first read for ownership, where the
-Cortex-A72 stops allocating a run of whole-line writes, in the L1 after
-the fourth line and in the L2 after the twelfth (CPUACTLR_EL1[28:25] at
-reset, Cortex-A72 TRM), so a copy or fill writes memory without reading
-it. rvsim does not yet model write streaming. The A72's 8-byte-a-cycle L2
-figure was measured with 16-byte NEON loads; the probe's scalar loads
-reach 8 bytes a cycle from the L1 at most, so this row only shows the L2
-keeps up with them.
+The configuration writes memory as the Cortex-A72 does: stores merge into
+whole lines in a 4-entry write-combining buffer (the TRM says the L1
+merges stores but not into how many lines), and a run of whole-line writes
+stops allocating in the L1 at its fourth line and in the L2 at its twelfth
+(CPUACTLR_EL1[28:25] at reset), so a copy or fill writes memory without
+reading it first. The L2 issues up to 16 writes (TRM table 7-4).
+
+Memory is where the remaining gaps lie. Copy runs 30% slow and fill 87%
+fast because the configuration's `Dram` controller is fitted to the Pi's
+latencies, not its bandwidth: it has no data-bus transfer time, no read
+and write queues or bus turnaround, and a bank stays busy for `t_cas`
+after a row hit. Successive rows lie in different banks, so a stream of
+posted writes overlaps two banks at a time and writes faster than the Pi.
+The Pi's own ceiling is not in its core either: every tinymembench fill on
+it, 128-bit NEON stores and non-temporal stores included, stops between
+2.8 and 3.1 GB/s, a quarter of what its 32-bit LPDDR4-3200 can move, so
+the BCM2711's path from the cores to its memory controller limits it, and
+no figure for that path is published. The A72's 8-byte-a-cycle L2 figure
+was measured with 16-byte NEON loads; the probe's scalar loads reach 8
+bytes a cycle from the L1 at most, so that row only shows the L2 keeps up
+with them.
 
 ```bash
 python tools/diag/bandwidth_probe.py --preset cortex_a72
