@@ -18,6 +18,7 @@ from .memory import (
     Prefetcher,
     ReplacementPolicy,
     StorePrefetcher,
+    WriteStreaming,
 )
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     "Prefetcher",
     "ReplacementPolicy",
     "StorePrefetcher",
+    "WriteStreaming",
     "load_config",
 ]

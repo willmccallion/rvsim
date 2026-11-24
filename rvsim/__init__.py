@@ -46,6 +46,7 @@ from .config import (
     Prefetcher,
     ReplacementPolicy,
     StorePrefetcher,
+    WriteStreaming,
 )
 from .experiment import Environment, Result
 from .isa import Disassemble, Privilege, csr, reg
@@ -142,6 +143,7 @@ __all__ = [
     "Table",
     "When",
     "WorkloadEnded",
+    "WriteStreaming",
     "__version__",
     "csr",
     "presets",

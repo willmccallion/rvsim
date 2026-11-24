@@ -17,6 +17,7 @@ from rvsim import (
     PageBoundary,
     Simulator,
     StorePrefetcher,
+    WriteStreaming,
     presets,
 )
 from rvsim._core import (
@@ -114,6 +115,30 @@ class Prefetchers(unittest.TestCase):
                 "history_bits": 4,
             },
         )
+
+    def test_write_streaming_reaches_the_core(self):
+        config = Config(
+            wcb_entries=4,
+            write_streaming=WriteStreaming(skip_l1_from=4, skip_l2_from=12),
+        )
+
+        cache = config.to_dict()["cache"]
+        Simulator(config)
+
+        self.assertEqual(
+            cache["write_streaming"], {"skip_l1_from": 4, "skip_l2_from": 12}
+        )
+
+    def test_write_streaming_is_off_by_default(self):
+        self.assertIsNone(Config().to_dict()["cache"]["write_streaming"])
+
+    def test_write_streaming_that_skips_the_l2_first_is_refused(self):
+        streaming = WriteStreaming(skip_l1_from=12, skip_l2_from=4)
+
+        with self.assertRaisesRegex(
+            ValueError, "skip_l2_from 4 is before skip_l1_from 12"
+        ):
+            Config(write_streaming=streaming)
 
     def test_the_default_machine_prefetches_loads_and_stores(self):
         cache = Config().to_dict()["cache"]

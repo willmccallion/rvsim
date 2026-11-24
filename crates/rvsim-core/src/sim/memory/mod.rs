@@ -209,6 +209,7 @@ impl GlobalMemory {
             | MemOp::Write { .. }
             | MemOp::Fetch
             | MemOp::Writeback { .. }
+            | MemOp::WriteFull { .. }
             | MemOp::Maintain { .. }
             | MemOp::Prefetch { .. } => MemRespData::Small(0),
         }

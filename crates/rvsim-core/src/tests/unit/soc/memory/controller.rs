@@ -195,6 +195,14 @@ fn simple_controller_takes_a_writeback_in_once_its_bandwidth_is_free() {
 }
 
 #[test]
+fn simple_controller_posts_a_streamed_line_as_it_does_a_writeback() {
+    let mut ctrl = simple(120);
+    let streamed = (AccessSize::Line, MemOp::WriteFull { allocate: false });
+
+    assert_eq!(answer_latency(&mut ctrl, streamed, 0x1000, 0), 0);
+}
+
+#[test]
 fn dram_acknowledges_a_writeback_at_once_but_still_opens_its_row() {
     let mut ctrl = dram_default();
 

@@ -11,6 +11,8 @@ crate::sim::stats::paths::stat_paths! {
         read_unique: "requests.read_unique" => Events,
         /// `CleanUnique` requests received.
         clean_unique: "requests.clean_unique" => Events,
+        /// Whole lines written without a copy (CHI's `WriteUniqueFull`).
+        write_unique_full: "requests.write_unique_full" => Events,
         /// Writebacks received.
         writebacks: "requests.writebacks" => Events,
         /// Silent evictions received.

@@ -178,6 +178,7 @@ Every cache, `core<N>.cache.<level>` and `llc`, has the same counters:
 | `mshr_hits` | Misses that joined a fetch already in flight |
 | `blocked_requests` | Requests that waited because the MSHRs or writeback buffer were full |
 | `fills`, `evictions`, `writebacks` | Lines installed, lines evicted, and dirty lines written to the next level |
+| `streamed_writes`, `streamed_installs` | Whole-line writes of a run passed to the next level without being fetched or kept (write streaming, the L1D for a hart's writes and the levels below for lines streamed into them), and streamed lines from above kept without a fetch |
 | `back_invalidations` | Lines invalidated because an inclusive level below evicted them; a request for a line no longer held counts nothing |
 | `prefetches.issued` | Prefetch fetches this cache started |
 | `prefetches.late` | Prefetch fetches a request from above joined while still in flight |
@@ -204,7 +205,7 @@ because the line was already held, in flight or being written back), and its
 
 | Path | Meaning |
 |------|---------|
-| `coherence.ha.requests.{read_shared,read_unique,clean_unique,writebacks,evicts,stale_writebacks,maintenance,non_coherent}` | Requests the home agent received, by kind |
+| `coherence.ha.requests.{read_shared,read_unique,clean_unique,write_unique_full,writebacks,evicts,stale_writebacks,maintenance,non_coherent}` | Requests the home agent received, by kind; `write_unique_full` is a streamed whole line an L2 passed on without holding it |
 | `coherence.ha.snoops_sent`, `.c2c_transfers`, `.recalls` | Snoops sent, lines supplied by another cache, snoop-filter recalls |
 | `coherence.ha.filter.hits`, `.misses` | Snoop-filter lookups |
 | `coherence.ha.serialised`, `.txn_full_stalls` | Requests that waited behind another on the same line, or for a free transaction |

@@ -69,6 +69,10 @@ pub enum ReqKind {
     },
     /// The requester silently dropped a clean line.
     Evict,
+    /// A whole line the requester wrote without holding it (CHI's
+    /// `WriteUniqueFull`): every holder is invalidated and the line goes to
+    /// the LLC and memory, and the requester keeps no copy.
+    WriteUniqueFull,
     /// A cache-maintenance operation on the line, applied to every other
     /// holder and then to the LLC and memory (CHI's `CleanShared`,
     /// `CleanInvalid`, `MakeInvalid`). The requester has already applied it
@@ -237,6 +241,7 @@ impl CoherenceMsg {
             Self::CompData { .. }
             | Self::SnoopResp { dirty: true, .. }
             | Self::Req { kind: ReqKind::WriteBack { dirty: true }, .. }
+            | Self::Req { kind: ReqKind::WriteUniqueFull, .. }
             | Self::Req { kind: ReqKind::Maintain { dirty: true, .. }, .. } => HEADER + line_bytes,
             Self::NoSnp { bytes, .. } | Self::NoSnpData { bytes, .. } => HEADER + bytes,
             _ => HEADER,

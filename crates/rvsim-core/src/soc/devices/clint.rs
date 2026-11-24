@@ -232,6 +232,7 @@ impl MmioRegisters for Clint {
             }
             MemOp::Write { .. }
             | MemOp::Writeback { .. }
+            | MemOp::WriteFull { .. }
             | MemOp::Maintain { .. }
             | MemOp::Prefetch { .. } => 0,
         }

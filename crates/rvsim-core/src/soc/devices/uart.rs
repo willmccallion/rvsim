@@ -406,6 +406,7 @@ impl MmioRegisters for Uart {
             }
             MemOp::Write { .. }
             | MemOp::Writeback { .. }
+            | MemOp::WriteFull { .. }
             | MemOp::Maintain { .. }
             | MemOp::Prefetch { .. } => 0,
         }

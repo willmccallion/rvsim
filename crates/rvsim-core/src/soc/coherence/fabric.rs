@@ -308,6 +308,7 @@ impl CoherenceFabric {
             ReqKind::ReadShared => self.admit_read(waiting, txn, home.read_shared, ctx),
             ReqKind::ReadUnique => self.admit_read(waiting, txn, home.read_unique, ctx),
             ReqKind::CleanUnique => self.admit_read(waiting, txn, home.clean_unique, ctx),
+            ReqKind::WriteUniqueFull => self.admit_write_unique(waiting, txn, ctx),
         }
     }
 
@@ -426,6 +427,16 @@ impl CoherenceFabric {
                 self.waiting.push_back(waiting);
             }
         }
+    }
+
+    /// A whole line written without a copy: it snoops every holder and
+    /// needs no tracking entry, since the requester ends holding nothing.
+    fn admit_write_unique(&mut self, waiting: Waiting, txn: Txn, ctx: &mut HandleCtx<'_>) {
+        if !self.may_open(waiting, txn.line, self.stat_paths.home.write_unique_full, ctx) {
+            return;
+        }
+        self.txns.push(txn);
+        self.start_snoops(txn.id, ctx);
     }
 
     /// Invalidates every holder of `victim` so its tracking entry can be
@@ -619,6 +630,14 @@ impl CoherenceFabric {
                 let dirty = dirty || txn.dirty_from.is_some();
                 self.send_llc(llc_req, txn.line, MemOp::Maintain { op, dirty }, ctx);
             }
+            ReqKind::WriteUniqueFull => {
+                let llc_req = self.fabric_req_id();
+                if let Some(t) = self.txn_mut(id) {
+                    t.phase = Phase::WritingBack;
+                    t.llc_req = Some(llc_req);
+                }
+                self.send_llc(llc_req, txn.line, MemOp::Writeback { dirty: true }, ctx);
+            }
             ReqKind::WriteBack { .. } | ReqKind::Evict => {}
         }
     }
@@ -686,6 +705,7 @@ impl CoherenceFabric {
         let line = LineAddr::from_phys(*paddr, self.line_bytes as u64);
         let bytes = match op {
             MemOp::Write { data: WriteData::Line { .. }, .. }
+            | MemOp::WriteFull { .. }
             | MemOp::Maintain { dirty: true, .. } => self.line_bytes,
             MemOp::Write { .. } | MemOp::Atomic { .. } => 8,
             MemOp::Read
@@ -789,6 +809,7 @@ const fn broadcast_snoop(kind: ReqKind) -> SnoopKind {
         ReqKind::Maintain { op: Maintenance::Invalidate, .. } => SnoopKind::MakeInvalid,
         ReqKind::ReadUnique
         | ReqKind::CleanUnique
+        | ReqKind::WriteUniqueFull
         | ReqKind::WriteBack { .. }
         | ReqKind::Evict
         | ReqKind::Maintain { op: Maintenance::Flush, .. } => SnoopKind::Unique,

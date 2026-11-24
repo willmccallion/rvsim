@@ -22,6 +22,8 @@ mod coherence;
 mod inclusion;
 mod instruction_side;
 mod request;
+mod streaming;
+mod write_stream;
 mod writeback;
 
 use std::collections::{BTreeSet, VecDeque};
@@ -32,6 +34,7 @@ use self::policies::{
     FifoPolicy, LruPolicy, MruPolicy, PlruPolicy, RandomPolicy, ReplacementPolicy, SetIdx, WayIdx,
 };
 use self::stats::CacheStatPaths;
+use self::write_stream::WriteStreamDetector;
 use self::writeback_buffer::WritebackBuffer;
 use crate::common::{CoreId, LineAddr, PhysAddr, SimError, VirtAddr, usize_of};
 use crate::config::{CacheConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind};
@@ -210,6 +213,8 @@ pub struct Cache {
     prefetch_candidates: Vec<u64>,
     /// Prefetcher for the next level, fed by this cache's store misses.
     store_prefetcher: Option<StoreStreamPrefetcher>,
+    /// Counts runs of whole-line writes so they can stop allocating.
+    write_stream: Option<WriteStreamDetector>,
     /// Stat paths rooted at this cache's subject.
     pub stat_paths: CacheStatPaths,
     /// Relationship with the caches above this one.
@@ -321,6 +326,7 @@ impl Cache {
             prefetcher,
             prefetch_candidates: Vec::new(),
             store_prefetcher: None,
+            write_stream: None,
             stat_paths: CacheStatPaths::under(stat_subject),
             upstream_inclusion: InclusionPolicy::Nine,
             clean_victims_to_downstream: false,

@@ -170,6 +170,26 @@ class StorePrefetcher:
             return f"StorePrefetcher.Stream(streams={self.streams}, l2_lines={self.l2_lines})"
 
 
+class WriteStreaming:
+    """When a run of whole-line writes to consecutive lines stops
+    allocating (``Config(write_streaming=...)``), as the Cortex-A72 decides
+    for a copy or a fill (``CPUACTLR_EL1[28:25]``): from the
+    ``skip_l1_from``th line of the run a write that misses the L1D is
+    performed without fetching or keeping the line and the L2 keeps it;
+    from the ``skip_l2_from``th the L2 passes it on as well. Whole lines
+    come from the write-combining buffer (``wcb_entries``) or ``cbo.zero``."""
+
+    def __init__(self, *, skip_l1_from: int, skip_l2_from: int):
+        self.skip_l1_from = skip_l1_from
+        self.skip_l2_from = skip_l2_from
+
+    def __repr__(self) -> str:
+        return (
+            f"WriteStreaming(skip_l1_from={self.skip_l1_from}, "
+            f"skip_l2_from={self.skip_l2_from})"
+        )
+
+
 class MemoryController:
     """Namespace for memory controller configurations."""
 
@@ -435,6 +455,15 @@ def _store_prefetcher_from(prefetcher: dict[str, Any]) -> StorePrefetcher.Stream
         return None
     return StorePrefetcher.Stream(
         streams=prefetcher["streams"], l2_lines=prefetcher["l2_lines"]
+    )
+
+
+def _write_streaming_from(streaming: dict[str, Any] | None) -> WriteStreaming | None:
+    """The write streaming a core cache dict holds, or None."""
+    if streaming is None:
+        return None
+    return WriteStreaming(
+        skip_l1_from=streaming["skip_l1_from"], skip_l2_from=streaming["skip_l2_from"]
     )
 
 

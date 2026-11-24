@@ -252,6 +252,7 @@ Cache(
 | `wcb_idle_cycles` | `int` | `16` | Cycles a partly written WCB line waits for another store before it is written. No core documents its value; this default is not fitted to a measurement |
 | `load_prefetcher` | `LoadPrefetcher.Stride` or `None` | 64 entries, 4 lines ahead in the L1D and 16 in the L2, crossing pages through the TLB | The load/store unit's load prefetcher (see below) |
 | `store_prefetcher` | `StorePrefetcher.Stream` or `None` | 4 streams, 8 lines ahead | The L1D's store-miss prefetcher, which fills the L2 (see below) |
+| `write_streaming` | `WriteStreaming` or `None` | `None` | When a run of whole-line writes stops allocating (see below) |
 
 A load that hits takes one cycle of address generation plus the L1D's
 `latency` to reach its dependents, so `latency=3` models a 4-cycle
@@ -327,6 +328,32 @@ Config(
     store_prefetcher=StorePrefetcher.Stream(),
 )
 ```
+
+### Write streaming
+
+A copy or a fill writes whole lines it never reads, and a cache that
+fetches each line before overwriting it moves twice the data. Some cores
+stop allocating such a run: the Cortex-A72's load/store unit, at its reset
+settings (`CPUACTLR_EL1[28:25]`), stops filling the L1D from the 4th
+consecutive whole-line write and the L2 as well from the 12th.
+
+```python
+Config(
+    wcb_entries=4,          # whole lines come from the write-combining buffer
+    write_streaming=WriteStreaming(skip_l1_from=4, skip_l2_from=12),
+)
+```
+
+A run is whole-line writes to adjacent lines in one direction; a write to
+part of a line ends it, and loads do not. From `skip_l1_from`, a
+whole-line write that misses the L1D is performed and acknowledged without
+fetching the line, and goes to the L2, which keeps it without reading
+memory. From `skip_l2_from` the L2 passes it on too, and memory takes it
+as it takes a writeback. With several harts, an L2 that passes a line on
+sends the home a `WriteUniqueFull`, which invalidates every other copy; one
+asked to keep a line it does not hold fetches ownership first, where a CHI
+system would send a dataless `MakeUnique`. `skip_l2_from` must be at least
+`skip_l1_from`.
 
 ### Inclusion Policies
 

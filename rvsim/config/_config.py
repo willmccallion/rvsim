@@ -25,12 +25,14 @@ from .memory import (
     Cache,
     LoadPrefetcher,
     StorePrefetcher,
+    WriteStreaming,
     _AnyInclusionPolicy,
     _AnyMemoryController,
     _cache_from,
     _controller_from,
     _load_prefetcher_from,
     _store_prefetcher_from,
+    _write_streaming_from,
 )
 
 _GENERAL = MACHINE["general"]
@@ -52,6 +54,7 @@ _DEFAULT_L3 = _cache_from(_CACHES["l3"])
 _DEFAULT_INCLUSION_POLICY = getattr(Cache, _CACHES["inclusion_policy"])()
 _DEFAULT_LOAD_PREFETCHER = _load_prefetcher_from(_CACHES["load_prefetcher"])
 _DEFAULT_STORE_PREFETCHER = _store_prefetcher_from(_CACHES["store_prefetcher"])
+_DEFAULT_WRITE_STREAMING = _write_streaming_from(_CACHES["write_streaming"])
 _DEFAULT_MEMORY_CONTROLLER = _controller_from(_MEMORY)
 _DEFAULT_COHERENCE = Coherence()
 
@@ -67,6 +70,7 @@ _COMPONENT_FIELDS = (
     "inclusion_policy",
     "load_prefetcher",
     "store_prefetcher",
+    "write_streaming",
     "memory_controller",
     "coherence",
 )
@@ -125,6 +129,7 @@ class Config:
     wcb_idle_cycles: int = _CACHES["wcb_idle_cycles"]
     load_prefetcher: LoadPrefetcher.Stride | None = _DEFAULT_LOAD_PREFETCHER
     store_prefetcher: StorePrefetcher.Stream | None = _DEFAULT_STORE_PREFETCHER
+    write_streaming: WriteStreaming | None = _DEFAULT_WRITE_STREAMING
     # Memory
     ram_size: str | int = _MEMORY["ram_size"]
     memory_controller: _AnyMemoryController = _DEFAULT_MEMORY_CONTROLLER
@@ -216,6 +221,8 @@ class Config:
             parts.append(f"load_prefetcher={self.load_prefetcher!r}")
         if self.store_prefetcher is not None:
             parts.append(f"store_prefetcher={self.store_prefetcher!r}")
+        if self.write_streaming is not None:
+            parts.append(f"write_streaming={self.write_streaming!r}")
         return f"Config({', '.join(parts)})"
 
 

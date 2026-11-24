@@ -128,6 +128,10 @@ impl CoreUnits {
             ));
         }
 
+        if let Some(streaming) = config.cache.write_streaming {
+            l1_d_cache.set_write_streaming(streaming);
+        }
+
         let mut l2_cache =
             Cache::new(l2_id, CacheLevel::L2, &config.cache.l2, &format!("{subject}.l2"));
         l2_cache.set_downstream(ComponentId::Cache(l3_id));
