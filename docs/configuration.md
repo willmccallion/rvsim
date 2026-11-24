@@ -365,6 +365,9 @@ MemoryController.Dram(        # Row-buffer DRAM: per-bank open rows and refresh
     t_ras=14,                 # Row activate, cycles
     t_pre=14,                 # Precharge, cycles
 )
+# Simple and Dram post a cache's writeback: it is acknowledged as the
+# controller takes it in (Simple waits for its bandwidth), and Dram still
+# opens its row. Other requests are answered after their access.
 MemoryController.Ddr5(        # Command-level JEDEC DDR5 (see Memory Hierarchy); the
                               # default machine's is Ddr5(speed_bin="Ddr5_5600B")
     speed_bin="Ddr5_4800B",   # "Ddr5_4800B" or "Ddr5_5600B"

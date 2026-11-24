@@ -5,7 +5,8 @@
 //! (gem5's `SimpleMemory`). `DramController` tracks per-bank
 //! row buffers, tRRD between activations, and periodic refresh. Both read
 //! the memory image as they serve a request so the response carries actual
-//! data.
+//! data, and both post a cache's writeback: it is acknowledged as the
+//! controller takes it in, not after the access.
 
 use std::num::NonZeroU64;
 
@@ -113,18 +114,8 @@ impl Handle for SimpleController {
             let data = service_request(paddr, size, &op, ctx.memory);
             let started = ctx.cycle.max(self.busy_until);
             self.busy_until = started + self.bandwidth.occupancy(size.bytes() as u64);
-            ctx.scheduler.schedule(
-                started + self.latency,
-                source,
-                ctx.self_id,
-                Packet::MemResp {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
-                    data,
-                    hit_level: HitLevel::Dram,
-                    state: MesiState::Exclusive,
-                },
-            );
+            let answered = if is_posted(&op) { started } else { started + self.latency };
+            answer(Answer { req_id, paddr, data, at: answered }, source, ctx);
         }
     }
 }
@@ -272,18 +263,8 @@ impl Handle for DramController {
             }
             let latency = self.compute_latency(paddr.val(), ctx.cycle);
             let data = service_request(paddr, size, &op, ctx.memory);
-            ctx.scheduler.schedule(
-                ctx.cycle + latency,
-                source,
-                ctx.self_id,
-                Packet::MemResp {
-                    req_id,
-                    line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
-                    data,
-                    hit_level: HitLevel::Dram,
-                    state: MesiState::Exclusive,
-                },
-            );
+            let answered = if is_posted(&op) { ctx.cycle } else { ctx.cycle + latency };
+            answer(Answer { req_id, paddr, data, at: answered }, source, ctx);
         }
     }
 }
@@ -362,20 +343,41 @@ fn service_request(
     }
 }
 
-/// Answers `req_id` in this cycle.
-fn acknowledge_now(req_id: ReqId, paddr: PhysAddr, source: ComponentId, ctx: &mut HandleCtx<'_>) {
+/// The response to one request, and when it leaves the controller.
+struct Answer {
+    req_id: ReqId,
+    paddr: PhysAddr,
+    data: MemRespData,
+    at: u64,
+}
+
+/// Sends `answer` back to `source`.
+fn answer(answer: Answer, source: ComponentId, ctx: &mut HandleCtx<'_>) {
     ctx.scheduler.schedule(
-        ctx.cycle,
+        answer.at,
         source,
         ctx.self_id,
         Packet::MemResp {
-            req_id,
-            line_addr: LineAddr::from_phys(paddr, CACHE_LINE_BYTES),
-            data: MemRespData::Small(0),
+            req_id: answer.req_id,
+            line_addr: LineAddr::from_phys(answer.paddr, CACHE_LINE_BYTES),
+            data: answer.data,
             hit_level: HitLevel::Dram,
             state: MesiState::Exclusive,
         },
     );
+}
+
+/// Answers `req_id` in this cycle.
+fn acknowledge_now(req_id: ReqId, paddr: PhysAddr, source: ComponentId, ctx: &mut HandleCtx<'_>) {
+    answer(Answer { req_id, paddr, data: MemRespData::Small(0), at: ctx.cycle }, source, ctx);
+}
+
+/// True for a cache's victim, which the controller takes into its write
+/// queue and acknowledges at once, as the DDR5 controller does and gem5's
+/// memory takes a `WritebackDirty`: the cache's writeback slot frees then,
+/// not a full memory access later.
+const fn is_posted(op: &MemOp) -> bool {
+    matches!(op, MemOp::Writeback { .. })
 }
 
 /// True for a maintenance operation that brings no data: memory, the point
