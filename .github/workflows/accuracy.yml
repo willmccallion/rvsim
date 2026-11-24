@@ -1,0 +1,35 @@
+name: Accuracy
+
+# Once a week, and on demand: rvsim's side of the gem5 and RTL comparisons
+# against the stored references, failing when a program's error has grown
+# past its budget (tools/accuracy/budget.json).
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  accuracy:
+    name: Accuracy
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Fetch the dev shell
+        run: nix develop --command true
+      - name: Check every program's error against its budget
+        run: nix develop --command make accuracy ACCURACY_OUT=accuracy.json
+      - name: Keep the errors
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accuracy
+          path: accuracy.json
+          if-no-files-found: warn
