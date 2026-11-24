@@ -48,6 +48,7 @@ cites the line it comes from or the probe it was measured with.
 Chipyard 1.14.0's `MediumBoomV4Config` against `presets.boom()`, after
 #211, #212, #213 and #87. The columns are as on the Rocket page.
 
+<!-- accuracy: rtl boom -->
 | program | instructions | BOOM cycles | rvsim cycles | error | BOOM IPC | rvsim IPC | where the difference accumulates |
 |---|---:|---:|---:|---:|---:|---:|---|
 | `alu_int_div` | 40,042 | 72,166 | 72,085 | -0.1% | 0.55 | 0.56 | `main+0x24` |
@@ -87,7 +88,10 @@ Chipyard 1.14.0's `MediumBoomV4Config` against `presets.boom()`, after
 | `store_stream` | 1,376,295 | 3,176,509 | 2,723,990 | -14.2% | 0.43 | 0.51 | `bss_clear_loop+0x0` |
 | `trap_return` | 140,040 | 1,440,222 | 1,180,100 | -18.1% | 0.10 | 0.12 | `trap_handler+0x6` |
 
-Mean absolute error 16.2%, median 13.0%, over 36 programs. The kernels
+Mean absolute error 16.2%, median 13.0%, over 36 programs.
+<!-- /accuracy -->
+
+The kernels
 that exercise one unit at a time match: both multiplier chains, both
 dividers, the three FP kernels, the L1 and L2 load-to-use chains,
 `load_use` and `matmul`.

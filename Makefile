@@ -33,7 +33,7 @@ endif
 .PHONY: help software examples linux python python-wheel
 .PHONY: check test test-python test-coverage clippy doc fmt fmt-check ruff mypy
 .PHONY: lint lint-rust lint-python ci prerelease
-.PHONY: compare-gem5 accuracy accuracy-budget
+.PHONY: compare-gem5 accuracy accuracy-budget accuracy-report
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
 .PHONY: lockstep lockstep-build lockstep-smoke lockstep-ci
@@ -84,6 +84,7 @@ help:
 	@printf "    %-$(HELP_W)s  Compare rvsim with gem5 on the benchmark set (GEM5_BIN=…)\n" "make compare-gem5"
 	@printf "    %-$(HELP_W)s  Check rvsim's error against gem5 and the RTL within its budget\n" "make accuracy"
 	@printf "    %-$(HELP_W)s  Set the accuracy budget from this tree's errors\n" "make accuracy-budget"
+	@printf "    %-$(HELP_W)s  Regenerate the docs' error tables from the comparison results\n" "make accuracy-report"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
 	@printf "    %-$(HELP_W)s  Boot SMP Linux: 8 M-class O3 cores, TAGE-SC-L, snoop filter, mesh, 4-ch DDR5 (HARTS=N)\n" "make run-linux"
@@ -170,6 +171,9 @@ accuracy: python
 accuracy-budget: python
 	$(ACCURACY_PROGRAMS)
 	$(PYTHON) tools/accuracy/check.py --write-budget
+
+accuracy-report: $(VENV_STAMP)
+	$(PYTHON) tools/accuracy/report.py
 
 test-coverage:
 	@printf "$(GREEN)Running cargo llvm-cov…$(RESET)\n"

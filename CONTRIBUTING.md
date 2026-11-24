@@ -74,7 +74,8 @@ RTL, program by program, against `tools/accuracy/budget.json`; `make accuracy`
 runs the same check locally. A timing change that makes a program less
 accurate fails it, unless the change is a deliberate trade-off that raises
 the budget in the same PR. A change that makes rvsim more accurate runs
-`make accuracy-budget` to lock the gain in.
+`make accuracy-budget` to lock the gain in, and `make accuracy-report` to
+regenerate the error tables in the docs from the results.
 
 Architectural decisions are recorded in
 [`docs/architecture/decisions/`](docs/architecture/decisions/index.md). Add a

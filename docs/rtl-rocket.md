@@ -77,6 +77,7 @@ Chipyard 1.14.0's `RocketConfig` against `presets.rocket()`, after #210,
 Rocket's, less one; the last column is the PC where most of the
 difference accumulates, as `tools/diag/rtl_compare.py` reports it.
 
+<!-- accuracy: rtl rocket -->
 | program | instructions | Rocket cycles | rvsim cycles | error | Rocket IPC | rvsim IPC | where the difference accumulates |
 |---|---:|---:|---:|---:|---:|---:|---|
 | `alu_int_div` | 40,042 | 104,194 | 104,119 | -0.1% | 0.38 | 0.38 | `main+0x2a` |
@@ -116,7 +117,10 @@ difference accumulates, as `tools/diag/rtl_compare.py` reports it.
 | `store_stream` | 1,376,295 | 5,273,622 | 3,211,448 | -39.1% | 0.26 | 0.43 | `bss_clear_loop+0x0` |
 | `trap_return` | 120,040 | 340,185 | 540,119 | +58.8% | 0.35 | 0.22 | `trap_handler+0x0` |
 
-Mean absolute error 16.6%, median 9.7%, over 36 programs. The unit
+Mean absolute error 16.6%, median 9.6%, over 36 programs.
+<!-- /accuracy -->
+
+The unit
 latencies the preset carries are measured on this RTL with
 `tools/diag/rtl_probe.py`, so the kernels that exercise one unit at a time
 match to within a cycle per retirement: both multiplier chains, both
