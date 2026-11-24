@@ -37,7 +37,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # The image is cached on what it is built from: the Buildroot version
       # and build steps in tools/boot_linux.py and the guest configuration.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: image
         with:
           path: software/linux/output
