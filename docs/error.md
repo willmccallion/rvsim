@@ -34,6 +34,7 @@ program. A positive error means rvsim is slower than gem5.
 
 ## Results
 
+<!-- accuracy: gem5 base -->
 | Program | gem5 cycles | rvsim cycles | Error | gem5 IPC | rvsim IPC | gem5 mispredicts | rvsim mispredicts |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | `alu_int_div` | 40,381 | 40,379 | -0.0% | 0.99 | 0.99 | 17 | 15 |
@@ -67,6 +68,7 @@ Across these 26 programs:
 
 - **Mean absolute error:** 10.1%.
 - **Median absolute error:** 4.0%.
+<!-- /accuracy -->
 
 ## Misprediction recovery
 
