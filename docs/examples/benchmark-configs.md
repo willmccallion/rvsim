@@ -78,7 +78,7 @@ Based on published microarchitecture analysis (Chips and Cheese, SiFive specs).
 | Backend | OutOfOrder | 96-entry ROB, 32-entry IQ, 20-entry LQ, 16-entry SQ, one load and one store AGU, two FP pipes |
 | Branch Predictor | Tournament | 9.1 KiB budget, 32-entry BTB, 16-entry RAS |
 | L1D | 32KB, 4-way | 3-cycle load-to-use, 8 MSHRs |
-| Prefetch | Load/store unit | Load stride prefetcher, 1 line ahead, keeps to the page; SiFive has not published the P550's prefetchers |
+| Prefetch | Load/store unit | Load stride prefetcher, 6 lines ahead, keeps to the page; SiFive has not published the P550's prefetchers, and the distance is the shortest that comes near the 8 bytes a cycle measured from L2 and L3 |
 | L2 | 256KB, 8-way | 13-cycle load-to-use, 16 MSHRs |
 | L3 | 4MB, 16-way | 38-cycle load-to-use, 32 MSHRs |
 | Memory | LPDDR5 DRAM | 194 ns (272 cycles) random-access load-to-use |
