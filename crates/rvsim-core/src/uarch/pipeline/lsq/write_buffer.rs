@@ -8,9 +8,12 @@
 //!
 //! - once every byte of its line is written;
 //! - when a load needs bytes it holds only some of;
-//! - when the L1D write port is free, the store buffers having no store
-//!   that can go, which is also how it empties before anything that waits
-//!   for older stores, and how a store for another line gets an entry.
+//! - when a store for another line needs an entry and none is free (the
+//!   least recently merged line goes);
+//! - when something must follow every older store: a barrier, an atomic,
+//!   a store to a device, or a drain of the memory system;
+//! - once no store has merged into it for its idle time, so a line that
+//!   is not finished is still written soon.
 //!
 //! A sent line keeps its entry, and keeps forwarding, until the L1D
 //! acknowledges that it has written it, as a store-buffer entry does: the
@@ -23,6 +26,7 @@
 use crate::common::{PhysAddr, usize_of};
 use crate::sim::components::ReqId;
 use crate::uarch::pipeline::lsq::store_buffer::ForwardResult;
+use std::num::NonZeroU64;
 
 /// Largest span one entry covers: its byte mask is a `u64`.
 const MAX_ENTRY_BYTES: usize = 64;
@@ -50,7 +54,9 @@ struct WcbEntry {
     line: WcbLine,
     /// Access sequence of the last merge (larger is more recent).
     last_use: u64,
-    /// A load needs this line written before it can read memory.
+    /// The cycle of the last merge.
+    merged_at: u64,
+    /// Something waits for this line to be written.
     send_requested: bool,
 }
 
@@ -58,6 +64,8 @@ struct WcbEntry {
 #[derive(Debug)]
 pub struct WriteCombiningBuffer {
     capacity: usize,
+    /// Cycles a line waits for another store before it is written.
+    idle_cycles: u64,
     /// Lines gathering stores.
     merging: Vec<WcbEntry>,
     entry_bytes: usize,
@@ -75,12 +83,14 @@ struct SentLine {
 
 impl WriteCombiningBuffer {
     /// A WCB of `capacity` entries, each covering one `line_bytes` line (at
-    /// most 64 bytes of it). A capacity of 0 disables the WCB and stores
-    /// write the L1D themselves.
-    pub fn new(capacity: usize, line_bytes: usize) -> Self {
+    /// most 64 bytes of it), that writes a line once no store has merged
+    /// into it for `idle_cycles`. A capacity of 0 disables the WCB and
+    /// stores write the L1D themselves.
+    pub fn new(capacity: usize, line_bytes: usize, idle_cycles: NonZeroU64) -> Self {
         let entry_bytes = if line_bytes == 0 { 64 } else { line_bytes.min(MAX_ENTRY_BYTES) };
         Self {
             capacity,
+            idle_cycles: idle_cycles.get(),
             merging: Vec::with_capacity(capacity),
             entry_bytes,
             next_use: 0,
@@ -133,10 +143,10 @@ impl WriteCombiningBuffer {
         new_lines <= self.free_entries()
     }
 
-    /// Merges `bytes` bytes of `data` at `paddr`, which must lie in one
-    /// entry's span of an enabled buffer with room for it
+    /// Merges `bytes` bytes of `data` at `paddr` in cycle `now`. The bytes
+    /// must lie in one entry's span of an enabled buffer with room for them
     /// ([`Self::has_room_for`]).
-    pub fn merge_store(&mut self, paddr: PhysAddr, data: u64, bytes: usize) {
+    pub fn merge_store(&mut self, paddr: PhysAddr, data: u64, bytes: usize, now: u64) {
         let base = self.entry_base(paddr.val());
         debug_assert!(
             paddr.val() - base + bytes as u64 <= self.entry_bytes as u64,
@@ -147,6 +157,7 @@ impl WriteCombiningBuffer {
             self.merging.push(WcbEntry {
                 line: WcbLine::empty(base),
                 last_use: 0,
+                merged_at: now,
                 send_requested: false,
             });
             self.merging.len() - 1
@@ -154,6 +165,7 @@ impl WriteCombiningBuffer {
         self.next_use += 1;
         let entry = &mut self.merging[index];
         entry.last_use = self.next_use;
+        entry.merged_at = now;
         let offset = usize_of(paddr.val() - base);
         for (i, byte) in data.to_le_bytes().iter().take(bytes).enumerate() {
             entry.line.data[offset + i] = *byte;
@@ -230,8 +242,28 @@ impl WriteCombiningBuffer {
         overlapped
     }
 
-    /// Takes a line that must go now: one a load is waiting for, or one
-    /// that is fully written.
+    /// Marks every merging line to be sent, for something that must follow
+    /// every older store.
+    pub fn request_send_all(&mut self) {
+        for entry in &mut self.merging {
+            entry.send_requested = true;
+        }
+    }
+
+    /// Marks the least recently merged line to be sent, unless a line is
+    /// already marked, so that a store for another line gets its entry
+    /// once the L1D has written it.
+    pub fn request_eviction(&mut self) {
+        if self.merging.iter().any(|entry| entry.send_requested) {
+            return;
+        }
+        if let Some(entry) = self.merging.iter_mut().min_by_key(|entry| entry.last_use) {
+            entry.send_requested = true;
+        }
+    }
+
+    /// Takes a line that must go now: one something waits for, or one that
+    /// is fully written.
     pub fn take_urgent(&mut self) -> Option<WcbLine> {
         let full = self.full_mask();
         let index = self
@@ -241,15 +273,14 @@ impl WriteCombiningBuffer {
         Some(self.merging.swap_remove(index).line)
     }
 
-    /// Takes the least recently merged line, to send while the write port
-    /// is free.
-    pub fn take_oldest(&mut self) -> Option<WcbLine> {
-        let index = self
-            .merging
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, entry)| entry.last_use)
-            .map(|(index, _)| index)?;
+    /// Takes the least recently merged line if no store has merged into it
+    /// for its idle time by cycle `now`.
+    pub fn take_idle(&mut self, now: u64) -> Option<WcbLine> {
+        let (index, entry) =
+            self.merging.iter().enumerate().min_by_key(|(_, entry)| entry.last_use)?;
+        if now - entry.merged_at < self.idle_cycles {
+            return None;
+        }
         Some(self.merging.swap_remove(index).line)
     }
 
@@ -283,36 +314,75 @@ impl WriteCombiningBuffer {
 mod tests {
     use super::*;
 
+    const IDLE: u64 = 16;
+
     fn wcb(capacity: usize) -> WriteCombiningBuffer {
-        WriteCombiningBuffer::new(capacity, 64)
+        WriteCombiningBuffer::new(capacity, 64, NonZeroU64::new(IDLE).unwrap())
     }
 
     #[test]
     fn stores_to_one_line_share_an_entry() {
         let mut wcb = wcb(4);
-        wcb.merge_store(PhysAddr::new(0x1000), 0xAA, 1);
-        wcb.merge_store(PhysAddr::new(0x1008), 0xBB, 1);
+        wcb.merge_store(PhysAddr::new(0x1000), 0xAA, 1, 0);
+        wcb.merge_store(PhysAddr::new(0x1008), 0xBB, 1, 0);
         assert_eq!(wcb.active_count(), 1);
     }
 
     #[test]
     fn a_full_buffer_takes_stores_to_its_lines_and_no_new_line() {
         let mut wcb = wcb(2);
-        wcb.merge_store(PhysAddr::new(0x1000), 1, 4);
-        wcb.merge_store(PhysAddr::new(0x1040), 2, 4);
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 4, 0);
+        wcb.merge_store(PhysAddr::new(0x1040), 2, 4, 0);
 
         assert!(wcb.has_room_for(&[PhysAddr::new(0x1004)]));
         assert!(!wcb.has_room_for(&[PhysAddr::new(0x1080)]));
     }
 
     #[test]
+    fn a_line_waits_its_idle_time_for_another_store() {
+        let mut wcb = wcb(2);
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 8, 0);
+        wcb.merge_store(PhysAddr::new(0x1008), 2, 8, 10);
+
+        assert!(wcb.take_idle(10 + IDLE - 1).is_none());
+        assert_eq!(wcb.take_idle(10 + IDLE).map(|line| line.mask), Some(0xFFFF));
+    }
+
+    #[test]
+    fn everything_waiting_on_older_stores_gets_every_line_sent() {
+        let mut wcb = wcb(2);
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 8, 0);
+        wcb.merge_store(PhysAddr::new(0x1040), 2, 8, 0);
+
+        wcb.request_send_all();
+
+        assert!(wcb.take_urgent().is_some());
+        assert!(wcb.take_urgent().is_some());
+        assert!(!wcb.holds_entry_for(PhysAddr::new(0x1000)));
+    }
+
+    #[test]
+    fn an_eviction_sends_only_the_least_recently_merged_line() {
+        let mut wcb = wcb(2);
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 8, 0);
+        wcb.merge_store(PhysAddr::new(0x1040), 2, 8, 0);
+        wcb.merge_store(PhysAddr::new(0x1008), 3, 8, 0);
+
+        wcb.request_eviction();
+        wcb.request_eviction();
+
+        assert_eq!(wcb.take_urgent().map(|line| line.line_addr), Some(0x1040));
+        assert!(wcb.take_urgent().is_none());
+    }
+
+    #[test]
     fn the_least_recently_merged_line_is_sent_first() {
         let mut wcb = wcb(2);
-        wcb.merge_store(PhysAddr::new(0x1000), 1, 4);
-        wcb.merge_store(PhysAddr::new(0x1040), 2, 4);
-        wcb.merge_store(PhysAddr::new(0x1004), 3, 4);
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 4, 0);
+        wcb.merge_store(PhysAddr::new(0x1040), 2, 4, 0);
+        wcb.merge_store(PhysAddr::new(0x1004), 3, 4, 0);
 
-        let oldest = wcb.take_oldest().unwrap();
+        let oldest = wcb.take_idle(IDLE).unwrap();
 
         assert_eq!(oldest.line_addr, 0x1040);
         assert_eq!(oldest.mask, 0xF);
@@ -321,9 +391,9 @@ mod tests {
     #[test]
     fn a_sent_line_keeps_its_entry_until_acknowledged() {
         let mut wcb = wcb(2);
-        wcb.merge_store(PhysAddr::new(0x1000), 1, 8);
-        wcb.merge_store(PhysAddr::new(0x1040), 2, 8);
-        let line = wcb.take_oldest().unwrap();
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 8, 0);
+        wcb.merge_store(PhysAddr::new(0x1040), 2, 8, 0);
+        let line = wcb.take_idle(IDLE).unwrap();
         wcb.sent(ReqId::new(7), line);
         assert!(!wcb.has_room_for(&[PhysAddr::new(0x1080)]));
 
@@ -335,19 +405,19 @@ mod tests {
     #[test]
     fn a_store_across_two_lines_needs_an_entry_for_each_new_one() {
         let mut wcb = wcb(2);
-        wcb.merge_store(PhysAddr::new(0x1000), 1, 4);
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 4, 0);
         let across = [PhysAddr::new(0x103C), PhysAddr::new(0x1040)];
 
         assert!(wcb.has_room_for(&across));
-        wcb.merge_store(PhysAddr::new(0x1080), 2, 4);
+        wcb.merge_store(PhysAddr::new(0x1080), 2, 4, 0);
         assert!(!wcb.has_room_for(&across));
     }
 
     #[test]
     fn a_load_it_covers_reads_the_merged_bytes() {
         let mut wcb = wcb(2);
-        wcb.merge_store(PhysAddr::new(0x1000), 0x1122, 2);
-        wcb.merge_store(PhysAddr::new(0x1002), 0x3344, 2);
+        wcb.merge_store(PhysAddr::new(0x1000), 0x1122, 2, 0);
+        wcb.merge_store(PhysAddr::new(0x1002), 0x3344, 2, 0);
 
         assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 4), ForwardResult::Hit(0x3344_1122));
         assert_eq!(wcb.forward_load(PhysAddr::new(0x1004), 4), ForwardResult::Miss);
@@ -356,7 +426,7 @@ mod tests {
     #[test]
     fn a_load_it_covers_partly_waits_and_gets_the_line_sent() {
         let mut wcb = wcb(2);
-        wcb.merge_store(PhysAddr::new(0x1000), 0x11, 1);
+        wcb.merge_store(PhysAddr::new(0x1000), 0x11, 1, 0);
 
         assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 2), ForwardResult::Stall);
         let sent = wcb.take_urgent().unwrap();
@@ -368,7 +438,7 @@ mod tests {
     #[test]
     fn a_masked_send_request_marks_only_lines_holding_the_selected_bytes() {
         let mut wcb = wcb(2);
-        wcb.merge_store(PhysAddr::new(0x1000), 1, 8);
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 8, 0);
 
         assert!(!wcb.request_send_masked(PhysAddr::new(0x1000), 0xFF00));
         assert!(wcb.take_urgent().is_none());
@@ -380,7 +450,7 @@ mod tests {
     fn a_fully_written_line_is_sent_at_once() {
         let mut wcb = wcb(2);
         for offset in (0..64).step_by(8) {
-            wcb.merge_store(PhysAddr::new(0x2000 + offset), offset, 8);
+            wcb.merge_store(PhysAddr::new(0x2000 + offset), offset, 8, 0);
         }
 
         assert_eq!(wcb.take_urgent().map(|line| line.mask), Some(u64::MAX));
@@ -389,8 +459,8 @@ mod tests {
     #[test]
     fn a_sent_line_forwards_and_is_pending_until_acknowledged() {
         let mut wcb = wcb(2);
-        wcb.merge_store(PhysAddr::new(0x1000), 1, 8);
-        let line = wcb.take_oldest().unwrap();
+        wcb.merge_store(PhysAddr::new(0x1000), 1, 8, 0);
+        let line = wcb.take_idle(IDLE).unwrap();
         wcb.sent(ReqId::new(7), line);
         assert!(wcb.has_pending());
         assert_eq!(wcb.forward_load(PhysAddr::new(0x1000), 8), ForwardResult::Hit(1));

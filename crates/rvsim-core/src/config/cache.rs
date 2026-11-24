@@ -3,7 +3,7 @@
 use super::defaults;
 use super::prefetch::{LoadPrefetcherConfig, StorePrefetcherConfig};
 use serde::{Deserialize, Serialize};
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU64, NonZeroUsize};
 
 /// Cache replacement policy algorithms.
 ///
@@ -93,7 +93,7 @@ pub enum PrefetcherKind {
 }
 
 /// Cache hierarchy configuration.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CacheHierarchyConfig {
     /// L1 instruction cache
@@ -110,6 +110,10 @@ pub struct CacheHierarchyConfig {
     /// Number of Write Combining Buffer entries (0 = disabled)
     #[serde(default)]
     pub wcb_entries: usize,
+    /// Cycles a partly written WCB line waits for another store before it
+    /// is written.
+    #[serde(default = "CacheHierarchyConfig::default_wcb_idle_cycles")]
+    pub wcb_idle_cycles: NonZeroU64,
     /// The load/store unit's load prefetcher.
     #[serde(default)]
     pub load_prefetcher: LoadPrefetcherConfig,
@@ -118,7 +122,27 @@ pub struct CacheHierarchyConfig {
     pub store_prefetcher: StorePrefetcherConfig,
 }
 
+impl Default for CacheHierarchyConfig {
+    fn default() -> Self {
+        Self {
+            l1_i: CacheConfig::default(),
+            l1_d: CacheConfig::default(),
+            l2: CacheConfig::default(),
+            l3: CacheConfig::default(),
+            inclusion_policy: InclusionPolicy::default(),
+            wcb_entries: 0,
+            wcb_idle_cycles: defaults::WCB_IDLE_CYCLES,
+            load_prefetcher: LoadPrefetcherConfig::default(),
+            store_prefetcher: StorePrefetcherConfig::default(),
+        }
+    }
+}
+
 impl CacheHierarchyConfig {
+    const fn default_wcb_idle_cycles() -> NonZeroU64 {
+        defaults::WCB_IDLE_CYCLES
+    }
+
     /// True when FENCE.I must flush the L1D, writing back its dirty lines:
     /// no cache joins the L1I's and L1D's paths below them, so nothing
     /// keeps instruction fetches coherent with the L1D.

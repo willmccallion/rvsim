@@ -122,6 +122,7 @@ class Config:
     l3: Cache | None = _DEFAULT_L3
     inclusion_policy: _AnyInclusionPolicy = _DEFAULT_INCLUSION_POLICY
     wcb_entries: int = _CACHES["wcb_entries"]
+    wcb_idle_cycles: int = _CACHES["wcb_idle_cycles"]
     load_prefetcher: LoadPrefetcher.Stride | None = _DEFAULT_LOAD_PREFETCHER
     store_prefetcher: StorePrefetcher.Stream | None = _DEFAULT_STORE_PREFETCHER
     # Memory

@@ -28,9 +28,24 @@ fn addresses() -> Vec<u32> {
     ]
 }
 
-/// Writes `number` and `args` into the block, hands it to the host and
-/// waits for `fromhost`, then clears it.
+/// Writes `number` and `args` into the block, fences, hands it to the
+/// host and waits for `fromhost`, then clears it.
 fn syscall(number: i32, args: &[(RegIdx, Option<i32>)]) -> Vec<u32> {
+    let mut code = write_block(number, args);
+    code.push(FENCE);
+    code.extend(hand_to_host());
+    code
+}
+
+/// [`syscall`] without the fence, as the bundled libc makes one.
+fn unfenced_syscall(number: i32, args: &[(RegIdx, Option<i32>)]) -> Vec<u32> {
+    let mut code = write_block(number, args);
+    code.extend(hand_to_host());
+    code
+}
+
+/// Writes `number` and `args` into the block.
+fn write_block(number: i32, args: &[(RegIdx, Option<i32>)]) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut code = vec![i().addi(A0, X0, number).build(), i().sd(T1, A0, 0).build()];
     for (slot, (reg, immediate)) in args.iter().enumerate() {
@@ -43,12 +58,18 @@ fn syscall(number: i32, args: &[(RegIdx, Option<i32>)]) -> Vec<u32> {
             None => code.push(i().sd(T1, *reg, offset).build()),
         }
     }
-    code.push(FENCE);
-    code.push(i().sd(T0, T1, 0).build());
-    code.push(i().ld(A1, T0, 8).build());
-    code.push(i().beq(A1, X0, -4).build());
-    code.push(i().sd(T0, X0, 8).build());
     code
+}
+
+/// Hands the block to the host, waits for `fromhost`, then clears it.
+fn hand_to_host() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().sd(T0, T1, 0).build(),
+        i().ld(A1, T0, 8).build(),
+        i().beq(A1, X0, -4).build(),
+        i().sd(T0, X0, 8).build(),
+    ]
 }
 
 /// Runs `program` with the HTIF device serving it; returns why the run
@@ -62,7 +83,13 @@ fn run_on(
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.system.console = console;
-    let mut tc = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
+    run_config(&config, program, args)
+}
+
+/// Runs `program` on `config` with the HTIF device serving it; returns why
+/// the run stopped and what the console captured.
+fn run_config(config: &Config, program: &[u32], args: &[&str]) -> (StopReason, Vec<u8>) {
+    let mut tc = TestContext::with_fast_memory(config).load_program(PROGRAM_BASE, program);
     let exit_signal = tc.sim.state.uncore.run.exit_signal.clone();
     tc.sim.state.uncore.add_htif(
         TOHOST,
@@ -80,16 +107,17 @@ fn run(backend: BackendKind, program: &[u32], args: &[&str]) -> StopReason {
     run_on(backend, Console::Quiet, program, args).0
 }
 
+/// Stores "hi\n" in the buffer.
+fn store_greeting() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![i().lui(A0, 0xa7).build(), i().addi(A0, A0, -0x698).build(), i().sw(T2, A0, 0).build()]
+}
+
 /// A `write` to descriptor 1 through the block prints to the console.
 #[test]
 fn a_write_through_the_block_reaches_the_console() {
-    let i = InstructionBuilder::new;
     let mut program = addresses();
-    program.extend([
-        i().lui(A0, 0xa7).build(),
-        i().addi(A0, A0, -0x698).build(),
-        i().sw(T2, A0, 0).build(),
-    ]);
+    program.extend(store_greeting());
     program.extend(syscall(SYS_WRITE, &[(X0, Some(1)), (T2, None), (X0, Some(3))]));
     program.extend(syscall(SYS_EXIT, &[(X0, Some(0))]));
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
@@ -156,5 +184,28 @@ fn a_write_reaches_htif_only_inside_its_sixteen_bytes() {
         let stop = run(backend, &program, &[]);
 
         assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
+    }
+}
+
+/// The host reads the block and the buffer as soon as `tohost` is
+/// written, so that store waits until a write-combining buffer has written
+/// the stores before it: an unfenced `write` prints what was stored.
+#[test]
+fn an_unfenced_syscall_sees_the_stores_the_write_combining_buffer_held() {
+    let mut program = addresses();
+    program.extend(store_greeting());
+    program.extend(unfenced_syscall(SYS_WRITE, &[(X0, Some(1)), (T2, None), (X0, Some(3))]));
+    program.extend(unfenced_syscall(SYS_EXIT, &[(X0, Some(0))]));
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut config = Config::minimal();
+        config.pipeline.backend = backend;
+        config.system.console = Console::Captured;
+        config.cache.l1_d.enabled = true;
+        config.cache.wcb_entries = 4;
+
+        let (stop, output) = run_config(&config, &program, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
+        assert_eq!(output, b"hi\n", "{backend:?}");
     }
 }

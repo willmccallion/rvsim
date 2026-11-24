@@ -92,6 +92,7 @@ fn every_store_reaches_memory_without_a_fence() {
 }
 
 const STREAM_COUNT: RegIdx = RegIdx::new(8);
+const STREAM_VALUE: RegIdx = RegIdx::new(9);
 /// Lines the stream writes, a doubleword at a time.
 const STREAM_LINES: i32 = 128;
 const LINE_BYTES: i32 = 64;
@@ -99,7 +100,9 @@ const STREAM_CYCLES: u64 = 100_000;
 /// Slower to write a line than the stream is to fill one.
 const SLOW_L1D_LATENCY: u64 = 50;
 
-/// Writes `STREAM_LINES` consecutive lines from `DATA`, a line a loop.
+/// Writes `STREAM_LINES` consecutive lines from `DATA`, a line a loop,
+/// working out each doubleword it stores, so the stores leave the write
+/// port free between them.
 fn store_stream() -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![
@@ -107,8 +110,13 @@ fn store_stream() -> Vec<u32> {
         i().addi(BASE, BASE, (DATA - PROGRAM_BASE) as i32).build(),
         i().addi(STREAM_COUNT, X0, STREAM_LINES).build(),
     ];
-    let stores: Vec<u32> =
-        (0..LINE_BYTES).step_by(8).map(|offset| i().sd(BASE, BASE, offset).build()).collect();
+    let stores: Vec<u32> = (0..LINE_BYTES)
+        .step_by(8)
+        .flat_map(|offset| {
+            let store = i().sd(BASE, STREAM_VALUE, offset).build();
+            [store, i().addi(STREAM_VALUE, STREAM_VALUE, 1).build()]
+        })
+        .collect();
     let loop_bytes = 4 * (stores.len() as i32 + 2);
     program.extend(stores);
     program.extend([
@@ -121,30 +129,56 @@ fn store_stream() -> Vec<u32> {
     program
 }
 
+/// A machine with an L1D and a four-entry WCB on `backend`.
+fn stream_machine(backend: BackendKind) -> Config {
+    let mut config = Config::minimal();
+    config.pipeline.backend = backend;
+    config.cache.l1_d.enabled = true;
+    config.cache.wcb_entries = 4;
+    config
+}
+
+/// Runs the store stream on `config` until it is written, calling
+/// `each_cycle` before every cycle.
+fn run_stream(config: &Config, mut each_cycle: impl FnMut(&TestContext)) -> TestContext {
+    let mut ctx = TestContext::with_fast_memory(config).load_program(PROGRAM_BASE, &store_stream());
+    for _ in 0..STREAM_CYCLES {
+        each_cycle(&ctx);
+        let core = &ctx.sim.state.cores[0];
+        if ctx.get_reg(DONE_REG) == DONE && !core.pipeline.has_committed_writes(&core.units) {
+            break;
+        }
+        ctx.run(1);
+    }
+    assert_eq!(ctx.get_reg(DONE_REG), DONE, "the stream finished");
+    ctx
+}
+
 #[test]
 fn a_slow_l1d_holds_back_the_stores_behind_the_buffer() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let mut config = Config::minimal();
-        config.pipeline.backend = backend;
-        config.cache.l1_d.enabled = true;
+        let mut config = stream_machine(backend);
         config.cache.l1_d.mshr_count = NonZeroUsize::MIN;
         config.cache.l1_d.latency = SLOW_L1D_LATENCY;
-        config.cache.wcb_entries = 4;
         let held = config.cache.wcb_entries + config.pipeline.store_buffer_size;
-        let mut ctx =
-            TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &store_stream());
 
         let mut most_waiting = 0;
-        for _ in 0..STREAM_CYCLES {
-            let core = &ctx.sim.state.cores[0];
-            most_waiting = most_waiting.max(core.units.l1_d_cache.blocked_requests());
-            if ctx.get_reg(DONE_REG) == DONE && !core.pipeline.has_committed_writes(&core.units) {
-                break;
-            }
-            ctx.run(1);
-        }
+        let _ = run_stream(&config, |ctx| {
+            let waiting = ctx.sim.state.cores[0].units.l1_d_cache.blocked_requests();
+            most_waiting = most_waiting.max(waiting);
+        });
 
-        assert_eq!(ctx.get_reg(DONE_REG), DONE, "{backend:?} finished the stream");
         assert!(most_waiting <= held, "{backend:?}: {most_waiting} writes waited for the L1D");
+    }
+}
+
+#[test]
+fn a_store_stream_reaches_the_l1d_a_whole_line_at_a_time() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let ctx = run_stream(&stream_machine(backend), |_| {});
+
+        let drains = ctx.sim.state.cores[0].units.stat_paths.wcb.drains;
+        let line_writes = ctx.sim.state.uncore.kernel.stats.get(drains).unwrap_or(0.0);
+        assert_eq!(line_writes as i32, STREAM_LINES, "{backend:?}");
     }
 }

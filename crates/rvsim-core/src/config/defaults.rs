@@ -154,6 +154,12 @@ pub const WRITE_BUFFERS: NonZeroUsize = non_zero(8);
 /// L1; its L2 uses 12).
 pub const TARGETS_PER_MSHR: NonZeroUsize = non_zero(20);
 
+/// Default cycles a partly written write-combining line waits for another
+/// store before it is written. No core's documentation gives one: long
+/// enough for a loop's next store to the line to join it, short enough
+/// that a lone store reaches the cache soon.
+pub const WCB_IDLE_CYCLES: NonZeroU64 = non_zero_u64(16);
+
 /// `count` as a non-zero default, checked when the constant is evaluated.
 pub(super) const fn non_zero(count: usize) -> NonZeroUsize {
     match NonZeroUsize::new(count) {
