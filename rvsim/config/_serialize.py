@@ -23,6 +23,7 @@ from .memory import (
     Prefetcher,
     ReplacementPolicy,
     StorePrefetcher,
+    WriteStreaming,
     _AnyMemoryController,
 )
 
@@ -242,6 +243,13 @@ def _store_prefetcher_to_dict(p: StorePrefetcher.Stream | None) -> dict[str, Any
     return {"kind": "Stream", "streams": p.streams, "l2_lines": p.l2_lines}
 
 
+def _write_streaming_to_dict(w: WriteStreaming | None) -> dict[str, Any] | None:
+    """When runs of whole-line writes stop allocating, or None."""
+    if w is None:
+        return None
+    return {"skip_l1_from": w.skip_l1_from, "skip_l2_from": w.skip_l2_from}
+
+
 def _controller_dicts(mc: _AnyMemoryController) -> dict[str, Any]:
     """The memory fields the memory controller sets."""
     fields: dict[str, Any] = {"controller": _name(MemoryController, mc)}
@@ -321,6 +329,7 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "wcb_idle_cycles": cfg.wcb_idle_cycles,
         "load_prefetcher": _load_prefetcher_to_dict(cfg.load_prefetcher),
         "store_prefetcher": _store_prefetcher_to_dict(cfg.store_prefetcher),
+        "write_streaming": _write_streaming_to_dict(cfg.write_streaming),
     }
     pipeline = {
         "width": cfg.width,

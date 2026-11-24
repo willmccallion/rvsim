@@ -235,6 +235,14 @@ fn check_caches(cache: &CacheHierarchyConfig) -> Result<(), ConfigError> {
     if cache.wcb_entries == 1 {
         return Err(ConfigError::SingleEntryWcb);
     }
+    if let Some(streaming) = cache.write_streaming
+        && streaming.skip_l2_from < streaming.skip_l1_from
+    {
+        return Err(ConfigError::WriteStreamingOrder {
+            skip_l1_from: streaming.skip_l1_from.get(),
+            skip_l2_from: streaming.skip_l2_from.get(),
+        });
+    }
     if let LoadPrefetcherConfig::Stride { table_size, .. } = cache.load_prefetcher {
         power_of_two("cache.load_prefetcher.table_size", table_size)?;
     }

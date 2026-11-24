@@ -113,7 +113,7 @@ impl CoherenceProtocol for Mesi {
                 Some(owner) if owner != requester => vec![(owner, SnoopKind::Shared)],
                 _ => Vec::new(),
             },
-            ReqKind::ReadUnique | ReqKind::CleanUnique => {
+            ReqKind::ReadUnique | ReqKind::CleanUnique | ReqKind::WriteUniqueFull => {
                 others.iter().map(|core| (core, SnoopKind::Unique)).collect()
             }
             ReqKind::Maintain { op: Maintenance::Clean, .. } => match holders.owner {
@@ -136,9 +136,10 @@ impl CoherenceProtocol for Mesi {
             ReqKind::ReadShared if others_remain => MesiState::Shared,
             ReqKind::ReadShared => MesiState::Exclusive,
             ReqKind::ReadUnique | ReqKind::CleanUnique => MesiState::Modified,
-            ReqKind::WriteBack { .. } | ReqKind::Evict | ReqKind::Maintain { .. } => {
-                MesiState::Invalid
-            }
+            ReqKind::WriteBack { .. }
+            | ReqKind::Evict
+            | ReqKind::WriteUniqueFull
+            | ReqKind::Maintain { .. } => MesiState::Invalid,
         }
     }
 
@@ -192,6 +193,16 @@ mod tests {
         assert_eq!(snoops, vec![(C0, SnoopKind::Unique)]);
         assert_eq!(mesi.grant(ReqKind::ReadUnique, false), MesiState::Modified);
         assert_eq!(mesi.grant(ReqKind::CleanUnique, false), MesiState::Modified);
+    }
+
+    #[test]
+    fn a_full_line_write_invalidates_every_other_holder_and_grants_nothing() {
+        let mesi = Mesi;
+
+        let snoops = mesi.snoops_for(ReqKind::WriteUniqueFull, C0, holders(&[C1, C2], Some(C1)));
+
+        assert_eq!(snoops, vec![(C1, SnoopKind::Unique), (C2, SnoopKind::Unique)]);
+        assert_eq!(mesi.grant(ReqKind::WriteUniqueFull, false), MesiState::Invalid);
     }
 
     #[test]

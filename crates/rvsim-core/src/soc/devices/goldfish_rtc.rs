@@ -66,6 +66,7 @@ impl MmioRegisters for GoldfishRtc {
             }
             MemOp::Write { .. }
             | MemOp::Writeback { .. }
+            | MemOp::WriteFull { .. }
             | MemOp::Maintain { .. }
             | MemOp::Prefetch { .. } => 0,
         }

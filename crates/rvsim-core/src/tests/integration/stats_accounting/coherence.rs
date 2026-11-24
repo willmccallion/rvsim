@@ -5,10 +5,13 @@
 use super::{Recorder, accounting_checks};
 use crate::common::VirtAddr;
 use crate::config::Console;
-use crate::config::{BackendKind, Config, HomeAgentConfig, InterconnectConfig};
+use crate::config::{
+    BackendKind, Config, HomeAgentConfig, InterconnectConfig, WriteStreamingConfig,
+};
 use crate::system::simulator::StopAt;
 use crate::system::simulator::StopReason;
 use crate::tests::support::builder::instruction::{FENCE_IORW, InstructionBuilder};
+use crate::tests::support::count;
 use crate::tests::support::harness::PROGRAM_BASE;
 use crate::tests::support::multihart::MultiHart;
 use crate::tests::support::regs::{T0, T1, T2, T3, T4, T5, T6, X0};
@@ -90,6 +93,42 @@ fn ping_pong(rounds: i32, mine: i32, theirs: i32) -> Vec<u32> {
         i().addi(T1, T1, -1).build(),
         i().bne(T1, X0, -12).build(),
     ]
+}
+
+/// Offset from `t2` of the first line `whole_lines` writes, clear of the
+/// done flag's line.
+const STREAM_OFFSET: i32 = 0x700;
+
+/// Writes `lines` consecutive whole lines, eight doublewords each, in a
+/// loop as a fill does.
+fn whole_lines(lines: i32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut code = vec![i().addi(T4, T2, STREAM_OFFSET).build(), i().addi(T1, X0, lines).build()];
+    code.extend((0..8).map(|n| i().sd(T4, T0, 8 * n).build()));
+    code.extend([
+        i().addi(T4, T4, 64).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, X0, -40).build(),
+    ]);
+    code
+}
+
+fn a_streamed_line_past_the_l2_is_written_unique_through_the_home(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut config = two_cached_harts(backend);
+        config.cache.wcb_entries = 4;
+        config.cache.write_streaming =
+            Some(WriteStreamingConfig { skip_l1_from: count(4), skip_l2_from: count(12) });
+
+        let system = run_settled(&config, per_hart(&whole_lines(20), &[]), &context);
+
+        // Lines 12 to 20 skip the L2, which holds no copy to write back.
+        rec.expect(&system.sim, "core0.cache.l2.streamed_writes", 9, &context);
+        rec.expect(&system.sim, "coherence.ha.requests.write_unique_full", 9, &context);
+        // A coherent L2 takes ownership of lines 4 to 11 with a fetch.
+        rec.expect(&system.sim, "core0.cache.l2.streamed_installs", 0, &context);
+    }
 }
 
 fn sum_over_cores(rec: &mut Recorder, system: &MultiHart, tail: &str) -> u64 {
@@ -498,4 +537,5 @@ accounting_checks!(
     an_upgrade_a_snoop_overtook_is_retried_for_data,
     remote_writes_replay_lrs_and_squash_loads_that_read_too_early,
     the_system_sums_what_every_hart_counts,
+    a_streamed_line_past_the_l2_is_written_unique_through_the_home,
 );

@@ -20,6 +20,11 @@ crate::sim::stats::paths::stat_paths! {
         evictions: "evictions" => Events,
         /// Lines written back to the next level.
         writebacks: "writebacks" => Events,
+        /// Whole-line writes in a run passed to the next level without
+        /// being fetched or kept (write streaming).
+        streamed_writes: "streamed_writes" => Events,
+        /// Streamed lines from the level above kept without a fetch.
+        streamed_installs: "streamed_installs" => Events,
         /// Lines invalidated on request of the next level.
         back_invalidations: "back_invalidations" => Events,
         /// Cache-maintenance operations (`cbo.clean` / `flush` / `inval`) passed

@@ -362,7 +362,8 @@ fn request_bytes(packet: &Packet) -> usize {
             COMMAND_BYTES + bytes.len()
         }
         Packet::MemReq {
-            op: MemOp::Writeback { .. } | MemOp::Maintain { dirty: true, .. },
+            op:
+                MemOp::Writeback { .. } | MemOp::WriteFull { .. } | MemOp::Maintain { dirty: true, .. },
             size,
             ..
         } => COMMAND_BYTES + size.bytes(),
@@ -375,7 +376,11 @@ fn request_bytes(packet: &Packet) -> usize {
 const fn response_bytes(packet: &Packet) -> usize {
     match packet {
         Packet::MemReq {
-            op: MemOp::Write { .. } | MemOp::Writeback { .. } | MemOp::Maintain { .. },
+            op:
+                MemOp::Write { .. }
+                | MemOp::Writeback { .. }
+                | MemOp::WriteFull { .. }
+                | MemOp::Maintain { .. },
             ..
         } => COMMAND_BYTES,
         Packet::MemReq { size, .. } => size.bytes(),

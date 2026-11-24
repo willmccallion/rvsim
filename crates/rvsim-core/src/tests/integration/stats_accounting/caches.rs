@@ -9,6 +9,7 @@ use crate::config::LoadPrefetcherConfig;
 use crate::config::PageBoundary;
 use crate::config::{
     BackendKind, CacheConfig, Config, InclusionPolicy, PrefetcherKind, StorePrefetcherConfig,
+    WriteStreamingConfig,
 };
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::CBO_CLEAN_IMM;
@@ -96,13 +97,18 @@ fn check_settled_cache(rec: &mut Recorder, ctx: &TestContext, cache: &str, conte
     let mut stat = |name: &str| rec.read(sim, &format!("{cache}.{name}"));
     let (hits, misses, mshr_hits) = (stat("hits"), stat("misses"), stat("mshr_hits"));
     let (fills, evictions) = (stat("fills"), stat("evictions"));
+    let streamed_installs = stat("streamed_installs");
     let issued = stat("prefetches.issued");
     let (late, useful, unused) =
         (stat("prefetches.late"), stat("prefetches.useful"), stat("prefetches.unused"));
     let used = stat("prefetches.used");
     let fetches = misses - mshr_hits + issued;
     assert_eq!(fills, fetches, "{context}: {cache}: every fetch fills once");
-    assert_eq!(fills - evictions, held_lines(ctx, cache), "{context}: {cache}: lines held");
+    assert_eq!(
+        fills + streamed_installs - evictions,
+        held_lines(ctx, cache),
+        "{context}: {cache}: lines held"
+    );
     assert_eq!(used, late + useful, "{context}: {cache}");
     assert!(late + useful + unused <= issued, "{context}: {cache}: prefetches resolved once");
     let accuracy = if issued == 0 { 0.0 } else { used as f64 / issued as f64 };
@@ -376,6 +382,49 @@ fn store_prefetches_go_to_the_l2_and_are_dropped_without_an_mshr(rec: &mut Recor
     }
 }
 
+/// Writes `lines` consecutive whole lines from `a1`, eight doublewords
+/// each, in a loop as a fill does, then spins.
+fn whole_line_writes(lines: i32) -> (Vec<u32>, u64) {
+    let i = InstructionBuilder::new;
+    let mut code = vec![i().addi(T1, X0, lines).build()];
+    code.extend((0..8).map(|n| i().sd(A1, T0, 8 * n).build()));
+    code.extend([
+        i().addi(A1, A1, 64).build(),
+        i().addi(T1, T1, -1).build(),
+        i().bne(T1, X0, -40).build(),
+    ]);
+    ending_in_spin(code)
+}
+
+/// The Cortex-A72's thresholds: the 4th line of a run skips the L1D, the
+/// 12th the L2 as well.
+fn a72_streaming() -> WriteStreamingConfig {
+    WriteStreamingConfig { skip_l1_from: count(4), skip_l2_from: count(12) }
+}
+
+const STREAMED_LINES: i32 = 20;
+
+fn a_run_of_whole_line_writes_skips_the_l1d_then_the_l2(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut config = hierarchy(backend);
+        config.cache.wcb_entries = 4;
+        config.cache.write_streaming = Some(a72_streaming());
+
+        let ctx = run_settled(&config, whole_line_writes(STREAMED_LINES), &context);
+
+        // Lines 1 to 3 fill the L1D; 4 to 11 skip it and the L2 keeps
+        // them; 12 to 20 skip both and the LLC passes them to memory.
+        rec.expect(&ctx.sim, "core0.cache.l1d.streamed_writes", 17, &context);
+        rec.expect(&ctx.sim, "core0.cache.l2.streamed_installs", 8, &context);
+        rec.expect(&ctx.sim, "core0.cache.l2.streamed_writes", 9, &context);
+        rec.expect(&ctx.sim, "llc.streamed_writes", 9, &context);
+        for cache in ["core0.cache.l1i", "core0.cache.l1d", "core0.cache.l2", "llc"] {
+            let _ = check_settled_cache(rec, &ctx, cache, &context);
+        }
+    }
+}
+
 /// `hierarchy` with every prefetcher on, the load/store unit's included,
 /// and the L2 and LLC inclusive of the levels above them.
 fn everything_on(backend: BackendKind) -> Config {
@@ -407,6 +456,12 @@ fn stats_a_level_cannot_count_stay_zero(rec: &mut Recorder) {
         ("core0.cache.l1i.blocked_requests", "one fetch in flight"),
         // Nothing below the LLC evicts its lines.
         ("llc.back_invalidations", "no level below it"),
+        // Only the L1D streams a hart's writes; nothing streams into it,
+        // and the LLC is never asked to keep a streamed line.
+        ("core0.cache.l1i.streamed_writes", "no writes"),
+        ("core0.cache.l1i.streamed_installs", "no writes"),
+        ("core0.cache.l1d.streamed_installs", "nothing above it streams"),
+        ("llc.streamed_installs", "a line reaching it has skipped the L2"),
     ];
     for backend in BACKENDS {
         let context = format!("{backend:?}");
@@ -608,4 +663,5 @@ accounting_checks!(
     load_prefetches_the_l1d_cannot_take_are_dropped,
     an_instruction_fetch_probes_the_l1d_through_the_l2,
     fence_i_flushes_the_l1d_when_no_l2_joins_the_l1s,
+    a_run_of_whole_line_writes_skips_the_l1d_then_the_l2,
 );

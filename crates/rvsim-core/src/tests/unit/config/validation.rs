@@ -7,7 +7,7 @@ use crate::config::ValidConfig;
 use crate::config::{
     BackendKind, BhtConfigError, CacheConfig, Config, ConfigError, CsrSquash, HomeAgentConfig,
     LoadPrefetcherConfig, MAX_ITTAGE_HISTORY, MemoryControllerKind, PageBoundary, PrefetcherKind,
-    ReplacementPolicyKind,
+    ReplacementPolicyKind, WriteStreamingConfig,
 };
 use std::collections::HashMap;
 
@@ -293,6 +293,21 @@ fn every_cache_level_shares_one_line_size() {
         },
         "{err}"
     );
+}
+
+#[test]
+fn write_streaming_skips_the_l1d_no_later_than_the_l2() {
+    let streaming = |l1, l2| WriteStreamingConfig {
+        skip_l1_from: std::num::NonZero::new(l1).unwrap(),
+        skip_l2_from: std::num::NonZero::new(l2).unwrap(),
+    };
+
+    let err = refused(Config::minimal(), |c| c.cache.write_streaming = Some(streaming(12, 4)));
+    let mut same_line = Config::minimal();
+    same_line.cache.write_streaming = Some(streaming(4, 4));
+
+    assert_eq!(err, ConfigError::WriteStreamingOrder { skip_l1_from: 12, skip_l2_from: 4 });
+    assert!(same_line.validate().is_ok());
 }
 
 #[test]

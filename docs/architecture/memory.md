@@ -157,6 +157,19 @@ predicted hit.
 
 Unified caches accessed on L1 miss. Each level has independent size, associativity, latency, replacement policy, and prefetcher configuration.
 
+### Write streaming
+
+With `write_streaming` set, the L1D counts runs of whole-line hart writes
+to adjacent lines (`soc/cache/write_stream.rs`). Past its first threshold
+a whole-line write that misses, with no fetch of the line in flight, is
+performed and acknowledged at once and sent down through the writeback
+buffer as `MemOp::WriteFull { allocate: true }`; past the second, with
+`allocate: false`. A cache receiving one merges it into a copy it holds,
+installs it without a fetch when asked to keep it, or passes it on;
+memory posts it like a writeback. A coherent L2 passes a line on as a
+`WriteUniqueFull` to the home, which snoops every holder away and writes
+the line to the LLC and memory, granting the requester nothing.
+
 ### Inclusion Policies
 
 The relationship between adjacent levels is configurable:

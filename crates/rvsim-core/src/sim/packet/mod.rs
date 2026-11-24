@@ -168,6 +168,16 @@ pub enum MemOp {
         /// Whether the line was modified.
         dirty: bool,
     },
+    /// A whole line a hart wrote that the level above performed without
+    /// allocating it, because it was one of a run of whole-line writes (the
+    /// Cortex-A72's write streaming): the bytes are already in RAM and the
+    /// packet carries the timing. `allocate` asks the next level to keep
+    /// the line, as the Allocate hint on CHI's `WriteUniqueFull` does;
+    /// otherwise it passes the line on.
+    WriteFull {
+        /// Whether the receiving level should keep the line.
+        allocate: bool,
+    },
     /// A cache-maintenance operation on the request's line (`cbo.clean`,
     /// `cbo.flush`, `cbo.inval`), gem5's `CleanSharedReq` /
     /// `CleanInvalidReq` / `InvalidateReq` to the point of coherence: every
@@ -218,6 +228,7 @@ impl MemOp {
             | Self::Write { .. }
             | Self::Fetch
             | Self::Writeback { .. }
+            | Self::WriteFull { .. }
             | Self::Maintain { .. }
             | Self::Prefetch { .. } => false,
         }

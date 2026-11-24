@@ -120,6 +120,25 @@ pub struct CacheHierarchyConfig {
     /// The L1D's store-miss prefetcher.
     #[serde(default)]
     pub store_prefetcher: StorePrefetcherConfig,
+    /// When a run of whole-line writes stops allocating; `None` never does.
+    #[serde(default)]
+    pub write_streaming: Option<WriteStreamingConfig>,
+}
+
+/// When a run of whole-line writes to consecutive lines stops allocating.
+///
+/// As the Cortex-A72's load/store unit decides (`CPUACTLR_EL1[28:25]`): from
+/// the `skip_l1_from`th line of the run a write that misses the L1D is
+/// performed without fetching or keeping the line, and the L2 keeps it;
+/// from the `skip_l2_from`th the L2 passes it on as well.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WriteStreamingConfig {
+    /// The line of a run from which the L1D does not allocate.
+    pub skip_l1_from: NonZeroUsize,
+    /// The line of a run from which neither the L1D nor the L2 allocates;
+    /// at least `skip_l1_from`.
+    pub skip_l2_from: NonZeroUsize,
 }
 
 impl Default for CacheHierarchyConfig {
@@ -132,6 +151,7 @@ impl Default for CacheHierarchyConfig {
             inclusion_policy: InclusionPolicy::default(),
             wcb_entries: 0,
             wcb_idle_cycles: defaults::WCB_IDLE_CYCLES,
+            write_streaming: None,
             load_prefetcher: LoadPrefetcherConfig::default(),
             store_prefetcher: StorePrefetcherConfig::default(),
         }

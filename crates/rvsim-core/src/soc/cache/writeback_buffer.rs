@@ -23,13 +23,15 @@ pub enum WritebackCause {
     Demanded,
     /// A whole-cache flush wrote it back before invalidating it.
     Flushed,
+    /// A streamed whole-line write passed on without allocating.
+    Streamed,
 }
 
 impl WritebackCause {
     /// True when the writeback holds one of the buffer's slots.
     #[must_use]
     pub const fn takes_slot(self) -> bool {
-        matches!(self, Self::Eviction | Self::Flushed)
+        matches!(self, Self::Eviction | Self::Flushed | Self::Streamed)
     }
 }
 

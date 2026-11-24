@@ -26,6 +26,7 @@ pub use bpred::{
 };
 pub use cache::{
     CacheConfig, CacheHierarchyConfig, InclusionPolicy, PrefetcherKind, ReplacementPolicyKind,
+    WriteStreamingConfig,
 };
 pub use coherence::{
     CoherenceConfig, CoherenceProtocolConfig, HomeAgentConfig, InterconnectConfig,
@@ -168,6 +169,16 @@ pub enum ConfigError {
         "inclusion_policy Exclusive is not supported with hart_count > 1: the L2 must be inclusive of its L1s to answer snoops"
     )]
     ExclusiveWithCoherence,
+    /// Write streaming would bypass the L2 before the L1D.
+    #[error(
+        "write_streaming skip_l2_from {skip_l2_from} is before skip_l1_from {skip_l1_from}: a run skips the L1D no later than the L2"
+    )]
+    WriteStreamingOrder {
+        /// The line from which the L1D does not allocate.
+        skip_l1_from: usize,
+        /// The line from which the L2 does not allocate either.
+        skip_l2_from: usize,
+    },
     /// More harts than the coherence structures can track.
     #[error("hart_count {0} exceeds the 64 cores a coherence sharer set can hold")]
     TooManyHarts(usize),

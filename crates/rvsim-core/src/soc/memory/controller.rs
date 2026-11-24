@@ -348,6 +348,7 @@ fn service_request(
         }
         MemOp::Write { .. }
         | MemOp::Writeback { .. }
+        | MemOp::WriteFull { .. }
         | MemOp::Maintain { .. }
         | MemOp::Prefetch { .. } => MemRespData::Small(0),
     }
@@ -382,12 +383,13 @@ fn acknowledge_now(req_id: ReqId, paddr: PhysAddr, source: ComponentId, ctx: &mu
     answer(Answer { req_id, paddr, data: MemRespData::Small(0), at: ctx.cycle }, source, ctx);
 }
 
-/// True for a cache's victim, which the controller takes into its write
-/// queue and acknowledges at once, as the DDR5 controller does and gem5's
-/// memory takes a `WritebackDirty`: the cache's writeback slot frees then,
-/// not a full memory access later.
+/// True for a whole line a cache sends down (a victim, or a streamed
+/// write), which the controller takes into its write queue and
+/// acknowledges at once, as the DDR5 controller does and gem5's memory
+/// takes a `WritebackDirty`: the cache's slot frees then, not a full
+/// memory access later.
 const fn is_posted(op: &MemOp) -> bool {
-    matches!(op, MemOp::Writeback { .. })
+    matches!(op, MemOp::Writeback { .. } | MemOp::WriteFull { .. })
 }
 
 /// True for a maintenance operation that brings no data: memory, the point

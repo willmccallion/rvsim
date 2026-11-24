@@ -47,6 +47,22 @@ impl Cache {
                 }
                 return;
             }
+            MemOp::WriteFull { .. } => {
+                self.respond(
+                    Response {
+                        target: req.source,
+                        req_id: req.req_id,
+                        paddr: req.paddr,
+                        at: ctx.cycle + self.latency,
+                        hit_level: self.hit_level(),
+                        state: MesiState::Invalid,
+                        data: MemRespData::Small(0),
+                    },
+                    ctx,
+                );
+                self.send_streamed(line, false, ctx);
+                return;
+            }
             MemOp::Write { .. }
             | MemOp::ReadOwn
             | MemOp::Atomic { .. }

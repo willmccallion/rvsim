@@ -426,6 +426,7 @@ impl Ddr5Controller {
             }
             MemOp::Write { .. }
             | MemOp::Writeback { .. }
+            | MemOp::WriteFull { .. }
             | MemOp::Maintain { .. }
             | MemOp::Prefetch { .. } => MemRespData::Small(0),
         })

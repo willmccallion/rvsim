@@ -72,7 +72,10 @@ impl Handle for MockMemory {
                     }
                     0
                 }
-                MemOp::Writeback { .. } | MemOp::Maintain { .. } | MemOp::Prefetch { .. } => 0,
+                MemOp::Writeback { .. }
+                | MemOp::WriteFull { .. }
+                | MemOp::Maintain { .. }
+                | MemOp::Prefetch { .. } => 0,
             };
             ctx.scheduler.schedule(
                 ctx.cycle + 1,

@@ -11,6 +11,7 @@ use crate::sim::packet::coherence::{CoherenceMsg, ReqKind};
 use crate::sim::packet::{AccessSize, CacheLevel, HitLevel, MemOp, MemRespData, MesiState, Packet};
 
 use super::Cache;
+use super::write_stream::StreamPlacement;
 use super::writeback_buffer::WritebackCause;
 use super::{BlockedRequest, CacheLine, UpperMask, WaitingFill};
 
@@ -113,6 +114,10 @@ impl Cache {
             self.on_writeback(&req, dirty, ctx);
             return;
         }
+        if let MemOp::WriteFull { allocate } = req.op {
+            self.on_write_full(req, allocate, ctx);
+            return;
+        }
         if let MemOp::Maintain { op, dirty } = req.op {
             self.on_maintain(req, op, dirty, ctx);
             return;
@@ -123,6 +128,7 @@ impl Cache {
         // and leaves it modified, like a store.
         let is_write =
             matches!(req.op, MemOp::Write { .. } | MemOp::ReadOwn | MemOp::Atomic { .. });
+        let placement = self.stream_placement(&req);
         let set_index = self.set_index(self.line_of(req.paddr));
         let present = self.find_way(self.line_of(req.paddr));
         if let Some(way) = present {
@@ -132,8 +138,12 @@ impl Cache {
             && present.is_some_and(|way| {
                 self.lines[self.slot(set_index, way)].state == MesiState::Shared
             });
+        let fetching = self.mshrs.holds(self.line_of(req.paddr));
         match present.filter(|_| !needs_permission) {
             Some(way) => self.serve_hit(&req, set_index, way, is_write, ctx),
+            None if placement != StreamPlacement::L1 && present.is_none() && !fetching => {
+                self.stream_write(&req, placement, ctx);
+            }
             None => self.join_or_start_fetch(req, is_write, ctx),
         }
     }
@@ -182,7 +192,7 @@ impl Cache {
 
     /// Joins `req` to the MSHR already fetching its line, or starts the
     /// fetch.
-    fn join_or_start_fetch(
+    pub(super) fn join_or_start_fetch(
         &mut self,
         req: BlockedRequest,
         is_write: bool,
