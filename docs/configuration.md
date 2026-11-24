@@ -50,7 +50,7 @@ the bundled Linux image. See [Benchmark Configs](examples/benchmark-configs.md).
 | `width` | `int` | `6` | Instructions per cycle for every stage that has no width of its own |
 | `fetch_width`, `decode_width`, `rename_width`, `issue_width`, `commit_width` | `int` | `width` | Per-stage widths |
 | `writeback_width` | `int` | `width` | Results the out-of-order backend writes back per cycle; the rest wait for later cycles |
-| `trap_latency` | `int` | `13` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
+| `trap_latency` | `int` | `2` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt first lets everything already fetched retire |
 | `redirect_latency` | `int` | `1` | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect; commit retires nothing the pending squash will remove |
 | `fetch_decode_latency` | `int` | `1` | Cycles from fetch2 writing a bundle to decode reading it: one stage boundary, two for a front end with a stage between its cache response and decode (BOOM's F3); at least 1 |
 | `decode_rename_latency` | `int` | `1` | Cycles from decode to rename; `0` runs both in one stage, as Rocket's ID decodes and reads the registers together |
