@@ -69,6 +69,13 @@ Record a baseline with `tools/diag/cycle_baseline.py` before the change and
 compare against it after. A change that is meant to move timing goes in its
 own commit, with a regression test that pins the new behaviour.
 
+A weekly workflow checks rvsim's error against gem5 and the Rocket and BOOM
+RTL, program by program, against `tools/accuracy/budget.json`; `make accuracy`
+runs the same check locally. A timing change that makes a program less
+accurate fails it, unless the change is a deliberate trade-off that raises
+the budget in the same PR. A change that makes rvsim more accurate runs
+`make accuracy-budget` to lock the gain in.
+
 Architectural decisions are recorded in
 [`docs/architecture/decisions/`](docs/architecture/decisions/index.md). Add a
 record when a change settles a question that future contributors would

@@ -33,7 +33,7 @@ endif
 .PHONY: help software examples linux python python-wheel
 .PHONY: check test test-python test-coverage clippy doc fmt fmt-check ruff mypy
 .PHONY: lint lint-rust lint-python ci prerelease
-.PHONY: compare-gem5
+.PHONY: compare-gem5 accuracy accuracy-budget
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
 .PHONY: riscv-tests riscv-tests-build
 .PHONY: lockstep lockstep-build lockstep-smoke lockstep-ci
@@ -82,6 +82,8 @@ help:
 	@printf "    %-$(HELP_W)s  Conformance smoke only (riscv, vector, multicore)\n" "make conformance-smoke"
 	@printf "    %-$(HELP_W)s  Wipe tests/builds/ (forces full rebuild)\n" "make clean-tests"
 	@printf "    %-$(HELP_W)s  Compare rvsim with gem5 on the benchmark set (GEM5_BIN=…)\n" "make compare-gem5"
+	@printf "    %-$(HELP_W)s  Check rvsim's error against gem5 and the RTL within its budget\n" "make accuracy"
+	@printf "    %-$(HELP_W)s  Set the accuracy budget from this tree's errors\n" "make accuracy-budget"
 	@printf "\n  $(CYAN)Run$(RESET)\n"
 	@printf "    %-$(HELP_W)s  Build and run quicksort benchmark\n" "make run-example"
 	@printf "    %-$(HELP_W)s  Boot SMP Linux: 8 M-class O3 cores, TAGE-SC-L, snoop filter, mesh, 4-ch DDR5 (HARTS=N)\n" "make run-linux"
@@ -157,6 +159,17 @@ compare-gem5: python
 		printf "$(BOLD)gem5.opt not found; comparing with the stored gem5 results.$(RESET)\n"; \
 	fi
 	$(PYTHON) tools/gem5_compare/compare.py
+
+# rvsim's side of the gem5 and RTL comparisons against the stored references,
+# each program's error checked against tools/accuracy/budget.json.
+ACCURACY_PROGRAMS = bash tools/gem5_compare/programs/build.sh && bash tools/rtl/programs/build.sh
+accuracy: python
+	$(ACCURACY_PROGRAMS)
+	$(PYTHON) tools/accuracy/check.py $(if $(ACCURACY_OUT),--out $(ACCURACY_OUT))
+
+accuracy-budget: python
+	$(ACCURACY_PROGRAMS)
+	$(PYTHON) tools/accuracy/check.py --write-budget
 
 test-coverage:
 	@printf "$(GREEN)Running cargo llvm-cov…$(RESET)\n"

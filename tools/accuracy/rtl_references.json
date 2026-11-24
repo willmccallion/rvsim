@@ -1,0 +1,302 @@
+{
+  "boom": {
+    "config": "RvsimMediumBoomV4Config",
+    "preset": "boom",
+    "programs": {
+      "alu_int_div": {
+        "insts": 40042,
+        "rtl_cycles": 72166
+      },
+      "alu_int_mul": {
+        "insts": 160043,
+        "rtl_cycles": 320169
+      },
+      "bitmanip": {
+        "insts": 1146949,
+        "rtl_cycles": 959831
+      },
+      "br_nested_loops": {
+        "insts": 196037,
+        "rtl_cycles": 104561
+      },
+      "br_pattern": {
+        "insts": 1005760,
+        "rtl_cycles": 630254
+      },
+      "br_random": {
+        "insts": 280053,
+        "rtl_cycles": 609545
+      },
+      "branch_taken": {
+        "insts": 690037,
+        "rtl_cycles": 390289
+      },
+      "call_return": {
+        "insts": 682020,
+        "rtl_cycles": 483587
+      },
+      "chase_l1": {
+        "insts": 83570,
+        "rtl_cycles": 324821
+      },
+      "chase_l2": {
+        "insts": 265331,
+        "rtl_cycles": 1287916
+      },
+      "chase_mem": {
+        "insts": 3624529,
+        "rtl_cycles": 8175767
+      },
+      "csr_dependent": {
+        "insts": 100036,
+        "rtl_cycles": 440181
+      },
+      "csr_flush": {
+        "insts": 60037,
+        "rtl_cycles": 440183
+      },
+      "csr_serialize": {
+        "insts": 100037,
+        "rtl_cycles": 740178
+      },
+      "div_chain": {
+        "insts": 32040,
+        "rtl_cycles": 448202
+      },
+      "fence": {
+        "insts": 160232,
+        "rtl_cycles": 580354
+      },
+      "fence_i": {
+        "insts": 60037,
+        "rtl_cycles": 720224
+      },
+      "fp_add_chain": {
+        "insts": 120040,
+        "rtl_cycles": 200194
+      },
+      "fp_div_chain": {
+        "insts": 24040,
+        "rtl_cycles": 480136
+      },
+      "fp_fma_parallel": {
+        "insts": 120050,
+        "rtl_cycles": 100234
+      },
+      "indirect_calls": {
+        "insts": 540049,
+        "rtl_cycles": 963991
+      },
+      "l2_pointer_chase": {
+        "insts": 782637,
+        "rtl_cycles": 2452346
+      },
+      "load_use": {
+        "insts": 242090,
+        "rtl_cycles": 361728
+      },
+      "matmul": {
+        "insts": 722021,
+        "rtl_cycles": 627305
+      },
+      "mem_conflict": {
+        "insts": 356616,
+        "rtl_cycles": 2105093
+      },
+      "mem_dependent_miss": {
+        "insts": 1128619,
+        "rtl_cycles": 1888130
+      },
+      "mem_linear": {
+        "insts": 983083,
+        "rtl_cycles": 1001003
+      },
+      "mem_pointer_chase": {
+        "insts": 2650413,
+        "rtl_cycles": 7510357
+      },
+      "mem_random_swap": {
+        "insts": 1179693,
+        "rtl_cycles": 3131599
+      },
+      "mem_stride": {
+        "insts": 1613888,
+        "rtl_cycles": 2800964
+      },
+      "mem_write_stream": {
+        "insts": 1441835,
+        "rtl_cycles": 1766929
+      },
+      "mul_chain": {
+        "insts": 50042,
+        "rtl_cycles": 280167
+      },
+      "quicksort": {
+        "insts": 1122333,
+        "rtl_cycles": 1959262
+      },
+      "store_load_forward": {
+        "insts": 240063,
+        "rtl_cycles": 540216
+      },
+      "store_stream": {
+        "insts": 1376295,
+        "rtl_cycles": 3176509
+      },
+      "trap_return": {
+        "insts": 140040,
+        "rtl_cycles": 1440222
+      }
+    }
+  },
+  "rocket": {
+    "config": "RocketConfig",
+    "preset": "rocket",
+    "programs": {
+      "alu_int_div": {
+        "insts": 40042,
+        "rtl_cycles": 104194
+      },
+      "alu_int_mul": {
+        "insts": 160043,
+        "rtl_cycles": 480192
+      },
+      "bitmanip": {
+        "insts": 1146949,
+        "rtl_cycles": 1668741
+      },
+      "br_nested_loops": {
+        "insts": 196037,
+        "rtl_cycles": 236204
+      },
+      "br_pattern": {
+        "insts": 1005760,
+        "rtl_cycles": 1414507
+      },
+      "br_random": {
+        "insts": 280053,
+        "rtl_cycles": 700282
+      },
+      "branch_taken": {
+        "insts": 690037,
+        "rtl_cycles": 750192
+      },
+      "call_return": {
+        "insts": 682020,
+        "rtl_cycles": 738542
+      },
+      "chase_l1": {
+        "insts": 83570,
+        "rtl_cycles": 135630
+      },
+      "chase_l2": {
+        "insts": 265331,
+        "rtl_cycles": 1277340
+      },
+      "chase_mem": {
+        "insts": 3624529,
+        "rtl_cycles": 13835545
+      },
+      "csr_dependent": {
+        "insts": 100036,
+        "rtl_cycles": 140185
+      },
+      "csr_flush": {
+        "insts": 60037,
+        "rtl_cycles": 160181
+      },
+      "csr_serialize": {
+        "insts": 100037,
+        "rtl_cycles": 140186
+      },
+      "div_chain": {
+        "insts": 32040,
+        "rtl_cycles": 432253
+      },
+      "fence": {
+        "insts": 160232,
+        "rtl_cycles": 180560
+      },
+      "fence_i": {
+        "insts": 60037,
+        "rtl_cycles": 480182
+      },
+      "fp_add_chain": {
+        "insts": 120040,
+        "rtl_cycles": 240167
+      },
+      "fp_div_chain": {
+        "insts": 24040,
+        "rtl_cycles": 456139
+      },
+      "fp_fma_parallel": {
+        "insts": 120050,
+        "rtl_cycles": 120237
+      },
+      "indirect_calls": {
+        "insts": 540049,
+        "rtl_cycles": 780254
+      },
+      "l2_pointer_chase": {
+        "insts": 782637,
+        "rtl_cycles": 3306783
+      },
+      "load_use": {
+        "insts": 242090,
+        "rtl_cycles": 243184
+      },
+      "matmul": {
+        "insts": 722021,
+        "rtl_cycles": 920512
+      },
+      "mem_conflict": {
+        "insts": 356616,
+        "rtl_cycles": 1440860
+      },
+      "mem_dependent_miss": {
+        "insts": 1128619,
+        "rtl_cycles": 2685777
+      },
+      "mem_linear": {
+        "insts": 983083,
+        "rtl_cycles": 1900687
+      },
+      "mem_pointer_chase": {
+        "insts": 2650413,
+        "rtl_cycles": 12321022
+      },
+      "mem_random_swap": {
+        "insts": 1179693,
+        "rtl_cycles": 5969120
+      },
+      "mem_stride": {
+        "insts": 1613888,
+        "rtl_cycles": 4430018
+      },
+      "mem_write_stream": {
+        "insts": 1441835,
+        "rtl_cycles": 3346338
+      },
+      "mul_chain": {
+        "insts": 50042,
+        "rtl_cycles": 400162
+      },
+      "quicksort": {
+        "insts": 1122333,
+        "rtl_cycles": 1648354
+      },
+      "store_load_forward": {
+        "insts": 240063,
+        "rtl_cycles": 420253
+      },
+      "store_stream": {
+        "insts": 1376295,
+        "rtl_cycles": 5273622
+      },
+      "trap_return": {
+        "insts": 120040,
+        "rtl_cycles": 340185
+      }
+    }
+  }
+}
