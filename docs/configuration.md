@@ -248,7 +248,7 @@ Cache(
 | `l2` | `Cache` or `None` | 1 MiB, 8-way, PLRU, `latency=8` (14-cycle load-to-use), stream prefetch (degree 4), 32 MSHRs | Private L2 |
 | `l3` | `Cache` or `None` | 32 MiB, 16-way, PLRU, `latency=35` (50-cycle load-to-use), 64 MSHRs | Shared last-level cache |
 | `inclusion_policy` | `Cache.*` | `Cache.Nine()` | Relationship between L1 and L2 |
-| `wcb_entries` | `int` | `16` | Write-combining buffer entries between the store buffer and the L1D (0 = none) |
+| `wcb_entries` | `int` | `16` | Write-combining buffer entries between the store buffer and the L1D: 0 for none, otherwise at least 2, since a store across two lines takes an entry for each |
 | `load_prefetcher` | `LoadPrefetcher.Stride` or `None` | 64 entries, 4 lines ahead in the L1D and 16 in the L2, crossing pages through the TLB | The load/store unit's load prefetcher (see below) |
 | `store_prefetcher` | `StorePrefetcher.Stream` or `None` | 4 streams, 8 lines ahead | The L1D's store-miss prefetcher, which fills the L2 (see below) |
 

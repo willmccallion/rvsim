@@ -301,6 +301,12 @@ pub enum ConfigError {
         /// The largest the simulator builds.
         most: usize,
     },
+    /// A write-combining buffer of one entry, which a store across two
+    /// lines could never merge into.
+    #[error(
+        "cache.wcb_entries 1 must be 0 (no WCB) or at least 2: a store across two lines takes an entry for each"
+    )]
+    SingleEntryWcb,
     /// A bus whose width is not a power of two bytes.
     #[error("system.bus_width {0} must be a power of two bytes")]
     BusWidth(u64),

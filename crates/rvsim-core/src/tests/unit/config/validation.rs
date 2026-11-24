@@ -437,6 +437,14 @@ fn an_ittage_table_size_is_a_power_of_two() {
 }
 
 #[test]
+fn a_write_combining_buffer_of_one_entry_is_refused() {
+    let err = refused(Config::minimal(), |c| c.cache.wcb_entries = 1);
+
+    assert_eq!(err, ConfigError::SingleEntryWcb);
+    assert!(minimal_with(|c| c.cache.wcb_entries = 2).is_ok());
+}
+
+#[test]
 fn a_predictor_table_too_large_to_allocate_is_refused() {
     let perceptron = refused(Config::minimal(), |c| c.pipeline.perceptron.table_bits = 40);
     let history = refused(Config::minimal(), |c| c.pipeline.perceptron.history_length = 64);

@@ -232,6 +232,9 @@ fn check_caches(cache: &CacheHierarchyConfig) -> Result<(), ConfigError> {
         }
     }
     at_most("cache.wcb_entries", cache.wcb_entries, MAX_WCB_ENTRIES)?;
+    if cache.wcb_entries == 1 {
+        return Err(ConfigError::SingleEntryWcb);
+    }
     if let LoadPrefetcherConfig::Stride { table_size, .. } = cache.load_prefetcher {
         power_of_two("cache.load_prefetcher.table_size", table_size)?;
     }

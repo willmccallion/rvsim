@@ -19,10 +19,10 @@ use crate::uarch::pipeline::lsq::write_buffer::WcbLine;
 use crate::uarch::pipeline::outstanding::{OutstandingStore, StoreOwner};
 
 /// Sends the write of the oldest committed store not yet sent, unless an
-/// older vector store has yet to send a line to its bytes. The entry keeps
-/// its slot until the write is acknowledged. Returns true if a store was
-/// taken (so the caller does not also drain the vec-store buffer this
-/// cycle).
+/// older vector store has yet to send a line to its bytes or the WCB has
+/// no entry for it. The entry keeps its slot until the write is
+/// acknowledged. Returns true if a store was taken (so the caller does not
+/// also drain the vec-store buffer this cycle).
 pub(super) fn try_drain_one_store(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
@@ -38,7 +38,13 @@ pub(super) fn try_drain_one_store(
         return false;
     }
     let requests = match write.data {
-        StoreData::Bytes(data) => send_data_store(state, common, write.paddr, data, write.width),
+        StoreData::Bytes(data) => {
+            let Some(requests) = send_data_store(state, common, write.paddr, data, write.width)
+            else {
+                return false;
+            };
+            requests
+        }
         StoreData::Block(effect) => {
             // A CBO follows the older stores the WCB holds for its block.
             if state.core.wcb.request_send(write.paddr, usize_of(CBOZ_BLOCK_SIZE)) {
@@ -53,14 +59,14 @@ pub(super) fn try_drain_one_store(
 
 /// Sends a committed store's data: into the WCB for RAM when it is
 /// enabled, else as its own writes. Returns the writes the store buffer
-/// waits for.
+/// waits for, or `None` when the store must wait for a WCB entry.
 pub(super) fn send_data_store(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     paddr: PhysAddr,
     data: u64,
     width: MemWidth,
-) -> Vec<ReqId> {
+) -> Option<Vec<ReqId>> {
     // MMIO, including the HTIF window over RAM, bypasses the WCB so its
     // device sees each store.
     let via_wcb = !state.core.wcb.is_disabled() && is_pure_ram(state, paddr, width);
@@ -74,20 +80,20 @@ pub(super) fn send_data_store(
     if !via_wcb {
         let hart = WriteOrigin::Hart(state.hart.hart_id);
         let store = StoreWrite { origin: hart, owner: StoreOwner::StoreBuffer };
-        return emit_store_write_packet(state, common, paddr, data, width, store);
+        return Some(emit_store_write_packet(state, common, paddr, data, width, store));
     }
-    let span = state.core.wcb.entry_bytes();
-    for (part_paddr, part_data, part_bytes) in
-        span_parts(paddr, data, usize_of(width.bytes()), span)
-    {
+    let parts = span_parts(paddr, data, usize_of(width.bytes()), state.core.wcb.entry_bytes());
+    let starts: Vec<PhysAddr> = parts.iter().map(|&(part_paddr, _, _)| part_paddr).collect();
+    if !state.core.wcb.has_room_for(&starts) {
+        return None;
+    }
+    for (part_paddr, part_data, part_bytes) in parts {
         if state.core.wcb.holds_entry_for(part_paddr) {
             state.uncore.kernel.stats.counter(state.core.stat_paths.wcb.coalesces).inc();
         }
-        if let Some(evicted) = state.core.wcb.merge_store(part_paddr, part_data, part_bytes) {
-            send_wcb_line(state, common, &evicted);
-        }
+        state.core.wcb.merge_store(part_paddr, part_data, part_bytes);
     }
-    Vec::new()
+    Some(Vec::new())
 }
 
 /// Sends a committed CBO to the L1D: `cbo.zero` as the hart's write of a
@@ -144,7 +150,8 @@ pub(super) fn send_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut Backen
 
 /// Sends this cycle's write to the L1D: a line the WCB must send now, else
 /// the oldest committed scalar store, else a vector store's line, else, the
-/// port being idle, the WCB's oldest line.
+/// port being free, the WCB's oldest line, which also frees an entry for a
+/// store waiting for one once the L1D has written it.
 pub fn send_one_write(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
