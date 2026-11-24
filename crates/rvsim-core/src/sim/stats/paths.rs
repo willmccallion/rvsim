@@ -125,6 +125,11 @@ stat_paths! {
         /// Retire histogram: cycles where 3 or more insts retired.
         retire_hist_three_plus: "commit.retire_histogram.three_plus" => Cycles,
     }
+    histograms {
+        /// Cycles from commit finding a trap or interrupt to the first
+        /// instruction after it, the handler's, retiring.
+        trap_penalty: "commit.trap_penalty" => Cycles,
+    }
 }
 
 stat_paths! {

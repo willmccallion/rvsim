@@ -28,7 +28,7 @@ use crate::trace_trap;
 use crate::uarch::ctx::CoreCtx;
 #[cfg(feature = "commit-log")]
 use crate::uarch::pipeline::commit_log::Retired;
-use crate::uarch::pipeline::engine::BackendCommon;
+use crate::uarch::pipeline::engine::{BackendCommon, CommitControl};
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::outstanding::StoreOwner;
@@ -152,6 +152,7 @@ fn apply_retirement(
     state.trace_left(entry.seq, Departure::Retired);
     advance_pc(state, entry);
     count_retired(state, entry);
+    record_trap_penalty(state, &mut targets.common.commit);
     write_destinations(state, targets.registers, entry);
     apply_deferred_updates(state, targets.common, entry);
 
@@ -182,6 +183,14 @@ fn advance_pc(state: &mut CoreCtx<'_>, entry: &RobEntry) {
 
 /// Records the retirement: the trace, the debug PC ring, the retired
 /// counters and per-instruction statistics, and branch outcomes.
+/// Records the cycles from commit finding a trap to the first instruction
+/// after it, the handler's, retiring.
+fn record_trap_penalty(state: &mut CoreCtx<'_>, commit: &mut CommitControl) {
+    let Some(detected_at) = commit.trap_detected_at.take() else { return };
+    let penalty = state.uncore.kernel.cycle - detected_at;
+    state.uncore.kernel.stats.histogram(state.core.stat_paths.commit.trap_penalty).record(penalty);
+}
+
 fn count_retired(state: &mut CoreCtx<'_>, entry: &RobEntry) {
     trace_commit!(state.uncore.kernel.config.general.trace_instructions;
         rob_tag    = %entry.tag,
