@@ -22,6 +22,7 @@ from rvsim import (
     PageBoundary,
     Prefetcher,
     StorePrefetcher,
+    WriteStreaming,
 )
 
 
@@ -136,15 +137,22 @@ def cortex_a72() -> Config:
             page_boundary=PageBoundary.CrossWithTlb(),
         ),
         store_prefetcher=StorePrefetcher.Stream(streams=4, l2_lines=8),
-        wcb_entries=0,
+        # The TRM says the L1 merges stores (6.4) but not into how many
+        # lines; 4 is a guess, and 16 measures the same.
+        wcb_entries=4,
+        # CPUACTLR_EL1[28:25] at reset: the 4th consecutive whole-line write
+        # skips the L1D, the 12th the L2 too.
+        write_streaming=WriteStreaming(skip_l1_from=4, skip_l2_from=12),
         # 1MB 16-way L2 on the BCM2711; 20 cycles to a 512 KB chase on the
-        # Pi 4 (13.4 ns with huge pages), 21 on Graviton 1.
+        # Pi 4 (13.4 ns with huge pages), 21 on Graviton 1. It issues up to
+        # 16 writes (TRM table 7-4).
         l2=Cache(
             size="1MB",
             line="64B",
             ways=16,
             latency=16,
             mshr_count=16,
+            write_buffers=16,
         ),
         l3=None,
         # LPDDR4-3200 on the Raspberry Pi 4: tRCD, tRP and CL of about
