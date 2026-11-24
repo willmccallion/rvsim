@@ -280,6 +280,7 @@ const fn schedule_trap(
     trap: Trap,
     epc: VirtAddr,
 ) -> Option<CommitEvent> {
+    common.commit.trap_detected_at = Some(state.uncore.kernel.cycle);
     let latency = state.uncore.kernel.config.pipeline.trap_latency;
     if latency == 0 {
         return Some(CommitEvent::Trap(trap, epc));

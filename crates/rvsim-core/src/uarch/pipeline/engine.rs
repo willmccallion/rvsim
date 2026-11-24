@@ -334,6 +334,9 @@ impl MemoryInFlight {
 pub struct CommitControl {
     /// A trap on its way to being taken.
     pub trap: TrapProgress,
+    /// The cycle commit found the last trap or interrupt, until the first
+    /// instruction after it retires.
+    pub trap_detected_at: Option<u64>,
     /// Where the L1D flush the FENCE.I at the ROB head waits for stands.
     pub data_cache_flush: DataCacheFlush,
     /// The ROB head as this cycle began, before its commit.

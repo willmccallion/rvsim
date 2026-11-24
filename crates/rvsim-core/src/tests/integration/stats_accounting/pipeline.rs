@@ -80,6 +80,8 @@ fn traps_flush_under_trap_and_returns_under_system(rec: &mut Recorder) {
 
         let [branch, system, memory, coherence, trap] = flushes_by_cause(rec, &ctx.sim, &context);
         assert_eq!(trap, 3, "{context}: three ecalls; the exit is a pseudo-op");
+        let penalties = rec.histogram(&ctx.sim, "core0.commit.trap_penalty");
+        assert_eq!(penalties.count(), 3, "{context}: each ecall is timed to its handler");
         assert_eq!(system, system_flushes, "{context}");
         assert_eq!((branch, memory, coherence), (2 + wrong_path_branches, 0, 0), "{context}");
     }
