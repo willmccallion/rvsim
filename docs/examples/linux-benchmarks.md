@@ -100,11 +100,14 @@ added back, since tinymembench reports only the time beyond it.
 | `cortex_a72` footprint | Bare | Pi 4, huge pages | 4 KB pages | Pi 4, 4 KB pages | Level |
 |---|---:|---:|---:|---:|---|
 | 512 KB | 20.1 | 20.1 (13.4 ns) | 25.4 | 25.3 (16.9 ns) | L2 |
-| 16 MB | 205 | 203 (135.0 ns) | 222 | 233 (155.6 ns) | memory |
+| 16 MB | 205 | 203 (135.0 ns) | 224 | 233 (155.6 ns) | memory |
 
-Under 4 KB pages at 16 MB, page walks cost the configuration 17 cycles a
-load and the Pi 4 about 30; the walker's own cache accesses are the
-likely difference, not yet investigated.
+Under 4 KB pages at 16 MB, three loads in four miss the L2 TLB and walk.
+As on the A72 (TRM 5.4, 5.6), the walk starts after the 7-cycle L2 TLB
+lookup, finds the upper levels in its walk cache and reads only the leaf
+PTE, from the L2: 19 cycles a load in all, against about 30 on the Pi 4.
+The rest is unpublished: the walk cache's own latency, and the L2 TLB
+lookup the TRM calls variable.
 
 ```bash
 python tools/diag/latency_probe.py --preset p550
