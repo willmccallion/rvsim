@@ -52,7 +52,8 @@ def cortex_a72() -> Config:
       (BCM2711)", 2024-01-10): 135 ns at 16 MB with huge pages and 156 ns
       with 4 KB pages, counting the L1 hit tinymembench leaves out
     - 48-entry L1 ITLB, 32-entry L1 DTLB, 1024-entry 4-way L2 TLB whose
-      hit adds 7 cycles
+      hit adds 7 cycles; the walker reads PTEs from the L2 and caches the
+      intermediate levels (TRM 5.4, 5.6)
     - No memory dependence speculation: a load waits for every older
       store's address; store-to-load forwarding takes 7 cycles
     - 4096-entry BTB, 31-entry return stack; mispredict penalty ~15 cycles
@@ -115,6 +116,12 @@ def cortex_a72() -> Config:
         l2_tlb_size=1024,
         l2_tlb_ways=4,
         l2_tlb_latency=7,
+        # The walker reads PTEs through the L2 (TRM 5.4) and keeps the
+        # upper levels in its intermediate table walk caches (TRM 5.6),
+        # whose size is unpublished; 16 is a guess, and a 16 MB chase uses
+        # two.
+        walker_port="L2",
+        walk_cache_entries=16,
         l1i=Cache(
             size="48KB",
             line="64B",

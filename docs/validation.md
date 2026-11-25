@@ -50,7 +50,7 @@ configuration.
 | Rocket (Chipyard RTL) | Retire timing instruction by instruction on 36 programs, against the Verilator simulation of the core | mean absolute error 16.6%, median 9.7% (2026-10-10) | [Error against Rocket](rtl-rocket.md) |
 | Medium BOOM V4 (Chipyard RTL) | The same on 35 programs | mean absolute error 19.1%, median 13.2% (2026-10-10) | [Error against BOOM](rtl-boom.md) |
 | SiFive P550 (EIC7700X) | Load-to-use latency per cache level, from a dependent pointer chase, and Linux benchmark scores | 3.0 / 13.1 / 39.0 / 268 cycles against 3 / 13 / ~38 / 272 measured | [Linux Benchmarks](examples/linux-benchmarks.md) |
-| Arm Cortex-A72 | The same | 20.1 / 205 cycles at 512 KB / 16 MB against 20 / 203 on a Raspberry Pi 4 with huge pages, 25.4 / 222 against 25 / 233 with 4 KB pages; 2,261 / 3,000 MB/s C copy / fill against 2,253 / 2,883; 5.09 CoreMark/MHz against 5.50 | [Linux Benchmarks](examples/linux-benchmarks.md) |
+| Arm Cortex-A72 | The same | 20.1 / 205 cycles at 512 KB / 16 MB against 20 / 203 on a Raspberry Pi 4 with huge pages, 25.4 / 224 against 25 / 233 with 4 KB pages; 2,261 / 3,000 MB/s C copy / fill against 2,253 / 2,883; 5.09 CoreMark/MHz against 5.50 | [Linux Benchmarks](examples/linux-benchmarks.md) |
 
 gem5 is a reference that can be compared cycle by cycle, not the target:
 where it times something the way a simulator does rather than the way a
