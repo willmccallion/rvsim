@@ -317,10 +317,19 @@ pub fn fetch1_stage<E: ExecutionEngine>(
         FetchRestart::FromPc | FetchRestart::AwaitingWalk => *fetch_pc,
     };
     let line_bytes = state.core().l1_i_cache.line_bytes() as u64;
+    let block_bytes = state
+        .uncore()
+        .kernel
+        .config
+        .pipeline
+        .fetch_block_bytes
+        .map_or(line_bytes, |bytes| bytes as u64);
     let mut cursor = FetchCursor {
         pc,
         line_bytes,
-        line_end: (pc.val() | (line_bytes - 1)) + 1,
+        line_end: end_of_aligned(pc, line_bytes),
+        block_bytes,
+        block_end: end_of_aligned(pc, block_bytes),
         group: GroupBuilder::default(),
     };
     for _ in 0..state.uncore().kernel.config.pipeline.fetch_width() {
@@ -334,13 +343,21 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     *fetch_pc = cursor.pc;
 }
 
-/// One cycle's fetch so far: the next PC, the end of the cache line it
-/// fetches from, and the group of instructions fetched.
+/// One cycle's fetch so far: the next PC, the ends of the cache line and
+/// of the fetch block it fetches from, and the group of instructions
+/// fetched.
 struct FetchCursor {
     pc: VirtAddr,
     line_bytes: u64,
     line_end: u64,
+    block_bytes: u64,
+    block_end: u64,
     group: GroupBuilder,
+}
+
+/// The end of the `bytes`-aligned block holding `pc`.
+const fn end_of_aligned(pc: VirtAddr, bytes: u64) -> u64 {
+    (pc.val() | (bytes - 1)) + 1
 }
 
 /// Whether fetch goes on to another instruction this cycle.
@@ -366,7 +383,7 @@ fn fetch_instruction<E: ExecutionEngine>(
     cursor: &mut FetchCursor,
 ) -> FetchStep {
     let pc = cursor.pc;
-    if pc.val() + FETCH_TRANSLATION_BYTES > cursor.line_end {
+    if pc.val() + FETCH_TRANSLATION_BYTES > cursor.block_end {
         return FetchStep::Stop;
     }
     let Some(paddr) = fetch_lower_half(state, engine, &mut cursor.group, pc) else {
@@ -375,21 +392,26 @@ fn fetch_instruction<E: ExecutionEngine>(
     let half_word = read_inst_half(state, paddr.val());
     let size = instruction_size(half_word, state.hart().csrs.misa);
     let is_compressed = matches!(size, InstSize::Compressed(_));
-    // A 32-bit instruction whose upper half lies in the next line
-    // completes only when that line arrives: it heads a group that
-    // fetches the next line, once this line is in the fetch buffer.
-    let straddles_line = !is_compressed && pc.wrapping_add(4).val() > cursor.line_end;
-    if straddles_line {
-        let line = LineAddr::from_phys(paddr, cursor.line_bytes);
+    // A 32-bit instruction whose upper half lies in the next block
+    // completes only with that block: it heads the group that fetches it,
+    // and if that block is on the next line, once this line is in the
+    // fetch buffer.
+    let end = pc.wrapping_add(4).val();
+    if !is_compressed && end > cursor.block_end {
         if !cursor.group.entries.is_empty() {
             return FetchStep::Stop;
         }
-        if !fetch_buffer.holds(line, state.core().l1_i_cache.invalidations()) {
-            cursor.group.request_line(engine.common_mut(), line);
-            return FetchStep::Stop;
+        if end > cursor.line_end {
+            let line = LineAddr::from_phys(paddr, cursor.line_bytes);
+            if !fetch_buffer.holds(line, state.core().l1_i_cache.invalidations()) {
+                cursor.group.request_line(engine.common_mut(), line);
+                return FetchStep::Stop;
+            }
+            cursor.line_end += cursor.line_bytes;
         }
-        cursor.line_end += cursor.line_bytes;
+        cursor.block_end += cursor.block_bytes;
     }
+    let straddles_line = !is_compressed && end > end_of_aligned(pc, cursor.line_bytes);
     let seq = engine.common_mut().alloc_inst_seq();
     state.trace_fetched(seq, pc);
     let lower = Fetch1Fetch2Entry { pc, paddr, seq, ..Fetch1Fetch2Entry::default() };

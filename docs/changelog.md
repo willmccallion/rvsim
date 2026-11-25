@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format is based on 
 
 ## Unreleased
 
+### Added
+
+- **Fetch blocks.** `fetch_block_bytes` limits fetch to one aligned
+  block of the I-cache line a cycle, so a loop that straddles two blocks
+  takes two cycles to fetch. Off by default.
+
 ## Releases
 
 - [v3.0.0](versions/V3_0_0_CHANGELOG.md) — 2026-11-09 (SE mode with threads, gem5 m5ops, GDB stub, lockstep against spike, RTL comparison, new default machine, typed Python errors, 16–25% faster)

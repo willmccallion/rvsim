@@ -100,6 +100,7 @@ class Config:
     # Pipeline
     width: int = _PIPELINE["width"]
     fetch_width: int | None = _PIPELINE["fetch_width"]
+    fetch_block_bytes: int | None = _PIPELINE["fetch_block_bytes"]
     decode_width: int | None = _PIPELINE["decode_width"]
     rename_width: int | None = _PIPELINE["rename_width"]
     issue_width: int | None = _PIPELINE["issue_width"]
