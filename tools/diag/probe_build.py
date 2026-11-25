@@ -17,7 +17,8 @@ LIBC_SOURCES = ["crt0_htif.s", "stdio.c", "stdlib.c", "htif.c", "fdt.c"]
 # Bare kernels can outgrow the linker script's stack; it goes at the top of
 # the calibrated configurations' 256 MB of RAM, below the device tree.
 STACK_TOP = 0x8000_0000 + (256 << 20) - (64 << 10) - 0x1000
-ARCH = ["-march=rv64gc", "-mabi=lp64d", "-O2"]
+# A kernel's `.incbin` finds the files its script writes into OUT.
+ARCH = ["-march=rv64gc", "-mabi=lp64d", "-O2", f"-Wa,-I{OUT}"]
 
 
 class Paging(enum.Enum):
