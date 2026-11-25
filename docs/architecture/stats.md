@@ -166,6 +166,7 @@ naming a paging mode), so a bare-metal run records none.
 | `core<N>.mmu.itlb.hits`, `.misses` | Fetch translations the instruction TLB held, and did not |
 | `core<N>.mmu.dtlb.hits`, `.misses` | Load and store translations the data TLB held, and did not, wrong-path accesses included |
 | `core<N>.mmu.l2_tlb.hits`, `.misses` | L1 TLB misses the shared L2 TLB held, and did not; none without an L2 TLB |
+| `core<N>.mmu.walk_cache.hits`, `.misses` | Walks that started below the root at a table the walk cache held, and walks that found none; none without a walk cache |
 | `core<N>.mmu.walks` | Page-table walks started |
 
 ### Caches
@@ -195,8 +196,9 @@ because the line was already held, in flight or being written back), and its
 | `prefetches.page_crossing` | Candidates of this cache's own prefetcher dropped for lying outside the 4 KiB page of the access that produced them |
 | `prefetches.dropped` | Prefetch requests from above dropped rather than take the last free MSHR |
 | `prefetches.store_stream` | Prefetches the L1D's store-miss prefetcher sent to the L2 |
-| `probes` | Lookups made for another agent (snoops, inclusive back-invalidations, and the probes an L2 sends for an instruction fetch) |
+| `probes` | Lookups made for another agent (snoops, inclusive back-invalidations, and the probes an L2 sends for an instruction fetch or a page-table walker's read) |
 | `fetch_probes`, `fetch_probes_dirty` | Instruction fetches that probed a data cache above for a writable copy of their line before being served, and those that found it dirty (only where the L1I and L1D meet, the L2) |
+| `walk_probes`, `walk_probes_dirty` | Page-table walker reads that probed a data cache above for a writable copy of their PTE's line before being served, and those that found it dirty (only the L2, with `walker_port="L2"`) |
 | `flushes`, `flushed_lines` | Whole-cache flushes for FENCE.I with no L2 (the L1D only), and the valid lines they invalidated |
 | `maintenance` | Cache-block operations applied to this level |
 | `coherence.snoops`, `.invalidations`, `.downgrades`, `.upgrades`, `.upgrade_retries` | Coherence traffic this cache answered or caused (zero on one core): every snoop received; those that took away or downgraded a copy this cache or one above it held; permission requests for lines held Shared, and those re-sent for data after a snoop took the line |

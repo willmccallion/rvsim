@@ -84,6 +84,27 @@ class SystemBus(unittest.TestCase):
             Simulator(Config(bus_clock_divider=0))
 
 
+class PageWalker(unittest.TestCase):
+    def test_the_walker_reads_the_l1d_without_a_walk_cache_unless_told_otherwise(self):
+        default = check_config(Config().to_dict())["memory"]
+        a72_like = check_config(
+            Config(walker_port="L2", walk_cache_entries=16).to_dict()
+        )["memory"]
+
+        self.assertEqual(
+            (default["walker_port"], default["walk_cache_entries"]), ("L1D", 0)
+        )
+        self.assertEqual(
+            (a72_like["walker_port"], a72_like["walk_cache_entries"]), ("L2", 16)
+        )
+
+    def test_a_walker_reading_a_missing_l2_is_refused(self):
+        with self.assertRaisesRegex(
+            ValueError, r"memory\.walker_port L2 needs cache\.l2"
+        ):
+            Simulator(Config(walker_port="L2", l2=None))
+
+
 class Lpddr4(unittest.TestCase):
     def test_an_lpddr4_controller_reaches_the_core(self):
         controller = MemoryController.Lpddr4(density="Gb8", refresh="PerBank")

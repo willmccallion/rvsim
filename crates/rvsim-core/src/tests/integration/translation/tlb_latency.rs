@@ -1,8 +1,8 @@
-//! An L2 TLB hit costs the configured latency before the access proceeds.
+//! The L2 TLB's lookup latency: a hit costs it before the access proceeds,
+//! and a miss waits it out before the walk starts.
 //!
-//! Forty pages of loads evict the first page from a 32-entry L1 DTLB,
-//! so the final load of page 0 hits the L2 TLB; that load, and nothing
-//! else, gets slower when `l2_tlb_latency` grows.
+//! Forty pages of loads miss both TLBs and walk, evicting the first page
+//! from a 32-entry L1 DTLB, so a final load of page 0 hits the L2 TLB.
 
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
@@ -39,9 +39,17 @@ fn write_pte(ctx: &mut TestContext, table_ppn: u64, index: u64, pte: u64) {
     ctx.sim.probe_mem_store(PhysAddr::new((table_ppn << 12) | (index * 8)), pte, ProbeWidth::B8);
 }
 
+/// Whether the program loads from page 0 again at the end.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reload {
+    Page0,
+    Nothing,
+}
+
 /// Loads one word from each of `PAGES` pages, lets those walks drain
-/// behind a run of NOPs, then loads from page 0 again and spins.
-fn program() -> Vec<u32> {
+/// behind a run of NOPs, then loads from page 0 again if `reload` says
+/// so, and spins.
+fn program(reload: Reload) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program = vec![i().lui(A0, (DATA_VA >> 12) as i32).build(), i().lui(T0, 1).build()];
     for _ in 0..PAGES {
@@ -50,12 +58,16 @@ fn program() -> Vec<u32> {
     }
     program.extend((0..DRAIN_NOPS).map(|_| i().nop().build()));
     program.push(i().lui(A0, (DATA_VA >> 12) as i32).build());
-    program.push(i().ld(A1, A0, 0).build());
+    if reload == Reload::Page0 {
+        program.push(i().ld(A1, A0, 0).build());
+    }
     program.push(i().jal(X0, 0).build());
     program
 }
 
-fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
+/// Cycles until the program's last load (or, without a reload, the
+/// instruction before the spin) retires.
+fn cycles_to_finish(l2_tlb_latency: u64, reload: Reload) -> u64 {
     let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::InOrder;
     config.pipeline.width = 1;
@@ -67,7 +79,7 @@ fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
     config.memory.l2_tlb_latency = l2_tlb_latency;
     config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
-    let program = program();
+    let program = program(reload);
     store_words(&mut ctx.sim, CODE, &program);
     let last_load_retired = program.len() as u64 - 1;
     write_pte(&mut ctx, ROOT_PPN, (CODE >> 30) & 0x1ff, (CODE_L1_PPN << 10) | PTE_V);
@@ -98,17 +110,35 @@ fn cycles_to_finish(l2_tlb_latency: u64) -> u64 {
 
 #[test]
 fn an_l2_tlb_hit_delays_the_access_by_its_latency() {
-    let fast = cycles_to_finish(0);
-    let slow = cycles_to_finish(L2_LATENCY);
+    let reload_cost = |latency| {
+        cycles_to_finish(latency, Reload::Page0) - cycles_to_finish(latency, Reload::Nothing)
+    };
+
+    let fast = reload_cost(0);
+    let slow = reload_cost(L2_LATENCY);
 
     let visible = L2_LATENCY - ROB_SIZE as u64;
     assert!(
         slow >= fast + visible,
-        "l2_tlb_latency={L2_LATENCY} cost {} cycles over {fast}",
+        "l2_tlb_latency={L2_LATENCY} cost the reload {} cycles over {fast}",
         slow - fast
     );
+    assert!(slow <= fast + L2_LATENCY, "the reload pays the latency once");
+}
+
+#[test]
+fn an_l2_tlb_miss_starts_its_walk_after_the_lookup() {
+    let fast = cycles_to_finish(0, Reload::Nothing);
+    let slow = cycles_to_finish(L2_LATENCY, Reload::Nothing);
+
+    // The ROB holds two of the loads (each with its add), so their walks
+    // wait out their lookups in pairs.
+    let walks = PAGES + 1;
+    let overlapped = PAGES / 2;
     assert!(
-        slow < fast + L2_LATENCY * 4,
-        "only the evicted pages pay the L2 latency, not all {PAGES}"
+        slow >= fast + overlapped * (L2_LATENCY - ROB_SIZE as u64),
+        "l2_tlb_latency={L2_LATENCY} cost {walks} walks {} cycles over {fast}",
+        slow - fast
     );
+    assert!(slow <= fast + walks * L2_LATENCY, "each walk waits out one lookup");
 }

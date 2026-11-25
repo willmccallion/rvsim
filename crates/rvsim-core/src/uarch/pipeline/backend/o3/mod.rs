@@ -20,7 +20,6 @@ mod squash;
 use crate::config::Config;
 use crate::isa::reg::RegIdx;
 use crate::isa::rvv::VRegIdx;
-use crate::sim::components::CacheId;
 use crate::sim::components::PipelineId;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::ctx::StageCtx;
@@ -28,6 +27,7 @@ use crate::uarch::mdp::MemDepUnit;
 use crate::uarch::pipeline::backend::shared::commit;
 use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, VecMemMicroOp};
 use crate::uarch::pipeline::engine::BackendCommon;
+use crate::uarch::pipeline::engine::CacheRoutes;
 use crate::uarch::pipeline::engine::Renamed;
 use crate::uarch::pipeline::engine::{BundleHazard, DataCacheFlush, ExecutionEngine};
 use crate::uarch::pipeline::latches::IdExEntry;
@@ -193,12 +193,7 @@ impl O3Engine {
     }
 
     /// Creates a new O3 engine from config and routing IDs.
-    pub fn new(
-        config: &Config,
-        pipeline_id: PipelineId,
-        l1_i_id: CacheId,
-        l1_d_id: CacheId,
-    ) -> Self {
+    pub fn new(config: &Config, pipeline_id: PipelineId, caches: CacheRoutes) -> Self {
         let rob_size = config.pipeline.rob_size;
         let prf_gpr_size = config.pipeline.prf_gpr_size;
         let prf_fpr_size = config.pipeline.prf_fpr_size;
@@ -258,7 +253,7 @@ impl O3Engine {
                 config.pipeline.vec_store_buffer_size,
                 config.pipeline.vec_store_forwarding,
             ),
-            common: BackendCommon { pipeline_id, l1_i_id, l1_d_id, ..BackendCommon::default() },
+            common: BackendCommon { pipeline_id, caches, ..BackendCommon::default() },
         }
     }
 
@@ -464,9 +459,9 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use crate::isa::reg::RegIdx;
-    use crate::sim::components::CacheId;
     use crate::sim::components::PipelineId;
     use crate::system::SystemState;
+    use crate::uarch::pipeline::engine::CacheRoutes;
     use crate::uarch::pipeline::rename::prf::PhysReg;
 
     #[test]
@@ -474,8 +469,7 @@ mod tests {
         let config = Config::minimal();
         let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
-        let mut engine =
-            O3Engine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
+        let mut engine = O3Engine::new(&config, PipelineId::new(0), CacheRoutes::default());
         engine.execute_mem1.push(ExMem1Entry::default());
         engine.mem1_mem2.push(Mem1Mem2Entry::default());
         engine.mem2_wb.push(Mem2WbEntry::default());
@@ -491,8 +485,7 @@ mod tests {
         let config = Config::minimal();
         let mut sys = SystemState::build(&config);
         let state = sys.core_ctx(0);
-        let mut engine =
-            O3Engine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
+        let mut engine = O3Engine::new(&config, PipelineId::new(0), CacheRoutes::default());
 
         state.hart.regs.write(RegIdx::new(1), 42);
         engine.sync_arch_regs(&state);

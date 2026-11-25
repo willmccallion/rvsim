@@ -19,7 +19,7 @@ use crate::exec::compute::vector::shadow::ElementWrite;
 use crate::exec::execute::illegal_in_current_state;
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::{ElemIdx, parse_vtype};
-use crate::sim::components::{CacheId, PipelineId};
+use crate::sim::components::PipelineId;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::backend::shared::commit::{
@@ -31,6 +31,7 @@ use crate::uarch::pipeline::backend::shared::vec_mem::{
     VecMemInflight, expand_span, retire_access,
 };
 use crate::uarch::pipeline::backend::shared::{commit, memory1, memory2, writeback};
+use crate::uarch::pipeline::engine::CacheRoutes;
 use crate::uarch::pipeline::engine::Renamed;
 use crate::uarch::pipeline::engine::{
     BackendCommon, BundleHazard, DataCacheFlush, ExecutionEngine,
@@ -283,13 +284,8 @@ impl InOrderEngine {
     }
 
     /// Creates a new in-order engine from config and routing IDs.
-    pub fn new(
-        config: &Config,
-        pipeline_id: PipelineId,
-        l1_i_id: CacheId,
-        l1_d_id: CacheId,
-    ) -> Self {
-        let common = BackendCommon { pipeline_id, l1_i_id, l1_d_id, ..BackendCommon::default() };
+    pub fn new(config: &Config, pipeline_id: PipelineId, caches: CacheRoutes) -> Self {
+        let common = BackendCommon { pipeline_id, caches, ..BackendCommon::default() };
         Self {
             rob: Rob::new(config.pipeline.rob_size),
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),
@@ -584,16 +580,14 @@ mod tests {
     #[test]
     fn a_new_engine_accepts_a_full_pipeline_width() {
         let config = Config::minimal();
-        let engine =
-            InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
+        let engine = InOrderEngine::new(&config, PipelineId::new(0), CacheRoutes::default());
         assert_eq!(engine.can_accept(), config.pipeline.width);
     }
 
     #[test]
     fn flush_empties_the_memory_stage_latches() {
         let config = Config::minimal();
-        let mut engine =
-            InOrderEngine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
+        let mut engine = InOrderEngine::new(&config, PipelineId::new(0), CacheRoutes::default());
         let mut sys = SystemState::build(&config);
         let mut state = sys.core_ctx(0);
         engine.execute_mem1.push(ExMem1Entry::default());

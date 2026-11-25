@@ -223,6 +223,10 @@ stat_paths! {
         l2_tlb_hits: "mmu.l2_tlb.hits" => Events,
         /// L1 TLB misses the L2 TLB did not hold either.
         l2_tlb_misses: "mmu.l2_tlb.misses" => Events,
+        /// Walks that started below the root at a table the walk cache held.
+        walk_cache_hits: "mmu.walk_cache.hits" => Events,
+        /// Walks that found no table for their address in the walk cache.
+        walk_cache_misses: "mmu.walk_cache.misses" => Events,
         /// Page-table walks started.
         walks: "mmu.walks" => Events,
     }

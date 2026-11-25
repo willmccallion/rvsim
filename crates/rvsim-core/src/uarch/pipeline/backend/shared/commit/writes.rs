@@ -151,7 +151,7 @@ pub(super) fn send_block_op(
     let cycle = state.uncore.kernel.cycle;
     state.uncore.kernel.event_queue.schedule(
         cycle,
-        ComponentId::Cache(common.l1_d_id),
+        ComponentId::Cache(common.caches.l1_d),
         ComponentId::Pipeline(common.pipeline_id),
         Packet::MemReq { req_id, paddr: block, vaddr: None, pc: None, size: AccessSize::Line, op },
     );
@@ -167,7 +167,7 @@ pub(super) fn send_data_cache_flush(state: &mut CoreCtx<'_>, common: &mut Backen
     let cycle = state.uncore.kernel.cycle;
     state.uncore.kernel.event_queue.schedule(
         cycle,
-        ComponentId::Cache(common.l1_d_id),
+        ComponentId::Cache(common.caches.l1_d),
         ComponentId::Pipeline(common.pipeline_id),
         Packet::FlushAll { req_id },
     );
@@ -280,7 +280,7 @@ pub(super) fn emit_line_write(
     let cycle = state.uncore.kernel.cycle;
     state.uncore.kernel.event_queue.schedule(
         cycle,
-        ComponentId::Cache(common.l1_d_id),
+        ComponentId::Cache(common.caches.l1_d),
         ComponentId::Pipeline(common.pipeline_id),
         Packet::MemReq {
             req_id,
@@ -340,7 +340,7 @@ pub(super) fn emit_store_write_packet(
             target,
         )];
     }
-    let l1d = ComponentId::Cache(common.l1_d_id);
+    let l1d = ComponentId::Cache(common.caches.l1_d);
     line_parts(state, paddr, data, width_bytes)
         .into_iter()
         .map(|(part_paddr, part_data, part_bytes)| {

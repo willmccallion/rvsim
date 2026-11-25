@@ -319,6 +319,8 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "l2_tlb_size": cfg.l2_tlb_size,
         "l2_tlb_ways": cfg.l2_tlb_ways,
         "l2_tlb_latency": cfg.l2_tlb_latency,
+        "walk_cache_entries": cfg.walk_cache_entries,
+        "walker_port": cfg.walker_port,
         "paging_mode_max": cfg.paging_mode_max,
         "misaligned_access_trap": cfg.misaligned_access_trap,
         **_controller_dicts(cfg.memory_controller),

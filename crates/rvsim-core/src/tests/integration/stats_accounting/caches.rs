@@ -3,14 +3,18 @@
 //! Coherence traffic, which needs several cores, is checked with the rest
 //! of the coherence stats.
 
-use super::program::{BACKENDS, config, ending_in_spin, run_to_pc, system_with};
+use super::program::{
+    BACKENDS, DATA, GIGAPAGE_PTE, SUPERVISOR_ENTRY, Translation, config, ending_in_spin, run_to_pc,
+    supervisor_system, system_with,
+};
 use super::{Recorder, accounting_checks};
 use crate::config::LoadPrefetcherConfig;
 use crate::config::PageBoundary;
 use crate::config::{
     BackendKind, CacheConfig, Config, InclusionPolicy, PrefetcherKind, StorePrefetcherConfig,
-    WriteStreamingConfig,
+    WalkerPort, WriteStreamingConfig,
 };
+use crate::isa::encoding::privileged::SFENCE_VMA;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::CBO_CLEAN_IMM;
 use crate::tests::support::builder::instruction::{FENCE_I, FENCE_IORW, InstructionBuilder};
@@ -611,6 +615,53 @@ fn an_instruction_fetch_probes_the_l1d_through_the_l2(rec: &mut Recorder) {
     }
 }
 
+/// Reads the gigapage's PTE and writes it back unchanged, which leaves its
+/// line dirty in the L1D; then flushes the TLBs and loads, so the fetch and
+/// the load walk again; and the address of the flush.
+fn dirty_the_pte_then_walk() -> (Vec<u32>, u64) {
+    let i = InstructionBuilder::new;
+    let pte_from_data = (GIGAPAGE_PTE - DATA) as i32;
+    let before_flush = vec![
+        i().lui(T0, pte_from_data >> 12).build(),
+        i().add(T0, T0, A1).build(),
+        i().ld(T2, T0, pte_from_data & 0xFFF).build(),
+        i().sd(T0, T2, pte_from_data & 0xFFF).build(),
+    ];
+    let flush_offset = 4 * (SUPERVISOR_ENTRY + before_flush.len()) as u64;
+    let mut body = before_flush;
+    body.extend([SFENCE_VMA, i().ld(T2, A1, 0).build()]);
+    (body, PROGRAM_BASE + flush_offset)
+}
+
+fn a_walk_reading_the_l2_probes_the_l1d_for_its_pte(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut config = hierarchy(backend);
+        config.memory.walker_port = WalkerPort::L2;
+        let (body, flush) = dirty_the_pte_then_walk();
+        let (mut ctx, end) = supervisor_system(&config, body, Translation::Sv39);
+        run_to_pc(&mut ctx, flush, &context);
+        let probes_before = rec.read(&ctx.sim, "core0.cache.l2.walk_probes");
+        let dirty_before = rec.read(&ctx.sim, "core0.cache.l2.walk_probes_dirty");
+
+        run_to_pc(&mut ctx, end, &context);
+        ctx.run(SETTLE);
+
+        // After the flush the fetch and the load each walk, finding the
+        // L1D holding the PTE's line: dirty for the first, which takes it,
+        // and still writable for the second.
+        let why = format!("{context}: one probe for each walk after the flush");
+        rec.expect(&ctx.sim, "core0.cache.l2.walk_probes", probes_before + 2, &why);
+        rec.expect(&ctx.sim, "core0.cache.l2.walk_probes_dirty", dirty_before + 1, &context);
+        for cache in ["core0.cache.l1i", "core0.cache.l1d", "llc"] {
+            for stat in ["walk_probes", "walk_probes_dirty"] {
+                let why = format!("{context}: only the cache the walker reads probes");
+                rec.expect(&ctx.sim, &format!("{cache}.{stat}"), 0, &why);
+            }
+        }
+    }
+}
+
 /// Writes three lines, then runs FENCE.I twice.
 fn three_dirty_lines_then_two_fence_is() -> (Vec<u32>, u64) {
     let i = InstructionBuilder::new;
@@ -664,4 +715,5 @@ accounting_checks!(
     an_instruction_fetch_probes_the_l1d_through_the_l2,
     fence_i_flushes_the_l1d_when_no_l2_joins_the_l1s,
     a_run_of_whole_line_writes_skips_the_l1d_then_the_l2,
+    a_walk_reading_the_l2_probes_the_l1d_for_its_pte,
 );

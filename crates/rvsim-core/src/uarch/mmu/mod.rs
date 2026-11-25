@@ -12,6 +12,8 @@ pub mod ptw;
 
 pub mod tlb;
 
+pub mod walk_cache;
+
 use crate::arch::csr::Csrs;
 use crate::arch::pmp::Pmp;
 use crate::arch::translation::{SfenceVmaInfo, TranslationResult};
@@ -21,6 +23,7 @@ use crate::isa::privileged::{PrivilegeMode, Trap};
 
 use self::ptw::{WalkRequest, WalkState, WalkStep};
 use self::tlb::{PageSize, Tlb, TlbGeometry, TlbHit};
+use self::walk_cache::WalkCache;
 
 /// Where a hardware prefetch to a virtual address may go, as the data TLB
 /// already knows it.
@@ -44,9 +47,10 @@ pub enum PrefetchTranslation {
 /// Outcome of [`Mmu::translate_async`].
 ///
 /// `Ready` means translation completed without needing memory; `NeedPte`
-/// means the caller must issue a `MemReq` for `pte_addr`, stash `state`
-/// in its outstanding-walks table, and call [`Mmu::continue_walk`] with the
-/// 64-bit PTE value when the response arrives.
+/// means the caller must issue a `MemReq` for `pte_addr` `after` cycles
+/// from now, stash `state` in its outstanding-walks table, and call
+/// [`Mmu::continue_walk`] with the 64-bit PTE value when the response
+/// arrives.
 #[derive(Clone, Debug)]
 pub enum TranslateOutcome {
     /// Translation completed (success, fault, direct mode, TLB hit).
@@ -57,6 +61,9 @@ pub enum TranslateOutcome {
         pte_addr: PhysAddr,
         /// Walk state to stash until the response arrives.
         state: WalkState,
+        /// Cycles before the read can go: a new walk waits out the L2 TLB
+        /// lookup that missed, and each later read goes at once.
+        after: u64,
     },
 }
 
@@ -73,8 +80,10 @@ pub struct Mmu {
     pub itlb: Tlb,
     /// Shared L2 TLB, consulted on an L1 miss; empty when not configured.
     pub l2_tlb: Tlb,
-    /// L2 TLB hit latency in cycles.
+    /// L2 TLB lookup latency in cycles, hit or miss.
     pub l2_tlb_latency: u64,
+    /// Pointer PTEs the walker has read; empty when not configured.
+    pub walk_cache: WalkCache,
     /// Highest SATP paging mode the CPU writer will accept. Anything above
     /// this is coerced to Bare on write, letting tests pin a mode without
     /// rebuilding the kernel (e.g. force a Sv57-aware Linux onto Sv39).
@@ -107,6 +116,9 @@ pub struct TlbCounts {
     pub dtlb: HitsAndMisses,
     /// Lookups that missed an L1 TLB; none when there is no L2 TLB.
     pub l2_tlb: HitsAndMisses,
+    /// Walks that found a table below the root in the walk cache; none
+    /// when there is no walk cache.
+    pub walk_cache: HitsAndMisses,
     /// Page-table walks started: every TLB level missed.
     pub walks: u64,
 }
@@ -137,23 +149,32 @@ impl HitLookup {
 
 impl Mmu {
     /// Retires an SFENCE.VMA: flushes the translations it names from every
-    /// TLB. The caller also clears the hart's reservation.
+    /// TLB, and the walk cache when it names no address (one that does
+    /// orders only leaf PTEs). The caller also clears the hart's
+    /// reservation.
     pub fn sfence_vma(&mut self, info: &SfenceVmaInfo) {
         let vpn = || VirtAddr::new(info.rs1_val).page_number();
         let asid = || Asid::from_register(info.rs2_val);
+        let names = (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero());
         for tlb in [&mut self.dtlb, &mut self.itlb, &mut self.l2_tlb] {
-            match (!info.rs1_idx.is_zero(), !info.rs2_idx.is_zero()) {
+            match names {
                 (false, false) => tlb.flush(),
                 (true, false) => tlb.flush_vaddr(vpn()),
                 (false, true) => tlb.flush_asid(asid()),
                 (true, true) => tlb.flush_vaddr_asid(vpn(), asid()),
             }
         }
+        match names {
+            (false, false) => self.walk_cache.flush(),
+            (false, true) => self.walk_cache.flush_asid(asid()),
+            (true, _) => {}
+        }
     }
 
     /// Creates an MMU with instruction and data L1 TLBs of `l1`'s geometry,
-    /// a shared L2 TLB of `l2`'s hitting after `l2_latency` cycles, and a
-    /// SATP writer accepting modes up to `paging_mode_max`.
+    /// a shared L2 TLB of `l2`'s answering after `l2_latency` cycles, no
+    /// walk cache, and a SATP writer accepting modes up to
+    /// `paging_mode_max`.
     #[must_use]
     pub fn new(
         l1: TlbGeometry,
@@ -166,9 +187,16 @@ impl Mmu {
             itlb: Tlb::new(l1),
             l2_tlb: Tlb::new(l2),
             l2_tlb_latency: l2_latency,
+            walk_cache: WalkCache::new(0),
             paging_mode_max,
             counts: TlbCounts::default(),
         }
+    }
+
+    /// The MMU with a walk cache of `entries` pointer PTEs.
+    #[must_use]
+    pub fn with_walk_cache(self, entries: usize) -> Self {
+        Self { walk_cache: WalkCache::new(entries), ..self }
     }
 
     /// The lookups and walks counted since the last call, which starts a
@@ -255,12 +283,29 @@ impl Mmu {
             }
         }
 
-        let request = WalkRequest { access, privilege, mode: paging };
-        match ptw::start_walk(request, vaddr, csrs, pmp) {
+        let after = if self.l2_tlb.exists() { l2_latency } else { 0 };
+        self.walk(WalkRequest { access, privilege, mode: paging }, vaddr, csrs, pmp, after)
+    }
+
+    /// Starts a walk for `vaddr` at the deepest table the walk cache holds
+    /// for it, its first read going `after` cycles from now.
+    fn walk(
+        &mut self,
+        request: WalkRequest,
+        vaddr: VirtAddr,
+        csrs: &Csrs,
+        pmp: Option<&Pmp>,
+        after: u64,
+    ) -> TranslateOutcome {
+        let start = self.walk_cache.lookup(vaddr, Satp::new(csrs.satp).asid());
+        if self.walk_cache.exists() {
+            self.counts.walk_cache.record(start.is_some());
+        }
+        match ptw::start_walk(request, vaddr, csrs, start, pmp) {
             WalkStep::Done(result) => TranslateOutcome::Ready(result),
             WalkStep::NeedPte { pte_addr, state } => {
                 self.counts.walks += 1;
-                TranslateOutcome::NeedPte { pte_addr, state }
+                TranslateOutcome::NeedPte { pte_addr, state, after }
             }
         }
     }
@@ -305,11 +350,12 @@ impl Mmu {
         raw_pte: u64,
         csrs: &Csrs,
         pmp: Option<&Pmp>,
-        bus_transit_cycles: u64,
     ) -> TranslateOutcome {
-        match ptw::continue_walk(state, raw_pte, self, csrs, pmp, bus_transit_cycles) {
+        match ptw::continue_walk(state, raw_pte, self, csrs, pmp) {
             WalkStep::Done(result) => TranslateOutcome::Ready(result),
-            WalkStep::NeedPte { pte_addr, state } => TranslateOutcome::NeedPte { pte_addr, state },
+            WalkStep::NeedPte { pte_addr, state } => {
+                TranslateOutcome::NeedPte { pte_addr, state, after: 0 }
+            }
         }
     }
 }

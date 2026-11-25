@@ -44,6 +44,7 @@ use crate::uarch::mmu::ptw::WalkState;
 use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine, FetchRestart};
 use crate::uarch::pipeline::frontend::read_inst_half;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, Latch};
+use crate::uarch::pipeline::mailbox::{PteRead, read_pte};
 use crate::uarch::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 
 /// The cache line most recently returned by the I-cache (gem5's
@@ -184,44 +185,24 @@ const fn fault_entry(seq: InstSeq, pc: VirtAddr, trap: Trap) -> Fetch1Fetch2Entr
 }
 
 /// Parks an instruction whose translation needs a page-table walk and
-/// emits the first PTE read. The group sequence number is reserved now so
-/// the instruction drains after everything fetch1 issued before it.
+/// sends the walk's first PTE read. The group sequence number is reserved
+/// now so the instruction drains after everything fetch1 issued before it.
 fn park_fetch_walk<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
     walk_state: WalkState,
-    pte_addr: PhysAddr,
+    read: PteRead,
     entry: Fetch1Fetch2Entry,
 ) {
     let common = engine.common_mut();
     let fetch_seq = common.alloc_fetch_seq();
-    let req_id = common.alloc_req_id();
-    let l1_d_id = common.l1_d_id;
-    let pipeline_id = common.pipeline_id;
-    let _ = common.memory.outstanding_walks.insert(
-        req_id,
-        OutstandingWalk {
-            state: walk_state,
-            access_size: FETCH_TRANSLATION_BYTES,
-            continuation: WalkContinuation::Fetch { fetch_seq, entry },
-        },
-    );
     common.fetch.fetch_restart = FetchRestart::AwaitingWalk;
-
-    let cycle = state.uncore().kernel.cycle;
-    state.events().schedule(
-        cycle,
-        ComponentId::Cache(l1_d_id),
-        ComponentId::Pipeline(pipeline_id),
-        Packet::MemReq {
-            req_id,
-            paddr: pte_addr,
-            vaddr: None,
-            pc: None,
-            size: AccessSize::B8,
-            op: MemOp::Read,
-        },
-    );
+    let walk = OutstandingWalk {
+        state: walk_state,
+        access_size: FETCH_TRANSLATION_BYTES,
+        continuation: WalkContinuation::Fetch { fetch_seq, entry },
+    };
+    read_pte(common, state, walk, read);
 }
 
 /// Hands a fetch group to the frontend.
@@ -266,7 +247,7 @@ fn issue_line_fetch<E: ExecutionEngine>(
     fetch_buffer.invalidate();
     let common = engine.common_mut();
     let req_id = common.alloc_req_id();
-    let l1_i_id = common.l1_i_id;
+    let l1_i_id = common.caches.l1_i;
     let pipeline_id = common.pipeline_id;
     let vaddr = group.entries.first().map(|e| e.pc);
     let _ = common.fetch.outstanding_fetches.insert(req_id, group);
@@ -514,9 +495,9 @@ fn translate_fetch_half<E: ExecutionEngine>(
             FetchHalf::Stalled
         }
         TranslateOutcome::Ready(r) => r.trap.map_or(FetchHalf::Ready(r.paddr), FetchHalf::Fault),
-        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state, after } => {
             let entry = pending(engine.common_mut());
-            park_fetch_walk(state, engine, walk_state, pte_addr, entry);
+            park_fetch_walk(state, engine, walk_state, PteRead { addr: pte_addr, after }, entry);
             FetchHalf::Stalled
         }
     }

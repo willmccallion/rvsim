@@ -1,14 +1,18 @@
 //! Loading and running the small programs the accounting checks count.
 
 use crate::Simulator;
-use crate::common::VirtAddr;
+use crate::common::{PhysAddr, VirtAddr};
 use crate::config::Console;
 use crate::config::{BackendKind, Config};
-use crate::isa::csr::{MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_VS, MSTATUS_VS_INIT};
+use crate::isa::csr::{
+    MSTATUS_FS, MSTATUS_FS_INIT, MSTATUS_MPP, MSTATUS_VS, MSTATUS_VS_INIT, SATP_MODE_SV39,
+};
+use crate::isa::privileged::PrivilegeMode;
 use crate::system::SystemState;
-use crate::system::simulator::{StopAt, StopReason};
+use crate::system::simulator::{ProbeWidth, StopAt, StopReason};
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder, M5_FAIL, MRET};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext, store_words};
+use crate::tests::support::open_pmp;
 use crate::tests::support::regs::{A0, A1, A2, T0, T1, X0};
 
 pub const HANDLER: u64 = PROGRAM_BASE + 0x400;
@@ -61,6 +65,55 @@ fn prepare(ctx: TestContext, program: &[u32], handler: &[u32]) -> TestContext {
     ctx.set_reg(A2, DATA + 0x100);
     ctx.sim.sync_arch_regs();
     ctx
+}
+
+/// Where the one page table of [`supervisor_system`] lives.
+pub const PAGE_TABLE: u64 = PROGRAM_BASE + 0x3000;
+/// The page table's entry for the gigapage holding the program and data.
+pub const GIGAPAGE_PTE: u64 = PAGE_TABLE + 8 * (PROGRAM_BASE >> 30);
+/// A valid, readable, writable, executable leaf with A and D set.
+const LEAF_RWXAD: u64 = 0xCF;
+
+/// Whether [`supervisor_system`] turns on address translation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Translation {
+    /// Sv39, through one gigapage mapping everything to itself.
+    Sv39,
+    /// None.
+    Bare,
+}
+
+/// Instructions [`supervisor_system`] runs before the supervisor's body.
+pub const SUPERVISOR_ENTRY: usize = 4;
+
+/// `config` running `body` in supervisor mode, entered by an `mret`, under
+/// `translation`; and the address of the spin it ends in.
+pub fn supervisor_system(
+    config: &Config,
+    body: Vec<u32>,
+    translation: Translation,
+) -> (TestContext, u64) {
+    let i = InstructionBuilder::new;
+    let mut program = vec![
+        i().auipc(T1, 0).build(),
+        i().addi(T0, T1, 16).build(),
+        i().csrrw(X0, MEPC, T0).build(),
+        MRET,
+    ];
+    assert_eq!(program.len(), SUPERVISOR_ENTRY);
+    program.extend(body);
+    let (program, end) = ending_in_spin(program);
+    let mut ctx = system_with(config, &program, &[]);
+    let pte = ((PROGRAM_BASE >> 12) << 10) | LEAF_RWXAD;
+    ctx.sim.probe_mem_store(PhysAddr::new(GIGAPAGE_PTE), pte, ProbeWidth::B8);
+    let hart = &mut ctx.sim.state.harts[0];
+    let supervisor = u64::from(PrivilegeMode::Supervisor.to_u8()) << 11;
+    hart.csrs.mstatus = (hart.csrs.mstatus & !MSTATUS_MPP) | supervisor;
+    if translation == Translation::Sv39 {
+        hart.csrs.satp = (SATP_MODE_SV39 << 60) | (PAGE_TABLE >> 12);
+    }
+    open_pmp(&mut hart.pmp);
+    (ctx, end)
 }
 
 /// `program` followed by a jump to itself, and the jump's address.

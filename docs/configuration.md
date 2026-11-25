@@ -375,7 +375,9 @@ Cache.Exclusive()   # L1 victims go to the L2; an L1 fill takes the L2's copy
 | `tlb_ways` | `int` | `0` | L1 TLB associativity; `0` is fully associative |
 | `l2_tlb_size` | `int` | `2048` | Entries in the shared L2 TLB; `0` disables it |
 | `l2_tlb_ways` | `int` | `8` | L2 TLB associativity |
-| `l2_tlb_latency` | `int` | `7` | L2 TLB hit latency in cycles |
+| `l2_tlb_latency` | `int` | `7` | L2 TLB lookup latency in cycles: a hit proceeds, and a miss starts its walk, this long after the L1 TLB missed |
+| `walk_cache_entries` | `int` | `0` | Pointer PTEs the page-table walker caches, so a walk can start below the root (at most 256); `0` for none |
+| `walker_port` | `str` | `"L1D"` | The cache the page-table walker reads PTEs from: `"L1D"`, or `"L2"` as on the Cortex-A72 (needs an L2) |
 | `paging_mode_max` | `str` | `"Sv57"` | Strongest paging mode `satp` accepts (`"Bare"`, `"Sv39"`, `"Sv48"`, `"Sv57"`); a stronger mode written to `satp` reads back as Bare, which makes a kernel fall back |
 | `misaligned_access_trap` | `bool` | `False` | Raise address-misaligned exceptions instead of performing misaligned accesses in hardware |
 | `isa` | `str` or `None` | `None` | The ISA the hart implements, as the compiler's `-march`, spike's `--isa` and `/proc/cpuinfo` spell it: the single letters (`G` is `IMAFD`, `B` is Zba, Zbb and Zbs together), then every multi-letter extension, such as `"rv64gcv_zba_zbb_zbs_zicbom_zicboz"`; the vector crypto groups `zvkn`, `zvknc`, `zvkng`, `zvks`, `zvksc` and `zvksg` stand for their members. It sets `misa`, what the decoder accepts (an instruction of an extension left out raises an illegal-instruction exception) and what the device tree advertises. `None` is everything the simulator implements; `Config().isa_string()` shows the resolved string. Zicsr, Zifencei, Zicntr, Zihintpause, Zihpm and Sstc are always implemented, and an unknown name is refused. Without `C` every instruction is 32 bits: fetch steps a word at a time and a word whose low bits are not `11` is illegal |

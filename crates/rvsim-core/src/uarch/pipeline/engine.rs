@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use crate::arch::Hart;
 use crate::arch::csr::Csrs;
 use crate::common::{FetchSeq, InstSeq, VirtAddr};
-use crate::config::{BackendKind, Config};
+use crate::config::{BackendKind, Config, WalkerPort};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::VectorConfig;
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
@@ -389,10 +389,35 @@ pub struct BackendCommon {
     /// `PipelineId` of this engine; stamped on every outgoing packet as the
     /// `source` so the response routes back here.
     pub pipeline_id: PipelineId,
-    /// L1 instruction cache id (target for fetch requests).
-    pub l1_i_id: CacheId,
-    /// L1 data cache id (target for load / store / PTE-walk requests).
-    pub l1_d_id: CacheId,
+    /// The caches this engine sends requests to.
+    pub caches: CacheRoutes,
+}
+
+/// The caches a pipeline sends its requests to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CacheRoutes {
+    /// The L1 instruction cache: fetches.
+    pub l1_i: CacheId,
+    /// The L1 data cache: loads, stores and the walker's A-bit writes.
+    pub l1_d: CacheId,
+    /// The cache the page-table walker reads PTEs from.
+    pub walker: CacheId,
+}
+
+impl CacheRoutes {
+    /// `core`'s caches, its walker reading from the one `config` names.
+    #[must_use]
+    pub const fn of(core: &CoreTopology, config: &Config) -> Self {
+        let walker = match config.memory.walker_port {
+            WalkerPort::L1D => PrivateCache::L1D,
+            WalkerPort::L2 => PrivateCache::L2,
+        };
+        Self {
+            l1_i: core.cache(PrivateCache::L1I),
+            l1_d: core.cache(PrivateCache::L1D),
+            walker: core.cache(walker),
+        }
+    }
 }
 
 impl BackendCommon {
@@ -799,16 +824,15 @@ macro_rules! on_pipeline {
 impl PipelineDispatch {
     /// Builds the configured backend for `core`, fetching from `pc`.
     pub fn new(config: &Config, core: &CoreTopology, pc: VirtAddr) -> Self {
-        let l1i = core.cache(PrivateCache::L1I);
-        let l1d = core.cache(PrivateCache::L1D);
+        let caches = CacheRoutes::of(core, config);
         match config.pipeline.backend {
             BackendKind::InOrder => Self::InOrder(Box::new(Pipeline::new(
-                InOrderEngine::new(config, core.pipeline_id, l1i, l1d),
+                InOrderEngine::new(config, core.pipeline_id, caches),
                 config,
                 pc,
             ))),
             BackendKind::OutOfOrder => Self::OutOfOrder(Box::new(Pipeline::new(
-                O3Engine::new(config, core.pipeline_id, l1i, l1d),
+                O3Engine::new(config, core.pipeline_id, caches),
                 config,
                 pc,
             ))),

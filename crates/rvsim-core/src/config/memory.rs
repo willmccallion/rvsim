@@ -97,8 +97,16 @@ pub struct MemoryConfig {
     /// L2 TLB associativity (ways per set)
     pub l2_tlb_ways: usize,
 
-    /// L2 TLB hit latency in cycles
+    /// L2 TLB lookup latency in cycles: a hit's, and the wait before a
+    /// miss starts its walk
     pub l2_tlb_latency: u64,
+
+    /// Pointer PTEs the page-table walker caches, so a walk can start
+    /// below the root; 0 for none
+    pub walk_cache_entries: usize,
+
+    /// The cache the page-table walker reads PTEs from
+    pub walker_port: WalkerPort,
 
     /// Trap on misaligned memory accesses instead of handling them natively.
     /// When true, misaligned loads/stores raise `LoadAddressMisaligned` /
@@ -156,10 +164,24 @@ impl Default for MemoryConfig {
             l2_tlb_size: defaults::L2_TLB_SIZE,
             l2_tlb_ways: defaults::L2_TLB_WAYS,
             l2_tlb_latency: defaults::L2_TLB_LATENCY,
+            walk_cache_entries: defaults::WALK_CACHE_ENTRIES,
+            walker_port: WalkerPort::default(),
             misaligned_access_trap: false,
             paging_mode_max: crate::isa::privileged::PagingMode::Sv57,
         }
     }
+}
+
+/// The cache the page-table walker reads PTEs from.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, serde::Deserialize, serde::Serialize)]
+pub enum WalkerPort {
+    /// The L1 data cache, as on gem5, Rocket and BOOM.
+    #[default]
+    L1D,
+    /// The private L2, as on the Cortex-A72 (TRM 5.4): PTE reads leave the
+    /// L1D to the core's own loads, and an L1D copy written there is
+    /// probed for first.
+    L2,
 }
 
 /// Address-bit interleave strategy. Names read high-order to low-order bit,
