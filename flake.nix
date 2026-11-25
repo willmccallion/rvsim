@@ -89,6 +89,9 @@
 
           git curl
 
+          # make mutants-diff and make test-coverage.
+          cargo-mutants cargo-llvm-cov
+
           # qemu-riscv64 is the reference SE mode is verified against
           # (make se-verify): the same user binary's output and syscalls.
           qemu-user
