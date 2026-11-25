@@ -14,6 +14,7 @@ pub mod illegal_system;
 pub mod inorder_units;
 pub mod pipeline_stats;
 pub mod privileged_rules;
+pub mod renamed_sources;
 pub mod rob_tag_wrap;
 pub mod serialized_issue;
 pub mod squashed_divide;
