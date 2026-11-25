@@ -12,6 +12,7 @@ pub mod external_csr_write;
 pub mod fault_precedence;
 pub mod illegal_system;
 pub mod inorder_units;
+pub mod load_queue_rename;
 pub mod pipeline_stats;
 pub mod privileged_rules;
 pub mod renamed_sources;
