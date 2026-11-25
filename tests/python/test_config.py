@@ -200,6 +200,21 @@ class Prefetchers(unittest.TestCase):
             cache["write_streaming"], {"skip_l1_from": 4, "skip_l2_from": 12}
         )
 
+    def test_a_fetch_block_reaches_the_core(self):
+        config = Config(fetch_block_bytes=16)
+
+        pipeline = config.to_dict()["pipeline"]
+        Simulator(config)
+
+        self.assertEqual(pipeline["fetch_block_bytes"], 16)
+
+    def test_the_default_machine_fetches_up_to_the_end_of_the_line(self):
+        self.assertIsNone(Config().fetch_block_bytes)
+
+    def test_a_fetch_block_wider_than_the_l1i_line_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "fetch_block_bytes 128"):
+            Config(fetch_block_bytes=128)
+
     def test_write_streaming_is_off_by_default(self):
         self.assertIsNone(Config().to_dict()["cache"]["write_streaming"])
 

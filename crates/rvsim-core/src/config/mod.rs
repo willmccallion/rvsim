@@ -429,6 +429,16 @@ pub enum ConfigError {
     /// A snoop filter sized to no entries.
     #[error("coherence.home_agent.capacity_factor must be a positive number")]
     SnoopFilterCapacity,
+    /// A fetch block that does not tile the I-cache line.
+    #[error(
+        "fetch_block_bytes {bytes} must be a power of two from 4 to the L1I line's {line_bytes} bytes"
+    )]
+    FetchBlock {
+        /// Configured block.
+        bytes: usize,
+        /// The L1I line.
+        line_bytes: usize,
+    },
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]
     BtbSets {

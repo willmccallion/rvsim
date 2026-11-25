@@ -86,6 +86,10 @@ pub struct PipelineConfig {
     /// Instructions fetched per cycle; `width` when unset.
     pub fetch_width: Option<usize>,
 
+    /// Bytes fetch reads per cycle: an aligned block of the I-cache line,
+    /// ending the cycle's fetch at its end. A whole line when unset.
+    pub fetch_block_bytes: Option<usize>,
+
     /// Instructions decoded per cycle; `width` when unset.
     pub decode_width: Option<usize>,
 
@@ -301,6 +305,7 @@ impl Default for PipelineConfig {
             fence_squash: false,
             store_forward_latency: None,
             fetch_width: None,
+            fetch_block_bytes: None,
             decode_width: None,
             rename_width: None,
             issue_width: None,

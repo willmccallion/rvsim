@@ -49,6 +49,7 @@ the bundled Linux image. See [Benchmark Configs](examples/benchmark-configs.md).
 |-----------|------|---------|-------------|
 | `width` | `int` | `6` | Instructions per cycle for every stage that has no width of its own |
 | `fetch_width`, `decode_width`, `rename_width`, `issue_width`, `commit_width` | `int` | `width` | Per-stage widths |
+| `fetch_block_bytes` | `int` or `None` | `None` | Bytes fetch reads a cycle: an aligned block of the I-cache line, at least 4 bytes and a power of two, ending the cycle's fetch at its end; `None` reads up to the end of the line |
 | `writeback_width` | `int` | `width` | Results the out-of-order backend writes back per cycle; the rest wait for later cycles |
 | `trap_latency` | `int` | `2` | Cycles from commit detecting a trap or interrupt to the squash into its handler; an interrupt is taken on the instruction at the ROB head, unless that is an atomic or a device read already under way, and flushes what follows it |
 | `redirect_latency` | `int` | `1` | Cycles from execute resolving a misprediction, CSR write, fault or ordering violation to the squash into the redirect; commit retires nothing the pending squash will remove |

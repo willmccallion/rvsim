@@ -37,6 +37,29 @@ fn btb_whose_set_count_is_not_a_power_of_two_is_rejected() {
 }
 
 #[test]
+fn fetch_blocks_that_tile_the_l1i_line_validate() {
+    for bytes in [4, 16, 64] {
+        let mut config = Config::minimal();
+        config.pipeline.fetch_block_bytes = Some(bytes);
+
+        assert!(config.validate().is_ok(), "{bytes}-byte blocks");
+    }
+}
+
+#[test]
+fn fetch_blocks_that_do_not_tile_the_l1i_line_are_rejected() {
+    let line_bytes = Config::minimal().cache.l1_i.line_bytes.get();
+    for bytes in [0, 2, 12, 2 * line_bytes] {
+        let mut config = Config::minimal();
+        config.pipeline.fetch_block_bytes = Some(bytes);
+
+        let err = config.validate().unwrap_err();
+
+        assert!(matches!(err, ConfigError::FetchBlock { bytes: b, .. } if b == bytes), "{err}");
+    }
+}
+
+#[test]
 fn a_simple_controller_bandwidth_that_is_not_positive_is_rejected() {
     let mut config = Config::minimal();
     config.memory.simple_bandwidth_gib_s = 0.0;

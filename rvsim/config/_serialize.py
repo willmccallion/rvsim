@@ -340,6 +340,7 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
     pipeline = {
         "width": cfg.width,
         "fetch_width": cfg.fetch_width,
+        "fetch_block_bytes": cfg.fetch_block_bytes,
         "decode_width": cfg.decode_width,
         "rename_width": cfg.rename_width,
         "issue_width": cfg.issue_width,

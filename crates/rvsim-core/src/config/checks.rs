@@ -91,10 +91,24 @@ impl Config {
             return Err(ConfigError::WalkerPortWithoutL2);
         }
         check_pipeline(&self.pipeline, self.misa())?;
+        check_fetch(&self.pipeline, self.cache.l1_i.line_bytes.get())?;
         check_backend(&self.pipeline)?;
         check_predictors(&self.pipeline)?;
         check_coherence(&self.coherence)
     }
+}
+
+/// The smallest fetch block: one whole instruction of the widest size.
+const MIN_FETCH_BLOCK_BYTES: usize = 4;
+
+/// A fetch block that tiles the I-cache line.
+fn check_fetch(pipeline: &PipelineConfig, line_bytes: usize) -> Result<(), ConfigError> {
+    if let Some(bytes) = pipeline.fetch_block_bytes
+        && (!bytes.is_power_of_two() || !(MIN_FETCH_BLOCK_BYTES..=line_bytes).contains(&bytes))
+    {
+        return Err(ConfigError::FetchBlock { bytes, line_bytes });
+    }
+    Ok(())
 }
 
 /// Stage latencies the backend can keep, a BTB of whole sets, a vector
