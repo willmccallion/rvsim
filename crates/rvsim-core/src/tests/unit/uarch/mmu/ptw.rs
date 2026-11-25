@@ -9,10 +9,11 @@
 //! - Bare mode bypass
 
 use crate::arch::csr::Csrs;
-use crate::arch::translation::TranslationResult;
+use crate::arch::translation::{SfenceVmaInfo, TranslationResult};
 use crate::common::{AccessType, Asid, PhysAddr, VirtAddr};
 use crate::isa::csr;
 use crate::isa::privileged::{PagingMode, PrivilegeMode, Trap};
+use crate::isa::reg::RegIdx;
 use crate::sim::memory::GlobalMemory;
 use crate::soc::uncore::Uncore;
 use crate::tests::support::harness::TestContext;
@@ -37,10 +38,9 @@ fn translate_sync(
     loop {
         match outcome {
             TranslateOutcome::Ready(r) => return r,
-            TranslateOutcome::NeedPte { pte_addr, state } => {
+            TranslateOutcome::NeedPte { pte_addr, state, .. } => {
                 let raw_pte = uncore.kernel.memory.read(pte_addr, 8).unwrap_or(0);
-                let cycles = uncore.bus.transit_cycles(8);
-                outcome = mmu.continue_walk(state, raw_pte, csrs, None, cycles);
+                outcome = mmu.continue_walk(state, raw_pte, csrs, None);
             }
         }
     }
@@ -1005,4 +1005,141 @@ fn a_machine_without_an_l2_tlb_counts_no_l2_lookups() {
     let expected =
         TlbCounts { dtlb: HitsAndMisses { hits: 0, misses: 1 }, walks: 1, ..TlbCounts::default() };
     assert_eq!(mmu.take_counts(), expected);
+}
+
+/// A walk driven to completion: the PTEs it read, and how long its first
+/// read waited to go.
+struct TracedWalk {
+    result: TranslationResult,
+    reads: Vec<PhysAddr>,
+    first_after: Option<u64>,
+}
+
+fn trace_walk(mmu: &mut Mmu, vaddr: u64, csrs: &Csrs, uncore: &Uncore) -> TracedWalk {
+    let mut outcome = mmu.translate_async(
+        VirtAddr::new(vaddr),
+        AccessType::Read,
+        PrivilegeMode::Supervisor,
+        csrs,
+        None,
+    );
+    let mut reads = Vec::new();
+    let mut first_after = None;
+    loop {
+        match outcome {
+            TranslateOutcome::Ready(result) => return TracedWalk { result, reads, first_after },
+            TranslateOutcome::NeedPte { pte_addr, state, after } => {
+                let _ = first_after.get_or_insert(after);
+                reads.push(pte_addr);
+                let raw_pte = uncore.kernel.memory.read(pte_addr, 8).unwrap_or(0);
+                outcome = mmu.continue_walk(state, raw_pte, csrs, None);
+            }
+        }
+    }
+}
+
+const WALKED_PAGE: u64 = 0x4000_1000;
+const NEIGHBOUR_PAGE: u64 = WALKED_PAGE + 0x1000;
+
+/// An MMU with a walk cache of `entries`, over the two neighbouring pages
+/// mapped through one leaf table.
+fn mmu_with_walk_cache(entries: usize) -> (Mmu, Csrs, TestContext) {
+    let (mmu, csrs, mut tc) = setup_mmu();
+    let memory = &mut tc.state_mut().uncore.kernel.memory;
+    map_4k_page(memory, WALKED_PAGE, ROOT_PPN + 10);
+    map_4k_page(memory, NEIGHBOUR_PAGE, ROOT_PPN + 11);
+    (mmu.with_walk_cache(entries), csrs, tc)
+}
+
+fn sfence(rs1: Option<u64>) -> SfenceVmaInfo {
+    SfenceVmaInfo {
+        rs1_idx: RegIdx::new(u8::from(rs1.is_some())),
+        rs2_idx: RegIdx::new(0),
+        rs1_val: rs1.unwrap_or(0),
+        rs2_val: 0,
+    }
+}
+
+#[test]
+fn a_walk_cache_lets_a_walk_read_only_the_leaf_of_a_table_it_has_walked() {
+    let (mut mmu, csrs, tc) = mmu_with_walk_cache(4);
+    let uncore = &tc.state().uncore;
+    let first = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+    let _ = mmu.take_counts();
+
+    let second = trace_walk(&mut mmu, NEIGHBOUR_PAGE, &csrs, uncore);
+
+    assert_eq!(first.reads.len(), 3, "root, middle and leaf");
+    assert_eq!(second.reads, vec![PhysAddr::new(((ROOT_PPN + 2) << 12) + 2 * 8)]);
+    assert_eq!(second.result.paddr.val(), (ROOT_PPN + 11) << 12);
+    assert_eq!(mmu.take_counts().walk_cache, HitsAndMisses { hits: 1, misses: 0 });
+}
+
+#[test]
+fn without_a_walk_cache_every_walk_starts_at_the_root() {
+    let (mut mmu, csrs, tc) = mmu_with_walk_cache(0);
+    let uncore = &tc.state().uncore;
+    let _ = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+
+    let second = trace_walk(&mut mmu, NEIGHBOUR_PAGE, &csrs, uncore);
+
+    assert_eq!(second.reads.len(), 3);
+    assert_eq!(mmu.take_counts().walk_cache, HitsAndMisses::default(), "nothing to count");
+}
+
+#[test]
+fn an_sfence_naming_no_address_flushes_the_walk_cache() {
+    let (mut mmu, csrs, tc) = mmu_with_walk_cache(4);
+    let uncore = &tc.state().uncore;
+    let _ = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+
+    mmu.sfence_vma(&sfence(None));
+
+    assert_eq!(trace_walk(&mut mmu, NEIGHBOUR_PAGE, &csrs, uncore).reads.len(), 3);
+}
+
+#[test]
+fn an_sfence_naming_an_address_keeps_the_walk_cache() {
+    let (mut mmu, csrs, tc) = mmu_with_walk_cache(4);
+    let uncore = &tc.state().uncore;
+    let _ = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+
+    mmu.sfence_vma(&sfence(Some(WALKED_PAGE)));
+
+    let again = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+    assert_eq!(again.reads.len(), 1, "the leaf TLB entry went; the tables stay");
+}
+
+#[test]
+fn after_a_full_sfence_a_walk_follows_a_rewritten_pointer() {
+    let (mut mmu, csrs, mut tc) = mmu_with_walk_cache(4);
+    let _ = trace_walk(&mut mmu, WALKED_PAGE, &csrs, &tc.state().uncore);
+    let moved_leaf_table = ROOT_PPN + 3;
+    let memory = &mut tc.state_mut().uncore.kernel.memory;
+    write_pte(memory, ROOT_PPN + 1, (NEIGHBOUR_PAGE >> 21) & 0x1FF, make_pte(moved_leaf_table, 0));
+    let leaf = make_pte(ROOT_PPN + 12, R | W | X | A | D);
+    write_pte(memory, moved_leaf_table, (NEIGHBOUR_PAGE >> 12) & 0x1FF, leaf);
+
+    mmu.sfence_vma(&sfence(None));
+    let walk = trace_walk(&mut mmu, NEIGHBOUR_PAGE, &csrs, &tc.state().uncore);
+
+    assert_eq!(walk.result.paddr.val(), (ROOT_PPN + 12) << 12);
+}
+
+#[test]
+fn a_walk_waits_out_the_l2_tlb_lookup_that_missed() {
+    let (mut mmu, csrs, tc) = mmu_with_walk_cache(0);
+
+    let walk = trace_walk(&mut mmu, WALKED_PAGE, &csrs, &tc.state().uncore);
+
+    assert_eq!(walk.first_after, Some(mmu.l2_tlb_latency));
+}
+
+#[test]
+fn without_an_l2_tlb_a_walk_starts_at_once() {
+    let (mut mmu, csrs, tc) = mmu_over_pages(0);
+
+    let walk = trace_walk(&mut mmu, PAGES[0], &csrs, &tc.state().uncore);
+
+    assert_eq!(walk.first_after, Some(0));
 }

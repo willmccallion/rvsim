@@ -307,17 +307,6 @@ impl Bus {
             && !self.htif_range.is_some_and(|htif| htif.overlaps(paddr, size))
     }
 
-    /// Cycles `bytes` of data take to cross the bus unopposed: the base
-    /// latency plus their beats.
-    pub const fn transit_cycles(&self, bytes: usize) -> u64 {
-        self.latency_cycles + self.data_cycles(bytes)
-    }
-
-    /// Cycles `bytes` of data occupy a channel: whole beats.
-    const fn data_cycles(&self, bytes: usize) -> u64 {
-        self.beats().data_cycles(bytes)
-    }
-
     const fn beats(&self) -> Beats {
         Beats { width_bytes: self.width_bytes, cycles: self.beat_cycles }
     }

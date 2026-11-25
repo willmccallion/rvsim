@@ -177,9 +177,8 @@ fn complete_walk<E: ExecutionEngine>(
     data: &MemRespData,
 ) {
     let raw_pte = PartRead::of(data).value;
-    let bus_transit = state.uncore().bus.transit_cycles(8);
     let walked_page = walk.state.vaddr.val() >> PAGE_SHIFT;
-    let outcome = state.translate_continue(walk.state, raw_pte, bus_transit, walk.access_size);
+    let outcome = state.translate_continue(walk.state, raw_pte, walk.access_size);
     match outcome {
         TranslateOutcome::Ready(result) => {
             if let Some(update) = result.accessed_update {
@@ -187,18 +186,9 @@ fn complete_walk<E: ExecutionEngine>(
             }
             dispatch_walk_continuation(pipeline, state, walk.continuation, walked_page, result);
         }
-        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
-            let common = pipeline.engine.common_mut();
-            let req_id = common.alloc_req_id();
-            let _ = common.memory.outstanding_walks.insert(
-                req_id,
-                OutstandingWalk {
-                    state: walk_state,
-                    access_size: walk.access_size,
-                    continuation: walk.continuation,
-                },
-            );
-            emit_pte_req(pipeline, state, req_id, pte_addr);
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state, after } => {
+            let next = OutstandingWalk { state: walk_state, ..walk };
+            read_pte(pipeline.engine.common_mut(), state, next, PteRead { addr: pte_addr, after });
         }
     }
 }
@@ -299,7 +289,7 @@ pub fn send_pte_write(
         .memory
         .outstanding_stores
         .insert(req_id, OutstandingStore { owner: StoreOwner::Untracked });
-    let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
+    let (l1_d_id, pipeline_id) = (common.caches.l1_d, common.pipeline_id);
     let cycle = state.uncore().kernel.cycle;
     state.events().schedule(
         cycle,
@@ -316,22 +306,33 @@ pub fn send_pte_write(
     );
 }
 
-/// Emits a PTE read request to the L1 data cache.
-fn emit_pte_req<E: ExecutionEngine>(
-    pipeline: &Pipeline<E>,
+/// A PTE a walk reads: its address, and the cycles before the read goes.
+#[derive(Clone, Copy, Debug)]
+pub struct PteRead {
+    /// The PTE's physical address.
+    pub addr: PhysAddr,
+    /// Cycles from now until the walker sends the read.
+    pub after: u64,
+}
+
+/// Parks `walk` until `read` answers and sends the read to the cache the
+/// walker reads from.
+pub fn read_pte(
+    common: &mut BackendCommon,
     state: &mut StageCtx<'_>,
-    req_id: ReqId,
-    pte_addr: PhysAddr,
+    walk: OutstandingWalk,
+    read: PteRead,
 ) {
-    let common = pipeline.engine.common();
-    let cycle = state.uncore().kernel.cycle;
+    let req_id = common.alloc_req_id();
+    let _ = common.memory.outstanding_walks.insert(req_id, walk);
+    let at = state.uncore().kernel.cycle + read.after;
     state.events().schedule(
-        cycle,
-        ComponentId::Cache(common.l1_d_id),
+        at,
+        ComponentId::Cache(common.caches.walker),
         ComponentId::Pipeline(common.pipeline_id),
         Packet::MemReq {
             req_id,
-            paddr: pte_addr,
+            paddr: read.addr,
             vaddr: None,
             pc: None,
             size: AccessSize::B8,

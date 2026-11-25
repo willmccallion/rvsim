@@ -6,6 +6,9 @@
 //! tracks its cached executable memory: the cache walks every line, one a
 //! cycle, writes back the dirty ones and invalidates them all, skipping
 //! the walk when nothing has been fetched since the last flush.
+//!
+//! A page-table walker reading the L2 (the Cortex-A72's) is served the same
+//! way: its read probes the L1D for a writable copy of the PTE's line.
 
 use crate::common::{LineAddr, PhysAddr};
 use crate::sim::components::{ComponentId, ReqId};
@@ -16,16 +19,17 @@ use super::writeback_buffer::WritebackCause;
 use super::{AfterProbe, BlockedRequest, Cache, FlushWalk, PendingProbe};
 
 impl Cache {
-    /// Before serving an instruction fetch, probes the caches above that
+    /// Before serving an instruction fetch, or a read from beside the
+    /// caches above (the page-table walker's), probes the caches above that
     /// may hold its line writable, so a dirty copy reaches this cache
-    /// first. Returns the fetch when nothing needs probing; otherwise holds
-    /// it until the probes are answered.
+    /// first. Returns the request when nothing needs probing; otherwise
+    /// holds it until the probes are answered.
     pub(super) fn probe_before_fetch(
         &mut self,
         req: BlockedRequest,
         ctx: &mut HandleCtx<'_>,
     ) -> Option<BlockedRequest> {
-        if req.probed_above || !matches!(req.op, MemOp::Fetch) {
+        if req.probed_above || !self.reads_past_upper_caches(&req) {
             return Some(req);
         }
         let line = self.line_of(req.paddr);
@@ -33,7 +37,11 @@ impl Cache {
         if holders.is_empty() {
             return Some(req);
         }
-        ctx.stats.counter(self.stat_paths.fetch_probes).inc();
+        let probes = match req.op {
+            MemOp::Fetch => self.stat_paths.fetch_probes,
+            _ => self.stat_paths.walk_probes,
+        };
+        ctx.stats.counter(probes).inc();
         let ours = self.alloc_req_id();
         self.pending_probes.push(PendingProbe {
             ours,
@@ -54,6 +62,17 @@ impl Cache {
             );
         }
         None
+    }
+
+    /// Whether `req` reads around the caches above, which may hold its line
+    /// newer: an instruction fetch, which the L1I sends past the L1D, or a
+    /// read from a requester that is not a cache above at all.
+    fn reads_past_upper_caches(&self, req: &BlockedRequest) -> bool {
+        match req.op {
+            MemOp::Fetch => true,
+            MemOp::Read => !self.upstream.is_empty() && !self.upstream.contains(&req.source),
+            _ => false,
+        }
     }
 
     /// The caches above, other than `requester`, that may hold `line` with
@@ -96,7 +115,11 @@ impl Cache {
         };
         let (_, mut req) = self.fetches_awaiting_probes.remove(index);
         if dirty {
-            ctx.stats.counter(self.stat_paths.fetch_probes_dirty).inc();
+            let dirty_probes = match req.op {
+                MemOp::Fetch => self.stat_paths.fetch_probes_dirty,
+                _ => self.stat_paths.walk_probes_dirty,
+            };
+            ctx.stats.counter(dirty_probes).inc();
         }
         req.probed_above = true;
         self.on_request(req, ctx);

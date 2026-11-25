@@ -35,7 +35,7 @@ pub use coherence::{
 };
 pub use components::{ComponentDefaults, InOrderDefaults, TageScLDefaults};
 pub use general::{Console, GeneralConfig, SePagingMode};
-pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind};
+pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind, WalkerPort};
 pub use pipeline::{
     BackendKind, CsrSquash, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, PipelineConfig,
     StoreSetConfig, VecStoreForwarding,
@@ -320,6 +320,9 @@ pub enum ConfigError {
         "cache.wcb_entries 1 must be 0 (no WCB) or at least 2: a store across two lines takes an entry for each"
     )]
     SingleEntryWcb,
+    /// A page-table walker set to read PTEs from an L2 the machine lacks.
+    #[error("memory.walker_port L2 needs cache.l2 enabled")]
+    WalkerPortWithoutL2,
     /// A bus whose width is not a power of two bytes.
     #[error("system.bus_width {0} must be a power of two bytes")]
     BusWidth(u64),

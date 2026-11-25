@@ -1,20 +1,17 @@
 //! Pipeline flushes by cause and the cycles each stage stalled.
 
 use super::program::{
-    BACKENDS, MHARTID, config, ending_in_spin, exit_sequence, run_to_exit, run_to_pc, system,
-    system_with, system_with_configured_latency, three_handled_ecalls,
+    BACKENDS, MHARTID, Translation, config, ending_in_spin, exit_sequence, run_to_exit, run_to_pc,
+    supervisor_system, system, system_with, system_with_configured_latency, three_handled_ecalls,
 };
 use super::{Recorder, accounting_checks};
 use crate::Simulator;
-use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config};
 use crate::isa::csr::MIE_MTIE;
 use crate::isa::csr::MIP_MTIP;
 use crate::isa::encoding::privileged::WFI;
-use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::InstructionBuilder;
-use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
-use crate::tests::support::open_pmp;
+use crate::tests::support::harness::TestContext;
 use crate::tests::support::regs::{A1, T0, T1, T2, X0, after};
 
 const LOOPS: i32 = 5;
@@ -358,51 +355,22 @@ fn fetch_waits_longer_on_slower_memory(rec: &mut Recorder) {
     }
 }
 
-/// Where the one page table lives.
-const PAGE_TABLE: u64 = PROGRAM_BASE + 0x3000;
-/// A valid, readable, writable, executable leaf with A and D set.
-const LEAF_RWXAD: u64 = 0xCF;
-
-/// Loads from the data page in supervisor mode, entered by an `mret`, with
-/// Sv39 on when `paged`: then the gigapage holding everything maps to
-/// itself and the first load walks the table.
-fn supervisor_loads(backend: BackendKind, paged: bool) -> (TestContext, u64) {
-    use crate::isa::csr::{MSTATUS_MPP, SATP_MODE_SV39};
-    use crate::isa::privileged::PrivilegeMode;
-    use crate::tests::support::builder::instruction::MRET;
+/// Two loads from the data page in supervisor mode; two wide, so the
+/// second reaches memory1 with the first and, under `translation`, waits
+/// there while the first walks.
+fn supervisor_loads(backend: BackendKind, translation: Translation) -> (TestContext, u64) {
     let i = InstructionBuilder::new;
-    let body = vec![
-        i().auipc(T1, 0).build(),
-        i().addi(T0, T1, 16).build(),
-        i().csrrw(X0, super::program::MEPC, T0).build(),
-        MRET,
-        i().ld(T2, A1, 0).build(),
-        i().ld(T2, A1, 64).build(),
-    ];
-    let (program, end) = ending_in_spin(body);
-    // Two wide, so the second load reaches memory1 with the first and waits
-    // there while the first walks.
     let mut config = config(backend);
     config.pipeline.width = 2;
-    let mut ctx = system_with(&config, &program, &[]);
-    let gigapage = PROGRAM_BASE >> 30;
-    let pte = ((PROGRAM_BASE >> 12) << 10) | LEAF_RWXAD;
-    ctx.sim.probe_mem_store(PhysAddr::new(PAGE_TABLE + 8 * gigapage), pte, ProbeWidth::B8);
-    let hart = &mut ctx.sim.state.harts[0];
-    let supervisor = u64::from(PrivilegeMode::Supervisor.to_u8()) << 11;
-    hart.csrs.mstatus = (hart.csrs.mstatus & !MSTATUS_MPP) | supervisor;
-    if paged {
-        hart.csrs.satp = (SATP_MODE_SV39 << 60) | (PAGE_TABLE >> 12);
-    }
-    open_pmp(&mut hart.pmp);
-    (ctx, end)
+    let body = vec![i().ld(T2, A1, 0).build(), i().ld(T2, A1, 64).build()];
+    supervisor_system(&config, body, translation)
 }
 
 fn memory_ops_held_behind_a_page_walk_count_as_backpressure(rec: &mut Recorder) {
     for backend in BACKENDS {
         let context = format!("{backend:?}");
-        let (mut paged, end) = supervisor_loads(backend, true);
-        let (mut bare, _) = supervisor_loads(backend, false);
+        let (mut paged, end) = supervisor_loads(backend, Translation::Sv39);
+        let (mut bare, _) = supervisor_loads(backend, Translation::Bare);
 
         run_to_pc(&mut paged, end, &context);
         run_to_pc(&mut bare, end, &context);

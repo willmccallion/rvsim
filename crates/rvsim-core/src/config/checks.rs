@@ -8,7 +8,7 @@ use super::{
     BackendKind, CacheConfig, CacheHierarchyConfig, CoherenceConfig, Config, ConfigError,
     CsrSquash, HomeAgentConfig, InclusionPolicy, LoadPrefetcherConfig, MemoryConfig,
     MemoryControllerKind, PipelineConfig, PrefetcherKind, ReplacementPolicyKind, SystemConfig,
-    Timer,
+    Timer, WalkerPort,
 };
 use crate::common::PhysRange;
 use crate::isa::encoding::zicboz::CBOZ_BLOCK_SIZE;
@@ -29,6 +29,9 @@ const MAX_TOURNAMENT_TABLE_BITS: usize = 24;
 const MAX_LOOP_TABLE_BITS: usize = 20;
 /// The most write-combining buffer entries.
 const MAX_WCB_ENTRIES: usize = 1024;
+/// The most pointer PTEs a walk cache holds; it is searched whole on every
+/// walk.
+const MAX_WALK_CACHE_ENTRIES: usize = 256;
 /// Vector registers rename needs: the 32 architectural ones and one
 /// eight-register group for an LMUL=8 destination.
 const LEAST_VECTOR_REGISTERS: usize = VRegIdx::COUNT + MAX_GROUP_REGS;
@@ -84,6 +87,9 @@ impl Config {
         check_system(&self.system, self.memory.ram_size)?;
         check_memory(&self.memory)?;
         check_caches(&self.cache)?;
+        if self.memory.walker_port == WalkerPort::L2 && !self.cache.l2.enabled {
+            return Err(ConfigError::WalkerPortWithoutL2);
+        }
         check_pipeline(&self.pipeline, self.misa())?;
         check_backend(&self.pipeline)?;
         check_predictors(&self.pipeline)?;
@@ -188,6 +194,7 @@ fn check_memory(memory: &MemoryConfig) -> Result<(), ConfigError> {
     if memory.l2_tlb_size > 0 {
         check_tlb("memory.l2_tlb", memory.l2_tlb_size, memory.l2_tlb_ways)?;
     }
+    at_most("memory.walk_cache_entries", memory.walk_cache_entries, MAX_WALK_CACHE_ENTRIES)?;
     if memory.controller == MemoryControllerKind::Dram {
         at_least_one("memory.num_banks", memory.num_banks)?;
         power_of_two("memory.row_size_bytes", memory.row_size_bytes)?;

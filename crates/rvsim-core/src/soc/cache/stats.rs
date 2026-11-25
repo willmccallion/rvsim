@@ -30,14 +30,19 @@ crate::sim::stats::paths::stat_paths! {
         /// Cache-maintenance operations (`cbo.clean` / `flush` / `inval`) passed
         /// through this cache.
         maintenance: "maintenance" => Events,
-        /// Probes received from the level below, for a snoop or an
-        /// instruction fetch.
+        /// Probes received from the level below, for a snoop, an
+        /// instruction fetch or a page-table walker's read.
         probes: "probes" => Events,
         /// Instruction fetches that probed a data cache above for a writable
         /// copy of their line before being served.
         fetch_probes: "fetch_probes" => Events,
         /// Fetch probes that found the line dirty.
         fetch_probes_dirty: "fetch_probes_dirty" => Events,
+        /// Page-table walker reads that probed a data cache above for a
+        /// writable copy of their PTE's line before being served.
+        walk_probes: "walk_probes" => Events,
+        /// Walk probes that found the line dirty.
+        walk_probes_dirty: "walk_probes_dirty" => Events,
         /// Whole-cache flushes (FENCE.I with no cache below keeping instruction
         /// fetches coherent).
         flushes: "flushes" => Events,

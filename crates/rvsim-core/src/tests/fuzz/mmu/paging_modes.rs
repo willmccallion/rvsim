@@ -35,9 +35,9 @@ fn translate_sync(
     loop {
         match outcome {
             TranslateOutcome::Ready(result) => return result,
-            TranslateOutcome::NeedPte { pte_addr, state } => {
+            TranslateOutcome::NeedPte { pte_addr, state, .. } => {
                 let raw_pte = ctx.sim.probe_mem_load(pte_addr, ProbeWidth::B8);
-                outcome = mmu.continue_walk(state, raw_pte, csrs, None, 0);
+                outcome = mmu.continue_walk(state, raw_pte, csrs, None);
             }
         }
     }

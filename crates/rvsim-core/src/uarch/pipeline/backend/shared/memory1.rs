@@ -34,6 +34,7 @@
 //!   - For **stores**: pass to M1→M2 with the resolved `paddr`. Memory2
 //!     resolves the store buffer and checks for ordering violations.
 
+use crate::uarch::pipeline::mailbox::{PteRead, read_pte};
 use std::ops::ControlFlow;
 
 use crate::arch::translation::{DirtyUpdates, PteUpdate, TranslationResult};
@@ -321,9 +322,10 @@ fn translate_first_page<E: ExecutionEngine>(
             FirstPage::Waiting(wait_for_l2_tlb(state, ex, translations, cycles))
         }
         TranslateOutcome::Ready(r) => FirstPage::Translated(ex, r),
-        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state, after } => {
+            let read = PteRead { addr: pte_addr, after };
             let translations = PageTranslations::default();
-            park_walk(state, engine, walk_state, pte_addr, size, ex, translations);
+            park_walk(state, engine, walk_state, read, size, ex, translations);
             FirstPage::Waiting(EntryOutcome::ParkedWalk)
         }
     }
@@ -350,9 +352,10 @@ fn translate_second_page<E: ExecutionEngine>(
     );
     let r = match outcome {
         TranslateOutcome::Ready(r) => r,
-        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state, after } => {
+            let read = PteRead { addr: pte_addr, after };
             let translations = PageTranslations { first: Some(first.clone()), second: None };
-            park_walk(state, engine, walk_state, pte_addr, 1, ex, translations);
+            park_walk(state, engine, walk_state, read, 1, ex, translations);
             return ControlFlow::Break(EntryOutcome::ParkedWalk);
         }
     };
@@ -622,9 +625,10 @@ fn translate_cbo<E: ExecutionEngine>(
             }
             (r.paddr, r.dirty_update)
         }
-        TranslateOutcome::NeedPte { pte_addr, state: walk_state } => {
+        TranslateOutcome::NeedPte { pte_addr, state: walk_state, after } => {
+            let read = PteRead { addr: pte_addr, after };
             let translations = PageTranslations::default();
-            park_walk(state, engine, walk_state, pte_addr, CBOZ_BLOCK_SIZE, ex, translations);
+            park_walk(state, engine, walk_state, read, CBOZ_BLOCK_SIZE, ex, translations);
             return EntryOutcome::ParkedWalk;
         }
     };
@@ -880,7 +884,7 @@ fn emit_span_read<E: ExecutionEngine>(
 ) {
     let common = engine.common_mut();
     let req_id = common.alloc_req_id();
-    let target = ComponentId::Cache(common.l1_d_id);
+    let target = ComponentId::Cache(common.caches.l1_d);
     let pipeline = ComponentId::Pipeline(common.pipeline_id);
     let size = AccessSize::span(bytes);
     let pc = ex.op.pc;
@@ -994,7 +998,7 @@ fn send_load_prefetches<E: ExecutionEngine>(
     for prefetch in prefetches {
         let common = engine.common_mut();
         let req_id = common.alloc_req_id();
-        let (l1_d_id, pipeline_id) = (common.l1_d_id, common.pipeline_id);
+        let (l1_d_id, pipeline_id) = (common.caches.l1_d, common.pipeline_id);
         state.events().schedule(
             cycle,
             ComponentId::Cache(l1_d_id),
@@ -1011,47 +1015,26 @@ fn send_load_prefetches<E: ExecutionEngine>(
     }
 }
 
-/// Records the parked walk for an access of `access_size` bytes and issues
-/// the PTE `MemReq`.
+/// Parks `ex` on a walk for an access of `access_size` bytes and sends the
+/// walk's first PTE read.
 fn park_walk<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
     walk_state: WalkState,
-    pte_addr: PhysAddr,
+    read: PteRead,
     access_size: u64,
     ex: ExMem1Entry,
     translations: PageTranslations,
 ) {
-    let common = engine.common_mut();
-    let req_id = common.alloc_req_id();
-    let l1_d_id = common.l1_d_id;
-    let pipeline_id = common.pipeline_id;
-    let _ = common.memory.outstanding_walks.insert(
-        req_id,
-        OutstandingWalk {
-            state: walk_state,
-            access_size,
-            continuation: WalkContinuation::LoadStore {
-                entry: ex,
-                translations: Box::new(translations),
-            },
+    let walk = OutstandingWalk {
+        state: walk_state,
+        access_size,
+        continuation: WalkContinuation::LoadStore {
+            entry: ex,
+            translations: Box::new(translations),
         },
-    );
-
-    let cycle = state.uncore().kernel.cycle;
-    state.events().schedule(
-        cycle,
-        ComponentId::Cache(l1_d_id),
-        ComponentId::Pipeline(pipeline_id),
-        Packet::MemReq {
-            req_id,
-            paddr: pte_addr,
-            vaddr: None,
-            pc: None,
-            size: AccessSize::B8,
-            op: MemOp::Read,
-        },
-    );
+    };
+    read_pte(engine.common_mut(), state, walk, read);
 }
 
 /// Returns `ComponentId::Bus` when `paddr` is MMIO and `ComponentId::Cache(L1D)`
@@ -1066,7 +1049,7 @@ fn mmio_or_l1d<E: ExecutionEngine>(
     size: AccessSize,
 ) -> ComponentId {
     if state.uncore().bus.is_ram(paddr, size.bytes() as u64) {
-        ComponentId::Cache(engine.common().l1_d_id)
+        ComponentId::Cache(engine.common().caches.l1_d)
     } else {
         ComponentId::Bus
     }

@@ -60,14 +60,12 @@ pub(super) fn translate_continue(
     uncore: &Uncore,
     state: WalkState,
     raw_pte: u64,
-    bus_transit_cycles: u64,
     size: u64,
 ) -> TranslateOutcome {
     let vaddr = state.vaddr;
     let access = state.access;
     let effective_priv = state.privilege;
-    let outcome =
-        core.mmu.continue_walk(state, raw_pte, &hart.csrs, Some(&hart.pmp), bus_transit_cycles);
+    let outcome = core.mmu.continue_walk(state, raw_pte, &hart.csrs, Some(&hart.pmp));
     finalize_outcome(hart, uncore, outcome, vaddr, access, size, effective_priv)
 }
 

@@ -34,19 +34,31 @@ as Bare, which is how a kernel probes for the deepest mode and falls back.
   (default 64), fully associative when `tlb_ways` is 0 (the default, as
   gem5's RISC-V TLB) and LRU within a set otherwise.
 - **L2 TLB.** An optional TLB shared by the core's instruction and data
-  sides (`l2_tlb_size`, `l2_tlb_ways`), hitting after `l2_tlb_latency`
-  cycles. It is off by default, as gem5 has none.
+  sides (`l2_tlb_size`, `l2_tlb_ways`), answering after `l2_tlb_latency`
+  cycles: a hit then proceeds, and a miss then starts its walk. It is off
+  in the gem5 comparison configuration, as gem5 has none.
 - **Page-table walker.** A miss in every TLB starts a hardware walk. Each
-  level's PTE is an 8-byte read sent to the L1D, so page-table entries are
-  cached like data and a walk's cost depends on where they are found.
-  Superpage alignment, reserved bits, the U, SUM and MXR rules and the
-  PMP check on each PTE are all applied.
+  level's PTE is an 8-byte read sent to the cache `walker_port` names:
+  the L1D by default (gem5, Rocket, BOOM), or the L2 (the Cortex-A72, TRM
+  5.4), which first probes the L1D for a writable copy of the PTE's line as
+  it does for an instruction fetch. Page-table entries are cached like
+  data, so a walk's cost depends on where they are found. Superpage
+  alignment, reserved bits, the U, SUM and MXR rules and the PMP check on
+  each PTE are all applied.
+- **Walk cache.** With `walk_cache_entries` above 0, the walker keeps the
+  pointer PTEs it reads (the A72's intermediate table walk caches, Rocket's
+  PTE cache) in a fully associative LRU cache tagged by ASID, or global
+  when the pointer sets G, so a walk starts at the deepest table cached for
+  its address and a 4 KiB walk near an earlier one reads only its leaf.
 - **Accessed and dirty bits.** By default a page whose A bit, or D bit on
   a store, is clear raises a page fault and the kernel sets the bit
   (Svade). With `svadu=True` and `menvcfg.ADUE` set, the walker sets the
   bit itself and writes the updated PTE back (Svadu).
 - **Flushes.** `SFENCE.VMA` flushes the TLBs at commit, by address and
-  ASID when it names them.
+  ASID when it names them. One naming no address also flushes the walk
+  cache (the non-global entries of the ASID it names, else every entry);
+  one naming an address orders only leaf PTEs, so the walk cache keeps its
+  tables.
 
 Translation is skipped when `satp.MODE` is Bare or the hart runs in M-mode
 (with `mstatus.MPRV` clear for loads and stores).

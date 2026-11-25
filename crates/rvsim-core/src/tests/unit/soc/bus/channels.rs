@@ -44,6 +44,17 @@ fn line_read(req: u64) -> Packet {
     }
 }
 
+fn word_read(req: u64) -> Packet {
+    Packet::MemReq {
+        req_id: ReqId::new(req),
+        paddr: PhysAddr::new(RAM_BASE + req * LINE as u64),
+        vaddr: None,
+        pc: None,
+        size: AccessSize::B8,
+        op: MemOp::Read,
+    }
+}
+
 fn line_write(req: u64) -> Packet {
     Packet::MemReq {
         req_id: ReqId::new(req),
@@ -177,4 +188,16 @@ fn on_one_channel_each_way_a_writes_data_holds_up_the_next_read() {
 
     assert_eq!(out[&ReqId::new(0)], 9, "an 8-byte address and 64 bytes of data");
     assert_eq!(out[&ReqId::new(1)], 10, "the read's address after them");
+}
+
+#[test]
+fn a_part_filled_beat_takes_a_whole_bus_clock() {
+    let mut crossing = Crossing::new(bus(16, 8));
+    crossing.send(word_read(0));
+    let _ = crossing.arrivals(ComponentId::MemCtrl(MemCtrlId::new(0)));
+
+    crossing.answer(0);
+
+    let back = crossing.arrivals(ComponentId::Pipeline(PipelineId::new(0)));
+    assert_eq!(back[&ReqId::new(0)], 8, "eight bytes in one 16-byte beat of eight core cycles");
 }

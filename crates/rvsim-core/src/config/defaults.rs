@@ -122,8 +122,11 @@ pub const L2_TLB_SIZE: usize = 0;
 /// L2 TLB associativity (ways per set).
 pub const L2_TLB_WAYS: usize = 4;
 
-/// L2 TLB hit latency in cycles.
+/// L2 TLB lookup latency in cycles.
 pub const L2_TLB_LATENCY: u64 = 4;
+
+/// Pointer PTEs the walker caches; none, as in gem5's RISC-V walker.
+pub const WALK_CACHE_ENTRIES: usize = 0;
 
 /// Default cache size in bytes (4 KiB).
 pub const CACHE_SIZE: NonZeroUsize = non_zero(4096);

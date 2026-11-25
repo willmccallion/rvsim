@@ -11,9 +11,10 @@ use crate::isa::op::{
     AluOp, AmoOp, AtomicOp, DivOp, IntAluOp, MemWidth, SystemOp, VecLoadOp, VectorOp,
 };
 use crate::isa::reg::RegIdx;
-use crate::sim::components::{CacheId, PipelineId};
+use crate::sim::components::PipelineId;
 use crate::system::SystemState;
 use crate::uarch::pipeline::backend::o3::O3Engine;
+use crate::uarch::pipeline::engine::CacheRoutes;
 use crate::uarch::pipeline::rob::RenamedDst;
 
 /// A NOP writing x1, tagged `rob_tag`.
@@ -480,7 +481,7 @@ fn dispatch_into_a_full_queue_leaves_the_rest_for_next_cycle() {
     config.pipeline.issue_queue_size = 2;
     let mut sys = SystemState::build(&config);
     let mut state = sys.core_ctx(0);
-    let mut engine = O3Engine::new(&config, PipelineId::new(0), CacheId::new(0), CacheId::new(1));
+    let mut engine = O3Engine::new(&config, PipelineId::new(0), CacheRoutes::default());
     let mut renamed = vec![make_entry(0), make_entry(1), make_entry(2)];
 
     engine.dispatch(&mut state, &mut renamed);

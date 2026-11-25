@@ -161,6 +161,8 @@ impl<'a> StageCtx<'a> {
             (paths.dtlb_misses, counts.dtlb.misses),
             (paths.l2_tlb_hits, counts.l2_tlb.hits),
             (paths.l2_tlb_misses, counts.l2_tlb.misses),
+            (paths.walk_cache_hits, counts.walk_cache.hits),
+            (paths.walk_cache_misses, counts.walk_cache.misses),
             (paths.walks, counts.walks),
         ] {
             self.uncore.kernel.stats.counter(stat).add(value);
@@ -221,18 +223,9 @@ impl<'a> StageCtx<'a> {
         &mut self,
         state: WalkState,
         raw_pte: u64,
-        bus_transit_cycles: u64,
         size: u64,
     ) -> TranslateOutcome {
-        memory::translate_continue(
-            self.core,
-            self.hart,
-            self.uncore,
-            state,
-            raw_pte,
-            bus_transit_cycles,
-            size,
-        )
+        memory::translate_continue(self.core, self.hart, self.uncore, state, raw_pte, size)
     }
 
     /// Sets a leaf PTE's A/D bits as the hardware does, atomically with

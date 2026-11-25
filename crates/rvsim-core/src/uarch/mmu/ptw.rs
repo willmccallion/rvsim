@@ -17,6 +17,7 @@ use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::uarch::mmu::Mmu;
 use crate::uarch::mmu::perms::PagePerms;
 use crate::uarch::mmu::tlb::PageSize;
+use crate::uarch::mmu::walk_cache::{TableStart, WalkedPointer};
 
 /// Page Table Entry valid bit (bit 0).
 const PTE_VALID_BIT: u64 = 1;
@@ -28,6 +29,8 @@ const PTE_WRITE_BIT: u64 = 1 << 2;
 const PTE_EXEC_BIT: u64 = 1 << 3;
 /// Page Table Entry user mode access bit (bit 4).
 const PTE_USER_BIT: u64 = 1 << 4;
+/// Page Table Entry global mapping bit (bit 5).
+const PTE_GLOBAL_BIT: u64 = 1 << 5;
 /// Page Table Entry accessed bit (bit 6).
 const PTE_ACCESSED_BIT: u64 = 1 << 6;
 /// Page Table Entry dirty bit (bit 7).
@@ -44,8 +47,6 @@ const PTE_SIZE: u64 = 8;
 const PTE_RESERVED_BITS: u64 = u64::MAX << 54;
 /// D, A and U, reserved in a pointer PTE.
 const PTE_POINTER_RESERVED_BITS: u64 = PTE_DIRTY_BIT | PTE_ACCESSED_BIT | PTE_USER_BIT;
-/// Cycles required to update a PTE's accessed/dirty bits in memory.
-const PTE_UPDATE_CYCLES: u64 = 10;
 
 /// A strongly-typed wrapper around a raw 64-bit Page Table Entry.
 #[derive(Clone, Copy, Debug)]
@@ -85,6 +86,11 @@ impl PageTableEntry {
     /// Returns true if the User (U) bit is set.
     const fn is_user(self) -> bool {
         self.0 & PTE_USER_BIT != 0
+    }
+
+    /// Returns true if the Global (G) bit is set.
+    const fn is_global(self) -> bool {
+        self.0 & PTE_GLOBAL_BIT != 0
     }
 
     /// Its R, W, X and U bits.
@@ -164,8 +170,6 @@ pub struct WalkState {
     pub ppn_raw: u64,
     /// ASID captured from SATP at walk start.
     pub asid: Asid,
-    /// Cumulative cycle cost of the walk so far.
-    pub cycles: u64,
 }
 
 /// Output of [`start_walk`] or [`continue_walk`].
@@ -184,7 +188,8 @@ pub enum WalkStep {
     },
 }
 
-/// Begins a hardware page-table walk for the given virtual address.
+/// Begins a hardware page-table walk for the given virtual address at
+/// `start`, a table the walk cache holds for it, or else at the root.
 ///
 /// Returns either an immediate [`WalkStep::Done`] (PMP fault before the first
 /// PTE read) or [`WalkStep::NeedPte`] with the address of the first PTE.
@@ -192,20 +197,20 @@ pub fn start_walk(
     request: WalkRequest,
     vaddr: VirtAddr,
     csrs: &Csrs,
+    start: Option<TableStart>,
     pmp: Option<&Pmp>,
 ) -> WalkStep {
     let satp = Satp::new(csrs.satp);
-    let ppn_raw = satp.root_ppn();
-    let asid = satp.asid();
+    let root = TableStart { level: request.mode.levels() - 1, ppn: satp.root_ppn() };
+    let table = start.unwrap_or(root);
 
     let state = WalkState {
         vaddr,
         access: request.access,
         privilege: request.privilege,
-        level: request.mode.levels() - 1,
-        ppn_raw,
-        asid,
-        cycles: 0,
+        level: table.level,
+        ppn_raw: table.ppn,
+        asid: satp.asid(),
     };
     request_pte(state, pmp)
 }
@@ -224,7 +229,7 @@ pub fn walk_now(
     csrs: &Csrs,
     read_pte: impl Fn(PhysAddr) -> Option<u64>,
 ) -> Result<PhysAddr, Trap> {
-    let mut step = start_walk(request, vaddr, csrs, None);
+    let mut step = start_walk(request, vaddr, csrs, None, None);
     loop {
         let (pte_addr, state) = match step {
             WalkStep::Done(result) => return result.trap.map_or(Ok(result.paddr), Err),
@@ -233,7 +238,7 @@ pub fn walk_now(
         let raw_pte =
             read_pte(pte_addr).ok_or_else(|| Trap::access_fault(request.access, vaddr.val()))?;
         step = match classify(state, PageTableEntry::new(raw_pte), csrs) {
-            PteStep::Pointer(state) => request_pte(state, None),
+            PteStep::Pointer { state, .. } => request_pte(state, None),
             PteStep::Leaf { state, pte } => return Ok(PhysAddr::new(leaf_address(&state, pte))),
             PteStep::Fault(_) => return Err(Trap::page_fault(request.access, vaddr.val())),
         };
@@ -241,18 +246,24 @@ pub fn walk_now(
 }
 
 /// Continues an in-flight walk after the caller has read the requested PTE
-/// from memory.
+/// from memory, caching the table a pointer leads to in the walk cache.
 pub fn continue_walk(
-    mut state: WalkState,
+    state: WalkState,
     raw_pte: u64,
     mmu: &mut Mmu,
     csrs: &Csrs,
     pmp: Option<&Pmp>,
-    bus_transit_cycles: u64,
 ) -> WalkStep {
-    state.cycles += bus_transit_cycles;
-    let (mut state, pte) = match classify(state, PageTableEntry::new(raw_pte), csrs) {
-        PteStep::Pointer(state) => return request_pte(state, pmp),
+    let (state, pte) = match classify(state, PageTableEntry::new(raw_pte), csrs) {
+        PteStep::Pointer { state, is_global } => {
+            mmu.walk_cache.insert(WalkedPointer {
+                vaddr: state.vaddr,
+                asid: state.asid,
+                table: TableStart { level: state.level, ppn: state.ppn_raw },
+                is_global,
+            });
+            return request_pte(state, pmp);
+        }
         PteStep::Leaf { state, pte } => (state, pte),
         PteStep::Fault(state) => return WalkStep::Done(page_fault(&state)),
     };
@@ -267,9 +278,6 @@ pub fn continue_walk(
     }
 
     let (accessed_update, dirty_update) = access_bit_updates(&state, pte);
-    if accessed_update.is_some() || dirty_update.is_some() {
-        state.cycles += PTE_UPDATE_CYCLES;
-    }
 
     let final_paddr = leaf_address(&state, pte);
     let specific_4kb_ppn = Ppn::new(final_paddr >> PAGE_SHIFT);
@@ -288,7 +296,7 @@ pub fn continue_walk(
 
     let result = TranslationResult {
         paddr: PhysAddr::new(final_paddr),
-        cycles: state.cycles,
+        cycles: 0,
         trap: None,
         dirty_update,
         accessed_update,
@@ -298,8 +306,14 @@ pub fn continue_walk(
 
 /// What a walk makes of the PTE it read.
 enum PteStep {
-    /// A pointer to the next level, which the walk goes on to.
-    Pointer(WalkState),
+    /// A pointer to the next level, which the walk goes on to; global when
+    /// the pointer set G.
+    Pointer {
+        /// The walk, at the next level's table.
+        state: WalkState,
+        /// The pointer set G.
+        is_global: bool,
+    },
     /// A leaf that permits the access.
     Leaf {
         /// The walk, at the leaf's level.
@@ -325,7 +339,7 @@ fn classify(mut state: WalkState, pte: PageTableEntry, csrs: &Csrs) -> PteStep {
         }
         state.level -= 1;
         state.ppn_raw = pte.ppn_raw();
-        return PteStep::Pointer(state);
+        return PteStep::Pointer { state, is_global: pte.is_global() };
     }
 
     if pte.can_write() && !pte.can_read() {
@@ -348,7 +362,7 @@ fn classify(mut state: WalkState, pte: PageTableEntry, csrs: &Csrs) -> PteStep {
 
 /// The page fault the walk at `state` takes.
 const fn page_fault(state: &WalkState) -> TranslationResult {
-    TranslationResult::fault(Trap::page_fault(state.access, state.vaddr.val()), state.cycles)
+    TranslationResult::fault(Trap::page_fault(state.access, state.vaddr.val()), 0)
 }
 
 /// The physical address `state`'s virtual address maps to through the
@@ -377,7 +391,7 @@ fn request_pte(state: WalkState, pmp: Option<&Pmp>) -> WalkStep {
         );
         if pmp_result != PmpResult::Allow {
             let trap = Trap::access_fault(state.access, state.vaddr.val());
-            return WalkStep::Done(TranslationResult::fault(trap, state.cycles));
+            return WalkStep::Done(TranslationResult::fault(trap, 0));
         }
     }
 

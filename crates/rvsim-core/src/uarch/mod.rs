@@ -149,7 +149,8 @@ impl CoreUnits {
                 TlbGeometry { entries: config.memory.l2_tlb_size, ways: config.memory.l2_tlb_ways },
                 config.memory.l2_tlb_latency,
                 config.memory.paging_mode_max,
-            ),
+            )
+            .with_walk_cache(config.memory.walk_cache_entries),
             wcb: WriteCombiningBuffer::new(
                 config.cache.wcb_entries,
                 config.cache.l1_d.line_bytes.get(),
