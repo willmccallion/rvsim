@@ -43,6 +43,23 @@ fn all_bank_refresh_closes_open_rows_then_holds_the_rank_for_t_rfc() {
 }
 
 #[test]
+fn a_refresh_after_a_precharge_of_every_bank_waits_its_own_recovery() {
+    let mut cfg = tiny_config();
+    cfg.timing.t_rp_all = cfg.timing.t_rp + 20;
+    let t = cfg.timing;
+    let mut h = Harness::new(&cfg);
+    let a = addr_from(&cfg, 0, 0, 0, 0, 0);
+    let id = h.issue(a, 0, read_op());
+    let _ = h.response_at(id);
+
+    h.run_until(t.t_refi + t.t_rp_all + 1);
+
+    let refreshes = h.commands_of(DramCmdKind::Refresh);
+    assert_eq!(refreshes.len(), 1, "{refreshes:?}");
+    assert_eq!(refreshes[0].fire_at, t.t_refi + t.t_rp_all, "REFRESH waits tRPab, not tRP");
+}
+
+#[test]
 fn refresh_does_not_block_other_rank() {
     let cfg = tworank_config();
     let t = Ddr5SpeedBin::DDR5_4800B.timing();

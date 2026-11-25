@@ -20,8 +20,9 @@ pub struct Bank {
     pub state: BankState,
     /// Cycle of the most recent ACTIVATE on this bank.
     pub last_activate: u64,
-    /// Cycle of the most recent PRECHARGE on this bank.
-    pub last_precharge: u64,
+    /// Cycle the most recent PRECHARGE of this bank completes: tRP after a
+    /// precharge of the bank alone, tRPab after a precharge of every bank.
+    pub precharged_at: u64,
     /// Cycle of the most recent READ command (not read-end) on this bank.
     pub last_read_cmd: u64,
     /// Cycle at which the last READ's data burst ends on the data bus.
@@ -45,7 +46,7 @@ impl Bank {
             open_row: None,
             state: BankState::Idle,
             last_activate: 0,
-            last_precharge: 0,
+            precharged_at: 0,
             last_read_cmd: 0,
             last_read_end: 0,
             last_write_cmd: 0,

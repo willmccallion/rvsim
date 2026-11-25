@@ -122,7 +122,7 @@ impl Ddr5Controller {
             for (bank_index, bank) in rank_mut.banks.iter_mut().enumerate() {
                 if mask_has(bank_mask, bank_index) && bank.state == BankState::Active {
                     bank.state = BankState::Precharging;
-                    bank.last_precharge = fire_at;
+                    bank.precharged_at = fire_at + self.config.timing.t_rp_all;
                     bank.open_row = None;
                 }
             }
@@ -149,7 +149,6 @@ impl Ddr5Controller {
         duration: u64,
         now: u64,
     ) -> bool {
-        let t_rp = self.config.timing.t_rp;
         let earliest = {
             let sc = &self.channels[chan.as_index()].subchannels[subch.as_index()];
             let rank_ref = &sc.ranks[rank.as_index()];
@@ -160,7 +159,7 @@ impl Ddr5Controller {
                 }
                 match bank.state {
                     BankState::Active => return false,
-                    BankState::Precharging => earliest = earliest.max(bank.last_precharge + t_rp),
+                    BankState::Precharging => earliest = earliest.max(bank.precharged_at),
                     BankState::Refreshing => earliest = earliest.max(bank.refresh_end),
                     BankState::Idle => {}
                 }

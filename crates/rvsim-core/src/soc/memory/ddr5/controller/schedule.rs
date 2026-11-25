@@ -147,7 +147,7 @@ impl Ddr5Controller {
                 Candidate { row_hit: false, ready_at: activate + t.t_rcd }
             }
             BankState::Precharging => {
-                let activate = self.activate_earliest(&ctx, bank.last_precharge + t.t_rp);
+                let activate = self.activate_earliest(&ctx, bank.precharged_at);
                 Candidate { row_hit: false, ready_at: activate + t.t_rcd }
             }
             BankState::Idle => {
@@ -229,10 +229,7 @@ impl Ddr5Controller {
                 self.try_issue_precharge(&ctx, &snapshot, now);
                 false
             }
-            BankState::Precharging => {
-                let earliest = snapshot.last_precharge + self.config.timing.t_rp;
-                self.try_issue_activate(&ctx, earliest, now)
-            }
+            BankState::Precharging => self.try_issue_activate(&ctx, snapshot.precharged_at, now),
             BankState::Idle => self.try_issue_activate(&ctx, 0, now),
             // Refreshing banks are never offered to the scheduler.
             BankState::Refreshing => false,

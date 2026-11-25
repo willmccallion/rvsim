@@ -115,6 +115,8 @@ impl Ddr5SpeedBin {
             t_cwl: bin.cwl,
             t_rcd: bin.t_rcd.cycles(rate),
             t_rp: bin.t_rp.cycles(rate),
+            // DDR5 precharges every bank of a rank in tRP too.
+            t_rp_all: bin.t_rp.cycles(rate),
             t_ras: bin.t_ras.cycles(rate),
             t_rc: bin.t_rc.cycles(rate),
             t_rrd_s: bin.t_rrd_s.cycles(rate),
