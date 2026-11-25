@@ -4,7 +4,7 @@ use crate::common::{HartId, PhysAddr};
 use crate::sim::packet::WriteOrigin;
 
 use crate::config::Config;
-use crate::config::ddr5::Ddr5Config;
+use crate::config::dram::DramStandardConfig;
 use crate::sim::components::{ComponentId, MemCtrlId, PipelineId, ReqId};
 use crate::sim::events::EventQueue;
 use crate::sim::handle::{Handle, HandleCtx};
@@ -21,8 +21,8 @@ pub const ONE_TO_ONE_CPU_MHZ: u64 = 2400;
 /// Small canonical topology used across the timing tests: 1 channel,
 /// 1 sub-channel, 1 rank, 2 bank groups × 2 banks, 4-bit rows, 4-bit
 /// columns. Keeps addresses small and the interleave predictable.
-pub fn tiny_config() -> Ddr5Config {
-    Ddr5Config {
+pub fn tiny_config() -> DramStandardConfig {
+    DramStandardConfig {
         channels: 1,
         subchannels_per_channel: 1,
         ranks_per_channel: 1,
@@ -30,12 +30,12 @@ pub fn tiny_config() -> Ddr5Config {
         banks_per_group: std::num::NonZero::new(2).unwrap(),
         row_bits: 4,
         column_bits: 4,
-        ..Ddr5Config::default()
+        ..crate::config::ddr5::ddr5_4800()
     }
 }
 
 /// Two-rank version of [`tiny_config`], for tRTRS and refresh isolation tests.
-pub fn tworank_config() -> Ddr5Config {
+pub fn tworank_config() -> DramStandardConfig {
     let mut cfg = tiny_config();
     cfg.ranks_per_channel = 2;
     cfg
@@ -43,17 +43,17 @@ pub fn tworank_config() -> Ddr5Config {
 
 /// Fixed controller pipeline latency every read pays on top of the DRAM
 /// access.
-pub fn controller_latency(cfg: &Ddr5Config) -> u64 {
+pub fn controller_latency(cfg: &DramStandardConfig) -> u64 {
     cfg.frontend_latency + cfg.backend_latency
 }
 
 /// `Ddr5Controller` over 16 MiB of RAM, clocked 1:1.
-pub fn make_controller(config: &Ddr5Config) -> Ddr5Controller {
+pub fn make_controller(config: &DramStandardConfig) -> Ddr5Controller {
     make_controller_with_clock(config, ONE_TO_ONE_CPU_MHZ)
 }
 
 /// `Ddr5Controller` over 16 MiB of RAM at a given core clock.
-pub fn make_controller_with_clock(config: &Ddr5Config, cpu_mhz: u64) -> Ddr5Controller {
+pub fn make_controller_with_clock(config: &DramStandardConfig, cpu_mhz: u64) -> Ddr5Controller {
     Ddr5Controller::new(PhysAddr::new(0), 1 << 24, config, MemCtrlId::new(0), cpu_mhz)
 }
 
@@ -64,7 +64,14 @@ pub fn make_controller_with_clock(config: &Ddr5Config, cpu_mhz: u64) -> Ddr5Cont
 ///
 /// `column` addresses within a row are in cache-line units (each column
 /// occupies `1 << 6` bytes).
-pub fn addr_from(cfg: &Ddr5Config, rank: u8, bg: u8, bank: u8, row: u32, column: u32) -> u64 {
+pub fn addr_from(
+    cfg: &DramStandardConfig,
+    rank: u8,
+    bg: u8,
+    bank: u8,
+    row: u32,
+    column: u32,
+) -> u64 {
     let line_bits = 6u32;
     let col_bits = u32::from(cfg.column_bits);
     let subch_bits = cfg.subchannels_per_channel.trailing_zeros();
@@ -103,7 +110,7 @@ pub struct Harness {
 }
 
 impl Harness {
-    pub fn new(cfg: &Ddr5Config) -> Self {
+    pub fn new(cfg: &DramStandardConfig) -> Self {
         Self::with_controller(make_controller(cfg))
     }
 

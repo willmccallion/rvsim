@@ -1,6 +1,6 @@
 //! Core-to-DRAM clock conversion.
 
-use crate::config::ddr5::Ddr5Timing;
+use crate::config::ddr5::Ddr5SpeedBin;
 use crate::soc::memory::ddr5::controller::ClockRatio;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, controller_latency, make_controller_with_clock, read_op, tiny_config,
@@ -29,7 +29,7 @@ fn one_to_one_clock_is_the_identity() {
 #[test]
 fn faster_core_sees_dram_latency_scaled_into_its_own_cycles() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::with_controller(make_controller_with_clock(&cfg, 4800));
     let addr = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id = h.issue(addr, 0, read_op());

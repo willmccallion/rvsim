@@ -1,10 +1,11 @@
 //! Timing tables resolve JESD79-5B constraints for the speed bin.
 
-use crate::config::ddr5::{Constraint, Ddr5SpeedBin, Ddr5Timing};
+use crate::config::ddr5::Ddr5SpeedBin;
+use crate::config::dram::timing::Constraint;
 
 #[test]
 fn ddr5_4800b_resolves_to_jedec_clock_counts() {
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     assert_eq!(t.data_rate_mts, 4800);
     assert_eq!(t.t_cas, 40);
     assert_eq!(t.t_cwl, 38);
@@ -36,13 +37,13 @@ fn ddr5_4800b_resolves_to_jedec_clock_counts() {
 
 #[test]
 fn t_rc_equals_t_ras_plus_t_rp() {
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     assert_eq!(t.t_rc, t.t_ras + t.t_rp);
 }
 
 #[test]
 fn tck_is_two_over_the_data_rate() {
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     assert_eq!(t.tck_ps(), 416);
 }
 
@@ -57,7 +58,7 @@ fn constraint_takes_the_larger_of_clocks_and_rounded_up_time() {
 
 #[test]
 fn ddr5_5600b_scales_time_constraints_with_the_faster_clock() {
-    let t = Ddr5Timing::from_bin(&Ddr5SpeedBin::DDR5_5600B);
+    let t = Ddr5SpeedBin::DDR5_5600B.timing();
     assert_eq!(t.t_cas, 46);
     assert_eq!(t.t_cwl, 44);
     assert_eq!(t.t_rcd, 45);

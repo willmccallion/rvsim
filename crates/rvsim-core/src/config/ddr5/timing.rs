@@ -1,47 +1,10 @@
-//! DDR5 JEDEC timing constants.
+//! DDR5 JEDEC speed bins.
 //!
-//! JESD79-5B specifies most timings as "the larger of N clocks and T ns".
-//! [`Ddr5SpeedBin`] carries those raw pairs and [`Ddr5Timing::from_bin`]
-//! resolves them into command-clock cycles for the bin's data rate, rounding
-//! up exactly as the standard does. All [`Ddr5Timing`] fields are in DRAM
-//! command-clock cycles (tCK); the controller runs in that clock domain.
+//! JESD79-5B gives each timing as "the larger of N clocks and T ns";
+//! [`Ddr5SpeedBin`] carries those raw pairs and [`Ddr5SpeedBin::timing`]
+//! resolves them for the bin's data rate.
 
-/// A JEDEC constraint of the form `max(min_nck × tCK, min_ps)`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Constraint {
-    /// Minimum number of command clocks.
-    pub min_nck: u64,
-    /// Minimum absolute time in picoseconds.
-    pub min_ps: u64,
-}
-
-impl Constraint {
-    /// A constraint expressed only in clocks.
-    #[must_use]
-    pub const fn clocks(min_nck: u64) -> Self {
-        Self { min_nck, min_ps: 0 }
-    }
-
-    /// A constraint expressed only in picoseconds.
-    #[must_use]
-    pub const fn ps(min_ps: u64) -> Self {
-        Self { min_nck: 0, min_ps }
-    }
-
-    /// A constraint with both a clock and an absolute-time floor.
-    #[must_use]
-    pub const fn max(min_nck: u64, min_ps: u64) -> Self {
-        Self { min_nck, min_ps }
-    }
-
-    /// Resolves the constraint at `data_rate_mts` (tCK = 2 / data rate),
-    /// rounding the absolute-time floor up to whole clocks.
-    #[must_use]
-    pub const fn cycles(self, data_rate_mts: u64) -> u64 {
-        let from_ps = (self.min_ps * data_rate_mts).div_ceil(2_000_000);
-        if from_ps > self.min_nck { from_ps } else { self.min_nck }
-    }
-}
+use crate::config::dram::timing::{Constraint, DramTiming};
 
 /// Raw JESD79-5B parameters for one DDR5 speed bin and device density.
 ///
@@ -140,79 +103,13 @@ impl Ddr5SpeedBin {
         t_rc: Constraint::ps(48_071),
         ..Self::DDR5_4800B
     };
-}
 
-/// Full JEDEC timing table for one DDR5 device, in command-clock cycles.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Ddr5Timing {
-    /// Data rate the table was resolved for; fixes tCK for clock-domain
-    /// conversion.
-    pub data_rate_mts: u64,
-    /// CL: cycles from RD command to first data on the bus.
-    pub t_cas: u64,
-    /// CWL: cycles from WR command to first data on the bus.
-    pub t_cwl: u64,
-    /// tRCD: cycles from ACT to first RD/WR to the same bank.
-    pub t_rcd: u64,
-    /// tRP: cycles from PRE to next ACT of the same bank.
-    pub t_rp: u64,
-    /// tRAS: minimum cycles from ACT to PRE of the same bank.
-    pub t_ras: u64,
-    /// tRC: cycles from ACT to next ACT of the same bank.
-    pub t_rc: u64,
-    /// `tRRD_S`: cycles between ACTs to different bank groups.
-    pub t_rrd_s: u64,
-    /// `tRRD_L`: cycles between ACTs to the same bank group.
-    pub t_rrd_l: u64,
-    /// `tCCD_S`: cycles between column commands to different bank groups.
-    pub t_ccd_s: u64,
-    /// `tCCD_L`: cycles between column reads to the same bank group.
-    pub t_ccd_l: u64,
-    /// `tCCD_L_WR`: cycles between column writes to the same bank group.
-    pub t_ccd_l_wr: u64,
-    /// tFAW: rolling window in which at most four ACTs may issue per rank.
-    pub t_faw: u64,
-    /// `tWTR_S`: cycles from end of write data to a READ in a different
-    /// bank group.
-    pub t_wtr_s: u64,
-    /// `tWTR_L`: cycles from end of write data to a READ in the same bank
-    /// group.
-    pub t_wtr_l: u64,
-    /// Read-to-write data-bus turnaround: idle cycles between the end of a
-    /// read burst and the start of a write burst. Not a JEDEC parameter;
-    /// gem5 uses two clocks.
-    pub t_rtw: u64,
-    /// tWR: cycles from end of write data to a PRE on the same bank.
-    pub t_wr: u64,
-    /// tRTP: cycles from RD command to a PRE on the same bank.
-    pub t_rtp: u64,
-    /// tPPD: cycles between PRE commands on the same rank.
-    pub t_ppd: u64,
-    /// Rank-to-rank data-bus switch: idle cycles between bursts from
-    /// different ranks on one subchannel (gem5's tCS).
-    pub t_rtrs: u64,
-    /// tRFC1: all-bank refresh duration.
-    pub t_rfc1: u64,
-    /// tRFC2: fine-granularity all-bank refresh duration.
-    pub t_rfc2: u64,
-    /// tRFCsb: same-bank refresh duration.
-    pub t_rfcsb: u64,
-    /// tREFI: average interval between all-bank refresh commands.
-    pub t_refi: u64,
-    /// tXP: power-down exit to first valid command.
-    pub t_xp: u64,
-    /// tPD: minimum time in power-down.
-    pub t_pd: u64,
-    /// BL/2: data-bus cycles occupied by one BL16 burst.
-    pub bl_half: u64,
-}
-
-impl Ddr5Timing {
-    /// Resolves a speed bin into clock cycles.
+    /// The bin's timing table, in command clocks.
     #[must_use]
-    pub const fn from_bin(bin: &Ddr5SpeedBin) -> Self {
+    pub const fn timing(&self) -> DramTiming {
+        let bin = self;
         let rate = bin.data_rate_mts;
-        Self {
+        DramTiming {
             data_rate_mts: rate,
             t_cas: bin.cl,
             t_cwl: bin.cwl,
@@ -241,94 +138,5 @@ impl Ddr5Timing {
             t_pd: bin.t_pd.cycles(rate),
             bl_half: 8,
         }
-    }
-
-    /// DDR5-4800B, 16 Gb devices.
-    #[must_use]
-    pub const fn ddr5_4800() -> Self {
-        Self::from_bin(&Ddr5SpeedBin::DDR5_4800B)
-    }
-
-    /// Command-clock period in picoseconds, rounded down.
-    #[inline]
-    #[must_use]
-    pub const fn tck_ps(&self) -> u64 {
-        2_000_000 / self.data_rate_mts
-    }
-}
-
-/// A [`Ddr5Timing`] field that configuration may override, named as the
-/// JEDEC parameter in snake case (`t_rcd`, `t_ccd_l_wr`, ...).
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize, serde::Serialize,
-)]
-#[serde(rename_all = "snake_case")]
-#[allow(missing_docs)]
-pub enum Ddr5TimingField {
-    TCas,
-    TCwl,
-    TRcd,
-    TRp,
-    TRas,
-    TRc,
-    TRrdS,
-    TRrdL,
-    TCcdS,
-    TCcdL,
-    TCcdLWr,
-    TFaw,
-    TWtrS,
-    TWtrL,
-    TRtw,
-    TWr,
-    TRtp,
-    TPpd,
-    TRtrs,
-    TRfc1,
-    TRfc2,
-    TRfcsb,
-    TRefi,
-    TXp,
-    TPd,
-    BlHalf,
-}
-
-impl Ddr5Timing {
-    /// Overrides one field with a value in command clocks.
-    pub const fn set(&mut self, field: Ddr5TimingField, clocks: u64) {
-        match field {
-            Ddr5TimingField::TCas => self.t_cas = clocks,
-            Ddr5TimingField::TCwl => self.t_cwl = clocks,
-            Ddr5TimingField::TRcd => self.t_rcd = clocks,
-            Ddr5TimingField::TRp => self.t_rp = clocks,
-            Ddr5TimingField::TRas => self.t_ras = clocks,
-            Ddr5TimingField::TRc => self.t_rc = clocks,
-            Ddr5TimingField::TRrdS => self.t_rrd_s = clocks,
-            Ddr5TimingField::TRrdL => self.t_rrd_l = clocks,
-            Ddr5TimingField::TCcdS => self.t_ccd_s = clocks,
-            Ddr5TimingField::TCcdL => self.t_ccd_l = clocks,
-            Ddr5TimingField::TCcdLWr => self.t_ccd_l_wr = clocks,
-            Ddr5TimingField::TFaw => self.t_faw = clocks,
-            Ddr5TimingField::TWtrS => self.t_wtr_s = clocks,
-            Ddr5TimingField::TWtrL => self.t_wtr_l = clocks,
-            Ddr5TimingField::TRtw => self.t_rtw = clocks,
-            Ddr5TimingField::TWr => self.t_wr = clocks,
-            Ddr5TimingField::TRtp => self.t_rtp = clocks,
-            Ddr5TimingField::TPpd => self.t_ppd = clocks,
-            Ddr5TimingField::TRtrs => self.t_rtrs = clocks,
-            Ddr5TimingField::TRfc1 => self.t_rfc1 = clocks,
-            Ddr5TimingField::TRfc2 => self.t_rfc2 = clocks,
-            Ddr5TimingField::TRfcsb => self.t_rfcsb = clocks,
-            Ddr5TimingField::TRefi => self.t_refi = clocks,
-            Ddr5TimingField::TXp => self.t_xp = clocks,
-            Ddr5TimingField::TPd => self.t_pd = clocks,
-            Ddr5TimingField::BlHalf => self.bl_half = clocks,
-        }
-    }
-}
-
-impl Default for Ddr5Timing {
-    fn default() -> Self {
-        Self::ddr5_4800()
     }
 }

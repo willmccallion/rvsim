@@ -1,6 +1,5 @@
 //! Posted writes and the write-queue drain policy.
 
-use crate::config::ddr5::Ddr5Config;
 use crate::sim::packet::DramCmdKind;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, read_op, tiny_config, write_op,
@@ -102,16 +101,9 @@ fn mixed_traffic_serves_all_requests() {
 
 #[test]
 fn drain_watermarks_follow_gem5_defaults() {
-    let cfg = Ddr5ConfigDefaults::get();
+    let cfg = crate::config::ddr5::ddr5_4800();
     assert_eq!(cfg.write_queue_entries, 64);
     assert_eq!(cfg.write_high_watermark, 54);
     assert_eq!(cfg.write_low_watermark, 32);
     assert_eq!(cfg.min_writes_per_switch, 16);
-}
-
-struct Ddr5ConfigDefaults;
-impl Ddr5ConfigDefaults {
-    fn get() -> Ddr5Config {
-        Ddr5Config::default()
-    }
 }

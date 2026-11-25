@@ -1,6 +1,6 @@
 //! tFAW / tWTR / tRTW / tRTRS.
 
-use crate::config::ddr5::Ddr5Timing;
+use crate::config::ddr5::Ddr5SpeedBin;
 use crate::sim::packet::DramCmdKind;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, read_op, tiny_config, tworank_config, write_op,
@@ -9,7 +9,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 #[test]
 fn fifth_activate_stalls_on_faw() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     // Four distinct (bg, bank) tuples => four ACTs land in the tFAW window,
     // plus a fifth ACT to the same bank[0] (different row) so PRE + ACT are
@@ -42,7 +42,7 @@ fn fifth_activate_stalls_on_faw() {
 #[test]
 fn write_then_read_same_bank_group_pays_wtr_l() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let w = addr_from(&cfg, 0, 0, 0, 0, 0);
     let r = addr_from(&cfg, 0, 0, 0, 0, 1);
@@ -66,7 +66,7 @@ fn write_then_read_same_bank_group_pays_wtr_l() {
 #[test]
 fn read_then_write_pays_rtw() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let r = addr_from(&cfg, 0, 0, 0, 0, 0);
     let w = addr_from(&cfg, 0, 0, 0, 0, 1);
@@ -89,7 +89,7 @@ fn read_then_write_pays_rtw() {
 #[test]
 fn rank_switch_pays_rtrs() {
     let cfg = tworank_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let r0 = addr_from(&cfg, 0, 0, 0, 0, 0);
     let r1 = addr_from(&cfg, 1, 0, 0, 0, 0);

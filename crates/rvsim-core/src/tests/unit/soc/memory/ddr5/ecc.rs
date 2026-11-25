@@ -1,14 +1,15 @@
 //! Patrol scrubbing: with side-band ECC the controller sweeps DRAM with
 //! background reads at the configured rate and never answers them.
 
-use crate::config::ddr5::{Ddr5Timing, EccKind};
+use crate::config::ddr5::Ddr5SpeedBin;
+use crate::config::dram::EccKind;
 use crate::sim::packet::{DramCmdKind, Packet};
 use crate::soc::memory::ddr5::ecc::{EccPolicy, SideBandEcc};
 use crate::tests::unit::soc::memory::ddr5::common::{Harness, tiny_config};
 
 #[test]
 fn scrub_interval_resolves_nanoseconds_to_dram_clocks() {
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let policy = SideBandEcc { patrol_scrub_ns: Some(1_000) };
     assert_eq!(policy.scrub_interval(&t), Some(2400), "1 us is 2400 clocks at 2.4 GHz");
     assert_eq!(SideBandEcc { patrol_scrub_ns: None }.scrub_interval(&t), None);

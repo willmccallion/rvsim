@@ -1,6 +1,6 @@
 //! Row-hit and row-miss timing on a single bank.
 
-use crate::config::ddr5::Ddr5Timing;
+use crate::config::ddr5::Ddr5SpeedBin;
 use crate::sim::packet::DramCmdKind;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, controller_latency, read_op, tiny_config,
@@ -9,7 +9,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 #[test]
 fn cold_read_pays_act_plus_rcd_plus_cas_plus_burst() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let addr = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id = h.issue(addr, 0, read_op());
@@ -22,7 +22,7 @@ fn cold_read_pays_act_plus_rcd_plus_cas_plus_burst() {
 #[test]
 fn row_hit_second_read_only_pays_cas_plus_burst() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let a1 = addr_from(&cfg, 0, 0, 0, 0, 0);
     let a2 = addr_from(&cfg, 0, 0, 0, 0, 1);
@@ -38,7 +38,7 @@ fn row_hit_second_read_only_pays_cas_plus_burst() {
 #[test]
 fn same_bank_row_miss_pays_pre_plus_act_plus_col() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let a1 = addr_from(&cfg, 0, 0, 0, 0, 0);
     let a2 = addr_from(&cfg, 0, 0, 0, 1, 0);
@@ -58,7 +58,7 @@ fn same_bank_row_miss_pays_pre_plus_act_plus_col() {
 #[test]
 fn back_to_back_same_bank_group_reads_honor_ccd_l() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     // Same bank group, different banks, both queued before any command:
     // the second column command is at least tCCD_L after the first.

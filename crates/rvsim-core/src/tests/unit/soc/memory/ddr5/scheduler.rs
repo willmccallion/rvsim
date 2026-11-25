@@ -1,7 +1,7 @@
 //! Request selection: FR-FCFS serves an open-row hit ahead of an older row
 //! miss; FCFS keeps arrival order.
 
-use crate::config::ddr5::SchedulerKind;
+use crate::config::dram::SchedulerKind;
 use crate::sim::packet::DramCmdKind;
 use crate::soc::memory::ddr5::scheduler::{Candidate, Fcfs, FrFcfs, MemScheduler};
 use crate::tests::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config};

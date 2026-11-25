@@ -1,6 +1,7 @@
 //! Rank power-down: an idle rank enters power-down and pays tXP on exit.
 
-use crate::config::ddr5::{Ddr5Timing, PowerDownPolicy};
+use crate::config::ddr5::Ddr5SpeedBin;
+use crate::config::dram::PowerDownPolicy;
 use crate::sim::packet::DramCmdKind;
 use crate::tests::unit::soc::memory::ddr5::common::{Harness, addr_from, read_op, tiny_config};
 
@@ -10,7 +11,7 @@ const IDLE_CLOCKS: u64 = 16;
 fn idle_rank_powers_down_and_the_next_activate_waits_t_xp_after_exit() {
     let mut cfg = tiny_config();
     cfg.power_down = PowerDownPolicy::AfterIdle { idle_clocks: IDLE_CLOCKS };
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let first = h.issue(a, 0, read_op());
@@ -61,7 +62,7 @@ fn disabled_policy_never_issues_power_commands() {
 fn a_rank_does_not_power_down_right_before_its_refresh() {
     let mut cfg = tiny_config();
     cfg.power_down = PowerDownPolicy::AfterIdle { idle_clocks: IDLE_CLOCKS };
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let id = h.issue(a, t.t_refi - t.t_pd - 4, read_op());

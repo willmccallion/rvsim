@@ -10,8 +10,8 @@
 use std::fmt::Debug;
 use std::num::NonZeroU8;
 
-use crate::config::ddr5::RefreshKind;
-use crate::config::ddr5::timing::Ddr5Timing;
+use crate::config::dram::RefreshKind;
+use crate::config::dram::timing::DramTiming;
 
 /// Bank layout of one rank, as the policy needs it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,11 +43,11 @@ pub struct RefreshTarget {
 /// Decides refresh cadence and coverage for a rank.
 pub trait RefreshPolicy: Debug + Send + Sync {
     /// Clocks between consecutive refresh commands on one rank.
-    fn interval(&self, timing: &Ddr5Timing, layout: RankLayout) -> u64;
+    fn interval(&self, timing: &DramTiming, layout: RankLayout) -> u64;
 
     /// Banks covered by the `sequence`-th refresh command on a rank
     /// (counting from zero) and the time they stay busy.
-    fn target(&self, timing: &Ddr5Timing, layout: RankLayout, sequence: u64) -> RefreshTarget;
+    fn target(&self, timing: &DramTiming, layout: RankLayout, sequence: u64) -> RefreshTarget;
 }
 
 /// `REFab` every tREFI: the whole rank refreshes together.
@@ -55,11 +55,11 @@ pub trait RefreshPolicy: Debug + Send + Sync {
 pub struct AllBank;
 
 impl RefreshPolicy for AllBank {
-    fn interval(&self, timing: &Ddr5Timing, _layout: RankLayout) -> u64 {
+    fn interval(&self, timing: &DramTiming, _layout: RankLayout) -> u64 {
         timing.t_refi
     }
 
-    fn target(&self, timing: &Ddr5Timing, layout: RankLayout, _sequence: u64) -> RefreshTarget {
+    fn target(&self, timing: &DramTiming, layout: RankLayout, _sequence: u64) -> RefreshTarget {
         RefreshTarget { bank_mask: bank_mask_all(layout), duration: timing.t_rfc1 }
     }
 }
@@ -73,11 +73,11 @@ impl RefreshPolicy for AllBank {
 pub struct SameBank;
 
 impl RefreshPolicy for SameBank {
-    fn interval(&self, timing: &Ddr5Timing, layout: RankLayout) -> u64 {
+    fn interval(&self, timing: &DramTiming, layout: RankLayout) -> u64 {
         timing.t_refi / u64::from(layout.banks_per_group.get())
     }
 
-    fn target(&self, timing: &Ddr5Timing, layout: RankLayout, sequence: u64) -> RefreshTarget {
+    fn target(&self, timing: &DramTiming, layout: RankLayout, sequence: u64) -> RefreshTarget {
         let set = sequence % u64::from(layout.banks_per_group.get());
         RefreshTarget { bank_mask: bank_mask_set(layout, set), duration: timing.t_rfcsb }
     }

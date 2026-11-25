@@ -1,6 +1,6 @@
 //! Rank power-down entry and exit.
 
-use crate::config::ddr5::PowerDownPolicy;
+use crate::config::dram::PowerDownPolicy;
 use crate::sim::components::{ChannelId, RankId, SubchannelId};
 use crate::sim::packet::DramCmdKind;
 use crate::soc::memory::ddr5::state::{BankState, PowerState, Rank, RefreshPhase, Subchannel};

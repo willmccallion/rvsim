@@ -1,7 +1,8 @@
 //! Refresh: a due refresh precharges the covered banks, issues REFRESH after
 //! tRP, and holds those banks for tRFC while everything else keeps serving.
 
-use crate::config::ddr5::{Ddr5Timing, RefreshKind};
+use crate::config::ddr5::Ddr5SpeedBin;
+use crate::config::dram::RefreshKind;
 use crate::sim::packet::DramCmdKind;
 use crate::soc::memory::ddr5::refresh::{RankLayout, bank_mask_all, bank_mask_set};
 use crate::tests::unit::soc::memory::ddr5::common::{
@@ -11,7 +12,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 #[test]
 fn all_bank_refresh_closes_open_rows_then_holds_the_rank_for_t_rfc() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     // Open row 0 of bank 0 and leave it open.
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
@@ -44,7 +45,7 @@ fn all_bank_refresh_closes_open_rows_then_holds_the_rank_for_t_rfc() {
 #[test]
 fn refresh_does_not_block_other_rank() {
     let cfg = tworank_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     // Enqueue both requests at the same simulated moment before letting
     // the scheduler tick — rank 0's refresh window must not force rank 1's
@@ -63,7 +64,7 @@ fn refresh_does_not_block_other_rank() {
 fn same_bank_refresh_rotates_bank_sets_and_leaves_the_others_serving() {
     let mut cfg = tiny_config();
     cfg.refresh = RefreshKind::SameBank;
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     // Two banks per group: set 0 refreshes at tREFI/2, set 1 at tREFI.
     let interval = t.t_refi / 2;
@@ -105,7 +106,7 @@ fn bank_masks_cover_the_rank_and_one_bank_per_group() {
 fn a_controller_resumed_later_starts_fresh_there_instead_of_replaying_the_gap() {
     use crate::soc::memory::controller::MemoryController;
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let a = addr_from(&cfg, 0, 0, 0, 0, 0);
     let mut fresh = Harness::new(&cfg);
     let fresh_id = fresh.issue(a, 0, read_op());
