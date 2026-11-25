@@ -11,10 +11,13 @@ use serde::{Deserialize, Serialize};
 use crate::config::AddressMappingKind;
 use crate::config::dram::timing::{Constraint, DramTimingField};
 use crate::config::dram::{
-    CACHE_LINE_OFFSET_BITS, CommandCycles, DramStandardConfig, EccKind, PowerDownPolicy,
-    RefreshKind, SchedulerKind,
+    CACHE_LINE_OFFSET_BITS, CommandCycles, DrainQueues, DramParamsError, DramStandardConfig,
+    EccKind, PowerDownPolicy, RefreshKind, SchedulerKind, check_topology,
 };
 pub use timing::Ddr5SpeedBin;
+
+/// The parameter block's name in configuration and its errors.
+const STANDARD: &str = "ddr5";
 
 /// DDR5's four banks per bank group.
 const BANKS_PER_GROUP: NonZeroU8 = match NonZeroU8::new(4) {
@@ -93,7 +96,7 @@ pub enum EccMode {
 }
 
 /// DDR5 parameters as they appear in the configuration file. Validated on
-/// deserialization (see [`Ddr5ParamsError`]) and resolved into a
+/// deserialization (see [`DramParamsError`]) and resolved into a
 /// [`DramStandardConfig`] by [`Ddr5Params::to_config`].
 #[derive(Clone, Debug, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(try_from = "Ddr5ParamsRaw", into = "Ddr5ParamsRaw")]
@@ -107,61 +110,30 @@ impl From<Ddr5Params> for Ddr5ParamsRaw {
     }
 }
 
-/// Why a DDR5 parameter block was rejected.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum Ddr5ParamsError {
-    /// A topology count must be a power of two for the address mapper.
-    #[error("ddr5.{field} must be a power of two, got {value}")]
-    NotPowerOfTwo {
-        /// Name of the offending field.
-        field: &'static str,
-        /// Value supplied.
-        value: u8,
-    },
-    /// A topology count was zero.
-    #[error("ddr5.{field} must be non-zero")]
-    Zero {
-        /// Name of the offending field.
-        field: &'static str,
-    },
-    /// The write watermarks or queue sizes are inconsistent.
-    #[error("ddr5 write watermarks must satisfy low < high <= write_queue_entries")]
-    WriteQueue,
-    /// A rank has more than 64 banks, which the refresh masks cannot cover.
-    #[error("ddr5 supports at most 64 banks per rank")]
-    TooManyBanks,
-}
-
 impl TryFrom<Ddr5ParamsRaw> for Ddr5Params {
-    type Error = Ddr5ParamsError;
+    type Error = DramParamsError;
 
     fn try_from(raw: Ddr5ParamsRaw) -> Result<Self, Self::Error> {
-        for (field, value) in [
-            ("channels", raw.channels),
-            ("subchannels_per_channel", raw.subchannels_per_channel),
-            ("ranks_per_channel", raw.ranks_per_channel),
-            ("bank_groups_per_rank", raw.bank_groups_per_rank),
-            ("banks_per_group", raw.banks_per_group.get()),
-        ] {
-            if value == 0 {
-                return Err(Ddr5ParamsError::Zero { field });
-            }
-            if !value.is_power_of_two() {
-                return Err(Ddr5ParamsError::NotPowerOfTwo { field, value });
-            }
-        }
+        check_topology(
+            STANDARD,
+            &[
+                ("channels", raw.channels),
+                ("subchannels_per_channel", raw.subchannels_per_channel),
+                ("ranks_per_channel", raw.ranks_per_channel),
+                ("bank_groups_per_rank", raw.bank_groups_per_rank),
+                ("banks_per_group", raw.banks_per_group.get()),
+            ],
+        )?;
         if u32::from(raw.bank_groups_per_rank) * u32::from(raw.banks_per_group.get()) > 64 {
-            return Err(Ddr5ParamsError::TooManyBanks);
+            return Err(DramParamsError::TooManyBanks { standard: STANDARD });
         }
-        if raw.write_queue_entries == 0
-            || raw.write_high_watermark > raw.write_queue_entries
-            || raw.write_low_watermark >= raw.write_high_watermark
-        {
-            return Err(Ddr5ParamsError::WriteQueue);
+        DrainQueues {
+            read_entries: raw.read_queue_entries,
+            write_entries: raw.write_queue_entries,
+            high_watermark: raw.write_high_watermark,
+            low_watermark: raw.write_low_watermark,
         }
-        if raw.read_queue_entries == 0 {
-            return Err(Ddr5ParamsError::Zero { field: "read_queue_entries" });
-        }
+        .check(STANDARD)?;
         Ok(Self { raw })
     }
 }

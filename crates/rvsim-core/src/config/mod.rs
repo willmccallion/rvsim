@@ -13,6 +13,7 @@ pub mod ddr5;
 pub(crate) mod defaults;
 pub mod dram;
 mod general;
+pub mod lpddr4;
 mod machine;
 mod memory;
 mod pipeline;

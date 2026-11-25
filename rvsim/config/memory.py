@@ -10,6 +10,7 @@ from ._units import _parse_size
 _CACHE = COMPONENTS["cache"]
 _MEMORY = COMPONENTS["memory"]
 _DDR5 = COMPONENTS["ddr5"]
+_LPDDR4 = COMPONENTS["lpddr4"]
 _LOAD_PREFETCHER = COMPONENTS["load_prefetcher"]
 _STORE_PREFETCHER = COMPONENTS["store_prefetcher"]
 
@@ -327,6 +328,87 @@ class MemoryController:
                 f"scheduler={self.scheduler!r}, refresh={self.refresh!r})"
             )
 
+    class Lpddr4:
+        """Command-level LPDDR4 controller with JEDEC timing.
+
+        The same controller as ``Ddr5`` with LPDDR4's organisation and
+        command bus: ``channels`` independent 16-bit channels (an x32
+        package has two), each a die of ``density`` (``"Gb4"``, ``"Gb8"`` or
+        ``"Gb16"``) with eight banks, 2 KiB rows and no bank groups, moving
+        a 64-byte line in one 32-beat burst. Timing comes from
+        ``speed_bin`` (``"Lpddr4_3200"``) and may be overridden per field
+        with ``timing={"t_rcd": 40, ...}`` in DRAM command clocks.
+
+        Policies: ``scheduler`` is ``"FrFcfs"`` (default) or ``"Fcfs"``;
+        ``refresh`` is ``"AllBank"`` (default) or ``"PerBank"``;
+        ``address_mapping`` as for ``Ddr5``. ``power_down_idle_ns`` enables
+        power-down after that many idle nanoseconds.
+        """
+
+        def __init__(
+            self,
+            speed_bin: str = _LPDDR4["speed_bin"],
+            density: str = _LPDDR4["density"],
+            channels: int = _LPDDR4["channels"],
+            ranks_per_channel: int = _LPDDR4["ranks_per_channel"],
+            read_queue_entries: int = _LPDDR4["read_queue_entries"],
+            write_queue_entries: int = _LPDDR4["write_queue_entries"],
+            write_high_watermark: int = _LPDDR4["write_high_watermark"],
+            write_low_watermark: int = _LPDDR4["write_low_watermark"],
+            min_writes_per_switch: int = _LPDDR4["min_writes_per_switch"],
+            frontend_latency_ns: int = _LPDDR4["frontend_latency_ns"],
+            backend_latency_ns: int = _LPDDR4["backend_latency_ns"],
+            scheduler: str = _LPDDR4["scheduler"],
+            refresh: str = _LPDDR4["refresh"],
+            address_mapping: str = _LPDDR4["address_mapping"],
+            power_down_idle_ns: int | None = _LPDDR4["power_down_idle_ns"],
+            timing: dict[str, int] | None = None,
+        ):
+            self.speed_bin = speed_bin
+            self.density = density
+            self.channels = channels
+            self.ranks_per_channel = ranks_per_channel
+            self.read_queue_entries = read_queue_entries
+            self.write_queue_entries = write_queue_entries
+            self.write_high_watermark = write_high_watermark
+            self.write_low_watermark = write_low_watermark
+            self.min_writes_per_switch = min_writes_per_switch
+            self.frontend_latency_ns = frontend_latency_ns
+            self.backend_latency_ns = backend_latency_ns
+            self.scheduler = scheduler
+            self.refresh = refresh
+            self.address_mapping = address_mapping
+            self.power_down_idle_ns = power_down_idle_ns
+            self.timing = dict(timing) if timing else {}
+
+        def to_dict(self) -> dict[str, Any]:
+            return {
+                "speed_bin": self.speed_bin,
+                "density": self.density,
+                "channels": self.channels,
+                "ranks_per_channel": self.ranks_per_channel,
+                "read_queue_entries": self.read_queue_entries,
+                "write_queue_entries": self.write_queue_entries,
+                "write_high_watermark": self.write_high_watermark,
+                "write_low_watermark": self.write_low_watermark,
+                "min_writes_per_switch": self.min_writes_per_switch,
+                "frontend_latency_ns": self.frontend_latency_ns,
+                "backend_latency_ns": self.backend_latency_ns,
+                "scheduler": self.scheduler,
+                "refresh": self.refresh,
+                "address_mapping": self.address_mapping,
+                "power_down_idle_ns": self.power_down_idle_ns,
+                "timing": self.timing,
+            }
+
+        def __repr__(self) -> str:
+            return (
+                f"MemoryController.Lpddr4(speed_bin={self.speed_bin!r}, "
+                f"density={self.density!r}, channels={self.channels}, "
+                f"ranks_per_channel={self.ranks_per_channel}, "
+                f"scheduler={self.scheduler!r}, refresh={self.refresh!r})"
+            )
+
 
 class Cache:
     """Single cache level configuration."""
@@ -408,7 +490,10 @@ _AnyPrefetcher = (
     | Prefetcher.Tagged
 )
 _AnyMemoryController = (
-    MemoryController.Simple | MemoryController.Dram | MemoryController.Ddr5
+    MemoryController.Simple
+    | MemoryController.Dram
+    | MemoryController.Ddr5
+    | MemoryController.Lpddr4
 )
 _AnyInclusionPolicy = Cache.Nine | Cache.Inclusive | Cache.Exclusive
 
@@ -479,4 +564,6 @@ def _controller_from(memory: dict[str, Any]) -> _AnyMemoryController:
         return MemoryController.Dram(
             t_cas=memory["t_cas"], t_ras=memory["t_ras"], t_pre=memory["t_pre"]
         )
+    if kind is MemoryController.Lpddr4:
+        return MemoryController.Lpddr4(**memory["lpddr4"])
     return MemoryController.Ddr5(**memory["ddr5"])

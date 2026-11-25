@@ -14,6 +14,7 @@ from rvsim import (
     Config,
     Fu,
     LoadPrefetcher,
+    MemoryController,
     PageBoundary,
     Simulator,
     StorePrefetcher,
@@ -63,6 +64,37 @@ class Ownership(unittest.TestCase):
         wide.l1d.latency = 7
 
         self.assertNotEqual(base.l1d.latency, 7)
+
+
+class Lpddr4(unittest.TestCase):
+    def test_an_lpddr4_controller_reaches_the_core(self):
+        controller = MemoryController.Lpddr4(density="Gb8", refresh="PerBank")
+
+        memory = check_config(Config(memory_controller=controller).to_dict())["memory"]
+
+        self.assertEqual(memory["controller"], "Lpddr4")
+        self.assertEqual(memory["lpddr4"]["density"], "Gb8")
+        self.assertEqual(memory["lpddr4"]["refresh"], "PerBank")
+
+    def test_an_lpddr4_controller_left_at_its_defaults_is_the_cores(self):
+        config = Config(memory_controller=MemoryController.Lpddr4())
+
+        memory = check_config(config.to_dict())["memory"]
+
+        self.assertEqual(memory["lpddr4"], component_defaults()["lpddr4"])
+
+    def test_a_channel_count_that_is_not_a_power_of_two_is_refused(self):
+        with self.assertRaisesRegex(
+            ValueError, "lpddr4.channels must be a power of two"
+        ):
+            Config(memory_controller=MemoryController.Lpddr4(channels=3))
+
+    def test_a_config_with_lpddr4_pickles(self):
+        config = Config(memory_controller=MemoryController.Lpddr4(density="Gb4"))
+
+        restored = pickle.loads(pickle.dumps(config))
+
+        self.assertEqual(restored.to_dict(), config.to_dict())
 
 
 class Pickle(unittest.TestCase):
