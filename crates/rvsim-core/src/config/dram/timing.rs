@@ -57,6 +57,9 @@ pub struct DramTiming {
     pub t_rcd: u64,
     /// tRP: cycles from PRE to next ACT of the same bank.
     pub t_rp: u64,
+    /// tRPab: cycles from a PRECHARGE of every bank to the next ACT or
+    /// REFRESH of any of them.
+    pub t_rp_all: u64,
     /// tRAS: minimum cycles from ACT to PRE of the same bank.
     pub t_ras: u64,
     /// tRC: cycles from ACT to next ACT of the same bank.
@@ -129,6 +132,7 @@ pub enum DramTimingField {
     TCwl,
     TRcd,
     TRp,
+    TRpAll,
     TRas,
     TRc,
     TRrdS,
@@ -161,6 +165,7 @@ impl DramTiming {
             DramTimingField::TCwl => self.t_cwl = clocks,
             DramTimingField::TRcd => self.t_rcd = clocks,
             DramTimingField::TRp => self.t_rp = clocks,
+            DramTimingField::TRpAll => self.t_rp_all = clocks,
             DramTimingField::TRas => self.t_ras = clocks,
             DramTimingField::TRc => self.t_rc = clocks,
             DramTimingField::TRrdS => self.t_rrd_s = clocks,

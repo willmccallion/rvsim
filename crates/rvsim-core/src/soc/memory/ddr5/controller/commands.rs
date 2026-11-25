@@ -80,7 +80,7 @@ impl Ddr5Controller {
             rank_mut.last_precharge = fire_at;
             let bank = &mut rank_mut.banks[ctx.bank_index];
             bank.state = BankState::Precharging;
-            bank.last_precharge = fire_at;
+            bank.precharged_at = fire_at + self.config.timing.t_rp;
             bank.open_row = None;
             sc.counters.precharges += 1;
         }
@@ -126,13 +126,14 @@ impl Ddr5Controller {
     }
 
     /// Earliest clock an ACTIVATE of `ctx`'s bank is legal; `not_before`
-    /// carries the caller's state-dependent floor (e.g. `last_precharge + tRP`).
+    /// carries the caller's state-dependent floor (e.g. when a precharge
+    /// completes).
     pub(super) fn activate_earliest(&self, ctx: &BankCmdCtx, not_before: u64) -> u64 {
         self.activate_bounds(ctx).earliest(not_before)
     }
 
     /// Issues ACTIVATE if legal at `now`; `not_before` covers state-dependent
-    /// bounds already known by the caller (e.g. `last_precharge + tRP`).
+    /// bounds already known by the caller (e.g. when a precharge completes).
     /// Returns `true` iff the command issued.
     pub(super) fn try_issue_activate(
         &mut self,
