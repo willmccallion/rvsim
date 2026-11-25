@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 from rvsim import Config, Simulator
+from rvsim._core import StatsTree
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tests" / "builds" / "hw-probes"
@@ -71,14 +72,19 @@ def build_bare(source: Path, flags: list[str], stem: Path) -> Path:
     return Path(f"{stem}.elf")
 
 
-def cycles(binary: Path, config: Config, paging: Paging) -> int:
-    """The cycles `binary` takes on `config`."""
+def run(binary: Path, config: Config, paging: Paging) -> StatsTree:
+    """The statistics of running `binary` to its exit on `config`."""
     mode = "se" if paging is Paging.PAGES_4K else "bare"
     sim = Simulator(config, binary=str(binary), mode=mode)
     exit_code = sim.run()
     if exit_code != 0:
         raise RuntimeError(f"{binary.name} exited with {exit_code}")
-    return sim.stats.cycles
+    return sim.stats
+
+
+def cycles(binary: Path, config: Config, paging: Paging) -> int:
+    """The cycles `binary` takes on `config`."""
+    return run(binary, config, paging).cycles
 
 
 def parse_size(text: str) -> int:

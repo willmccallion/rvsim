@@ -170,6 +170,36 @@ python tools/diag/bandwidth_probe.py --preset cortex_a72
 python tools/diag/bandwidth_probe.py --preset p550 --kernels read --footprints 16K,128K,2M
 ```
 
+## Misprediction penalty
+
+`tools/diag/mispredict_probe.py` runs a loop whose one branch tests a byte
+loaded from the L1D, over random bytes and over clear ones, and divides the
+extra cycles the random bytes cost by the extra mispredictions they cause.
+That is the cost a software measurement on hardware would see: the load the
+branch waits for, then the redirect and the refill. The probe also reports
+the part from the branch resolving to the right path issuing, as the
+out-of-order backend times it. Measured 2026-11-25.
+
+| Calibrated configuration | Per misprediction | Branch to branch | Hardware |
+|---|---:|---:|---:|
+| `cortex_a72` | 18.0 | 15 | ~15, unsourced |
+| `p550` | 13.0 | 11 | not published |
+
+The total is the L1 load (4 cycles on the A72, 3 on the P550) plus the
+cycles from the branch resolving to the right path issuing (14 and 10), and
+the branch-to-branch column adds the cycle the right path's first
+instruction takes to execute. Neither core has a measured penalty to check
+against. The A72's 15 cycles is quoted without a source (Drongowski, "ARM
+Cortex-A72 tuning: Branch mispredictions", 2021); Arm's TRM and Software
+Optimization Guide give none, so the configuration is calibrated to it as
+a branch-to-branch figure. SiFive publishes only the P550's 13-stage
+pipeline, and the configuration's 11 cycles is inferred from that. Both
+stay unverified until the probe runs on the hardware.
+
+```bash
+python tools/diag/mispredict_probe.py --preset cortex_a72
+```
+
 Sources: Chips and Cheese, "Inside SiFive's P550 Microarchitecture"
 (January 2025) and "ARM's Cortex A72: aarch64 for the Masses" (November
 2023); tinymembench's "Raspberry Pi 4 (BCM2711)" results

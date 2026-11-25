@@ -56,7 +56,10 @@ def cortex_a72() -> Config:
       intermediate levels (TRM 5.4, 5.6)
     - No memory dependence speculation: a load waits for every older
       store's address; store-to-load forwarding takes 7 cycles
-    - 4096-entry BTB, 31-entry return stack; mispredict penalty ~15 cycles
+    - 4096-entry BTB, 31-entry return stack; mispredict penalty ~15 cycles,
+      a figure quoted without a source (Drongowski, "ARM Cortex-A72 tuning:
+      Branch mispredictions", 2021); neither the TRM nor the Software
+      Optimization Guide gives one
     - Load/store prefetcher (TRM 6.4.9): loads prefetch into the L1D and
       22 requests ahead into the L2 (CPUECTLR_EL1 reset), crossing pages
       through the TLB (CPUACTLR_EL1[43] reset); store misses prefetch into
@@ -68,7 +71,9 @@ def cortex_a72() -> Config:
         width=3,
         vlen=128,
         num_vec_lanes=None,
-        # Calibrated to the ~15-cycle misprediction. Arm does not publish
+        # Calibrated to the ~15-cycle misprediction, counted from a branch
+        # executing to the right path executing (mispredict_probe.py: 14
+        # cycles from resolving to issue, then 1 to execute). Arm does not publish
         # where the stages sit; they go after decode, so a redirect decode
         # makes (a BTB miss) does not pay them.
         rename_issue_latency=10,
@@ -193,7 +198,8 @@ def p550() -> Config:
       one store AGU
     - 32-entry fully associative L1 TLBs, 512-entry L2 TLB whose hit adds
       9 cycles
-    - 13-stage pipeline → ~11-13 cycle mispredict penalty
+    - 13-stage pipeline; the ~11-cycle mispredict penalty is inferred from
+      it, as no measured or published figure exists
     - No hardware misaligned access support (trap-based emulation)
     - Prefetchers unpublished: a load stride prefetcher that keeps to the
       page and runs 6 lines ahead, and no store prefetcher. The distance is
@@ -226,7 +232,9 @@ def p550() -> Config:
         width=3,
         vlen=128,
         num_vec_lanes=None,
-        # Calibrated to the ~11-cycle misprediction of the 13-stage pipeline.
+        # Calibrated to an ~11-cycle misprediction inferred from the 13-stage
+        # pipeline, counted as for the Cortex-A72 (10 cycles to issue, 1 to
+        # execute).
         # SiFive does not publish where the stages sit; they go after decode,
         # so a redirect decode makes (a BTB miss) does not pay them.
         rename_issue_latency=6,
