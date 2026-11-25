@@ -1,12 +1,15 @@
 //! An instruction straddling a cache line waits for its second line.
 //!
 //! A loop such an instruction ends pays I-cache accesses for both lines on
-//! every iteration, where the same loop inside one line pays none.
+//! every iteration, where the same loop inside one line pays none. Fetch
+//! that lands on such an instruction fetches its first line before its
+//! second; one straddling two fetch blocks of a line leads the group that
+//! fetches the second block.
 
 use crate::common::{PhysAddr, VirtAddr};
-use crate::config::BackendKind;
 use crate::config::Config;
 use crate::config::defaults::RAM_BASE;
+use crate::config::{BackendKind, BranchPredictorKind};
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::regs::X31;
@@ -38,15 +41,20 @@ fn program(nops: usize) -> Vec<u16> {
     program
 }
 
-/// Cycles the loop's third iteration takes, with both lines already cached.
-fn warm_iteration_cycles(backend: BackendKind, program: &[u16]) -> u64 {
+/// A `width`-wide core on `backend` with an I-cache of `LINE_BYTES` lines.
+fn core(backend: BackendKind, width: usize) -> Config {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.pipeline.width = 4;
+    config.pipeline.width = width;
     config.cache.l1_i.enabled = true;
     config.cache.l1_i.line_bytes = std::num::NonZero::new(LINE_BYTES).unwrap();
     config.cache.l1_i.latency = I_CACHE_LATENCY;
-    let mut tc = TestContext::with_fast_memory(&config).with_memory(RAM_SIZE, RAM_BASE);
+    config
+}
+
+/// `config` running `program`'s half-words from the start of RAM.
+fn loaded(config: &Config, program: &[u16]) -> TestContext {
+    let mut tc = TestContext::with_fast_memory(config).with_memory(RAM_SIZE, RAM_BASE);
     for (i, half) in program.iter().enumerate() {
         tc.sim.probe_mem_store(
             PhysAddr::new(RAM_BASE + 2 * i as u64),
@@ -56,6 +64,12 @@ fn warm_iteration_cycles(backend: BackendKind, program: &[u16]) -> u64 {
     }
     tc.sim.state.harts[0].pc = VirtAddr::new(RAM_BASE);
     tc.sim.sync_arch_regs();
+    tc
+}
+
+/// Cycles the loop's third iteration takes, with both lines already cached.
+fn warm_iteration_cycles(backend: BackendKind, program: &[u16]) -> u64 {
+    let mut tc = loaded(&core(backend, 4), program);
 
     let mut cycles = 0;
     let mut second_iteration = None;
@@ -89,4 +103,80 @@ fn a_straddling_instruction_waits_for_its_second_line_inorder() {
 #[test]
 fn a_straddling_instruction_waits_for_its_second_line_o3() {
     check_straddling_instruction_waits_for_its_second_line(BackendKind::OutOfOrder);
+}
+
+/// The I-cache accesses `tc` has made.
+fn i_cache_accesses(tc: &TestContext) -> u64 {
+    let paths = &tc.sim.state.cores[0].units.l1_i_cache.stat_paths;
+    let stats = &tc.sim.state.uncore.kernel.stats;
+    [paths.hits, paths.misses].iter().map(|&path| stats.get(path).unwrap_or(0.0) as u64).sum()
+}
+
+/// Iterations of a marker loop whose warm-up the per-iteration figures
+/// skip, and the iterations they average over.
+const WARM_UP: u64 = 10;
+const MEASURED: u64 = 10;
+
+/// Cycles and I-cache accesses each iteration of `program`'s marker loop
+/// takes once warm.
+fn per_iteration(config: &Config, program: &[u16]) -> (f64, f64) {
+    let mut tc = loaded(config, program);
+    let run_to = |tc: &mut TestContext, marker: u64| {
+        tc.run_until(100_000, |tc| tc.get_reg(X31) == marker).expect("the loop ran")
+    };
+    let start = run_to(&mut tc, WARM_UP);
+    let start_accesses = i_cache_accesses(&tc);
+    let end = run_to(&mut tc, WARM_UP + MEASURED);
+    let accesses = i_cache_accesses(&tc) - start_accesses;
+    ((end - start) as f64 / MEASURED as f64, accesses as f64 / MEASURED as f64)
+}
+
+/// A jump to the line's last half-word, a loop that starts there with the
+/// marker straddling into the next line, three compressed nops, and the
+/// jump back to the marker.
+fn loop_from_a_straddling_marker() -> Vec<u16> {
+    let marker_offset = LINE_BYTES as i32 - 2;
+    let mut program = jal_back(marker_offset).to_vec();
+    program.resize(LINE_BYTES / 2 - 1, C_NOP);
+    program.extend(MARKER);
+    program.extend([C_NOP; 3]);
+    program.extend(jal_back(-(2 * 3 + 4)));
+    program
+}
+
+#[test]
+fn fetch_landing_on_a_straddling_instruction_fetches_both_its_lines() {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        // The jump back is on the second line, so the fetch buffer holds
+        // that one; the marker's first line is fetched again, then its
+        // second.
+        let (_, accesses) = per_iteration(&core(backend, 4), &loop_from_a_straddling_marker());
+
+        assert_eq!(accesses, 2.0, "{backend:?}");
+    }
+}
+
+/// A loop inside one line: seven compressed nops, the marker straddling
+/// the first two 16-byte blocks, nine compressed nops and the jump back.
+fn loop_with_a_marker_straddling_blocks() -> Vec<u16> {
+    let mut program = vec![C_NOP; 7];
+    program.extend(MARKER);
+    program.extend([C_NOP; 9]);
+    let loop_bytes = program.len() as i32 * 2;
+    program.extend(jal_back(-loop_bytes));
+    program
+}
+
+#[test]
+fn an_instruction_straddling_two_blocks_leads_the_group_that_fetches_the_second() {
+    let mut config = core(BackendKind::OutOfOrder, 6);
+    config.pipeline.branch_predictor = BranchPredictorKind::GShare;
+    config.pipeline.fetch_block_bytes = Some(16);
+
+    let (cycles, _) = per_iteration(&config, &loop_with_a_marker_straddling_blocks());
+
+    // Six nops; one nop, then the marker waits for the next block; the
+    // marker and five nops to the width; two nops to the block's end; two
+    // nops and the jump.
+    assert_eq!(cycles, 5.0);
 }

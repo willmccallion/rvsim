@@ -151,3 +151,21 @@ fn branches_past_the_micro_btb_cost_the_main_btbs_bubbles() {
 
     assert_near(measured, 1.0 + MAIN_BUBBLES as f64, "micro-BTB thrashed");
 }
+
+#[test]
+fn a_branch_predicted_not_taken_does_not_end_the_fetch_group() {
+    let i = InstructionBuilder::new;
+    let flag = RegIdx::new(7);
+    // Taken in the first iteration only, so the BTB holds it and the
+    // predictor then predicts it not taken. Four instructions and the
+    // loop's two take two cycles at four wide, if the branch does not
+    // split the group.
+    let body = [
+        i().beq(flag, X0, 8).build(),
+        i().nop().build(),
+        i().nop().build(),
+        i().addi(flag, X0, 1).build(),
+    ];
+
+    assert_near(cycles_per_iteration(&core(), 0, &body), 2.0, "not-taken branch");
+}
