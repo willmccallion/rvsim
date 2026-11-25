@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::config::AddressMappingKind;
 use crate::config::dram::timing::{Constraint, DramTimingField};
 use crate::config::dram::{
-    CACHE_LINE_OFFSET_BITS, DramStandardConfig, EccKind, PowerDownPolicy, RefreshKind,
-    SchedulerKind,
+    CACHE_LINE_OFFSET_BITS, CommandCycles, DramStandardConfig, EccKind, PowerDownPolicy,
+    RefreshKind, SchedulerKind,
 };
 pub use timing::Ddr5SpeedBin;
 
@@ -21,6 +21,11 @@ const BANKS_PER_GROUP: NonZeroU8 = match NonZeroU8::new(4) {
     Some(banks) => banks,
     None => panic!("a bank group holds banks"),
 };
+
+/// DDR5's command bus: ACTIVATE, READ and WRITE are two-clock commands,
+/// the rest one clock (JESD79-5B).
+pub const DDR5_COMMAND_CYCLES: CommandCycles =
+    CommandCycles { activate: 2, column: 2, precharge: 1, refresh: 1, power_down: 1 };
 
 /// DDR5-4800B desktop configuration.
 ///
@@ -52,6 +57,7 @@ pub const fn ddr5_4800() -> DramStandardConfig {
         ecc: EccKind::None,
         address_mapping: AddressMappingKind::RoRaBaChCo,
         timing: bin.timing(),
+        commands: DDR5_COMMAND_CYCLES,
     }
 }
 
@@ -209,6 +215,7 @@ impl Ddr5Params {
             ecc,
             address_mapping: raw.address_mapping,
             timing,
+            commands: DDR5_COMMAND_CYCLES,
         }
     }
 }

@@ -19,9 +19,10 @@
 //! the queue; a write to a line already queued merges into it.
 //!
 //! The scheduler issues **at most one command per subchannel per DRAM clock**,
-//! mirroring the DDR5 command bus. ACT, RD and WR are two-clock commands,
-//! PRE and REF one-clock. A request that requires N commands to retire
-//! therefore takes at least N clocks.
+//! mirroring the command bus, and each command holds the bus for as many
+//! clocks as its standard fixes
+//! ([`CommandCycles`](crate::config::dram::CommandCycles)). A request that
+//! requires N commands to retire therefore takes at least N clocks.
 //!
 //! Every command issued emits a [`Packet::DramCmd`] event on the scheduler,
 //! targeted at the controller itself, so command traces surface in the event
@@ -54,17 +55,6 @@ use crate::soc::memory::ddr5::stats::ControllerStatPaths;
 
 /// Cache-line size used when constructing `LineAddr` in responses.
 const CACHE_LINE_BYTES: u64 = 64;
-
-/// Command-bus cycles an ACTIVATE occupies (DDR5 two-cycle command).
-const ACT_CMD_CYCLES: u64 = 2;
-/// Command-bus cycles a READ or WRITE occupies (DDR5 two-cycle command).
-const COLUMN_CMD_CYCLES: u64 = 2;
-/// Command-bus cycles a PRECHARGE occupies.
-const PRECHARGE_CMD_CYCLES: u64 = 1;
-/// Command-bus cycles a REFRESH occupies.
-const REFRESH_CMD_CYCLES: u64 = 1;
-/// Command-bus cycles a power-down entry or exit occupies.
-const POWER_CMD_CYCLES: u64 = 1;
 
 /// Converts between simulator (core) cycles and DRAM command clocks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -9,8 +9,7 @@ use crate::soc::memory::ddr5::state::{Bank, BankState, BusOp, PendingReq};
 use super::Ddr5Controller;
 use super::schedule::QueueSlot;
 use super::{
-    ACT_CMD_CYCLES, ActivateBounds, BankCmdCtx, COLUMN_CMD_CYCLES, EmittedCommand,
-    PRECHARGE_CMD_CYCLES, ScheduledResponse, column_lead, index_to_u8,
+    ActivateBounds, BankCmdCtx, EmittedCommand, ScheduledResponse, column_lead, index_to_u8,
 };
 
 impl Ddr5Controller {
@@ -73,10 +72,11 @@ impl Ddr5Controller {
             .map_or(0, RowId::val);
         {
             let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
-            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
+            sc.last_command_cycle =
+                sc.last_command_cycle.max(fire_at + self.config.commands.precharge);
             let rank_mut = &mut sc.ranks[ctx.rank.as_index()];
             rank_mut.last_command_cycle =
-                rank_mut.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
+                rank_mut.last_command_cycle.max(fire_at + self.config.commands.precharge);
             rank_mut.last_precharge = fire_at;
             let bank = &mut rank_mut.banks[ctx.bank_index];
             bank.state = BankState::Precharging;
@@ -169,9 +169,11 @@ impl Ddr5Controller {
         let t = self.config.timing;
         {
             let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
-            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + ACT_CMD_CYCLES);
+            sc.last_command_cycle =
+                sc.last_command_cycle.max(fire_at + self.config.commands.activate);
             let rank_mut = &mut sc.ranks[ctx.rank.as_index()];
-            rank_mut.last_command_cycle = rank_mut.last_command_cycle.max(fire_at + ACT_CMD_CYCLES);
+            rank_mut.last_command_cycle =
+                rank_mut.last_command_cycle.max(fire_at + self.config.commands.activate);
             rank_mut.record_activate(fire_at, t.t_faw);
             let bank = &mut rank_mut.banks[ctx.bank_index];
             bank.state = BankState::Active;
@@ -270,10 +272,11 @@ impl Ddr5Controller {
         let kind = if is_read { DramCmdKind::Read } else { DramCmdKind::Write };
         {
             let sc = &mut self.channels[ctx.chan.as_index()].subchannels[ctx.subch.as_index()];
-            sc.last_command_cycle = sc.last_command_cycle.max(column_cycle + COLUMN_CMD_CYCLES);
+            sc.last_command_cycle =
+                sc.last_command_cycle.max(column_cycle + self.config.commands.column);
             sc.ranks[ctx.rank.as_index()].last_command_cycle = sc.ranks[ctx.rank.as_index()]
                 .last_command_cycle
-                .max(column_cycle + COLUMN_CMD_CYCLES);
+                .max(column_cycle + self.config.commands.column);
             if is_read {
                 sc.last_read_cmd = column_cycle;
                 sc.last_read_end = data_end;
