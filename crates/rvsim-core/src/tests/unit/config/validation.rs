@@ -6,8 +6,8 @@ use crate::config::Timer;
 use crate::config::ValidConfig;
 use crate::config::{
     BackendKind, BhtConfigError, CacheConfig, Config, ConfigError, CsrSquash, HomeAgentConfig,
-    LoadPrefetcherConfig, MAX_ITTAGE_HISTORY, MemoryControllerKind, PageBoundary, PrefetcherKind,
-    ReplacementPolicyKind, WriteStreamingConfig,
+    LoadPrefetcherConfig, MAX_ITTAGE_HISTORY, MemoryControllerKind, MicroBtbConfig, PageBoundary,
+    PrefetcherKind, ReplacementPolicyKind, WriteStreamingConfig,
 };
 use std::collections::HashMap;
 
@@ -56,6 +56,26 @@ fn fetch_blocks_that_do_not_tile_the_l1i_line_are_rejected() {
         let err = config.validate().unwrap_err();
 
         assert!(matches!(err, ConfigError::FetchBlock { bytes: b, .. } if b == bytes), "{err}");
+    }
+}
+
+#[test]
+fn a_micro_btb_of_whole_sets_validates() {
+    let mut config = Config::minimal();
+    config.pipeline.micro_btb = Some(MicroBtbConfig { size: 64, ways: 64, taken_bubbles: 1 });
+
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn a_micro_btb_without_entries_or_whole_sets_is_rejected() {
+    for (size, ways) in [(0, 1), (48, 4)] {
+        let mut config = Config::minimal();
+        config.pipeline.micro_btb = Some(MicroBtbConfig { size, ways, taken_bubbles: 1 });
+
+        let err = config.validate().unwrap_err();
+
+        assert!(matches!(err, ConfigError::MicroBtbSets { size: s, .. } if s == size), "{err}");
     }
 }
 

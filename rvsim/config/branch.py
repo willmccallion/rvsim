@@ -17,6 +17,25 @@ _TOURNAMENT = COMPONENTS["tournament"]
 _STORE_SET = COMPONENTS["store_set"]
 
 
+class MicroBtb:
+    """A small BTB looked up alongside the main one
+    (``Config(micro_btb=...)``): it holds the branches most recently retired
+    taken, and a taken branch it predicts costs ``taken_bubbles`` idle fetch
+    cycles instead of the main BTB's ``btb_taken_bubbles``, as the
+    Cortex-A72's 64-entry micro-BTB does."""
+
+    def __init__(self, *, size: int, ways: int, taken_bubbles: int):
+        self.size = size
+        self.ways = ways
+        self.taken_bubbles = taken_bubbles
+
+    def __repr__(self) -> str:
+        return (
+            f"MicroBtb(size={self.size}, ways={self.ways}, "
+            f"taken_bubbles={self.taken_bubbles})"
+        )
+
+
 class BranchPredictor:
     """Namespace for branch predictor configurations."""
 
@@ -547,4 +566,13 @@ def _mem_dep_predictor_from(pipeline: dict[str, Any]) -> _AnyMemDepPredictor:
     store_set = pipeline["store_set"]
     return MemDepPredictor.StoreSet(
         ssit_size=store_set["ssit_size"], lfst_size=store_set["lfst_size"]
+    )
+
+
+def _micro_btb_from(micro: dict[str, Any] | None) -> MicroBtb | None:
+    """The micro-BTB a core pipeline dict holds, or None."""
+    if micro is None:
+        return None
+    return MicroBtb(
+        size=micro["size"], ways=micro["ways"], taken_bubbles=micro["taken_bubbles"]
     )

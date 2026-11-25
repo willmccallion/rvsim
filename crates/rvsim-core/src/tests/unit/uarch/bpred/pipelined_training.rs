@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 
 use crate::common::{InstSeq, VirtAddr};
 use crate::config::{PerceptronConfig, TageConfig, TournamentConfig};
+use crate::uarch::bpred::btb::TargetBuffers;
 use crate::uarch::bpred::predictors::gshare::GSharePredictor;
 use crate::uarch::bpred::predictors::perceptron::PerceptronPredictor;
 use crate::uarch::bpred::predictors::tage::TagePredictor;
@@ -31,7 +32,7 @@ const IN_FLIGHT: usize = 6;
 /// During iteration `i` at most `window(i)` control instructions are in
 /// flight between prediction and commit.
 fn late_mispredictions<P: DirectionPredictor>(direction: P, window: fn(usize) -> usize) -> usize {
-    let mut unit = BranchPredUnit::new(direction, 64, 4, 8);
+    let mut unit = BranchPredUnit::new(direction, TargetBuffers::main_only(64, 4), 8);
     let mut in_flight = VecDeque::new();
     let mut next_seq = 0;
     let mut mispredictions = 0;

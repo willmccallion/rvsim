@@ -61,7 +61,7 @@ pub enum BranchPredictor {
 /// A prediction unit around `direction` with the configured BTB and RAS.
 fn unit_for<P: DirectionPredictor>(config: &Config, direction: P) -> BranchPredUnit<P> {
     let pipeline = &config.pipeline;
-    BranchPredUnit::new(direction, pipeline.btb_size, pipeline.btb_ways, pipeline.ras_size)
+    BranchPredUnit::new(direction, btb::TargetBuffers::new(pipeline), pipeline.ras_size)
 }
 
 /// Runs `$call` on whichever unit `$wrapper` holds.
@@ -125,7 +125,7 @@ impl BranchPredictor {
 
     /// What the BTB holds for the control instruction at `pc`.
     #[must_use]
-    pub fn btb_lookup(&self, pc: VirtAddr) -> Option<btb::BtbHit> {
+    pub fn btb_lookup(&self, pc: VirtAddr) -> Option<btb::BtbPrediction> {
         dispatch!(self, unit => unit.btb_lookup(pc))
     }
 

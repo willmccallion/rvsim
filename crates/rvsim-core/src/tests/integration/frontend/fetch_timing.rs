@@ -1,10 +1,12 @@
 //! What the front end takes to fetch a loop.
 //!
 //! Fetch reads one aligned block per cycle, so a loop body that straddles
-//! two blocks takes two cycles to fetch. Each figure is the
-//! difference between two loop lengths, so warm-up cancels.
+//! two blocks takes two cycles to fetch. After a taken branch the BTB
+//! predicts, fetch idles for the bubbles of the BTB that held it, the
+//! micro-BTB's when it holds the branch. Each figure is the difference
+//! between two loop lengths, so warm-up cancels.
 
-use crate::config::{BackendKind, BranchPredictorKind, Config};
+use crate::config::{BackendKind, BranchPredictorKind, Config, MicroBtbConfig};
 use crate::isa::reg::RegIdx;
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
@@ -87,4 +89,65 @@ fn a_loop_straddling_two_fetch_blocks_takes_two_cycles() {
 #[test]
 fn without_a_fetch_block_fetch_reads_across_the_line() {
     assert_near(loop_cycles(None, 2), 1.0, "whole-line fetch");
+}
+
+/// Taken jumps in each iteration of the jump loop, before its branch back.
+const JUMPS: usize = 8;
+/// The main BTB's bubbles in the bubble tests.
+const MAIN_BUBBLES: u64 = 2;
+/// The micro-BTB's bubbles in the bubble tests.
+const MICRO_BUBBLES: u64 = 1;
+/// A loop of `JUMPS` jumps and its branch back fits in a micro-BTB this big.
+const ROOMY_MICRO: usize = 64;
+/// ...and thrashes one this big.
+const SMALL_MICRO: usize = 4;
+
+/// The core with the BTB bubbles and micro-BTB under test.
+fn with_btbs(main_bubbles: u64, micro_btb: Option<MicroBtbConfig>) -> Config {
+    let mut config = core();
+    config.pipeline.btb_taken_bubbles = main_bubbles;
+    config.pipeline.micro_btb = micro_btb;
+    config
+}
+
+/// A fully associative micro-BTB of `size` entries.
+const fn micro(size: usize) -> MicroBtbConfig {
+    MicroBtbConfig { size, ways: size, taken_bubbles: MICRO_BUBBLES }
+}
+
+/// `JUMPS` jumps, each over a nop to the next.
+fn jumps() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    (0..JUMPS).flat_map(|_| [i().jal(X0, 8).build(), i().nop().build()]).collect()
+}
+
+/// Cycles each taken branch of the jump loop costs on `config`.
+fn cycles_per_taken_branch(config: &Config) -> f64 {
+    cycles_per_iteration(config, 0, &jumps()) / (JUMPS + 1) as f64
+}
+
+#[test]
+fn a_taken_branch_takes_a_cycle_without_bubbles() {
+    assert_near(cycles_per_taken_branch(&with_btbs(0, None)), 1.0, "no bubbles");
+}
+
+#[test]
+fn a_taken_branch_the_main_btb_predicts_costs_its_bubbles() {
+    let measured = cycles_per_taken_branch(&with_btbs(MAIN_BUBBLES, None));
+
+    assert_near(measured, 1.0 + MAIN_BUBBLES as f64, "main BTB");
+}
+
+#[test]
+fn a_taken_branch_the_micro_btb_holds_costs_its_bubbles() {
+    let measured = cycles_per_taken_branch(&with_btbs(MAIN_BUBBLES, Some(micro(ROOMY_MICRO))));
+
+    assert_near(measured, 1.0 + MICRO_BUBBLES as f64, "micro-BTB");
+}
+
+#[test]
+fn branches_past_the_micro_btb_cost_the_main_btbs_bubbles() {
+    let measured = cycles_per_taken_branch(&with_btbs(MAIN_BUBBLES, Some(micro(SMALL_MICRO))));
+
+    assert_near(measured, 1.0 + MAIN_BUBBLES as f64, "micro-BTB thrashed");
 }

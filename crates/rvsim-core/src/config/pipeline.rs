@@ -33,6 +33,20 @@ pub enum MemDepPredictorKind {
     StoreSet,
 }
 
+/// A small BTB in front of the main one: it holds the most recent taken
+/// branches, and a taken branch it predicts costs `taken_bubbles` cycles
+/// instead of the main BTB's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MicroBtbConfig {
+    /// Entries.
+    pub size: usize,
+    /// Ways per set.
+    pub ways: usize,
+    /// Cycles fetch idles after a taken branch it predicts.
+    pub taken_bubbles: u64,
+}
+
 /// Pipeline and branch predictor configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -114,6 +128,14 @@ pub struct PipelineConfig {
 
     /// Branch Target Buffer associativity (ways per set)
     pub btb_ways: usize,
+
+    /// Cycles fetch idles after a taken branch the BTB predicted, before
+    /// it fetches the target: the BTB's latency beyond one cycle.
+    pub btb_taken_bubbles: u64,
+
+    /// A smaller, faster BTB looked up alongside the main one; none when
+    /// unset.
+    pub micro_btb: Option<MicroBtbConfig>,
 
     /// Return Address Stack size
     pub ras_size: usize,
@@ -314,6 +336,8 @@ impl Default for PipelineConfig {
             branch_predictor: BranchPredictorKind::default(),
             btb_size: defaults::BTB_SIZE,
             btb_ways: defaults::BTB_WAYS,
+            btb_taken_bubbles: 0,
+            micro_btb: None,
             ras_size: defaults::RAS_SIZE,
             tage: TageConfig::default(),
             perceptron: PerceptronConfig::default(),

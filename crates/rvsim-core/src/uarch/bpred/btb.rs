@@ -5,6 +5,7 @@
 //! branch or jump before the instruction is decoded.
 
 use crate::common::VirtAddr;
+use crate::config::PipelineConfig;
 
 /// The kind of control instruction a BTB entry records: what fetch learns
 /// about the instruction at a PC before it has been decoded.
@@ -137,5 +138,110 @@ impl Btb {
         let victim = self.replace_ptr[set] as usize % self.ways;
         self.replace_ptr[set] = ((victim + 1) % self.ways) as u8;
         self.table[base + victim] = entry;
+    }
+}
+
+/// Which BTB recognised a control instruction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BtbLevel {
+    /// The micro-BTB in front of the main one.
+    Micro,
+    /// The main BTB.
+    Main,
+}
+
+/// What fetch learns from the BTBs about the instruction at a PC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BtbPrediction {
+    /// The recorded kind and target.
+    pub hit: BtbHit,
+    /// The BTB that held it.
+    pub level: BtbLevel,
+    /// Cycles fetch idles before the target when the instruction is
+    /// predicted taken.
+    pub taken_bubbles: u64,
+}
+
+/// A micro-BTB and the bubbles its taken branches cost.
+#[derive(Debug)]
+struct MicroBtb {
+    btb: Btb,
+    taken_bubbles: u64,
+}
+
+/// The main BTB and, when configured, the micro-BTB looked up alongside
+/// it. The main BTB learns every control instruction resolution finds; the
+/// micro-BTB holds the branches most recently retired taken.
+#[derive(Debug)]
+pub struct TargetBuffers {
+    main: Btb,
+    main_taken_bubbles: u64,
+    micro: Option<MicroBtb>,
+}
+
+impl TargetBuffers {
+    /// The BTBs `pipeline` configures.
+    pub fn new(pipeline: &PipelineConfig) -> Self {
+        Self {
+            main: Btb::new(pipeline.btb_size, pipeline.btb_ways),
+            main_taken_bubbles: pipeline.btb_taken_bubbles,
+            micro: pipeline.micro_btb.map(|micro| MicroBtb {
+                btb: Btb::new(micro.size, micro.ways),
+                taken_bubbles: micro.taken_bubbles,
+            }),
+        }
+    }
+
+    /// A main BTB of `size` entries in `ways` ways, with no bubbles and no
+    /// micro-BTB.
+    #[cfg(test)]
+    pub fn main_only(size: usize, ways: usize) -> Self {
+        Self { main: Btb::new(size, ways), main_taken_bubbles: 0, micro: None }
+    }
+
+    /// The control instruction at `pc`, from the micro-BTB when it holds
+    /// it and the main BTB otherwise.
+    pub fn lookup(&self, pc: VirtAddr) -> Option<BtbPrediction> {
+        let micro = self.micro.as_ref().and_then(|micro| {
+            micro.btb.lookup(pc).map(|hit| BtbPrediction {
+                hit,
+                level: BtbLevel::Micro,
+                taken_bubbles: micro.taken_bubbles,
+            })
+        });
+        micro.or_else(|| {
+            self.main.lookup(pc).map(|hit| BtbPrediction {
+                hit,
+                level: BtbLevel::Main,
+                taken_bubbles: self.main_taken_bubbles,
+            })
+        })
+    }
+
+    /// Records the control instruction at `pc` in the main BTB, and
+    /// refreshes the micro-BTB's copy if it has one.
+    pub fn update(&mut self, pc: VirtAddr, target: VirtAddr, kind: BranchKind) {
+        self.main.update(pc, target, kind);
+        if let Some(micro) = &mut self.micro
+            && micro.btb.lookup(pc).is_some()
+        {
+            micro.btb.update(pc, target, kind);
+        }
+    }
+
+    /// Records a control instruction that retired taken in the micro-BTB.
+    pub fn record_taken(&mut self, pc: VirtAddr, target: VirtAddr, kind: BranchKind) {
+        if let Some(micro) = &mut self.micro {
+            micro.btb.update(pc, target, kind);
+        }
+    }
+
+    /// Drops every entry for `pc`: the instruction there is not the
+    /// control instruction the BTBs recorded.
+    pub fn invalidate(&mut self, pc: VirtAddr) {
+        self.main.invalidate(pc);
+        if let Some(micro) = &mut self.micro {
+            micro.btb.invalidate(pc);
+        }
     }
 }

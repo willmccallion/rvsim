@@ -14,10 +14,12 @@ from ._serialize import _config_to_dict_impl
 from ._units import _parse_size
 from .backend import _AnyBackend, _backend_from
 from .branch import (
+    MicroBtb,
     _AnyBranchPredictor,
     _AnyMemDepPredictor,
     _branch_predictor_from,
     _mem_dep_predictor_from,
+    _micro_btb_from,
 )
 from .coherence import Coherence
 from .console import ConsoleMode
@@ -47,6 +49,7 @@ _ISA = MACHINE["isa"]
 _DEFAULT_BRANCH_PREDICTOR = _branch_predictor_from(_PIPELINE)
 _DEFAULT_BACKEND = _backend_from(_PIPELINE)
 _DEFAULT_MEM_DEP_PREDICTOR = _mem_dep_predictor_from(_PIPELINE)
+_DEFAULT_MICRO_BTB = _micro_btb_from(_PIPELINE["micro_btb"])
 _DEFAULT_L1I = _cache_from(_CACHES["l1_i"])
 _DEFAULT_L1D = _cache_from(_CACHES["l1_d"])
 _DEFAULT_L2 = _cache_from(_CACHES["l2"])
@@ -63,6 +66,7 @@ _COMPONENT_FIELDS = (
     "branch_predictor",
     "backend",
     "mem_dep_predictor",
+    "micro_btb",
     "l1i",
     "l1d",
     "l2",
@@ -119,6 +123,8 @@ class Config:
     mem_dep_predictor: _AnyMemDepPredictor = _DEFAULT_MEM_DEP_PREDICTOR
     btb_size: int = _PIPELINE["btb_size"]
     btb_ways: int = _PIPELINE["btb_ways"]
+    btb_taken_bubbles: int = _PIPELINE["btb_taken_bubbles"]
+    micro_btb: MicroBtb | None = _DEFAULT_MICRO_BTB
     ras_size: int = _PIPELINE["ras_size"]
     # Caches (None = disabled)
     l1i: Cache | None = _DEFAULT_L1I
@@ -214,6 +220,8 @@ class Config:
             f"branch_predictor={self.branch_predictor!r}",
             f"backend={self.backend!r}",
         ]
+        if self.micro_btb is not None:
+            parts.append(f"micro_btb={self.micro_btb!r}")
         if self.l1i is not None:
             parts.append(f"l1i={self.l1i!r}")
         if self.l1d is not None:

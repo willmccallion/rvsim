@@ -9,6 +9,9 @@ All notable changes to this project are documented here. The format is based on 
 - **Fetch blocks.** `fetch_block_bytes` limits fetch to one aligned
   block of the I-cache line a cycle, so a loop that straddles two blocks
   takes two cycles to fetch. Off by default.
+- **Taken-branch bubbles.** `btb_taken_bubbles` idles fetch after a taken
+  branch the BTB predicts, and `micro_btb` puts a smaller BTB with fewer
+  bubbles in front of the main one. Off by default.
 
 ## Releases
 
