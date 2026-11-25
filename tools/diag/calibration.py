@@ -270,7 +270,10 @@ def p550() -> Config:
         ),
         branch_predictor=branch_predictor,
         btb_size=32,  # 32-entry BTB, zero-bubble taken branches
-        btb_ways=4,
+        # Associativity unpublished, but Chips and Cheese's chart shows 32
+        # zero-bubble branches at 4-, 8- and 16-byte spacings alike, which
+        # a set-indexed BTB of 32 entries cannot hold: fully associative.
+        btb_ways=32,
         ras_size=16,  # 16-entry return stack
         cpu_clock_mhz=1400,  # EIC7700X
         misaligned_access_trap=True,  # no hardware misaligned access

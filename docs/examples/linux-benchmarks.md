@@ -66,8 +66,8 @@ given.
 |---|---|---:|---:|---|
 | `cortex_a72` | CoreMark/MHz | 5.05 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
 | `cortex_a72` | DMIPS/MHz | 3.77 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
-| `p550` | CoreMark/MHz | 4.72 | not published | |
-| `p550` | DMIPS/MHz | 3.30 | not published | |
+| `p550` | CoreMark/MHz | 4.75 | not published | |
+| `p550` | DMIPS/MHz | 4.49 | not published | |
 
 SiFive publishes only SPECint2006 for the P550 (8.65 per GHz); no public
 CoreMark or Dhrystone figure for the EIC7700X was found. Its configuration
@@ -203,7 +203,7 @@ mispredict. Measured 2026-11-25.
 
 | | `cortex_a72` rvsim | Cortex-A72 | `p550` rvsim | P550 |
 |---|---|---|---|---|
-| Taken branch, first level | 1 cycle, up to 4096 at 8 B | 2 cycles, 64 branches | 1 cycle, 16 at 8 B, 8 at 16 B, fewer at 64 B | 1 cycle, 32 branches |
+| Taken branch, first level | 1 cycle, up to 4096 at 8 B | 2 cycles, 64 branches | 1 cycle, 31 at every spacing | 1 cycle, 32 branches |
 | Taken branch, past it | 3 cycles | 3 cycles, 4096 branches | 3 cycles within 32 KB | 3 cycles within 32 KB |
 | Return stack | 31 | 31 | 16 | 16 |
 
@@ -211,9 +211,12 @@ The return stacks match, and the P550's overflows sharply, as Chips and
 Cheese saw: three returns mispredict one frame past it. The A72's taken
 branches are too fast: rvsim's front end takes a branch the BTB predicts
 with no bubble, and has no micro-BTB in front of a slower main BTB (#85).
-The P550's 32-entry BTB is configured 4-way, so wider spacings use fewer
-of its sets and it holds fewer than 32 branches; whether the P550's is
-fully associative is not published.
+SiFive does not publish the P550 BTB's associativity, but Chips and
+Cheese's chart shows 32 zero-bubble branches at 4-, 8- and 16-byte
+spacings alike, which a set-indexed 32-entry BTB cannot hold, so the
+configuration's is fully associative (the probe's loop branch takes the
+32nd entry). That change alone took the P550's Dhrystone from 3.30 to
+4.49 DMIPS/MHz: Dhrystone's taken branches conflicted in the 4-way BTB.
 
 ```bash
 python tools/diag/structure_probe.py --preset cortex_a72
