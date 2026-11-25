@@ -159,6 +159,8 @@ class Config:
     kernel_offset: int = _SYSTEM["kernel_offset"]
     bus_width: int = _SYSTEM["bus_width"]
     bus_latency: int = _SYSTEM["bus_latency"]
+    bus_clock_divider: int = _SYSTEM["bus_clock_divider"]
+    bus_channels: str = _SYSTEM["bus_channels"]
     timer: str = _SYSTEM["timer"]
     timebase_hz: int = _SYSTEM["timebase_hz"]
     cpu_clock_mhz: int = _SYSTEM["cpu_clock_mhz"]

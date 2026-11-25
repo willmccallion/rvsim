@@ -66,6 +66,24 @@ class Ownership(unittest.TestCase):
         self.assertNotEqual(base.l1d.latency, 7)
 
 
+class SystemBus(unittest.TestCase):
+    def test_a_bus_clock_divider_reaches_the_core(self):
+        system = check_config(Config(bus_clock_divider=8).to_dict())["system"]
+
+        self.assertEqual(system["bus_clock_divider"], 8)
+
+    def test_the_bus_is_one_channel_each_way_unless_axi_is_named(self):
+        default = check_config(Config().to_dict())["system"]
+        axi = check_config(Config(bus_channels="Axi").to_dict())["system"]
+
+        self.assertEqual(default["bus_channels"], "RequestResponse")
+        self.assertEqual(axi["bus_channels"], "Axi")
+
+    def test_a_bus_clock_divider_of_zero_is_refused(self):
+        with self.assertRaisesRegex(ValueError, r"system\.bus_clock_divider"):
+            Simulator(Config(bus_clock_divider=0))
+
+
 class Lpddr4(unittest.TestCase):
     def test_an_lpddr4_controller_reaches_the_core(self):
         controller = MemoryController.Lpddr4(density="Gb8", refresh="PerBank")

@@ -45,6 +45,9 @@ pub const BUS_WIDTH: u64 = 8;
 /// Fixed overhead for all bus transactions regardless of access type.
 pub const BUS_LATENCY: u64 = 4;
 
+/// Core clocks per bus clock: the bus runs at the core clock.
+pub const BUS_CLOCK_DIVIDER: NonZeroU64 = non_zero_u64(1);
+
 /// The timer frequency the device tree reports: 10 MHz, as on QEMU's
 /// `virt` machine.
 pub const TIMEBASE_HZ: NonZeroU32 = non_zero_u32(10_000_000);
