@@ -120,6 +120,7 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.pipeline.cycles.rob_empty` | Cycles with an empty ROB |
 | `core<N>.pipeline.stalls.control` | Cycles from a backend redirect (misprediction, trap, re-execution) until rename hands on the first instruction from the new path |
 | `core<N>.pipeline.stalls.fetch_wait` | Cycles fetch waited for an in-flight I-cache access |
+| `core<N>.pipeline.stalls.taken_branch` | Cycles fetch idled in the bubble after a taken branch the BTB predicted (`btb_taken_bubbles`, `micro_btb`) |
 | `core<N>.pipeline.stalls.data` | Cycles nothing issued and the oldest queued instruction waited on its operands |
 | `core<N>.pipeline.stalls.ordering` | Cycles nothing issued and the oldest queued instruction was held for program order: it executes only as the oldest (system, vector, AMO/SC), waits on a fence or an older store's address, or a pending squash removes it |
 | `core<N>.pipeline.stalls.fu_structural` | Cycles a ready instruction waited for a free unit |
@@ -144,6 +145,7 @@ one of `l1i`, `l1d` and `l2`.
 | `core<N>.bp.spec.hits`, `.mispredicts`, `.accuracy` | The same counted at execute, wrong-path branches included |
 | `core<N>.bp.mispredict_penalty` | Histogram of the cycles from a misprediction resolving to the first instruction after it issuing (out-of-order cores) |
 | `core<N>.bp.decode_redirects` | Fetch redirects decode made (a BTB miss on a taken control instruction, a stale target, a non-branch BTB hit) |
+| `core<N>.bp.micro_btb_hits` | Fetch lookups the micro-BTB answered |
 | `core<N>.mdp.predictions.bypass` | Loads predicted independent of every older store |
 | `core<N>.mdp.predictions.wait_all` | Loads made to wait for every older store's address: all loads under the blind predictor, LRs and AMOs under store sets |
 | `core<N>.mdp.predictions.wait_for` | Loads and stores made to wait for one older store in their store set |

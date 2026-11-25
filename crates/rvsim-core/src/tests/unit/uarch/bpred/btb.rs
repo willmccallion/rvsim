@@ -5,7 +5,8 @@
 //! set-associative BTB configurations.
 
 use crate::common::VirtAddr;
-use crate::uarch::bpred::btb::{BranchKind, Btb};
+use crate::config::{MicroBtbConfig, PipelineConfig};
+use crate::uarch::bpred::btb::{BranchKind, Btb, BtbLevel, TargetBuffers};
 
 #[test]
 fn lookup_empty_returns_none() {
@@ -216,4 +217,78 @@ fn set_associative_different_sets_independent() {
     btb.update(VirtAddr::new(pc_set1), VirtAddr::new(0xB), BranchKind::Conditional);
     assert_eq!(btb.lookup(VirtAddr::new(pc_set0)).map(|hit| hit.target.val()), Some(0xA));
     assert_eq!(btb.lookup(VirtAddr::new(pc_set1)).map(|hit| hit.target.val()), Some(0xB));
+}
+
+const MAIN_BUBBLES: u64 = 2;
+const MICRO_BUBBLES: u64 = 1;
+const BRANCH_PC: VirtAddr = VirtAddr::new(0x1000);
+const TARGET: VirtAddr = VirtAddr::new(0x2000);
+
+/// A 64-entry main BTB, with `micro_btb` in front of it.
+fn target_buffers(micro_btb: Option<MicroBtbConfig>) -> TargetBuffers {
+    TargetBuffers::new(&PipelineConfig {
+        btb_size: 64,
+        btb_ways: 4,
+        btb_taken_bubbles: MAIN_BUBBLES,
+        micro_btb,
+        ..PipelineConfig::default()
+    })
+}
+
+const TWO_ENTRY_MICRO: Option<MicroBtbConfig> =
+    Some(MicroBtbConfig { size: 2, ways: 2, taken_bubbles: MICRO_BUBBLES });
+
+#[test]
+fn a_branch_resolution_finds_goes_to_the_main_btb_only() {
+    let mut buffers = target_buffers(TWO_ENTRY_MICRO);
+
+    buffers.update(BRANCH_PC, TARGET, BranchKind::Conditional);
+
+    let found = buffers.lookup(BRANCH_PC).expect("the main BTB holds it");
+    assert_eq!((found.level, found.taken_bubbles), (BtbLevel::Main, MAIN_BUBBLES));
+}
+
+#[test]
+fn a_branch_retired_taken_is_predicted_from_the_micro_btb() {
+    let mut buffers = target_buffers(TWO_ENTRY_MICRO);
+    buffers.update(BRANCH_PC, TARGET, BranchKind::Conditional);
+
+    buffers.record_taken(BRANCH_PC, TARGET, BranchKind::Conditional);
+
+    let found = buffers.lookup(BRANCH_PC).expect("the micro-BTB holds it");
+    assert_eq!((found.level, found.taken_bubbles), (BtbLevel::Micro, MICRO_BUBBLES));
+    assert_eq!(found.hit.target, TARGET);
+}
+
+#[test]
+fn without_a_micro_btb_a_taken_branch_stays_in_the_main_btb() {
+    let mut buffers = target_buffers(None);
+    buffers.update(BRANCH_PC, TARGET, BranchKind::Conditional);
+
+    buffers.record_taken(BRANCH_PC, TARGET, BranchKind::Conditional);
+
+    assert_eq!(buffers.lookup(BRANCH_PC).map(|found| found.level), Some(BtbLevel::Main));
+}
+
+#[test]
+fn a_corrected_target_refreshes_the_micro_btbs_copy() {
+    let mut buffers = target_buffers(TWO_ENTRY_MICRO);
+    buffers.record_taken(BRANCH_PC, TARGET, BranchKind::Conditional);
+    let corrected = VirtAddr::new(0x3000);
+
+    buffers.update(BRANCH_PC, corrected, BranchKind::Conditional);
+
+    let found = buffers.lookup(BRANCH_PC).expect("the micro-BTB holds it");
+    assert_eq!((found.level, found.hit.target), (BtbLevel::Micro, corrected));
+}
+
+#[test]
+fn invalidating_a_pc_drops_it_from_both_btbs() {
+    let mut buffers = target_buffers(TWO_ENTRY_MICRO);
+    buffers.update(BRANCH_PC, TARGET, BranchKind::Conditional);
+    buffers.record_taken(BRANCH_PC, TARGET, BranchKind::Conditional);
+
+    buffers.invalidate(BRANCH_PC);
+
+    assert_eq!(buffers.lookup(BRANCH_PC), None);
 }

@@ -7,7 +7,7 @@ more than one field.
 
 from ._config import Config, load_config
 from .backend import Backend, Fu
-from .branch import BranchPredictor, MemDepPredictor
+from .branch import BranchPredictor, MemDepPredictor, MicroBtb
 from .coherence import Coherence, HomeAgent, Interconnect
 from .console import ConsoleMode
 from .memory import (
@@ -34,6 +34,7 @@ __all__ = [
     "LoadPrefetcher",
     "MemDepPredictor",
     "MemoryController",
+    "MicroBtb",
     "PageBoundary",
     "Prefetcher",
     "ReplacementPolicy",

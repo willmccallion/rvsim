@@ -101,12 +101,20 @@ impl Config {
 /// The smallest fetch block: one whole instruction of the widest size.
 const MIN_FETCH_BLOCK_BYTES: usize = 4;
 
-/// A fetch block that tiles the I-cache line.
+/// A fetch block that tiles the I-cache line, and a micro-BTB of whole
+/// sets.
 fn check_fetch(pipeline: &PipelineConfig, line_bytes: usize) -> Result<(), ConfigError> {
     if let Some(bytes) = pipeline.fetch_block_bytes
         && (!bytes.is_power_of_two() || !(MIN_FETCH_BLOCK_BYTES..=line_bytes).contains(&bytes))
     {
         return Err(ConfigError::FetchBlock { bytes, line_bytes });
+    }
+    if let Some(micro) = pipeline.micro_btb {
+        let ways = micro.ways.max(1);
+        let sets = (micro.size / ways).max(1);
+        if micro.size == 0 || !sets.is_power_of_two() {
+            return Err(ConfigError::MicroBtbSets { size: micro.size, ways, sets });
+        }
     }
     Ok(())
 }

@@ -114,10 +114,12 @@ impl<E: ExecutionEngine> Frontend<E> {
                 .push_with(now, |decoded| fetch2::fetch2_stage(state, &mut landed, decoded));
         }
 
-        if engine.common().fetch.is_waiting()
-            || engine.common().fetch_held(state.uncore().kernel.cycle)
-        {
+        if engine.common().fetch.is_waiting() || engine.common().fetch_held(now) {
             state.counter(state.core().stat_paths.pipeline.stalls_fetch_wait).inc();
+            return;
+        }
+        if engine.common().in_taken_bubble(now) {
+            state.counter(state.core().stat_paths.pipeline.stalls_taken_branch).inc();
             return;
         }
         if self.fetch1_fetch2.is_empty() {

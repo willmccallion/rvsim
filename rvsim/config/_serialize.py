@@ -10,6 +10,7 @@ from .backend import _UNITS, Backend, Fu, _AnyBackend
 from .branch import (
     BranchPredictor,
     MemDepPredictor,
+    MicroBtb,
     _AnyBranchPredictor,
     _AnyMemDepPredictor,
 )
@@ -243,6 +244,13 @@ def _store_prefetcher_to_dict(p: StorePrefetcher.Stream | None) -> dict[str, Any
     return {"kind": "Stream", "streams": p.streams, "l2_lines": p.l2_lines}
 
 
+def _micro_btb_to_dict(m: MicroBtb | None) -> dict[str, Any] | None:
+    """The micro-BTB, or None."""
+    if m is None:
+        return None
+    return {"size": m.size, "ways": m.ways, "taken_bubbles": m.taken_bubbles}
+
+
 def _write_streaming_to_dict(w: WriteStreaming | None) -> dict[str, Any] | None:
     """When runs of whole-line writes stop allocating, or None."""
     if w is None:
@@ -356,6 +364,8 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "store_forward_latency": cfg.store_forward_latency,
         "btb_size": cfg.btb_size,
         "btb_ways": cfg.btb_ways,
+        "btb_taken_bubbles": cfg.btb_taken_bubbles,
+        "micro_btb": _micro_btb_to_dict(cfg.micro_btb),
         "ras_size": cfg.ras_size,
         "vlen": cfg.vlen,
         "num_vec_lanes": cfg.num_vec_lanes,

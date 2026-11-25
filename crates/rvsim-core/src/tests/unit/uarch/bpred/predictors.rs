@@ -9,6 +9,7 @@ use crate::config::{
     BhtConfig, Config, MAX_ITTAGE_HISTORY, PerceptronConfig, PipelineConfig, TageConfig,
     TournamentConfig,
 };
+use crate::uarch::bpred::btb::TargetBuffers;
 use crate::uarch::bpred::predictors::bht::BhtPredictor;
 use crate::uarch::bpred::predictors::gshare::GSharePredictor;
 use crate::uarch::bpred::predictors::perceptron::PerceptronPredictor;
@@ -29,7 +30,10 @@ struct Driver<P: DirectionPredictor> {
 
 impl<P: DirectionPredictor> Driver<P> {
     fn new(direction: P) -> Self {
-        Self { unit: BranchPredUnit::new(direction, 64, 4, 8), next_seq: 0 }
+        Self {
+            unit: BranchPredUnit::new(direction, TargetBuffers::main_only(64, 4), 8),
+            next_seq: 0,
+        }
     }
 
     fn predict(&mut self, pc: u64, inst: ControlInst) -> (InstSeq, Option<u64>) {

@@ -14,7 +14,7 @@ use crate::exec::inst::Inst;
 use crate::exec::signals::{ControlFlow, JumpKind};
 use crate::isa::reg;
 use crate::isa::reg::RegIdx;
-use crate::uarch::bpred::btb::{BranchKind, Btb, BtbHit};
+use crate::uarch::bpred::btb::{BranchKind, BtbHit, BtbPrediction, TargetBuffers};
 use crate::uarch::bpred::direction::{BranchClass, DirectionPredictor, Jump, Retired};
 use crate::uarch::bpred::ras::{Ras, RasHistory};
 
@@ -116,20 +116,15 @@ struct PredictorHistory<H> {
 #[derive(Debug)]
 pub struct BranchPredUnit<P: DirectionPredictor> {
     direction: P,
-    btb: Btb,
+    btb: TargetBuffers,
     ras: Ras,
     in_flight: VecDeque<PredictorHistory<P::History>>,
 }
 
 impl<P: DirectionPredictor> BranchPredUnit<P> {
-    /// Creates a unit around `direction`.
-    pub fn new(direction: P, btb_size: usize, btb_ways: usize, ras_size: usize) -> Self {
-        Self {
-            direction,
-            btb: Btb::new(btb_size, btb_ways),
-            ras: Ras::new(ras_size),
-            in_flight: VecDeque::new(),
-        }
+    /// Creates a unit around `direction`, with the BTBs `btb`.
+    pub fn new(direction: P, btb: TargetBuffers, ras_size: usize) -> Self {
+        Self { direction, btb, ras: Ras::new(ras_size), in_flight: VecDeque::new() }
     }
 
     #[cfg(test)]
@@ -159,7 +154,7 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
                 } else {
                     self.direction
                         .indirect_target(pc)
-                        .or_else(|| self.btb.lookup(pc).map(|hit| hit.target))
+                        .or_else(|| self.btb.lookup(pc).map(|found| found.hit.target))
                 };
                 if let Some(link) = link {
                     self.ras.push(link, &mut ras);
@@ -187,9 +182,9 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         }
     }
 
-    /// What the BTB holds for the control instruction at `pc`, the only
+    /// What the BTBs hold for the control instruction at `pc`, the only
     /// thing fetch knows about it before decode.
-    pub fn btb_lookup(&self, pc: VirtAddr) -> Option<BtbHit> {
+    pub fn btb_lookup(&self, pc: VirtAddr) -> Option<BtbPrediction> {
         self.btb.lookup(pc)
     }
 
@@ -272,6 +267,9 @@ impl<P: DirectionPredictor> BranchPredUnit<P> {
         let indirect_target = record.target.filter(|_| record.inst.predicts_indirect_target());
         let retired = Retired { class, taken: record.taken, indirect_target };
         self.direction.commit(record.pc, retired, &record.direction);
+        if let Some(target) = record.target {
+            self.btb.record_taken(record.pc, target, record.inst.kind());
+        }
     }
 
     /// Undoes the predictions younger than `keep` (all of them for `None`);

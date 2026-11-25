@@ -63,6 +63,8 @@ the bundled Linux image. See [Benchmark Configs](examples/benchmark-configs.md).
 | `branch_predictor` | `BranchPredictor.*` | `ScLTage()` | Direction predictor, with ITTAGE for indirect targets (see below) |
 | `btb_size` | `int` | `8192` | Branch target buffer entries |
 | `btb_ways` | `int` | `8` | BTB associativity; `btb_size / btb_ways` must be a power of two |
+| `btb_taken_bubbles` | `int` | `0` | Cycles fetch idles after a taken branch the BTB predicts, before it fetches the target |
+| `micro_btb` | `MicroBtb` or `None` | `None` | A smaller BTB looked up alongside the main one: `MicroBtb(size=..., ways=..., taken_bubbles=...)`. It holds the branches most recently retired taken, and a taken branch it predicts costs its `taken_bubbles` instead of `btb_taken_bubbles` |
 | `ras_size` | `int` | `32` | Return address stack depth |
 | `mem_dep_predictor` | `MemDepPredictor.*` | `StoreSet()` | Memory dependence predictor (see below) |
 

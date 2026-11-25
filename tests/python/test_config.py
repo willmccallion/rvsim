@@ -15,6 +15,7 @@ from rvsim import (
     Fu,
     LoadPrefetcher,
     MemoryController,
+    MicroBtb,
     PageBoundary,
     Simulator,
     StorePrefetcher,
@@ -200,16 +201,28 @@ class Prefetchers(unittest.TestCase):
             cache["write_streaming"], {"skip_l1_from": 4, "skip_l2_from": 12}
         )
 
-    def test_a_fetch_block_reaches_the_core(self):
-        config = Config(fetch_block_bytes=16)
+    def test_the_front_end_timing_reaches_the_core(self):
+        config = Config(
+            fetch_block_bytes=16,
+            btb_taken_bubbles=2,
+            micro_btb=MicroBtb(size=64, ways=64, taken_bubbles=1),
+        )
 
         pipeline = config.to_dict()["pipeline"]
         Simulator(config)
 
         self.assertEqual(pipeline["fetch_block_bytes"], 16)
+        self.assertEqual(pipeline["btb_taken_bubbles"], 2)
+        self.assertEqual(
+            pipeline["micro_btb"], {"size": 64, "ways": 64, "taken_bubbles": 1}
+        )
 
-    def test_the_default_machine_fetches_up_to_the_end_of_the_line(self):
-        self.assertIsNone(Config().fetch_block_bytes)
+    def test_the_default_machine_has_no_fetch_block_bubbles_or_micro_btb(self):
+        config = Config()
+
+        self.assertIsNone(config.fetch_block_bytes)
+        self.assertEqual(config.btb_taken_bubbles, 0)
+        self.assertIsNone(config.micro_btb)
 
     def test_a_fetch_block_wider_than_the_l1i_line_is_refused(self):
         with self.assertRaisesRegex(ValueError, "fetch_block_bytes 128"):

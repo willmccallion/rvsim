@@ -37,8 +37,8 @@ pub use components::{ComponentDefaults, InOrderDefaults, TageScLDefaults};
 pub use general::{Console, GeneralConfig, SePagingMode};
 pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind, WalkerPort};
 pub use pipeline::{
-    BackendKind, CsrSquash, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, PipelineConfig,
-    StoreSetConfig, VecStoreForwarding,
+    BackendKind, CsrSquash, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, MicroBtbConfig,
+    PipelineConfig, StoreSetConfig, VecStoreForwarding,
 };
 pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};
 pub use system::{
@@ -438,6 +438,18 @@ pub enum ConfigError {
         bytes: usize,
         /// The L1I line.
         line_bytes: usize,
+    },
+    /// The micro-BTB must have entries, in a power-of-two number of sets.
+    #[error(
+        "micro_btb size {size} / ways {ways} gives {sets} sets: it needs entries, in a power-of-two number of sets"
+    )]
+    MicroBtbSets {
+        /// Configured entries.
+        size: usize,
+        /// Configured ways.
+        ways: usize,
+        /// Resulting sets.
+        sets: usize,
     },
     /// The BTB's set count must be a power of two for its index hash.
     #[error("btb_size {size} / btb_ways {ways} gives {sets} sets, which is not a power of two")]

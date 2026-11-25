@@ -31,7 +31,7 @@ All predictors share these components:
 
 ### Branch Target Buffer (BTB)
 
-Set-associative cache (default: 4096 entries, 4-way) that maps a control
+Set-associative cache (default: 8192 entries, 8-way) that maps a control
 instruction's PC to its kind and last target. Fetch knows a control
 instruction only through it, as a real front end does before decode.
 
@@ -42,6 +42,15 @@ jump that is not a return when the predictor has no indirect target
 predictor of its own (SC-L-TAGE's ITTAGE keeps those). A jump that
 executes on a path an older branch squashes before its own correction
 arrives teaches it nothing.
+
+A taken branch the BTB predicts ends the cycle's fetch, and fetch idles
+for `btb_taken_bubbles` cycles before it fetches the target: the BTB's
+latency past one cycle. A `micro_btb` is a smaller BTB looked up alongside
+it that holds the branches most recently retired taken; when it holds the
+branch, its own `taken_bubbles` apply instead (`bp.micro_btb_hits`). A
+corrected target updates its copy, and a non-branch BTB hit drops the
+entry from both. The idle cycles count as
+`pipeline.stalls.taken_branch`.
 
 ### Return Address Stack (RAS)
 

@@ -37,7 +37,7 @@ use crate::sim::packet::{AccessSize, MemOp, Packet};
 use crate::trace_branch;
 use crate::trace_fetch;
 use crate::uarch::bpred::ControlInst;
-use crate::uarch::bpred::btb::BranchKind;
+use crate::uarch::bpred::btb::{BranchKind, BtbLevel};
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::mmu::TranslateOutcome;
 use crate::uarch::mmu::ptw::WalkState;
@@ -124,10 +124,12 @@ impl GroupBuilder {
 }
 
 /// What fetch predicts for one instruction: where it goes next, whether
-/// fetch stops after it, and the kind of control flow for the trace.
+/// fetch stops after it, the cycles it idles before a taken target, and
+/// the kind of control flow for the trace.
 struct ControlFlowPrediction {
     target: Option<VirtAddr>,
     stop: bool,
+    taken_bubbles: u64,
     kind: Option<&'static str>,
 }
 
@@ -142,10 +144,13 @@ fn predict_control_flow(
     pc: VirtAddr,
     size: InstSize,
 ) -> ControlFlowPrediction {
-    let predictor = &mut state.core_mut().branch_predictor;
-    let Some(hit) = predictor.btb_lookup(pc) else {
-        return ControlFlowPrediction { target: None, stop: false, kind: None };
+    let Some(found) = state.core().branch_predictor.btb_lookup(pc) else {
+        return ControlFlowPrediction { target: None, stop: false, taken_bubbles: 0, kind: None };
     };
+    if found.level == BtbLevel::Micro {
+        state.counter(state.core().stat_paths.bp.micro_btb_hits).inc();
+    }
+    let hit = found.hit;
     let control = ControlInst::from_btb(hit, pc.wrapping_add(size.as_u64()));
     let kind = match hit.kind {
         BranchKind::Conditional => "branch",
@@ -155,9 +160,9 @@ fn predict_control_flow(
         BranchKind::Indirect { call: true, .. } => "indirect-call",
         BranchKind::Indirect { .. } => "indirect",
     };
-    let target = predictor.predict(seq, pc, control);
+    let target = state.core_mut().branch_predictor.predict(seq, pc, control);
     let stop = target.is_some() || !matches!(control, ControlInst::Branch { .. });
-    ControlFlowPrediction { target, stop, kind: Some(kind) }
+    ControlFlowPrediction { target, stop, taken_bubbles: found.taken_bubbles, kind: Some(kind) }
 }
 
 /// Holds fetch at `pc` for `cycles`: the translation hit the L2 ITLB, which
@@ -568,5 +573,9 @@ fn push_fetched<E: ExecutionEngine>(
     let entry = Fetch1Fetch2Entry { predicted_target: prediction.target, ..entry };
     cursor.group.push(engine.common_mut(), entry, Some(line));
     cursor.pc = next_pc;
+    if prediction.target.is_some() && prediction.taken_bubbles > 0 {
+        let next_fetch = state.uncore().kernel.cycle + 1;
+        engine.common_mut().fetch.taken_bubble_until = next_fetch + prediction.taken_bubbles;
+    }
     if prediction.stop { FetchStep::Stop } else { FetchStep::Next }
 }

@@ -147,6 +147,8 @@ stat_paths! {
         /// Fetch1 idle because an earlier fetch group is still waiting on
         /// the I-cache response or an instruction-fetch page walk.
         stalls_fetch_wait: "pipeline.stalls.fetch_wait" => Cycles,
+        /// Fetch1 idle in the bubble after a taken branch the BTB predicted.
+        stalls_taken_branch: "pipeline.stalls.taken_branch" => Cycles,
         /// Issue stalled on data hazard (source not ready).
         stalls_data: "pipeline.stalls.data" => Cycles,
         /// Issue stalled on FU structural hazard.
@@ -194,6 +196,8 @@ stat_paths! {
         /// Times decode redirected fetch: a control instruction the BTB
         /// missed, a stale BTB target, or a BTB entry for a non-branch.
         decode_redirects: "bp.decode_redirects" => Events,
+        /// Fetch lookups the micro-BTB answered.
+        micro_btb_hits: "bp.micro_btb_hits" => Events,
     }
     histograms {
         /// Cycles from a mispredicted branch resolving to the first

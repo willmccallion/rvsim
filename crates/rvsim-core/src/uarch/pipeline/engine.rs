@@ -246,6 +246,9 @@ pub struct FetchInFlight {
     pub outstanding_fetches: HashMap<ReqId, OutstandingFetch>,
     /// Fetch waits until this cycle for an L2 ITLB hit's latency.
     pub fetch_hold_until: u64,
+    /// Fetch waits until this cycle in the bubble after a predicted-taken
+    /// branch.
+    pub taken_bubble_until: u64,
     /// Completed but not-yet-emittable fetch groups, keyed by `fetch_seq`.
     /// A group can complete ahead of an older one (a fetch-buffer hit, or
     /// a fetch walk that finishes while the previous line is still
@@ -596,6 +599,7 @@ impl BackendCommon {
         self.fetch.fetch_reorder.clear();
         self.fetch.fetch_restart = FetchRestart::FromPc;
         self.fetch.fetch_hold_until = 0;
+        self.fetch.taken_bubble_until = 0;
         self.fetch.next_emit_fetch_seq = self.fetch.next_fetch_seq;
     }
 
@@ -603,6 +607,12 @@ impl BackendCommon {
     #[must_use]
     pub const fn fetch_held(&self, now: u64) -> bool {
         self.fetch.fetch_hold_until > now
+    }
+
+    /// True while fetch idles in the bubble after a predicted-taken branch.
+    #[must_use]
+    pub const fn in_taken_bubble(&self, now: u64) -> bool {
+        self.fetch.taken_bubble_until > now
     }
 
     /// Allocates a fresh [`ReqId`] for an outgoing packet. The pipeline

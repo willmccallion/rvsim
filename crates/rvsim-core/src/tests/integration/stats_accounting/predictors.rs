@@ -7,7 +7,9 @@ use super::program::{
 use super::{Recorder, accounting_checks};
 use crate::common::VirtAddr;
 use crate::config::Config;
-use crate::config::{BackendKind, LoadPrefetcherConfig, MemDepPredictorKind, PageBoundary};
+use crate::config::{
+    BackendKind, LoadPrefetcherConfig, MemDepPredictorKind, MicroBtbConfig, PageBoundary,
+};
 use crate::tests::integration::translation::load_prefetch_paging::{Data, Mode, run_system};
 use crate::tests::support::builder::instruction::InstructionBuilder;
 use crate::tests::support::harness::{PROGRAM_BASE, store_words};
@@ -67,6 +69,45 @@ fn decode_redirects_fetch_to_each_jump_it_finds(rec: &mut Recorder) {
         rec.expect(&ctx.sim, "core0.bp.decode_redirects", jumps, &context);
         rec.expect(&ctx.sim, "core0.bp.committed.hits", jumps, &context);
         rec.expect(&straight.sim, "core0.bp.decode_redirects", 0, &context);
+    }
+}
+
+/// A loop of `LOOPS` iterations whose body jumps `jumps` times; the
+/// static predictor predicts its branch back not taken.
+fn looping_jumps(jumps: usize) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut program = vec![i().addi(T1, X0, LOOPS).build()];
+    for _ in 0..jumps {
+        program.extend([i().jal(X0, 8).build(), i().addi(T0, X0, 1).build()]);
+    }
+    let back = -4 * i32::try_from(2 * jumps + 1).expect("a few jumps");
+    program.extend([i().addi(T1, T1, -1).build(), i().bne(T1, X0, back).build()]);
+    program.extend(exit_sequence());
+    program
+}
+
+fn jumps_retired_taken_are_predicted_from_the_micro_btb_with_its_bubble(rec: &mut Recorder) {
+    let jumps = 3;
+    // Decode finds the jumps in the first iteration, and the branch back
+    // retires taken in it; the micro-BTB holds all of them from the second.
+    // Only the jumps are predicted taken, and idle fetch for a bubble.
+    let later_iterations = LOOPS as u64 - 1;
+    let micro_hits = (jumps as u64 + 1) * later_iterations;
+    let bubbles = jumps as u64 * later_iterations;
+    for backend in BACKENDS {
+        let context = format!("{backend:?}");
+        let mut with_micro = config(backend);
+        with_micro.pipeline.micro_btb = Some(MicroBtbConfig { size: 8, ways: 8, taken_bubbles: 1 });
+        let mut ctx = system_with(&with_micro, &looping_jumps(jumps), &[]);
+        let mut without = system(backend, &looping_jumps(jumps), &[]);
+
+        run_to_exit(&mut ctx, &context);
+        run_to_exit(&mut without, &context);
+
+        rec.expect(&ctx.sim, "core0.bp.micro_btb_hits", micro_hits, &context);
+        rec.expect(&ctx.sim, "core0.pipeline.stalls.taken_branch", bubbles, &context);
+        rec.expect(&without.sim, "core0.bp.micro_btb_hits", 0, &context);
+        rec.expect(&without.sim, "core0.pipeline.stalls.taken_branch", 0, &context);
     }
 }
 
@@ -336,6 +377,7 @@ accounting_checks!(
     branch_outcomes_are_counted_at_resolution_and_at_commit,
     decode_redirects_fetch_to_each_jump_it_finds,
     a_branch_never_taken_costs_no_decode_redirect,
+    jumps_retired_taken_are_predicted_from_the_micro_btb_with_its_bubble,
     a_violation_trains_store_sets_to_make_the_load_wait,
     the_blind_predictor_makes_every_load_wait_for_all_stores,
     predictor_counts_start_again_after_a_stats_reset,
