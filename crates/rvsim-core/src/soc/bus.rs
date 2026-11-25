@@ -9,7 +9,7 @@ use super::devices::clint::Clint;
 use super::devices::plic::Plic;
 use super::devices::uart::Uart;
 use crate::common::{HartId, PhysAddr, PhysRange};
-use crate::config::DeviceKind;
+use crate::config::{BusChannels, DeviceKind};
 use crate::sim::components::{ComponentId, DeviceId, MemCtrlId, ReqId};
 use crate::sim::handle::{Handle, HandleCtx};
 use crate::sim::memory::GlobalMemory;
@@ -17,6 +17,7 @@ use crate::sim::packet::{MemOp, Packet, WriteData};
 use crate::soc::traits::{RestoreError, mmio_response};
 use std::any::Any;
 use std::collections::HashMap;
+use std::num::NonZeroU64;
 
 /// Interrupt lines presented to one hart, sampled by [`Bus::tick`] each cycle.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -47,6 +48,8 @@ pub struct Bus {
     pub width_bytes: u64,
     /// Base latency in cycles per transaction.
     pub latency_cycles: u64,
+    /// Core cycles one beat of `width_bytes` takes.
+    beat_cycles: u64,
     uart_idx: Option<usize>,
     clint_idx: Option<usize>,
     plic_idx: Option<usize>,
@@ -60,14 +63,121 @@ pub struct Bus {
     /// In-flight RAM `MemReq`s forwarded to the memory controller, keyed by
     /// `ReqId` so the matching `MemResp` from the controller can be routed back
     /// to the originating upstream component (typically the LLC).
-    pending: HashMap<ReqId, (ComponentId, usize)>,
-    /// The channel requests cross.
-    request: Channel,
-    /// The channel responses cross.
-    response: Channel,
+    pending: HashMap<ReqId, (ComponentId, Transfer)>,
+    /// The channels transfers occupy.
+    channels: Channels,
 }
 
-/// One direction of the bus: each transaction occupies it for its
+/// The channels of a bus with the configured organisation.
+#[derive(Clone, Copy, Debug)]
+enum Channels {
+    /// One channel out and one back.
+    RequestResponse { request: Channel, response: Channel },
+    /// AXI's five.
+    Axi(AxiChannels),
+}
+
+impl Channels {
+    fn new(organisation: BusChannels) -> Self {
+        match organisation {
+            BusChannels::RequestResponse => {
+                Self::RequestResponse { request: Channel::default(), response: Channel::default() }
+            }
+            BusChannels::Axi => Self::Axi(AxiChannels::default()),
+        }
+    }
+}
+
+/// The bus's channels, as AXI has them: a read sends its address on one and
+/// takes its data back on another, a write sends its address and its data
+/// on two more and takes a one-beat response back on the last, so reads and
+/// writes queue only behind their own kind.
+#[derive(Clone, Copy, Debug, Default)]
+struct AxiChannels {
+    read_address: Channel,
+    read_data: Channel,
+    write_address: Channel,
+    write_data: Channel,
+    write_response: Channel,
+}
+
+/// What a request moves over the bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Transfer {
+    /// An address out and `bytes` of data back.
+    Read { bytes: usize },
+    /// An address and `bytes` of data out, and a response back.
+    Write { bytes: usize },
+}
+
+impl AxiChannels {
+    /// Sends a request's address, and a write's data beside it, returning
+    /// when the last of them has crossed.
+    const fn send_request(&mut self, now: u64, transfer: Transfer, beats: Beats) -> u64 {
+        let beat = beats.cycles;
+        match transfer {
+            Transfer::Read { .. } => self.read_address.claim(now, beat) + beat,
+            Transfer::Write { bytes } => {
+                let data = beats.data_cycles(bytes);
+                let address_done = self.write_address.claim(now, beat) + beat;
+                let data_done = self.write_data.claim(now, data) + data;
+                if address_done > data_done { address_done } else { data_done }
+            }
+        }
+    }
+
+    /// Sends a read's data, at least one beat, or a write's one-beat
+    /// response, returning when it has crossed.
+    const fn send_response(&mut self, now: u64, transfer: Transfer, beats: Beats) -> u64 {
+        let beat = beats.cycles;
+        match transfer {
+            Transfer::Read { bytes } => {
+                let data = beats.data_cycles(bytes);
+                let cycles = if data > beat { data } else { beat };
+                self.read_data.claim(now, cycles) + cycles
+            }
+            Transfer::Write { .. } => self.write_response.claim(now, beat) + beat,
+        }
+    }
+}
+
+impl Transfer {
+    /// Data bytes the request carries out.
+    const fn payload_out(self) -> usize {
+        match self {
+            Self::Read { .. } => 0,
+            Self::Write { bytes } => bytes,
+        }
+    }
+
+    /// Data bytes the answer carries back.
+    const fn payload_back(self) -> usize {
+        match self {
+            Self::Read { bytes } => bytes,
+            Self::Write { .. } => 0,
+        }
+    }
+}
+
+/// A bus's beat: `width_bytes` every `cycles` core cycles.
+#[derive(Clone, Copy, Debug)]
+struct Beats {
+    width_bytes: u64,
+    cycles: u64,
+}
+
+impl Beats {
+    /// Cycles `bytes` of data occupy a channel: whole beats.
+    const fn data_cycles(self, bytes: usize) -> u64 {
+        (bytes as u64).div_ceil(self.width_bytes) * self.cycles
+    }
+}
+
+/// Bytes an address and its control take on a channel that also carries
+/// data, and an acknowledgement without data on the way back.
+const COMMAND_BYTES: usize = 8;
+
+/// One channel of the bus: each transaction occupies it for its
 /// transfer time, so back-to-back transactions queue.
 #[derive(Clone, Copy, Debug, Default)]
 struct Channel {
@@ -99,13 +209,21 @@ impl std::fmt::Debug for Bus {
 }
 
 impl Bus {
-    /// Creates a bus with the given width and latency serving `hart_count`
-    /// harts' interrupt lines.
-    pub fn new(width_bytes: u64, latency_cycles: u64, hart_count: usize) -> Self {
+    /// Creates a bus with the given width and latency, a beat every
+    /// `clock_divider` core cycles over `organisation`'s channels, serving
+    /// `hart_count` harts' interrupt lines.
+    pub fn new(
+        width_bytes: u64,
+        latency_cycles: u64,
+        clock_divider: NonZeroU64,
+        organisation: BusChannels,
+        hart_count: usize,
+    ) -> Self {
         Self {
             devices: Vec::new(),
             width_bytes,
             latency_cycles,
+            beat_cycles: clock_divider.get(),
             uart_idx: None,
             clint_idx: None,
             plic_idx: None,
@@ -113,8 +231,7 @@ impl Bus {
             ram: None,
             htif_range: None,
             pending: HashMap::new(),
-            request: Channel::default(),
-            response: Channel::default(),
+            channels: Channels::new(organisation),
         }
     }
 
@@ -190,26 +307,50 @@ impl Bus {
             && !self.htif_range.is_some_and(|htif| htif.overlaps(paddr, size))
     }
 
-    /// Returns cycles = base latency plus ceiling(bytes / `width_bytes`) transfers.
+    /// Cycles `bytes` of data take to cross the bus unopposed: the base
+    /// latency plus their beats.
     pub const fn transit_cycles(&self, bytes: usize) -> u64 {
-        self.latency_cycles + self.transfer_cycles(bytes)
+        self.latency_cycles + self.data_cycles(bytes)
     }
 
-    /// Cycles a transaction of `bytes` occupies a channel.
-    const fn transfer_cycles(&self, bytes: usize) -> u64 {
-        (bytes as u64).div_ceil(self.width_bytes)
+    /// Cycles `bytes` of data occupy a channel: whole beats.
+    const fn data_cycles(&self, bytes: usize) -> u64 {
+        self.beats().data_cycles(bytes)
     }
 
-    /// Claims the request channel from `now`, returning when the request
-    /// has crossed the bus.
-    const fn send_request(&mut self, now: u64, bytes: usize) -> u64 {
-        self.request.claim(now, self.transfer_cycles(bytes)) + self.transit_cycles(bytes)
+    const fn beats(&self) -> Beats {
+        Beats { width_bytes: self.width_bytes, cycles: self.beat_cycles }
     }
 
-    /// Claims the response channel from `now`, returning when the response
-    /// has crossed the bus.
-    const fn send_response(&mut self, now: u64, bytes: usize) -> u64 {
-        self.response.claim(now, self.transfer_cycles(bytes)) + self.transit_cycles(bytes)
+    /// Sends a request out, returning when it has crossed the bus.
+    const fn send_request(&mut self, now: u64, transfer: Transfer) -> u64 {
+        let beats = self.beats();
+        let crossed = match &mut self.channels {
+            Channels::RequestResponse { request, .. } => {
+                let cycles = beats.data_cycles(COMMAND_BYTES + transfer.payload_out());
+                request.claim(now, cycles) + cycles
+            }
+            Channels::Axi(axi) => axi.send_request(now, transfer, beats),
+        };
+        crossed + self.latency_cycles
+    }
+
+    /// Sends the answer to `transfer` back, returning when it has crossed
+    /// the bus.
+    const fn send_response(&mut self, now: u64, transfer: Transfer) -> u64 {
+        let beats = self.beats();
+        let crossed = match &mut self.channels {
+            Channels::RequestResponse { response, .. } => {
+                let bytes = match transfer.payload_back() {
+                    0 => COMMAND_BYTES,
+                    bytes => bytes,
+                };
+                let cycles = beats.data_cycles(bytes);
+                response.claim(now, cycles) + cycles
+            }
+            Channels::Axi(axi) => axi.send_response(now, transfer, beats),
+        };
+        crossed + self.latency_cycles
     }
 
     /// Returns whether the given physical address is backed by any device or RAM.
@@ -348,43 +489,28 @@ impl Bus {
     }
 }
 
-/// Bytes an 8-byte address and its control take on the bus.
-const COMMAND_BYTES: usize = 8;
-
-/// Bytes a `MemReq` moves over the request channel: the command, plus the
-/// data a write carries.
-fn request_bytes(packet: &Packet) -> usize {
+/// What `packet` moves over the bus: the data a write carries out, or the
+/// data a read (or anything else, answered with data or a bare
+/// acknowledgement) brings back.
+fn transfer(packet: &Packet) -> Transfer {
     match packet {
-        Packet::MemReq { op: MemOp::Write { data: WriteData::Small(_), .. }, size, .. } => {
-            COMMAND_BYTES + size.bytes()
-        }
         Packet::MemReq { op: MemOp::Write { data: WriteData::Line { bytes, .. }, .. }, .. } => {
-            COMMAND_BYTES + bytes.len()
+            Transfer::Write { bytes: bytes.len() }
         }
-        Packet::MemReq {
-            op:
-                MemOp::Writeback { .. } | MemOp::WriteFull { .. } | MemOp::Maintain { dirty: true, .. },
-            size,
-            ..
-        } => COMMAND_BYTES + size.bytes(),
-        _ => COMMAND_BYTES,
-    }
-}
-
-/// Bytes the answer to `packet` moves over the response channel: the data
-/// a read returns, or a bare acknowledgement for a write.
-const fn response_bytes(packet: &Packet) -> usize {
-    match packet {
         Packet::MemReq {
             op:
                 MemOp::Write { .. }
                 | MemOp::Writeback { .. }
                 | MemOp::WriteFull { .. }
-                | MemOp::Maintain { .. },
+                | MemOp::Maintain { dirty: true, .. },
+            size,
             ..
-        } => COMMAND_BYTES,
-        Packet::MemReq { size, .. } => size.bytes(),
-        _ => COMMAND_BYTES,
+        } => Transfer::Write { bytes: size.bytes() },
+        Packet::MemReq { op: MemOp::Maintain { dirty: false, .. }, .. } => {
+            Transfer::Read { bytes: 0 }
+        }
+        Packet::MemReq { size, .. } => Transfer::Read { bytes: size.bytes() },
+        _ => Transfer::Read { bytes: 0 },
     }
 }
 
@@ -412,8 +538,9 @@ impl Handle for Bus {
                 if let Some(ram) = ram_hit
                     && !is_htif
                 {
-                    let _ = self.pending.insert(req_id, (source, response_bytes(&packet)));
-                    let arrives = self.send_request(ctx.cycle, request_bytes(&packet));
+                    let moved = transfer(&packet);
+                    let _ = self.pending.insert(req_id, (source, moved));
+                    let arrives = self.send_request(ctx.cycle, moved);
                     ctx.scheduler.schedule(
                         arrives,
                         ComponentId::MemCtrl(ram.ctrl),
@@ -426,8 +553,9 @@ impl Handle for Bus {
                     // The request crosses the bus to the device, which answers
                     // the bus after its access latency; the answer then
                     // crosses back (the `MemResp` arm).
-                    let _ = self.pending.insert(req_id, (source, response_bytes(&packet)));
-                    let arrives = self.send_request(ctx.cycle, request_bytes(&packet));
+                    let moved = transfer(&packet);
+                    let _ = self.pending.insert(req_id, (source, moved));
+                    let arrives = self.send_request(ctx.cycle, moved);
                     let device = DeviceId::from_index(idx);
                     ctx.scheduler.schedule(
                         arrives,
@@ -438,7 +566,7 @@ impl Handle for Bus {
                     return;
                 }
                 // Unmapped address: reply with zeros so the originator unblocks.
-                let arrives = self.send_response(ctx.cycle, response_bytes(&packet));
+                let arrives = self.send_response(ctx.cycle, transfer(&packet));
                 ctx.scheduler.schedule(
                     arrives,
                     source,
@@ -447,8 +575,8 @@ impl Handle for Bus {
                 );
             }
             Packet::MemResp { req_id, line_addr, data, hit_level, state } => {
-                let Some((upstream, bytes)) = self.pending.remove(&req_id) else { return };
-                let arrives = self.send_response(ctx.cycle, bytes);
+                let Some((upstream, moved)) = self.pending.remove(&req_id) else { return };
+                let arrives = self.send_response(ctx.cycle, moved);
                 ctx.scheduler.schedule(
                     arrives,
                     upstream,

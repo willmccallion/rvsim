@@ -473,6 +473,8 @@ console.
 | `hart_count` | `int` | `1` | Harts in the system, one per core (see [Multi-core](#multi-core)) |
 | `bus_width` | `int` | `8` | System bus width in bytes |
 | `bus_latency` | `int` | `1` | System bus latency in cycles, each way |
+| `bus_clock_divider` | `int` | `1` | Core cycles per bus clock: each `bus_width`-byte beat takes this many cycles |
+| `bus_channels` | `str` | `"RequestResponse"` | `"RequestResponse"`: one channel out (address and write data) and one back (read data or acknowledgement), as TileLink and gem5's crossbar; `"Axi"`: AXI's five channels |
 | `device_latency_ns` | `int` | `100` | Time every device takes to answer a register access |
 | `device_latency_ns_overrides` | `dict` | `None` | Per-device access latency by name (`UART0`, `CLINT`, `PLIC`, `VirtIO-Blk`, `SysCon`, `GoldfishRTC`, `HTIF`) |
 | `timer` | `str` | `"RealTime"` | How `mtime` advances: `"RealTime"` at `timebase_hz`, so guest time keeps pace with the core clock, or `"EveryCycle"`, every cycle, so guest time runs `cpu_clock_mhz * 10**6 / timebase_hz` times fast |

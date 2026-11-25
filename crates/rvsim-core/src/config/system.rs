@@ -141,6 +141,14 @@ pub struct SystemConfig {
     /// System bus latency in cycles
     pub bus_latency: u64,
 
+    /// Core clocks per bus clock: each beat of `bus_width` bytes takes this
+    /// many core cycles, as a bus clocked at an integer fraction of the
+    /// core's (the Cortex-A72's AXI or CHI port runs at 1:1 or N:1).
+    pub bus_clock_divider: NonZeroU64,
+
+    /// How the bus's channels are organised.
+    pub bus_channels: BusChannels,
+
     /// How fast the CLINT's `mtime` advances.
     pub timer: Timer,
 
@@ -261,6 +269,8 @@ impl Default for SystemConfig {
             kernel_offset: defaults::KERNEL_OFFSET,
             bus_width: defaults::BUS_WIDTH,
             bus_latency: defaults::BUS_LATENCY,
+            bus_clock_divider: defaults::BUS_CLOCK_DIVIDER,
+            bus_channels: BusChannels::default(),
             timer: Timer::default(),
             timebase_hz: defaults::TIMEBASE_HZ,
             cpu_clock_mhz: defaults::CPU_CLOCK_MHZ,
@@ -272,4 +282,17 @@ impl Default for SystemConfig {
             hart_count: NonZeroUsize::MIN,
         }
     }
+}
+
+/// How a system bus's channels are organised.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub enum BusChannels {
+    /// One channel out, carrying a request's address and any data it
+    /// writes, and one back, carrying a read's data or an acknowledgement:
+    /// `TileLink`'s A and D channels, or gem5's crossbar layers.
+    #[default]
+    RequestResponse,
+    /// AXI's five: read address and data, write address, data and
+    /// response, so reads and writes queue only behind their own kind.
+    Axi,
 }

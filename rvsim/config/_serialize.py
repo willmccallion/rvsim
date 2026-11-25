@@ -301,6 +301,8 @@ def _config_to_dict_impl(cfg: Config) -> dict[str, Any]:
         "kernel_offset": cfg.kernel_offset,
         "bus_width": cfg.bus_width,
         "bus_latency": cfg.bus_latency,
+        "bus_clock_divider": cfg.bus_clock_divider,
+        "bus_channels": cfg.bus_channels,
         "timer": cfg.timer,
         "timebase_hz": cfg.timebase_hz,
         "cpu_clock_mhz": cfg.cpu_clock_mhz,

@@ -64,7 +64,13 @@ fn build_bus(
     disk: Option<&str>,
 ) -> Result<Bus, SimError> {
     let system = &config.system;
-    let mut bus = Bus::new(system.bus_width, system.bus_latency, hart_count);
+    let mut bus = Bus::new(
+        system.bus_width,
+        system.bus_latency,
+        system.bus_clock_divider,
+        system.bus_channels,
+        hart_count,
+    );
     let mut disk_device = VirtioBlock::new(system.disk_base);
     if let Some(path) = disk {
         disk_device.load(load_binary(path)?);

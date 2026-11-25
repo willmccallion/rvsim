@@ -20,6 +20,23 @@ are configurable (see [Configuration](../configuration.md#system)); the
 RTC and PLIC are fixed. `presets.linux()` moves the disk to `0x1000_1000`,
 beside the UART, where the bundled image's device tree expects it.
 
+## System bus
+
+The bus between the last cache and memory or the devices moves one
+`bus_width`-byte beat every `bus_clock_divider` core cycles, and every
+crossing adds `bus_latency`. `bus_channels` sets how its channels are
+organised:
+
+- `RequestResponse` (the default): one channel out, carrying a request's
+  8-byte address and any data it writes, and one back, carrying a read's
+  data or an 8-byte acknowledgement, as TileLink's A and D channels and
+  gem5's crossbar layers do. A write's data holds up the reads behind it.
+- `Axi`: AXI's five channels. A read sends its address on one and takes
+  its data back on another; a write sends its address and its data side
+  by side on two more and takes a one-beat response back on the last.
+  Reads queue only behind reads and writes behind writes, and a write's
+  data and a read's data cross at the same time.
+
 ## Device access timing
 
 Devices sit on the system bus, so an uncached access pays `bus_latency`

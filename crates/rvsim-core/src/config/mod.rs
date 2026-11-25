@@ -42,8 +42,8 @@ pub use pipeline::{
 };
 pub use prefetch::{LoadPrefetcherConfig, PageBoundary, StorePrefetcherConfig};
 pub use system::{
-    CLINT_REGION_BYTES, DeviceKind, DeviceRegion, PLIC_BASE, PLIC_REGION_BYTES, RTC_BASE,
-    RTC_REGION_BYTES, SYSCON_REGION_BYTES, SystemConfig, Timer, UART_REGION_BYTES,
+    BusChannels, CLINT_REGION_BYTES, DeviceKind, DeviceRegion, PLIC_BASE, PLIC_REGION_BYTES,
+    RTC_BASE, RTC_REGION_BYTES, SYSCON_REGION_BYTES, SystemConfig, Timer, UART_REGION_BYTES,
     VIRTIO_REGION_BYTES,
 };
 
