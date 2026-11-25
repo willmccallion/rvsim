@@ -170,6 +170,57 @@ python tools/diag/bandwidth_probe.py --preset cortex_a72
 python tools/diag/bandwidth_probe.py --preset p550 --kernels read --footprints 16K,128K,2M
 ```
 
+## Out-of-order structures
+
+`tools/diag/structure_probe.py` runs Henry Wong's test, the one Chips and
+Cheese measure these cores with: two independent chases of cold misses
+with a number of filler instructions of one kind after each load. While
+the first load, the fillers and the second load fit in the structure the
+fillers use up, the misses overlap; one filler more and an iteration takes
+two memory latencies. The capacity is that filler count plus the entries
+the loop's own instructions take. Measured 2026-11-25.
+
+| Structure (filler) | `cortex_a72` config | rvsim | Cortex-A72 | `p550` config | rvsim | P550 |
+|---|---:|---:|---:|---:|---:|---:|
+| Reorder buffer (nop) | 128 | 128 | 128 | 96 | 96 | ~96 |
+| Integer renames (add) | 64 | 128 | 64 | 95 | 96 | 95 |
+| FP renames (FP add) | 128 | 125 | not published | 87 | 93 | 87 |
+| Load queue (L1 hit) | 32 | 32 | ~32 | 20 | 20 | 20 |
+| Store queue (store) | 16 | 16 | ~16 | 16 | 16 | 16 |
+| Scheduler (dependent add) | 66 | 66 | 8 per queue | 32 | 32 | 28 (FP) |
+
+Two gaps are the model's. The integer and FP renames come from one shared
+pool, so neither size limits rename on its own and the reorder buffer runs
+out first (#377). And the A72's eight issue queues are one 66-entry queue
+(#90), so dependent adds fill all of it rather than the integer pipes'
+queues.
+
+## Branch targets and the return stack
+
+`tools/diag/frontend_probe.py` runs a number of taken jumps in a row at
+8-, 16- and 64-byte spacings and reports cycles per jump, and a call chain
+of a number of frames that then returns, reporting where returns start to
+mispredict. Measured 2026-11-25.
+
+| | `cortex_a72` rvsim | Cortex-A72 | `p550` rvsim | P550 |
+|---|---|---|---|---|
+| Taken branch, first level | 1 cycle, up to 4096 at 8 B | 2 cycles, 64 branches | 1 cycle, 16 at 8 B, 8 at 16 B, fewer at 64 B | 1 cycle, 32 branches |
+| Taken branch, past it | 3 cycles | 3 cycles, 4096 branches | 3 cycles within 32 KB | 3 cycles within 32 KB |
+| Return stack | 31 | 31 | 16 | 16 |
+
+The return stacks match, and the P550's overflows sharply, as Chips and
+Cheese saw: three returns mispredict one frame past it. The A72's taken
+branches are too fast: rvsim's front end takes a branch the BTB predicts
+with no bubble, and has no micro-BTB in front of a slower main BTB (#85).
+The P550's 32-entry BTB is configured 4-way, so wider spacings use fewer
+of its sets and it holds fewer than 32 branches; whether the P550's is
+fully associative is not published.
+
+```bash
+python tools/diag/structure_probe.py --preset cortex_a72
+python tools/diag/frontend_probe.py --preset p550 --tests ras
+```
+
 ## Misprediction penalty
 
 `tools/diag/mispredict_probe.py` runs a loop whose one branch tests a byte
