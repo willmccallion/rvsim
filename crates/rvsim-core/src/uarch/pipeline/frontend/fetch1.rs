@@ -332,7 +332,6 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     let mut cursor = FetchCursor {
         pc,
         line_bytes,
-        line_end: end_of_aligned(pc, line_bytes),
         block_bytes,
         block_end: end_of_aligned(pc, block_bytes),
         group: GroupBuilder::default(),
@@ -348,13 +347,11 @@ pub fn fetch1_stage<E: ExecutionEngine>(
     *fetch_pc = cursor.pc;
 }
 
-/// One cycle's fetch so far: the next PC, the ends of the cache line and
-/// of the fetch block it fetches from, and the group of instructions
-/// fetched.
+/// One cycle's fetch so far: the next PC, the end of the fetch block it
+/// fetches from, and the group of instructions fetched.
 struct FetchCursor {
     pc: VirtAddr,
     line_bytes: u64,
-    line_end: u64,
     block_bytes: u64,
     block_end: u64,
     group: GroupBuilder,
@@ -406,17 +403,15 @@ fn fetch_instruction<E: ExecutionEngine>(
         if !cursor.group.entries.is_empty() {
             return FetchStep::Stop;
         }
-        if end > cursor.line_end {
-            let line = LineAddr::from_phys(paddr, cursor.line_bytes);
-            if !fetch_buffer.holds(line, state.core().l1_i_cache.invalidations()) {
-                cursor.group.request_line(engine.common_mut(), line);
-                return FetchStep::Stop;
-            }
-            cursor.line_end += cursor.line_bytes;
+        let line = LineAddr::from_phys(paddr, cursor.line_bytes);
+        if end > end_of_aligned(pc, cursor.line_bytes)
+            && !fetch_buffer.holds(line, state.core().l1_i_cache.invalidations())
+        {
+            cursor.group.request_line(engine.common_mut(), line);
+            return FetchStep::Stop;
         }
         cursor.block_end += cursor.block_bytes;
     }
-    let straddles_line = !is_compressed && end > end_of_aligned(pc, cursor.line_bytes);
     let seq = engine.common_mut().alloc_inst_seq();
     state.trace_fetched(seq, pc);
     let lower = Fetch1Fetch2Entry { pc, paddr, seq, ..Fetch1Fetch2Entry::default() };
@@ -430,8 +425,8 @@ fn fetch_instruction<E: ExecutionEngine>(
             .upper_paddr
             .unwrap_or_else(|| PhysAddr::new(paddr.val() + FETCH_TRANSLATION_BYTES));
         let upper_half = read_inst_half(state, upper.val());
-        let line_paddr = if straddles_line { upper } else { paddr };
-        (entry, (u32::from(upper_half) << 16) | u32::from(half_word), line_paddr)
+        // The line the upper half is on: the next one when it straddles.
+        (entry, (u32::from(upper_half) << 16) | u32::from(half_word), upper)
     };
     let line = LineAddr::from_phys(line_paddr, cursor.line_bytes);
     push_fetched(state, engine, cursor, FetchedInst { entry, bits, size, line })
@@ -573,7 +568,7 @@ fn push_fetched<E: ExecutionEngine>(
     let entry = Fetch1Fetch2Entry { predicted_target: prediction.target, ..entry };
     cursor.group.push(engine.common_mut(), entry, Some(line));
     cursor.pc = next_pc;
-    if prediction.target.is_some() && prediction.taken_bubbles > 0 {
+    if prediction.target.is_some() {
         let next_fetch = state.uncore().kernel.cycle + 1;
         engine.common_mut().fetch.taken_bubble_until = next_fetch + prediction.taken_bubbles;
     }
