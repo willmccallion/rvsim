@@ -67,6 +67,24 @@ pub struct DramStandardConfig {
     pub address_mapping: AddressMappingKind,
     /// Command-timing constants.
     pub timing: DramTiming,
+    /// Command-bus clocks each command occupies.
+    pub commands: CommandCycles,
+}
+
+/// Command-bus clocks each command occupies, which the standard fixes: the
+/// next command on the bus waits for them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommandCycles {
+    /// An ACTIVATE.
+    pub activate: u64,
+    /// A READ or WRITE.
+    pub column: u64,
+    /// A PRECHARGE.
+    pub precharge: u64,
+    /// A REFRESH.
+    pub refresh: u64,
+    /// A power-down entry or exit.
+    pub power_down: u64,
 }
 
 /// When a rank with nothing to do enters power-down.

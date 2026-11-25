@@ -6,7 +6,7 @@ use crate::sim::packet::DramCmdKind;
 use crate::soc::memory::ddr5::state::{BankState, RefreshPhase};
 
 use super::Ddr5Controller;
-use super::{EmittedCommand, PRECHARGE_CMD_CYCLES, REFRESH_CMD_CYCLES, index_to_u8, mask_has};
+use super::{EmittedCommand, index_to_u8, mask_has};
 
 impl Ddr5Controller {
     /// Returns banks whose refresh has completed to the idle state.
@@ -112,11 +112,12 @@ impl Ddr5Controller {
         let fire_at = earliest.max(now);
         {
             let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
-            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
+            sc.last_command_cycle =
+                sc.last_command_cycle.max(fire_at + self.config.commands.precharge);
             sc.counters.precharge_alls += 1;
             let rank_mut = &mut sc.ranks[rank.as_index()];
             rank_mut.last_command_cycle =
-                rank_mut.last_command_cycle.max(fire_at + PRECHARGE_CMD_CYCLES);
+                rank_mut.last_command_cycle.max(fire_at + self.config.commands.precharge);
             rank_mut.last_precharge = fire_at;
             for (bank_index, bank) in rank_mut.banks.iter_mut().enumerate() {
                 if mask_has(bank_mask, bank_index) && bank.state == BankState::Active {
@@ -174,11 +175,12 @@ impl Ddr5Controller {
         let interval = self.refresh_interval;
         let set = {
             let sc = &mut self.channels[chan.as_index()].subchannels[subch.as_index()];
-            sc.last_command_cycle = sc.last_command_cycle.max(fire_at + REFRESH_CMD_CYCLES);
+            sc.last_command_cycle =
+                sc.last_command_cycle.max(fire_at + self.config.commands.refresh);
             sc.counters.refreshes += 1;
             let rank_mut = &mut sc.ranks[rank.as_index()];
             rank_mut.last_command_cycle =
-                rank_mut.last_command_cycle.max(fire_at + REFRESH_CMD_CYCLES);
+                rank_mut.last_command_cycle.max(fire_at + self.config.commands.refresh);
             for (bank_index, bank) in rank_mut.banks.iter_mut().enumerate() {
                 if mask_has(bank_mask, bank_index) {
                     bank.state = BankState::Refreshing;

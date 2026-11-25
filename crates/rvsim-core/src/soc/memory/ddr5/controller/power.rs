@@ -6,7 +6,7 @@ use crate::sim::packet::DramCmdKind;
 use crate::soc::memory::ddr5::state::{BankState, PowerState, Rank, RefreshPhase, Subchannel};
 
 use super::Ddr5Controller;
-use super::{EmittedCommand, POWER_CMD_CYCLES, index_to_u8};
+use super::{EmittedCommand, index_to_u8};
 
 impl Ddr5Controller {
     /// The first DRAM clock at or after `now` at which an idle, active
@@ -53,8 +53,9 @@ impl Ddr5Controller {
                     rank_mut.power = PowerState::Active;
                     rank_mut.power_up_at = now + t.t_xp;
                     rank_mut.last_command_cycle =
-                        rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
-                    sc.last_command_cycle = sc.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                        rank_mut.last_command_cycle.max(now + self.config.commands.power_down);
+                    sc.last_command_cycle =
+                        sc.last_command_cycle.max(now + self.config.commands.power_down);
                     sc.counters.power_down_exits += 1;
                     self.pending_commands.push(EmittedCommand {
                         channel: chan,
@@ -83,8 +84,9 @@ impl Ddr5Controller {
                         with_open_rows: rank_mut.has_open_row(),
                     };
                     rank_mut.last_command_cycle =
-                        rank_mut.last_command_cycle.max(now + POWER_CMD_CYCLES);
-                    sc.last_command_cycle = sc.last_command_cycle.max(now + POWER_CMD_CYCLES);
+                        rank_mut.last_command_cycle.max(now + self.config.commands.power_down);
+                    sc.last_command_cycle =
+                        sc.last_command_cycle.max(now + self.config.commands.power_down);
                     sc.counters.power_down_entries += 1;
                     self.pending_commands.push(EmittedCommand {
                         channel: chan,
