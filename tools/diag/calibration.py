@@ -155,16 +155,17 @@ def cortex_a72() -> Config:
             write_buffers=16,
         ),
         l3=None,
-        # LPDDR4-3200 on the Raspberry Pi 4: tRCD, tRP and CL of about
-        # 18 ns are 27 cycles each at 1.5 GHz; the rest of the 135 ns
-        # (203 cycles) a 16 MB chase takes with huge pages is the fabric and
-        # controller, carried by the bus crossing each way.
-        memory_controller=MemoryController.Dram(
-            t_cas=27,
-            t_ras=27,
-            t_pre=27,
-        ),
-        bus_latency=49,
+        # LPDDR4-3200 on the Raspberry Pi 4: an x32 package, two 16-bit
+        # channels of 16 Gb dies. The rest of the 135 ns (203 cycles) a
+        # 16 MB chase takes with huge pages is the fabric and controller,
+        # carried by the bus crossing each way.
+        memory_controller=MemoryController.Lpddr4(density="Gb16"),
+        # The A72's 128-bit AXI port at an integer fraction of the core clock
+        # (TRM 7.7); the fraction is unpublished, fitted to the Pi's C fill.
+        bus_width=16,
+        bus_clock_divider=8,
+        bus_channels="Axi",
+        bus_latency=5,
     )
 
 
