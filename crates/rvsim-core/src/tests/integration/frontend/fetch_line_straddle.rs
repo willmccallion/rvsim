@@ -7,9 +7,9 @@
 //! fetches the second block.
 
 use crate::common::{PhysAddr, VirtAddr};
+use crate::config::BackendKind;
 use crate::config::Config;
 use crate::config::defaults::RAM_BASE;
-use crate::config::{BackendKind, BranchPredictorKind};
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::harness::TestContext;
 use crate::tests::support::regs::X31;
@@ -167,16 +167,30 @@ fn loop_with_a_marker_straddling_blocks() -> Vec<u16> {
     program
 }
 
+/// The offsets from the start of RAM of the first fetch group `config`
+/// forms that starts at `offset` in `program`.
+fn group_starting_at(config: &Config, program: &[u16], offset: u64) -> Vec<u64> {
+    let mut tc = loaded(config, program);
+    for _ in 0..1_000 {
+        tc.run(1);
+        let group = tc.sim.state.cores[0].pipeline.snapshot(1).fetch1_fetch2;
+        if group.first().is_some_and(|slot| slot.pc == VirtAddr::new(RAM_BASE + offset)) {
+            return group.iter().map(|slot| slot.pc.val() - RAM_BASE).collect();
+        }
+    }
+    panic!("fetch never formed a group at offset {offset}");
+}
+
 #[test]
 fn an_instruction_straddling_two_blocks_leads_the_group_that_fetches_the_second() {
-    let mut config = core(BackendKind::OutOfOrder, 6);
-    config.pipeline.branch_predictor = BranchPredictorKind::GShare;
+    // Wide enough that the block, not the width, ends the group.
+    let mut config = core(BackendKind::OutOfOrder, 12);
     config.pipeline.fetch_block_bytes = Some(16);
+    let marker = 14;
 
-    let (cycles, _) = per_iteration(&config, &loop_with_a_marker_straddling_blocks());
+    let group = group_starting_at(&config, &loop_with_a_marker_straddling_blocks(), marker);
 
-    // Six nops; one nop, then the marker waits for the next block; the
-    // marker and five nops to the width; two nops to the block's end; two
-    // nops and the jump.
-    assert_eq!(cycles, 5.0);
+    // The marker, then the compressed nops up to the second block's end.
+    let nops = (marker + 4..32).step_by(2);
+    assert_eq!(group, std::iter::once(marker).chain(nops).collect::<Vec<_>>());
 }
