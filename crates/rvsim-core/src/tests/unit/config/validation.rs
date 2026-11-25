@@ -165,13 +165,14 @@ fn a_structure_that_must_hold_something_refuses_zero() {
 }
 
 #[test]
-fn an_out_of_order_register_file_needs_registers_beyond_the_architectural_ones() {
-    let err = refused(Config::default(), |c| {
-        c.pipeline.prf_gpr_size = 32;
-        c.pipeline.prf_fpr_size = 32;
-    });
+fn an_out_of_order_register_file_needs_a_register_beyond_the_architectural_ones() {
+    let err = refused(Config::default(), |c| c.pipeline.prf_fpr_size = 32);
 
-    assert_eq!(err, ConfigError::NoFreeRegisters { gpr: 32, fpr: 32 }, "{err}");
+    assert_eq!(
+        err,
+        ConfigError::NoRenameRegisters { field: "pipeline.prf_fpr_size", size: 32 },
+        "{err}"
+    );
 }
 
 #[test]
@@ -180,7 +181,7 @@ fn an_out_of_order_register_file_holds_its_architectural_registers() {
 
     assert_eq!(
         err,
-        ConfigError::ArchitecturalRegisters { field: "pipeline.prf_gpr_size", size: 16 },
+        ConfigError::NoRenameRegisters { field: "pipeline.prf_gpr_size", size: 16 },
         "{err}"
     );
 }
