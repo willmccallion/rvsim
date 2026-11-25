@@ -31,7 +31,7 @@ else
 endif
 
 .PHONY: help software examples linux python python-wheel
-.PHONY: check test test-python test-coverage clippy doc fmt fmt-check ruff mypy
+.PHONY: check test test-python test-coverage mutants-diff clippy doc fmt fmt-check ruff mypy
 .PHONY: lint lint-rust lint-python ci prerelease
 .PHONY: compare-gem5 accuracy accuracy-budget accuracy-report
 .PHONY: vector-test vector-test-build vector-smoke-build vector-test-smoke vector-test-multi
@@ -54,7 +54,8 @@ help:
 	@printf "\n  $(CYAN)Development$(RESET)\n"
 	@printf "    %-$(HELP_W)s  cargo check (all targets)\n" "make check"
 	@printf "    %-$(HELP_W)s  Run Rust tests\n" "make test"
-	@printf "    %-$(HELP_W)s  Run Rust tests with coverage (llvm-cov)\n" "make test-coverage"
+	@printf "    %-$(HELP_W)s  Run Rust tests with coverage (llvm-cov), per-file summary + lcov\n" "make test-coverage"
+	@printf "    %-$(HELP_W)s  Mutation-test what the branch changed from MUTANTS_BASE (cargo-mutants)\n" "make mutants-diff"
 	@printf "    %-$(HELP_W)s  Run clippy linter\n" "make clippy"
 	@printf "    %-$(HELP_W)s  Build the Rust docs, warnings denied\n" "make doc"
 	@printf "    %-$(HELP_W)s  Format Rust and Python code\n" "make fmt"
@@ -177,7 +178,18 @@ accuracy-report: $(VENV_STAMP)
 
 test-coverage:
 	@printf "$(GREEN)Running cargo llvm-cov…$(RESET)\n"
-	$(CARGO) llvm-cov --workspace --exclude rvsim-bindings
+	$(CARGO) llvm-cov --workspace --exclude rvsim-bindings --lcov --output-path $(BUILD_DIR)/lcov.info
+	$(CARGO) llvm-cov report --summary-only
+
+# Every mutant cargo-mutants makes in the code the branch changed since
+# MUTANTS_BASE must fail a test; it fails listing the ones none caught.
+# MUTANTS_SHARD=k/n runs the kth of n shares, as CI does.
+MUTANTS_BASE ?= origin/main
+mutants-diff:
+	@printf "$(GREEN)Mutation-testing the changes since $(MUTANTS_BASE)…$(RESET)\n"
+	@mkdir -p $(BUILD_DIR)
+	git diff $(MUTANTS_BASE)...HEAD > $(BUILD_DIR)/mutants.diff
+	$(CARGO) mutants --in-diff $(BUILD_DIR)/mutants.diff --output $(BUILD_DIR) $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
 
 clippy:
 	@printf "$(GREEN)Running clippy…$(RESET)\n"
