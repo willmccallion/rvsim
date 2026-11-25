@@ -1,6 +1,7 @@
-//! The DDR5 controller's counts, summed over its subchannels: the requests
-//! the caches send it, the column, row and bus traffic they become, its
-//! queues, refresh, power-down and scrubbing.
+//! The command-level DRAM controller's counts, summed over its subchannels:
+//! the requests the caches send it, the column, row and bus traffic they
+//! become, its queues, refresh, power-down and scrubbing, on DDR5 and on
+//! LPDDR4.
 
 use super::program::{BACKENDS, config, ending_in_spin, run_to_pc, system_with_configured_latency};
 use super::{Recorder, accounting_checks};
@@ -17,6 +18,21 @@ const SETTLE: u64 = 20_000;
 /// One hart with a 1 KiB L1D, a 4 KiB L2 and a 16 KiB LLC in front of a
 /// DDR5 controller with `params` (JSON, defaults for what it leaves out).
 fn ddr5_system(backend: BackendKind, params: &str) -> Config {
+    let mut config = small_caches(backend);
+    config.memory.controller = MemoryControllerKind::Ddr5;
+    config.memory.ddr5 = serde_json::from_str(params).expect("DDR5 parameters");
+    config
+}
+
+/// [`ddr5_system`]'s caches in front of the default LPDDR4 controller.
+fn lpddr4_system(backend: BackendKind) -> Config {
+    let mut config = small_caches(backend);
+    config.memory.controller = MemoryControllerKind::Lpddr4;
+    config
+}
+
+/// One hart with a 1 KiB L1D, a 4 KiB L2 and a 16 KiB LLC.
+fn small_caches(backend: BackendKind) -> Config {
     let mut config = config(backend);
     for (cache, bytes, ways) in [
         (&mut config.cache.l1_d, 1024, 1),
@@ -27,8 +43,6 @@ fn ddr5_system(backend: BackendKind, params: &str) -> Config {
         cache.size_bytes = std::num::NonZero::new(bytes).unwrap();
         cache.ways = std::num::NonZero::new(ways).unwrap();
     }
-    config.memory.controller = MemoryControllerKind::Ddr5;
-    config.memory.ddr5 = serde_json::from_str(params).expect("DDR5 parameters");
     config
 }
 
@@ -120,6 +134,29 @@ fn each_column_command_counts_its_row_and_its_burst(rec: &mut Recorder) {
                 &context,
             );
         }
+    }
+}
+
+fn lpddr4_takes_every_fetch_and_writeback_in_its_own_bursts(rec: &mut Recorder) {
+    for backend in BACKENDS {
+        let context = format!("{backend:?} LPDDR4");
+        let config = lpddr4_system(backend);
+        let burst = config.memory.lpddr4.to_config().timing.bl_half;
+
+        // 24 KiB of dirty lines through the 16 KiB LLC, within run_to_pc's
+        // budget at LPDDR4's latency.
+        let ctx = run_settled(&config, read_modify_write_lines(384), &context);
+
+        let fetched = llc(rec, &ctx, "misses") - llc(rec, &ctx, "mshr_hits")
+            + llc(rec, &ctx, "prefetches.issued");
+        let reads = total(rec, &ctx, "reads");
+        assert_eq!(reads + total(rec, &ctx, "reads_hit_write_queue"), fetched, "{context}");
+        let writes = total(rec, &ctx, "writes");
+        let written = writes + total(rec, &ctx, "writes_merged");
+        assert_eq!(written, llc(rec, &ctx, "writebacks"), "{context}: every writeback a write");
+        assert!(written > 0, "{context}: the LLC wrote lines back");
+        assert_eq!(total(rec, &ctx, "bus_busy_clocks"), (reads + writes) * burst, "{context}");
+        assert_eq!(subchannel_paths(&ctx, "reads").len(), 2, "{context}: two x16 channels");
     }
 }
 
@@ -223,6 +260,7 @@ fn requests_wait_for_a_queue_slot_only_when_the_queues_are_full(rec: &mut Record
 accounting_checks!(
     every_llc_fetch_and_writeback_reaches_dram_once,
     each_column_command_counts_its_row_and_its_burst,
+    lpddr4_takes_every_fetch_and_writeback_in_its_own_bursts,
     the_latency_and_queue_samples_are_one_per_request,
     every_dram_clock_is_counted_and_refreshed_on_time,
     idle_ranks_power_down_and_a_patrol_scrubs_when_configured,

@@ -260,6 +260,8 @@ def _controller_dicts(mc: _AnyMemoryController) -> dict[str, Any]:
         fields.update({"t_cas": mc.t_cas, "t_ras": mc.t_ras, "t_pre": mc.t_pre})
     elif isinstance(mc, MemoryController.Ddr5):
         fields["ddr5"] = mc.to_dict()
+    elif isinstance(mc, MemoryController.Lpddr4):
+        fields["lpddr4"] = mc.to_dict()
     return fields
 
 

@@ -3,6 +3,7 @@
 
 use super::ddr5::Ddr5Params;
 use super::defaults;
+use super::lpddr4::Lpddr4Params;
 use super::{
     BhtConfig, CacheConfig, CoherenceConfig, FuConfig, HomeAgentConfig, InterconnectConfig,
     IttageConfig, LoadPrefetcherConfig, LoopConfig, MemoryConfig, PerceptronConfig, ScConfig,
@@ -38,6 +39,8 @@ pub struct ComponentDefaults {
     pub memory: MemoryConfig,
     /// The DDR5 controller.
     pub ddr5: Ddr5Params,
+    /// The LPDDR4 controller.
+    pub lpddr4: Lpddr4Params,
     /// The coherence fabric.
     pub coherence: CoherenceConfig,
     /// The snoop-filter home agent.
@@ -107,6 +110,7 @@ impl Default for ComponentDefaults {
             store_prefetcher: StorePrefetcherConfig::stream(),
             memory: MemoryConfig::default(),
             ddr5: Ddr5Params::default(),
+            lpddr4: Lpddr4Params::default(),
             coherence: CoherenceConfig::default(),
             snoop_filter: HomeAgentConfig::default(),
             interconnect: InterconnectConfig::default(),

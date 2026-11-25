@@ -87,6 +87,96 @@ pub struct CommandCycles {
     pub power_down: u64,
 }
 
+/// Why a DRAM standard's parameter block was rejected; `standard` names the
+/// block in the configuration (`ddr5`, `lpddr4`).
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum DramParamsError {
+    /// A topology count must be a power of two for the address mapper.
+    #[error("{standard}.{field} must be a power of two, got {value}")]
+    NotPowerOfTwo {
+        /// The parameter block.
+        standard: &'static str,
+        /// Name of the offending field.
+        field: &'static str,
+        /// Value supplied.
+        value: u8,
+    },
+    /// A count was zero.
+    #[error("{standard}.{field} must be non-zero")]
+    Zero {
+        /// The parameter block.
+        standard: &'static str,
+        /// Name of the offending field.
+        field: &'static str,
+    },
+    /// The write watermarks or queue sizes are inconsistent.
+    #[error("{standard} write watermarks must satisfy low < high <= write_queue_entries")]
+    WriteQueue {
+        /// The parameter block.
+        standard: &'static str,
+    },
+    /// A rank has more than 64 banks, which the refresh masks cannot cover.
+    #[error("{standard} supports at most 64 banks per rank")]
+    TooManyBanks {
+        /// The parameter block.
+        standard: &'static str,
+    },
+}
+
+/// Checks that each named topology count is a non-zero power of two.
+///
+/// # Errors
+///
+/// The first count that is zero or not a power of two.
+pub fn check_topology(
+    standard: &'static str,
+    counts: &[(&'static str, u8)],
+) -> Result<(), DramParamsError> {
+    for &(field, value) in counts {
+        if value == 0 {
+            return Err(DramParamsError::Zero { standard, field });
+        }
+        if !value.is_power_of_two() {
+            return Err(DramParamsError::NotPowerOfTwo { standard, field, value });
+        }
+    }
+    Ok(())
+}
+
+/// A parameter block's request queues and write-drain watermarks.
+#[derive(Clone, Copy, Debug)]
+pub struct DrainQueues {
+    /// Read queue capacity.
+    pub read_entries: usize,
+    /// Write queue capacity.
+    pub write_entries: usize,
+    /// Write-queue depth that starts a drain.
+    pub high_watermark: usize,
+    /// Write-queue depth that ends a drain.
+    pub low_watermark: usize,
+}
+
+impl DrainQueues {
+    /// Checks that both queues hold something and the watermarks satisfy
+    /// `low < high <= write_entries`.
+    ///
+    /// # Errors
+    ///
+    /// A queue of zero entries, or watermarks out of order.
+    pub const fn check(self, standard: &'static str) -> Result<(), DramParamsError> {
+        if self.write_entries == 0
+            || self.high_watermark > self.write_entries
+            || self.low_watermark >= self.high_watermark
+        {
+            return Err(DramParamsError::WriteQueue { standard });
+        }
+        if self.read_entries == 0 {
+            return Err(DramParamsError::Zero { standard, field: "read_queue_entries" });
+        }
+        Ok(())
+    }
+}
+
 /// When a rank with nothing to do enters power-down.
 ///
 /// A powered-down rank pays tXP after the exit command before its next

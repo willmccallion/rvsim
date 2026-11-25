@@ -421,11 +421,29 @@ MemoryController.Ddr5(        # Command-level JEDEC DDR5 (see Memory Hierarchy);
     patrol_scrub_ns=None,     # e.g. 100_000 to enable patrol scrubbing
     timing=None,              # Per-field overrides in DRAM command clocks, e.g. {"t_rcd": 40}
 )
+MemoryController.Lpddr4(      # Command-level JEDEC LPDDR4 on the same controller
+    speed_bin="Lpddr4_3200",
+    density="Gb16",           # Per-channel die: "Gb4", "Gb8" or "Gb16"
+    channels=2,               # 16-bit channels; an x32 package has two
+    ranks_per_channel=1,
+    read_queue_entries=64,    # Queues, latencies and policies as for Ddr5
+    write_queue_entries=64,
+    write_high_watermark=54,
+    write_low_watermark=32,
+    min_writes_per_switch=16,
+    frontend_latency_ns=10,
+    backend_latency_ns=10,
+    scheduler="FrFcfs",
+    refresh="AllBank",        # or "PerBank" (REFpb, one bank every tREFI / 8)
+    address_mapping="RoRaBaChCo",
+    power_down_idle_ns=None,
+    timing=None,
+)
 ```
 
 On the DRAM controller a row hit costs `t_cas` and a row miss
-`t_pre + t_ras + t_cas`. The DDR5 controller runs at the DRAM command clock
-(half the data rate) and converts to and from the core clock through `cpu_clock_mhz`; its statistics appear under
+`t_pre + t_ras + t_cas`. The DDR5 and LPDDR4 controllers run at the DRAM command clock
+(half the data rate) and convert to and from the core clock through `cpu_clock_mhz`; their statistics appear under
 `memctrl0.ch<C>.sc<S>.*`. Every controller sits behind the system bus, so a
 miss to memory also pays `bus_latency` each way.
 
@@ -451,7 +469,7 @@ console.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `cpu_clock_mhz` | `int` | `4000` | Core clock: converts between cycles and time for SE mode's time syscalls, the DDR5 controller, device latencies, the RTC and a real-time timer |
+| `cpu_clock_mhz` | `int` | `4000` | Core clock: converts between cycles and time for SE mode's time syscalls, the DDR5 and LPDDR4 controllers, device latencies, the RTC and a real-time timer |
 | `hart_count` | `int` | `1` | Harts in the system, one per core (see [Multi-core](#multi-core)) |
 | `bus_width` | `int` | `8` | System bus width in bytes |
 | `bus_latency` | `int` | `1` | System bus latency in cycles, each way |

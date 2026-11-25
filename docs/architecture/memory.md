@@ -378,7 +378,7 @@ last free MSHR; each level's prefetcher works independently.
 
 ## DRAM Controller
 
-Three memory controllers are available; all sit behind the L3 (or the last
+Four memory controllers are available; all sit behind the L3 (or the last
 enabled cache level) and the system bus.
 
 **Simple controller** — every access takes `latency` cycles
@@ -457,3 +457,43 @@ address order at that rate.
 `write_admission_stalls`, and the histograms `read_latency`,
 `read_queue_depth`, `write_queue_depth`. Per-bank counters sit under
 `rank<R>.bank<B>` and are queryable but omitted from the summary.
+
+### LPDDR4 Controller
+
+`MemoryController.Lpddr4()` runs the same command-level controller with
+LPDDR4's organisation and command bus (JESD209-4, with the timing Micron's
+x32 LPDDR4 datasheets give). An x32 package is two independent 16-bit
+channels, each a die of eight banks with 2 KiB rows and no bank groups, so
+each channel here has one sub-channel and one bank group. A 64-byte line is
+one 32-beat burst: 16 clocks on the data bus, and tCCD is 16 clocks.
+
+**Command bus.** Every LPDDR4 command is two-clock halves: ACTIVATE
+(ACTIVATE-1, ACTIVATE-2), READ and WRITE (with CAS-2) hold the command bus
+for four clocks, PRECHARGE and REFRESH for two. Power-down is entered and
+left on CKE, off the command bus.
+
+**Timing.** LPDDR4 counts a READ's latency (RL) and a WRITE's (WL) from the
+last clock of the four-clock command, and tRCD and tRAS from ACTIVATE-2; the
+controller measures every constraint from the first clock of a command, so
+the speed bin is resolved into those terms. At LPDDR4-3200 (tCK 0.625 ns):
+
+| Controller field | Datasheet rule | Clocks |
+|---|---|---:|
+| `t_cas` | RL 28, from the last clock of the READ, plus tDQSCK max (3.5 ns) | 37 |
+| `t_cwl` | WL 14 (set A), from the last clock of the WRITE, plus tDQSS | 18 |
+| `t_rcd`, `t_ras` | 18 ns and 42 ns, from ACTIVATE-2 | 31, 70 |
+| `t_rp`, `t_rp_all` | tRPpb 18 ns, tRPab 21 ns | 29, 34 |
+| `t_rrd_s`, `t_rrd_l`, `t_faw` | 10 ns (no bank groups), 40 ns | 16, 16, 64 |
+| `t_wtr_s`, `t_wtr_l` | WRITE to READ: WL + 1 + BL/2 + RU(tWTR), from the end of the write's data | 13 |
+| `t_wr` | WRITE to PRECHARGE: WL + 1 + BL/2 + RU(tWR), from the end of the write's data | 26 |
+| `t_rtp` | READ to PRECHARGE: BL/2 + MAX(8, RU(tRTP)) - 8 | 20 |
+| `t_rtw` | READ to WRITE: RL + RU(tDQSCK max) + BL/2 - WL + tWPRE, between the bursts | 3 |
+
+`density` (`Gb4`, `Gb8`, `Gb16`, per channel) sets the rows of a bank and
+the refresh times: tRFCab 180, 280 and 380 ns, tRFCpb 90, 140 and 190 ns,
+every tREFI of 3.904 µs. The 6 Gb and 12 Gb dies have a number of rows
+that is not a power of two, which the address mapper cannot slice.
+`refresh="PerBank"` issues `REFpb` to one bank every tREFI / 8. A
+precharge of every bank recovers in tRPab before the bank's next
+ACTIVATE or REFRESH. Queues, scheduling, power-down and statistics are the
+DDR5 controller's.

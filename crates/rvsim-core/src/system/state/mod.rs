@@ -11,6 +11,7 @@ use crate::arch::pmp::Pmp;
 use crate::arch::regs::RegisterFile;
 use crate::arch::{Hart, HartInit};
 use crate::common::{HartId, NANOS_PER_SECOND, SimError};
+use crate::config::dram::DramStandardConfig;
 use crate::config::{Config, InclusionPolicy, MemoryControllerKind, ValidConfig};
 use crate::isa::csr::MSTATUS_DEFAULT_RV64;
 use crate::isa::privileged::PrivilegeMode;
@@ -107,14 +108,25 @@ fn build_mem_controller(config: &Config) -> Box<dyn MemoryController> {
                 Bandwidth::new(bytes_per_second, config.system.cpu_clock_hz().get()),
             ))
         }
-        MemoryControllerKind::Ddr5 => Box::new(Ddr5Controller::new(
-            config.system.ram_base,
-            config.memory.ram_size,
-            &config.memory.ddr5.to_config(),
-            MemCtrlId::new(0),
-            config.system.cpu_clock_mhz.get(),
-        )),
+        MemoryControllerKind::Ddr5 => {
+            Box::new(command_level_controller(config, &config.memory.ddr5.to_config()))
+        }
+        MemoryControllerKind::Lpddr4 => {
+            Box::new(command_level_controller(config, &config.memory.lpddr4.to_config()))
+        }
     }
+}
+
+/// The command-level controller over the configured RAM, with `standard`'s
+/// timing and organisation.
+fn command_level_controller(config: &Config, standard: &DramStandardConfig) -> Ddr5Controller {
+    Ddr5Controller::new(
+        config.system.ram_base,
+        config.memory.ram_size,
+        standard,
+        MemCtrlId::new(0),
+        config.system.cpu_clock_mhz.get(),
+    )
 }
 
 /// The shared LLC, in front of the bus.

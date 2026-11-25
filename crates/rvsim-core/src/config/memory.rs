@@ -28,6 +28,10 @@ pub enum MemoryControllerKind {
     /// power-down and ECC scrubbing. Parameters come from
     /// [`MemoryConfig::ddr5`].
     Ddr5,
+    /// LPDDR4 on the same command-level controller, with LPDDR4's speed
+    /// bins, organisation and command bus. Parameters come from
+    /// [`MemoryConfig::lpddr4`].
+    Lpddr4,
 }
 
 /// Main memory system configuration.
@@ -46,6 +50,9 @@ pub struct MemoryConfig {
 
     /// DDR5 controller parameters; used when `controller` is `Ddr5`.
     pub ddr5: crate::config::ddr5::Ddr5Params,
+
+    /// LPDDR4 controller parameters; used when `controller` is `Lpddr4`.
+    pub lpddr4: crate::config::lpddr4::Lpddr4Params,
 
     /// CAS latency (column access strobe)
     pub t_cas: u64,
@@ -133,6 +140,7 @@ impl Default for MemoryConfig {
             ram_size: defaults::RAM_SIZE,
             controller: MemoryControllerKind::default(),
             ddr5: crate::config::ddr5::Ddr5Params::default(),
+            lpddr4: crate::config::lpddr4::Lpddr4Params::default(),
             t_cas: defaults::T_CAS,
             t_ras: defaults::T_RAS,
             t_pre: defaults::T_PRE,

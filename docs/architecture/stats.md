@@ -47,7 +47,7 @@ stalls."
 core<N>       — physical execution core (pipeline + private caches + BP)
 hart<N>       — architectural hart (retired instructions, traps, mode cycles)
 llc           — the shared last-level cache (registered, and zero, without an L3)
-memctrl<N>    — DDR5 memory controller channels and sub-channels (DDR5 only)
+memctrl<N>    — command-level memory controller channels and sub-channels (DDR5, LPDDR4)
 coherence     — coherence fabric: coherence.ha.* (home agent), coherence.interconnect.*
                (only with more than one core)
 system        — sums over every hart (system.retired_insts, system.traps)
@@ -210,7 +210,7 @@ because the line was already held, in flight or being written back), and its
 | `coherence.ha.filter.hits`, `.misses` | Snoop-filter lookups |
 | `coherence.ha.serialised`, `.txn_full_stalls` | Requests that waited behind another on the same line, or for a free transaction |
 | `coherence.interconnect.{messages,bytes,busy_cycles,blocked_cycles}` | Interconnect traffic and occupancy |
-| `memctrl0.ch<C>.sc<S>.*` | DDR5 sub-channel counters and histograms (see [Memory Hierarchy](memory.md#ddr5-controller)); per-bank counters under `rank<R>.bank<B>` |
+| `memctrl0.ch<C>.sc<S>.*` | DDR5 or LPDDR4 sub-channel counters and histograms (see [Memory Hierarchy](memory.md#ddr5-controller)); per-bank counters under `rank<R>.bank<B>` |
 | `system.retired_insts`, `system.traps` | Sums over every hart |
 
 The run-level `cycles`, `instructions_retired` and `ipc` are not paths in
