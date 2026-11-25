@@ -87,10 +87,13 @@ Backend.OutOfOrder(
 )
 ```
 
-- **Register files.** The integer and floating-point registers form one
-  pool of `prf_gpr_size + prf_fpr_size` with 64 holding the architectural
-  registers, so rename stalls once the rest are destinations of
-  instructions in flight; the default's 352 cover its 320-entry ROB.
+- **Register files.** The integer and floating-point registers are two
+  files of `prf_gpr_size` and `prf_fpr_size`, each with 32 holding the
+  architectural registers, and rename stalls an instruction once the rest
+  of its destination's file are destinations of instructions in flight,
+  whatever the other file has free. The default's 192 integer and 160 FP
+  rename registers are fewer than its 320-entry ROB, so a run of either
+  kind can stall before the ROB fills.
 - **Squash recovery.** A mispredicted branch with a checkpoint restores the
   rename map from it at once, and a squash whose branch has already retired,
   or a trap, copies back the committed map at once. Any other squash (a
@@ -586,8 +589,8 @@ building another machine:
   the coherence transaction entries and the interconnect's
   `bytes_per_cycle` are at least 1.
 - **Registers.** On the out-of-order backend `prf_gpr_size` and
-  `prf_fpr_size` each hold their 32 architectural registers and together
-  leave at least one more, and `prf_vpr_size` holds the 32 architectural
+  `prf_fpr_size` each hold their 32 architectural registers and at least
+  one more, and `prf_vpr_size` holds the 32 architectural
   vector registers and one eight-register group, at least 40.
 - **Units.** The unit pool has an integer ALU, a branch unit and a memory
   unit, a multiplier and a divider when the ISA has M, and every FP unit

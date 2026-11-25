@@ -147,12 +147,12 @@ pub struct PipelineConfig {
     /// Issue Queue size (for O3 backend)
     pub issue_queue_size: usize,
 
-    /// Physical Register File GPR size (O3 backend).
-    /// Must satisfy: `prf_gpr_size` >= 32 + `rob_size`.
+    /// Physical integer registers (O3 backend): the 32 architectural ones
+    /// and the ones rename gives integer destinations; at least 33.
     pub prf_gpr_size: usize,
 
-    /// Physical Register File FPR size (O3 backend).
-    /// Must satisfy: `prf_fpr_size` >= 32 + `rob_size`.
+    /// Physical FP registers (O3 backend): the 32 architectural ones and
+    /// the ones rename gives FP destinations; at least 33.
     pub prf_fpr_size: usize,
 
     /// Load Queue size (O3 backend).

@@ -29,6 +29,7 @@ use crate::uarch::pipeline::rename::checkpoint::{CheckpointId, CheckpointTable};
 use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::map::RenameMap;
 use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
+use crate::uarch::pipeline::rename::scalar_free::ScalarFreeLists;
 use crate::uarch::pipeline::rename::scoreboard::Scoreboard;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
@@ -101,7 +102,7 @@ pub enum CommitRegisters<'a> {
         /// The committed architectural-to-physical mapping.
         rename_map: &'a mut RenameMap,
         /// Free scalar physical registers.
-        free_list: &'a mut FreeList<PhysReg>,
+        free_list: &'a mut ScalarFreeLists,
         /// In-flight loads, released as they retire.
         load_queue: &'a mut LoadQueue,
         /// Branch checkpoints, freed as their branch retires.

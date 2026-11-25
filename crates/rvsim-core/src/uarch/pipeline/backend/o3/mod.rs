@@ -40,7 +40,8 @@ use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::checkpoint::CheckpointTable;
 use crate::uarch::pipeline::rename::free_list::{FreeList, PhysRegister};
 use crate::uarch::pipeline::rename::map::RenameMap;
-use crate::uarch::pipeline::rename::prf::{PhysReg, PhysRegFile};
+use crate::uarch::pipeline::rename::prf::PhysRegFile;
+use crate::uarch::pipeline::rename::scalar_free::{ARCH_SCALAR_REGS, ScalarFreeLists};
 use crate::uarch::pipeline::rename::vec_prf::VecPhysReg;
 use crate::uarch::pipeline::rename::vec_prf::VecPhysRegFile;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob};
@@ -53,7 +54,6 @@ use self::issue_queue::{IssueQueue, Selection};
 
 /// Physical registers the integer and floating-point architectural state
 /// holds: the GPRs first, then the FPRs.
-const ARCH_SCALAR_REGS: usize = 2 * RegIdx::COUNT;
 /// Physical vector registers the architectural v0..v31 hold.
 const ARCH_VECTOR_REGS: usize = VRegIdx::COUNT;
 
@@ -95,7 +95,7 @@ pub struct O3Engine {
     /// Physical register file (64-bit values + ready bits).
     prf: PhysRegFile,
     /// Free list of available physical register indices.
-    free_list: FreeList<PhysReg>,
+    free_list: ScalarFreeLists,
     /// Speculative rename map: arch reg → physical reg.
     rename_map: RenameMap,
     /// Committed rename map — restored on full trap flush.
@@ -208,7 +208,7 @@ impl O3Engine {
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),
             load_queue: LoadQueue::new(config.pipeline.load_queue_size),
             prf,
-            free_list: FreeList::new((ARCH_SCALAR_REGS..prf_total).map(PhysReg::from_index)),
+            free_list: ScalarFreeLists::new(prf_gpr_size, prf_fpr_size),
             rename_map: RenameMap::new(),
             committed_rename_map: RenameMap::new(),
             issue_queue: IssueQueue::new(config.pipeline.issue_queue_size),

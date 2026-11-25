@@ -56,7 +56,7 @@ timer is too coarse to time them.
 
 ## Scores against hardware
 
-Measured 2026-11-24, one hart, from the Linux boot, with the calibrated
+Measured 2026-11-25, one hart, from the Linux boot, with the calibrated
 configurations' load/store-unit prefetchers. The hardware columns
 are published single-core figures; Dhrystone varies a lot with the
 compiler, so Arm's quoted figure and a measured Raspberry Pi 4 are both
@@ -64,10 +64,10 @@ given.
 
 | Calibrated configuration | Benchmark | rvsim | Hardware | Source |
 |---|---|---:|---:|---|
-| `cortex_a72` | CoreMark/MHz | 5.09 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
-| `cortex_a72` | DMIPS/MHz | 3.87 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
+| `cortex_a72` | CoreMark/MHz | 5.05 | 5.50 | Raspberry Pi 4 at 1.5 GHz, single thread |
+| `cortex_a72` | DMIPS/MHz | 3.77 | 3.77 measured, 4.72 quoted | Raspberry Pi 4; Arm's Cortex-A72 figure |
 | `p550` | CoreMark/MHz | 4.72 | not published | |
-| `p550` | DMIPS/MHz | 3.28 | not published | |
+| `p550` | DMIPS/MHz | 3.30 | not published | |
 
 SiFive publishes only SPECint2006 for the P550 (8.65 per GHz); no public
 CoreMark or Dhrystone figure for the EIC7700X was found. Its configuration
@@ -183,15 +183,14 @@ the loop's own instructions take. Measured 2026-11-25.
 | Structure (filler) | `cortex_a72` config | rvsim | Cortex-A72 | `p550` config | rvsim | P550 |
 |---|---:|---:|---:|---:|---:|---:|
 | Reorder buffer (nop) | 128 | 128 | 128 | 96 | 96 | ~96 |
-| Integer renames (add) | 64 | 128 | 64 | 95 | 96 | 95 |
-| FP renames (FP add) | 128 | 125 | not published | 87 | 93 | 87 |
+| Integer renames (add) | 64 | 64 | 64 | 95 | 95 | 95 |
+| FP renames (FP add) | 128 | 125 | not published | 87 | 87 | 87 |
 | Load queue (L1 hit) | 32 | 32 | ~32 | 20 | 20 | 20 |
 | Store queue (store) | 16 | 16 | ~16 | 16 | 16 | 16 |
 | Scheduler (dependent add) | 66 | 66 | 8 per queue | 32 | 32 | 28 (FP) |
 
-Two gaps are the model's. The integer and FP renames come from one shared
-pool, so neither size limits rename on its own and the reorder buffer runs
-out first (#377). And the A72's eight issue queues are one 66-entry queue
+The A72's FP renames cover its reorder buffer, which runs out first. One
+gap is the model's: the A72's eight issue queues are one 66-entry queue
 (#90), so dependent adds fill all of it rather than the integer pipes'
 queues.
 

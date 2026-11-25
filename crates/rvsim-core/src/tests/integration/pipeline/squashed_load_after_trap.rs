@@ -59,7 +59,7 @@ fn context(backend: BackendKind, latency: u64) -> TestContext {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.prf_gpr_size = 40;
-    config.pipeline.prf_fpr_size = 32;
+    config.pipeline.prf_fpr_size = 33;
     config.system.console = Console::Quiet;
     config.cache.l1_i.enabled = true;
     config.cache.l1_d.enabled = true;

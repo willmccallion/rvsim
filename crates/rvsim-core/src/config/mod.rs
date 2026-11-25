@@ -391,20 +391,10 @@ pub enum ConfigError {
         /// Its line size.
         first_line_bytes: usize,
     },
-    /// An out-of-order register file with no register beyond the
+    /// An out-of-order register file with no register beyond its 32
     /// architectural ones for rename to allocate.
-    #[error(
-        "pipeline.prf_gpr_size {gpr} + prf_fpr_size {fpr} leaves no register beyond the 64 architectural ones"
-    )]
-    NoFreeRegisters {
-        /// Configured integer registers.
-        gpr: usize,
-        /// Configured floating-point registers.
-        fpr: usize,
-    },
-    /// A register file smaller than its 32 architectural registers.
-    #[error("{field} {size} must hold its 32 architectural registers")]
-    ArchitecturalRegisters {
+    #[error("{field} {size} must hold its 32 architectural registers and one to rename")]
+    NoRenameRegisters {
         /// The register file's field.
         field: &'static str,
         /// Its size.

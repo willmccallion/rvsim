@@ -27,8 +27,8 @@ use crate::uarch::pipeline::latches::{
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
 use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
 use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
-use crate::uarch::pipeline::rename::free_list::FreeList;
 use crate::uarch::pipeline::rename::prf::PhysReg;
+use crate::uarch::pipeline::rename::scalar_free::ScalarFreeLists;
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecRegGroup};
 use crate::uarch::pipeline::rob::RenamedDst;
 use crate::uarch::pipeline::rob::RobTag;
@@ -135,7 +135,7 @@ impl O3Engine {
         let dest = inst.ctrl.dest(inst.rd);
         let renamed = match dest {
             Some(dest) => {
-                RenamedDst { phys: self.free_list.allocate()?, old: self.rename_map.get(dest) }
+                RenamedDst { phys: self.free_list.allocate(dest)?, old: self.rename_map.get(dest) }
             }
             None => RenamedDst::NONE,
         };
@@ -344,7 +344,7 @@ struct BackendSlots<'a> {
     store_buffer: &'a StoreBuffer,
     vec_store_buffer: &'a VecStoreBuffer,
     load_queue: &'a LoadQueue,
-    free_list: &'a FreeList<PhysReg>,
+    free_list: &'a ScalarFreeLists,
     /// The load-queue and store-buffer slots rename sees this cycle.
     view: RenameView,
 }
@@ -354,7 +354,6 @@ impl BackendSlots<'_> {
     /// a store-buffer, vector-store-buffer or load-queue slot for a memory
     /// op, as gem5's rename checks each instruction's own resources.
     fn has_room_for(&self, decoded: &IdExEntry, load_slots: LoadSlots) -> bool {
-        let needs_dst = decoded.inst.ctrl.dest(decoded.inst.rd).is_some();
         let store_slot = if decoded.inst.ctrl.uses_store_buffer() {
             self.view.sq > 0 && !self.store_buffer.is_full()
         } else if is_vec_store(decoded.inst.ctrl.vec_op) {
@@ -364,7 +363,8 @@ impl BackendSlots<'_> {
         };
         let needed = load_slots.count();
         let load_slot = needed <= self.view.lq && needed <= self.load_queue.free_slots();
-        let register = !needs_dst || self.free_list.available() > 0;
+        let dest = decoded.inst.ctrl.dest(decoded.inst.rd);
+        let register = dest.is_none_or(|dest| self.free_list.has_free(dest));
         store_slot && load_slot && register
     }
 }

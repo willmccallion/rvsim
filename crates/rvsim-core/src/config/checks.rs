@@ -323,15 +323,9 @@ fn check_pipeline(pipeline: &PipelineConfig, misa: Misa) -> Result<(), ConfigErr
             ("pipeline.prf_gpr_size", pipeline.prf_gpr_size),
             ("pipeline.prf_fpr_size", pipeline.prf_fpr_size),
         ] {
-            if size < RegIdx::COUNT {
-                return Err(ConfigError::ArchitecturalRegisters { field, size });
+            if size <= RegIdx::COUNT {
+                return Err(ConfigError::NoRenameRegisters { field, size });
             }
-        }
-        if pipeline.prf_gpr_size + pipeline.prf_fpr_size <= 2 * RegIdx::COUNT {
-            return Err(ConfigError::NoFreeRegisters {
-                gpr: pipeline.prf_gpr_size,
-                fpr: pipeline.prf_fpr_size,
-            });
         }
         if pipeline.prf_vpr_size < LEAST_VECTOR_REGISTERS {
             return Err(ConfigError::VectorRegisters(pipeline.prf_vpr_size));
