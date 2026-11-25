@@ -6,6 +6,9 @@ use crate::tests::support::builder::instruction::{InstructionBuilder, M5_FAIL};
 use crate::tests::support::multihart::{DATA_BASE, MultiHart};
 use crate::tests::support::regs::{A0, A2, T0, T1, T2, T3, T4, T5, T6, X0, X10, X11};
 const MHARTID: u32 = 0xF14;
+/// Several times the 31,000 cycles the slowest of these takes, so a broken
+/// machine fails quickly instead of running out a long budget.
+const MAX_CYCLES: u64 = 200_000;
 
 /// `data[0] += 1` `iterations` times on every hart, then `data[1] += 1`;
 /// hart 0 waits for `data[1] == harts` and exits with `data[0]`.
@@ -39,7 +42,7 @@ fn total_is_exact(harts: usize, backend: BackendKind) {
     let iterations = 200;
     let mut system = MultiHart::new(harts, backend, &program(harts as i32, iterations));
 
-    let exit = system.run_until_exit(4_000_000);
+    let exit = system.run_until_exit(MAX_CYCLES);
 
     let expected = (harts as u64) * (iterations as u64);
     assert_eq!(exit, Some(expected), "{harts} harts on {backend:?}");
@@ -71,5 +74,5 @@ fn four_o3_harts_count_exactly() {
 fn a_single_hart_has_no_write_log() {
     let mut system = MultiHart::new(1, BackendKind::OutOfOrder, &program(1, 50));
     assert!(system.sim.state.uncore.kernel.memory.write_log().is_none());
-    assert_eq!(system.run_until_exit(1_000_000), Some(50));
+    assert_eq!(system.run_until_exit(MAX_CYCLES), Some(50));
 }
