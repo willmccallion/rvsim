@@ -403,8 +403,10 @@ fn fetch_instruction<E: ExecutionEngine>(
         if !cursor.group.entries.is_empty() {
             return FetchStep::Stop;
         }
+        // The block it crosses into is on the next line when this one ends
+        // the line.
         let line = LineAddr::from_phys(paddr, cursor.line_bytes);
-        if end > end_of_aligned(pc, cursor.line_bytes)
+        if cursor.block_end == end_of_aligned(pc, cursor.line_bytes)
             && !fetch_buffer.holds(line, state.core().l1_i_cache.invalidations())
         {
             cursor.group.request_line(engine.common_mut(), line);
@@ -426,7 +428,8 @@ fn fetch_instruction<E: ExecutionEngine>(
             .unwrap_or_else(|| PhysAddr::new(paddr.val() + FETCH_TRANSLATION_BYTES));
         let upper_half = read_inst_half(state, upper.val());
         // The line the upper half is on: the next one when it straddles.
-        (entry, (u32::from(upper_half) << 16) | u32::from(half_word), upper)
+        let line_paddr = upper;
+        (entry, (u32::from(upper_half) << 16) | u32::from(half_word), line_paddr)
     };
     let line = LineAddr::from_phys(line_paddr, cursor.line_bytes);
     push_fetched(state, engine, cursor, FetchedInst { entry, bits, size, line })
