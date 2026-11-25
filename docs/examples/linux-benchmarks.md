@@ -209,8 +209,13 @@ mispredict. Measured 2026-11-25.
 
 The return stacks match, and the P550's overflows sharply, as Chips and
 Cheese saw: three returns mispredict one frame past it. The A72's taken
-branches are too fast: rvsim's front end takes a branch the BTB predicts
-with no bubble, and has no micro-BTB in front of a slower main BTB (#85).
+branches are too fast because the calibration leaves rvsim's taken-branch
+bubbles off. With `fetch_block_bytes=16`, `btb_taken_bubbles=2` and a
+64-entry micro-BTB of one bubble the probe reads 2 cycles up to 64
+branches and 3 up to 4096, as on hardware, but Dhrystone falls to 3.17
+DMIPS/MHz and CoreMark to 4.36/MHz: rvsim's fetch has no instruction queue
+to run ahead of decode, so every bubble reaches the backend, where the
+A72's 16-byte fetch into a 3-wide decoder hides most of them (#383).
 SiFive does not publish the P550 BTB's associativity, but Chips and
 Cheese's chart shows 32 zero-bubble branches at 4-, 8- and 16-byte
 spacings alike, which a set-indexed 32-entry BTB cannot hold, so the
