@@ -1,10 +1,10 @@
-//! DDR5 memory controller with per-bank command state machines.
+//! Command-level DRAM controller with per-bank command state machines.
 //!
 //! [`Ddr5Controller`] implements the [`MemoryController`] trait and services
 //! `MemReq` packets by translating each request into a JEDEC-compliant
 //! sequence of ACTIVATE / PRECHARGE / READ / WRITE / REFRESH commands. Every
-//! command respects the DDR5 timing constants declared in
-//! [`crate::config::ddr5::timing::Ddr5Timing`]. In debug builds each
+//! command respects the timing in [`crate::config::dram::timing::DramTiming`],
+//! which each JEDEC standard's front end resolves. In debug builds each
 //! command issue is guarded by `debug_assert!` calls that name the constraint
 //! being enforced; release builds compile these checks out.
 //!
@@ -33,7 +33,7 @@ mod refresh;
 mod schedule;
 
 use crate::common::{LineAddr, PhysAddr};
-use crate::config::ddr5::Ddr5Config;
+use crate::config::dram::DramStandardConfig;
 use crate::sim::components::{
     BankGroupId, ChannelId, ComponentId, MemCtrlId, RankId, ReqId, RowId, SubchannelId,
 };
@@ -108,7 +108,7 @@ pub struct Ddr5Controller {
     base: PhysAddr,
     channels: Vec<DramChannel>,
     mapper: AddressMapper,
-    config: Ddr5Config,
+    config: DramStandardConfig,
     self_id: MemCtrlId,
     clock: ClockRatio,
     scheduler: Box<dyn MemScheduler>,
@@ -138,7 +138,7 @@ impl Ddr5Controller {
     pub fn new(
         base: PhysAddr,
         ram_bytes: u64,
-        config: &Ddr5Config,
+        config: &DramStandardConfig,
         self_id: MemCtrlId,
         cpu_clock_mhz: u64,
     ) -> Self {
@@ -618,6 +618,6 @@ fn index_to_u8(idx: usize) -> u8 {
     u8::try_from(idx).unwrap_or(u8::MAX)
 }
 
-const fn column_lead(t: &crate::config::ddr5::timing::Ddr5Timing, is_read: bool) -> u64 {
+const fn column_lead(t: &crate::config::dram::timing::DramTiming, is_read: bool) -> u64 {
     if is_read { t.t_cas } else { t.t_cwl }
 }

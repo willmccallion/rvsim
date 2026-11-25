@@ -2,7 +2,7 @@
 //! response, no debug assertion fires, and the data bus never carries two
 //! bursts at once.
 
-use crate::config::ddr5::Ddr5Timing;
+use crate::config::ddr5::Ddr5SpeedBin;
 use crate::sim::packet::DramCmdKind;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, read_op, tiny_config, write_op,
@@ -17,7 +17,7 @@ fn lcg(state: &mut u64) -> u64 {
 #[test]
 fn stress_1024_requests_all_complete() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let mut ids = Vec::with_capacity(1024);
     let mut seed = 0xdead_beef_cafe_babe;

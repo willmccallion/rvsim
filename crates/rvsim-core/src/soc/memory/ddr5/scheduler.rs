@@ -4,7 +4,7 @@
 //! (does its row sit open in the bank, and when could its next command
 //! issue) and asks the [`MemScheduler`] which one to advance this clock.
 
-use crate::config::ddr5::SchedulerKind;
+use crate::config::dram::SchedulerKind;
 use std::fmt::Debug;
 
 /// What the scheduler knows about one queued request.

@@ -11,6 +11,7 @@ mod coherence;
 mod components;
 pub mod ddr5;
 pub(crate) mod defaults;
+pub mod dram;
 mod general;
 mod machine;
 mod memory;

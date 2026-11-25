@@ -2,7 +2,7 @@
 //! when the data bus is oversubscribed, and each subsequent burst never
 //! overlaps a prior one.
 
-use crate::config::ddr5::Ddr5Timing;
+use crate::config::ddr5::Ddr5SpeedBin;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, controller_latency, read_op, tiny_config,
 };
@@ -10,7 +10,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 #[test]
 fn four_reads_across_bank_groups_serialize_on_data_bus() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     // Four cold reads, different (bg, bank) combinations, all rank 0.
     let addrs = [

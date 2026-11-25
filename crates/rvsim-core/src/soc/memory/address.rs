@@ -18,7 +18,7 @@
 
 use crate::common::PhysAddr;
 use crate::config::AddressMappingKind;
-use crate::config::ddr5::CACHE_LINE_OFFSET_BITS;
+use crate::config::dram::CACHE_LINE_OFFSET_BITS;
 use crate::sim::components::{BankGroupId, ChannelId, RankId, RowId, SubchannelId};
 
 /// A decomposed physical address in DRAM-topology coordinates.

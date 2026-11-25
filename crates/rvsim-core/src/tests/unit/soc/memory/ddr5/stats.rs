@@ -2,7 +2,7 @@
 //! utilisation and latency samples land in the stats tree under
 //! `memctrl0.ch<C>.sc<S>`.
 
-use crate::config::ddr5::Ddr5Timing;
+use crate::config::ddr5::Ddr5SpeedBin;
 use crate::tests::unit::soc::memory::ddr5::common::{
     Harness, addr_from, read_op, tiny_config, write_op,
 };
@@ -10,7 +10,7 @@ use crate::tests::unit::soc::memory::ddr5::common::{
 #[test]
 fn counters_and_derived_rates_reflect_the_commands_issued() {
     let cfg = tiny_config();
-    let t = Ddr5Timing::default();
+    let t = Ddr5SpeedBin::DDR5_4800B.timing();
     let mut h = Harness::new(&cfg);
     let miss = h.issue(addr_from(&cfg, 0, 0, 0, 0, 0), 0, read_op());
     let _ = h.response_at(miss);
