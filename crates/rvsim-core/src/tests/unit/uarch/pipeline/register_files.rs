@@ -111,3 +111,25 @@ fn the_zero_register_is_never_freed() {
 
     assert_eq!(lists.available(), 2);
 }
+
+#[test]
+fn an_empty_fp_file_has_none_free_while_the_integer_file_does() {
+    let mut lists = ScalarFreeLists::new(32 + 1, 32 + 1);
+    let taken = lists.allocate(ArchReg::Fp(RegIdx::new(5)));
+
+    assert!(taken.is_some());
+    assert!(!lists.has_free(ArchReg::Fp(RegIdx::new(5))));
+    assert!(lists.has_free(ArchReg::Int(RegIdx::new(5))));
+}
+
+#[test]
+fn the_first_integer_rename_register_returns_to_the_integer_file() {
+    let mut lists = ScalarFreeLists::new(32 + 1, 32 + 1);
+    let int = ArchReg::Int(RegIdx::new(5));
+    let first = lists.allocate(int).expect("one integer register is free");
+
+    lists.reclaim(first);
+
+    assert_eq!(first, PhysReg::from_index(64));
+    assert!(lists.has_free(int));
+}
