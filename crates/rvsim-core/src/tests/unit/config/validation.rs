@@ -128,6 +128,29 @@ fn an_inorder_core_that_never_squashes_after_a_csr_is_rejected() {
     assert!(matches!(err, ConfigError::InOrderNeverSquashes), "{err}");
 }
 
+/// The out-of-order backend dispatches in a stage of its own, so rename
+/// reaches issue in two cycles at the least; the in-order one in one.
+#[test]
+fn rename_reaches_issue_in_one_cycle_only_on_the_in_order_backend() {
+    let with = |backend, latency| {
+        minimal_with(|config| {
+            config.pipeline.backend = backend;
+            config.pipeline.rename_issue_latency = latency;
+        })
+    };
+
+    assert_eq!(
+        with(BackendKind::OutOfOrder, 1),
+        Err(ConfigError::StageLatency { field: "rename_issue_latency", least: 2 })
+    );
+    assert!(with(BackendKind::OutOfOrder, 2).is_ok());
+    assert!(with(BackendKind::InOrder, 1).is_ok());
+    assert_eq!(
+        with(BackendKind::InOrder, 0),
+        Err(ConfigError::StageLatency { field: "rename_issue_latency", least: 1 })
+    );
+}
+
 #[test]
 fn an_out_of_order_core_may_never_squash_after_a_csr() {
     let mut config = Config::minimal();
