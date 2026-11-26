@@ -318,7 +318,7 @@ const fn memory_entry(
         },
         store_data,
         store_data_follows: false,
-        replaying: false,
+        replay: None,
     }
 }
 

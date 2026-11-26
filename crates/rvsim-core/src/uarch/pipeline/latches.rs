@@ -26,6 +26,7 @@ use crate::sim::memory::write_log::WriteSeq;
 use crate::uarch::pipeline::commit_log::MemEffect;
 #[cfg(feature = "commit-log")]
 use crate::uarch::pipeline::commit_log::VectorElementAccess;
+use crate::uarch::pipeline::outstanding::PageTranslations;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rob::RobTag;
 
@@ -406,9 +407,11 @@ pub struct ExMem1Entry {
     /// A store's address half: `store_data` is not its data, which its
     /// data half delivers to the store buffer separately.
     pub store_data_follows: bool,
-    /// Memory1 sent it back to wait last cycle, so waiting on is the same
-    /// wait.
-    pub replaying: bool,
+    /// The translations it had when memory1 sent it back to wait last
+    /// cycle. While it waits it keeps them, as hardware keeps a waiting
+    /// access's physical address: waiting on is the same wait, and the
+    /// retry does not look its pages up again.
+    pub replay: Option<Box<PageTranslations>>,
 }
 
 /// Entry from Memory1 -> Memory2 latch.
@@ -484,7 +487,7 @@ impl ExMem1Entry {
             },
             store_data,
             store_data_follows: false,
-            replaying: false,
+            replay: None,
         }
     }
 }
