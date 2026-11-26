@@ -20,6 +20,8 @@ use crate::uarch::bpred::predictors::tournament::TournamentPredictor;
 use crate::uarch::bpred::{BranchPredUnit, ControlInst, DirectionPredictor};
 
 const PC: u64 = 0x1000;
+/// A PC whose tags with no history are not 0, so no empty entry matches.
+const UNTAGGED_PC: u64 = 0x8000_1004;
 const TARGET: u64 = 0x2000;
 
 /// A prediction unit and the next sequence number fetch would give out.
@@ -216,9 +218,19 @@ fn perceptron_retrains() {
     assert!(!bp.predicts_taken(PC));
 }
 
+/// At `PC` with no history every tag hashes to 0, which every empty tagged
+/// entry holds, so an empty entry provides the prediction: taken, from its
+/// zero counter. gem5's TAGE, which has no valid bit either, does the same.
 #[test]
-fn tage_starts_taken_from_its_base_predictor() {
+fn tage_predicts_a_branch_whose_tags_are_zero_from_an_empty_entry() {
     assert!(Driver::new(tage()).predicts_taken(PC));
+}
+
+/// A branch whose tags match no entry takes its base predictor's
+/// prediction, which starts weakly not taken.
+#[test]
+fn tage_predicts_a_branch_it_has_never_seen_from_its_base_predictor() {
+    assert!(!Driver::new(tage()).predicts_taken(UNTAGGED_PC));
 }
 
 #[test]
