@@ -238,11 +238,16 @@ mod tests {
         assert_eq!(unescape(b"a}\x5db}\x03c"), b"a}b#c");
     }
 
+    /// How long the debugger waits for bytes the target should send, so a
+    /// target that sends nothing fails the test instead of hanging it.
+    const DEBUGGER_PATIENCE: Duration = Duration::from_secs(5);
+
     /// A transport and the debugger's end of its loopback connection.
     fn connected() -> (Transport, TcpStream) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let debugger =
             TcpStream::connect(listener.local_addr().expect("its address")).expect("connect");
+        debugger.set_read_timeout(Some(DEBUGGER_PATIENCE)).expect("a read timeout");
         let (target, _) = listener.accept().expect("accept");
         (Transport::new(target), debugger)
     }
