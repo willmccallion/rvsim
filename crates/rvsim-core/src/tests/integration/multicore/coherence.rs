@@ -131,6 +131,16 @@ fn producer_consumer(harts: i32) -> Vec<u32> {
     code
 }
 
+/// Cycles each workload may run: about four times the most any machine
+/// here needs, so a machine that breaks one fails its test in seconds
+/// rather than running out a far larger budget.
+const AMO_COUNTER_CYCLES: u64 = 100_000;
+const SPINLOCK_CYCLES: u64 = 600_000;
+const SHARED_LINE_STORES_CYCLES: u64 = 100_000;
+const PRODUCER_CONSUMER_CYCLES: u64 = 20_000;
+const CONTENDED_STREAMS_CYCLES: u64 = 30_000;
+const RESERVED_LINE_CYCLES: u64 = 400_000;
+
 /// Runs to the guest's exit with every cache invariant checked after every
 /// event; a broken one fails the test with the event's cycle.
 fn run_audited(system: &mut MultiHart, max_cycles: u64) -> Option<u64> {
@@ -156,17 +166,17 @@ fn check_all_programs(config: &Config, label: &str) {
 
     let mut system =
         MultiHart::with_config(config, &amo_counter::program(harts.get() as i32, iterations));
-    let exit = run_audited(&mut system, 6_000_000);
+    let exit = run_audited(&mut system, AMO_COUNTER_CYCLES);
     assert_eq!(exit, Some(harts.get() as u64 * iterations as u64), "{label}: amo counter");
 
     let mut system =
         MultiHart::with_config(config, &spinlock::program(harts.get() as i32, iterations));
-    let exit = run_audited(&mut system, 6_000_000);
+    let exit = run_audited(&mut system, SPINLOCK_CYCLES);
     assert_eq!(exit, Some(harts.get() as u64 * iterations as u64), "{label}: spinlock");
 
     let mut system =
         MultiHart::with_config(config, &shared_line_stores(harts.get() as i32, iterations));
-    let exit = run_audited(&mut system, 6_000_000);
+    let exit = run_audited(&mut system, SHARED_LINE_STORES_CYCLES);
     assert_eq!(exit, Some(harts.get() as u64 * iterations as u64), "{label}: shared line stores");
     assert!(
         fabric_stat(&system, "coherence.ha.snoops_sent") > 0,
@@ -174,7 +184,7 @@ fn check_all_programs(config: &Config, label: &str) {
     );
 
     let mut system = MultiHart::with_config(config, &producer_consumer(harts.get() as i32));
-    let exit = run_audited(&mut system, 6_000_000);
+    let exit = run_audited(&mut system, PRODUCER_CONSUMER_CYCLES);
     assert_eq!(exit, Some((harts.get() as u64 - 1) * 36), "{label}: producer/consumer");
     assert!(
         fabric_stat(&system, "coherence.ha.c2c_transfers") > 0,
@@ -213,7 +223,7 @@ fn a_tiny_snoop_filter_recalls_lines_and_stays_exact() {
     };
     check_all_programs(&config, "tiny filter");
     let mut system = MultiHart::with_config(&config, &shared_line_stores(4, 60));
-    run_audited(&mut system, 6_000_000).expect("exit");
+    run_audited(&mut system, SHARED_LINE_STORES_CYCLES).expect("exit");
     assert!(fabric_stat(&system, "coherence.ha.recalls") > 0, "the filter had to recall lines");
 }
 
@@ -279,7 +289,7 @@ fn cores_without_caches_take_no_part_in_coherence() {
     config.system.hart_count = std::num::NonZero::new(2).unwrap();
     config.system.console = Console::Quiet;
     let mut system = MultiHart::with_config(&config, &shared_line_stores(2, 20));
-    let exit = run_audited(&mut system, 2_000_000);
+    let exit = run_audited(&mut system, SHARED_LINE_STORES_CYCLES);
     assert_eq!(exit, Some(40));
     assert_eq!(fabric_stat(&system, "coherence.ha.snoops_sent"), 0);
     assert!(fabric_stat(&system, "coherence.ha.requests.non_coherent") > 0);
@@ -520,7 +530,7 @@ fn prefetches_contending_for_lines_other_cores_write_stay_coherent() {
             let mut system =
                 MultiHart::with_config(&config, &contended_streams(harts as i32, rounds));
 
-            let exit = run_audited(&mut system, 6_000_000);
+            let exit = run_audited(&mut system, CONTENDED_STREAMS_CYCLES);
 
             let expected = STREAM_LINES as u64 * (1 + (harts as u64 - 1) * rounds as u64);
             assert_eq!(exit, Some(expected), "{label}: every word's final value");
@@ -605,7 +615,7 @@ fn store_prefetches_of_a_reserved_line_keep_lr_sc_atomic() {
             let program = reserved_line_under_store_prefetch(harts as i32, iterations);
             let mut system = MultiHart::with_config(&config, &program);
 
-            let exit = run_audited(&mut system, 6_000_000);
+            let exit = run_audited(&mut system, RESERVED_LINE_CYCLES);
 
             assert_eq!(exit, Some(harts as u64 * iterations as u64), "{label}: every increment");
             assert!(
