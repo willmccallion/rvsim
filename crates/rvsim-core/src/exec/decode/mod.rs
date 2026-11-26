@@ -20,6 +20,12 @@ use crate::isa::privileged::Trap;
 use crate::isa::reg::{self, RegFile};
 use crate::isa::rvv::{VtypeFields, parse_vtype};
 
+/// A source operand read from the integer registers.
+const INT_SOURCE: Option<RegFile> = Some(RegFile::Int);
+
+/// A source operand read from the floating-point registers.
+const FP_SOURCE: Option<RegFile> = Some(RegFile::Fp);
+
 /// Vector load/store width encoding for EEW=8.
 pub(super) const VEC_WIDTH_8: u32 = 0b000;
 
@@ -73,8 +79,6 @@ fn decode_instruction(inst: u32, d: &Decoded) -> Result<ControlSignals, DecodeFa
         a_src: OpASrc::Reg1,
         b_src: OpBSrc::Imm,
         alu: AluOp::Int(IntAluOp::Arith(ArithOp::Add)),
-        rs1_file: Some(RegFile::Int),
-        rs2_file: Some(RegFile::Int),
         ..Default::default()
     };
 
@@ -135,10 +139,6 @@ pub fn decode_inst(inst: u32, vtype_bits: u64) -> DecodedInst {
             ctrl = ControlSignals::default();
             fault = Some(DecodeFault::MisplacedRegisterGroup);
         }
-    }
-    if fault.is_some() {
-        ctrl.rs1_file = Some(RegFile::Int);
-        ctrl.rs2_file = Some(RegFile::Int);
     }
     DecodedInst { fields, ctrl, fault }
 }

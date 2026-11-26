@@ -1,7 +1,9 @@
 //! Scalar instruction decoding.
 
 use super::vector;
-use super::{DecodeFault, VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64};
+use super::{
+    DecodeFault, FP_SOURCE, INT_SOURCE, VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32, VEC_WIDTH_64,
+};
 use crate::exec::signals::{BranchCond, ControlFlow, ControlSignals, JumpKind, OpASrc, OpBSrc};
 use crate::isa::encoding::privileged as sys_ops;
 use crate::isa::encoding::rv64a::{
@@ -24,7 +26,6 @@ use crate::isa::op::{
     FpCompareOp, FpOp, IntAluOp, IntWidth, LogicOp, MemWidth, MinMaxOp, MulOp, OperandFormat,
     PackOp, RotateOp, ShiftAddOp, ShiftOp, SignInjectOp, Signedness, SingleBitOp, SystemOp,
 };
-use crate::isa::reg::RegFile;
 
 /// funct6 (bits 31:26) of the 64-bit shift-immediate encodings, whose low
 /// six immediate bits are the shift amount.
@@ -63,8 +64,8 @@ const FP_FMT_HALF: u32 = 2;
 const SFENCE_VMA_MASK: u32 = 0xFE00_7FFF;
 
 /// Decodes a scalar instruction (RV64IMAFDC, Zb*, Zk*, Zicsr, Zicbo*,
-/// Zfh) into `c`, which starts with `alu: Add`, `a_src: Reg1` and
-/// `b_src: Imm`.
+/// Zfh) into `c`, which starts with `alu: Add`, `a_src: Reg1`, `b_src: Imm`
+/// and no source registers read.
 pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), DecodeFault> {
     match d.opcode {
         i_opcodes::OP_LUI => {
@@ -82,39 +83,47 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
         i_opcodes::OP_JALR if d.funct3 == i_funct3::JALR => {
             c.reg_write = true;
             c.control_flow = ControlFlow::Jump(JumpKind::Jalr);
+            c.rs1_file = INT_SOURCE;
         }
         i_opcodes::OP_BRANCH => {
             c.control_flow =
                 ControlFlow::Branch(branch_cond(d.funct3).ok_or(DecodeFault::UnknownEncoding)?);
             c.b_src = OpBSrc::Reg2;
+            reads_int_rs1_rs2(c);
         }
         i_opcodes::OP_LOAD => {
             (c.width, c.signed_load) = load_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.reg_write = true;
             c.mem_read = true;
+            c.rs1_file = INT_SOURCE;
         }
         i_opcodes::OP_STORE => {
             c.width = store_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.mem_write = true;
+            reads_int_rs1_rs2(c);
         }
         i_opcodes::OP_IMM => {
             c.reg_write = true;
             c.alu = AluOp::Int(op_imm(inst, d).ok_or(DecodeFault::UnknownEncoding)?);
+            c.rs1_file = INT_SOURCE;
         }
         i_opcodes::OP_IMM_32 => {
             c.reg_write = true;
             c.alu = AluOp::Int(op_imm_32(inst, d).ok_or(DecodeFault::UnknownEncoding)?);
+            c.rs1_file = INT_SOURCE;
             c.format = OperandFormat::Int(word_op_width(c.alu));
         }
         i_opcodes::OP_REG => {
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
             c.alu = AluOp::Int(op(d).ok_or(DecodeFault::UnknownEncoding)?);
+            reads_int_rs1_rs2(c);
         }
         i_opcodes::OP_REG_32 => {
             c.reg_write = true;
             c.b_src = OpBSrc::Reg2;
             c.alu = AluOp::Int(op_32(d).ok_or(DecodeFault::UnknownEncoding)?);
+            reads_int_rs1_rs2(c);
             c.format = OperandFormat::Int(word_op_width(c.alu));
         }
         a_opcodes::OP_AMO => decode_amo(c, inst, d).ok_or(DecodeFault::UnknownEncoding)?,
@@ -125,6 +134,7 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
             let (width, format) = fp_mem_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.fp_reg_write = true;
             c.mem_read = true;
+            c.rs1_file = INT_SOURCE;
             c.width = width;
             c.format = OperandFormat::Fp(format);
         }
@@ -134,22 +144,12 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
         f_opcodes::OP_STORE_FP => {
             let (width, format) = fp_mem_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.mem_write = true;
-            c.rs2_file = Some(RegFile::Fp);
+            c.rs1_file = INT_SOURCE;
+            c.rs2_file = FP_SOURCE;
             c.width = width;
             c.format = OperandFormat::Fp(format);
         }
-        f_opcodes::OP_FP => {
-            c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(DecodeFault::UnknownEncoding)?);
-            c.rs1_file = Some(RegFile::Fp);
-            c.rs2_file = Some(RegFile::Fp);
-            c.fp_reg_write = true;
-            c.b_src = OpBSrc::Reg2;
-            let op = op_fp(c, d).ok_or(DecodeFault::UnknownEncoding)?;
-            c.alu = AluOp::Fp(op);
-            if rounds(op) {
-                c.fp_rm = Some(rounding(d)?);
-            }
-        }
+        f_opcodes::OP_FP => decode_op_fp(c, d)?,
         d_opcodes::OP_FMADD => decode_fused(c, d, FmaSigns::Macc)?,
         d_opcodes::OP_FMSUB => decode_fused(c, d, FmaSigns::MSac)?,
         d_opcodes::OP_FNMADD => decode_fused(c, d, FmaSigns::NMacc)?,
@@ -158,6 +158,9 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
         sys_ops::OP_PSEUDO => c.system_op = SystemOp::Pseudo(PseudoOp::of(inst)),
         i_opcodes::OP_MISC_MEM => {
             c.system_op = misc_mem_op(d).ok_or(DecodeFault::UnknownEncoding)?;
+            if c.system_op.is_cbo() {
+                c.rs1_file = INT_SOURCE;
+            }
         }
         _ => return Err(DecodeFault::UnknownEncoding),
     }
@@ -230,6 +233,10 @@ fn decode_amo(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Option<()> {
     }
     c.atomic_op = Some(op);
     c.b_src = OpBSrc::Zero;
+    c.rs1_file = INT_SOURCE;
+    if op != AtomicOp::Lr {
+        c.rs2_file = INT_SOURCE;
+    }
     c.acquire = inst & AMO_AQ != 0;
     c.release = inst & AMO_RL != 0;
     c.mem_read = true;
@@ -322,7 +329,7 @@ fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<FpOp> {
         f_funct7::FMV_F_X | d_funct7::FMV_D_X | h_funct7::FMV_H_X
             if rs2 == 0 && d.funct3 == f_funct3::FMV_X_W =>
         {
-            c.rs1_file = Some(RegFile::Int);
+            c.rs1_file = INT_SOURCE;
             FpOp::MoveFromInt
         }
         f_funct7::FCVT_W_F | d_funct7::FCVT_W_D | h_funct7::FCVT_W_H => {
@@ -335,7 +342,7 @@ fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<FpOp> {
             }
         }
         f_funct7::FCVT_F_W | d_funct7::FCVT_D_W | h_funct7::FCVT_H_W => {
-            c.rs1_file = Some(RegFile::Int);
+            c.rs1_file = INT_SOURCE;
             match FcvtInt::of(rs2)? {
                 FcvtInt::W => FpOp::FromInt(IntWidth::Word, Signedness::Signed),
                 FcvtInt::Wu => FpOp::FromInt(IntWidth::Word, Signedness::Unsigned),
@@ -372,6 +379,35 @@ fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<FpOp> {
     })
 }
 
+/// Decodes an OP-FP instruction into `c`.
+fn decode_op_fp(c: &mut ControlSignals, d: &Decoded) -> Result<(), DecodeFault> {
+    c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(DecodeFault::UnknownEncoding)?);
+    c.rs1_file = FP_SOURCE;
+    c.fp_reg_write = true;
+    c.b_src = OpBSrc::Reg2;
+    let op = op_fp(c, d).ok_or(DecodeFault::UnknownEncoding)?;
+    if reads_fp_rs2(op) {
+        c.rs2_file = FP_SOURCE;
+    }
+    c.alu = AluOp::Fp(op);
+    if rounds(op) {
+        c.fp_rm = Some(rounding(d)?);
+    }
+    Ok(())
+}
+
+/// Whether an OP-FP operation reads `rs2`; the rest keep a sub-opcode or
+/// a source format there.
+const fn reads_fp_rs2(op: FpOp) -> bool {
+    matches!(op, FpOp::Arith(_) | FpOp::SignInject(_) | FpOp::Min | FpOp::Max | FpOp::Compare(_))
+}
+
+/// Marks `rs1` and `rs2` as integer sources.
+const fn reads_int_rs1_rs2(c: &mut ControlSignals) {
+    c.rs1_file = INT_SOURCE;
+    c.rs2_file = INT_SOURCE;
+}
+
 /// Sends an FP instruction's result to the integer register file.
 const fn writes_int_register(c: &mut ControlSignals) {
     c.fp_reg_write = false;
@@ -380,9 +416,9 @@ const fn writes_int_register(c: &mut ControlSignals) {
 
 /// Decodes a fused multiply-add with the `signs` into `c`.
 fn decode_fused(c: &mut ControlSignals, d: &Decoded, signs: FmaSigns) -> Result<(), DecodeFault> {
-    c.rs1_file = Some(RegFile::Fp);
-    c.rs2_file = Some(RegFile::Fp);
-    c.rs3_file = Some(RegFile::Fp);
+    c.rs1_file = FP_SOURCE;
+    c.rs2_file = FP_SOURCE;
+    c.rs3_file = FP_SOURCE;
     c.fp_reg_write = true;
     c.b_src = OpBSrc::Reg2;
     c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(DecodeFault::UnknownEncoding)?);
@@ -396,6 +432,7 @@ fn decode_fused(c: &mut ControlSignals, d: &Decoded, signs: FmaSigns) -> Result<
 fn decode_system(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), DecodeFault> {
     if inst & SFENCE_VMA_MASK == sys_ops::SFENCE_VMA {
         c.system_op = SystemOp::SfenceVma;
+        reads_int_rs1_rs2(c);
         return Ok(());
     }
     if d.funct3 == 0 {
@@ -418,6 +455,9 @@ fn decode_system(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(), D
         sys_ops::CSRRCI => CsrOp::Rci,
         _ => return Err(DecodeFault::UnknownEncoding),
     };
+    if c.csr_op.reads_rs1() {
+        c.rs1_file = INT_SOURCE;
+    }
     c.system_op = SystemOp::Csr;
     c.csr_addr = inst.csr();
     c.b_src = OpBSrc::Zero;

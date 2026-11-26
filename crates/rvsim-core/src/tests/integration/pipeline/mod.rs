@@ -23,6 +23,7 @@ pub mod squashed_load_after_trap;
 pub mod stage_widths;
 pub mod trap_latency;
 pub mod unit_status;
+pub mod unread_sources;
 pub mod wfi_wake;
 pub mod writeback_width;
 pub mod xret_squash;

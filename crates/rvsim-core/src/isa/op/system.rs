@@ -99,3 +99,12 @@ pub enum CsrOp {
     /// CSR read-clear immediate (`CSRRCI`).
     Rci,
 }
+
+impl CsrOp {
+    /// Whether the operation takes its operand from `rs1`; the immediate
+    /// forms keep a 5-bit constant in that field instead.
+    #[must_use]
+    pub const fn reads_rs1(self) -> bool {
+        matches!(self, Self::Rw | Self::Rs | Self::Rc)
+    }
+}
