@@ -54,7 +54,8 @@ impl O3Engine {
             VectorContext { config: self.vector_config(csrs), rounding: csrs.vector_rounding() };
         let load_slots = self.load_slots_for(&decoded, &vector.config, state);
         let checkpoint = if self.needs_checkpoint(&decoded.inst.ctrl) {
-            let Some(slot) = self.checkpoints.free_slot() else {
+            let slot = self.checkpoints.free_slot().filter(|_| self.rename_view.checkpoints > 0);
+            let Some(slot) = slot else {
                 state.counter(state.core().stat_paths.pipeline.stalls_checkpoint).inc();
                 return Renamed::Stalled(Box::new(decoded));
             };
@@ -76,6 +77,7 @@ impl O3Engine {
         if let Some(slot) = checkpoint {
             let checkpoint_id = slot.fill(&mut self.checkpoints, dests.rob_tag, &self.rename_map);
             self.rob.set_checkpoint_id(dests.rob_tag, checkpoint_id);
+            self.rename_view.checkpoints -= 1;
         }
         let entry = renamed_entry(decoded, sources, &dests, vector);
         trace_renamed(state, &entry, dests.renamed.old);
@@ -140,7 +142,10 @@ impl O3Engine {
             None => RenamedDst::NONE,
         };
         let vd_count = if inst.ctrl.vec_reg_write { vd_count } else { 0 };
-        let vd_regs = self.vec_free_list.reserve(vd_count as usize);
+        let vd_regs = self
+            .vec_free_list
+            .reserve(vd_count as usize)
+            .filter(|_| usize::from(vd_count) <= self.rename_view.vec_regs);
         let rob_tag = vd_regs.as_ref().and_then(|_| {
             let rob = &mut self.rob;
             rob.allocate(inst, decoded.seq, renamed)
@@ -156,9 +161,11 @@ impl O3Engine {
             *slot = reg;
         }
         let vd = VecRegGroup::from_slice(&vd_regs_taken[..vd_count as usize]);
+        self.rename_view.vec_regs -= usize::from(vd_count);
         if let Some(dest) = dest {
             self.rename_map.set(dest, renamed.phys);
             self.prf.allocate(renamed.phys);
+            self.rename_view.take_register(dest);
         }
         if !vd.is_empty() {
             let vd_old = self.rename_map.rename_vec_group(inst.ctrl.vd, vd);
@@ -345,7 +352,7 @@ struct BackendSlots<'a> {
     vec_store_buffer: &'a VecStoreBuffer,
     load_queue: &'a LoadQueue,
     free_list: &'a ScalarFreeLists,
-    /// The load-queue and store-buffer slots rename sees this cycle.
+    /// The slots and registers rename sees free this cycle.
     view: RenameView,
 }
 
@@ -364,7 +371,8 @@ impl BackendSlots<'_> {
         let needed = load_slots.count();
         let load_slot = needed <= self.view.lq && needed <= self.load_queue.free_slots();
         let dest = decoded.inst.ctrl.dest(decoded.inst.rd);
-        let register = dest.is_none_or(|dest| self.free_list.has_free(dest));
+        let register = dest
+            .is_none_or(|dest| self.view.registers_for(dest) > 0 && self.free_list.has_free(dest));
         store_slot && load_slot && register
     }
 }

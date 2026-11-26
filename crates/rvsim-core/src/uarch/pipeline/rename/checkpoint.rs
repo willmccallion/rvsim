@@ -75,9 +75,9 @@ impl CheckpointTable {
         self.count == self.slots.len()
     }
 
-    #[cfg(test)]
     /// Returns the number of free slots.
     #[inline]
+    #[must_use]
     pub const fn available(&self) -> usize {
         self.slots.len() - self.count
     }

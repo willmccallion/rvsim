@@ -18,7 +18,7 @@ mod serialize;
 mod squash;
 
 use crate::config::Config;
-use crate::isa::reg::RegIdx;
+use crate::isa::reg::{ArchReg, RegFile, RegIdx};
 use crate::isa::rvv::VRegIdx;
 use crate::sim::components::PipelineId;
 use crate::uarch::ctx::CoreCtx;
@@ -68,8 +68,9 @@ pub struct PendingResult {
     pub complete_cycle: u64,
 }
 
-/// The free slots rename sees this cycle: the counts as they stood at the
-/// end of the previous cycle, less what rename has taken since. Rename and
+/// The free slots and physical registers rename sees this cycle: the counts
+/// as they stood at the end of the previous cycle, less what rename has
+/// taken since. Rename and
 /// commit work in parallel, each from the state the other left a cycle
 /// ago, as pipelined allocation bookkeeping does.
 #[derive(Clone, Copy, Debug, Default)]
@@ -82,6 +83,33 @@ pub struct RenameView {
     pub lq: usize,
     /// Store-buffer entries rename may take this cycle.
     pub sq: usize,
+    /// Integer physical registers rename may take this cycle.
+    pub int_regs: usize,
+    /// FP physical registers rename may take this cycle.
+    pub fp_regs: usize,
+    /// Vector physical registers rename may take this cycle.
+    pub vec_regs: usize,
+    /// Rename-map checkpoints rename may take this cycle.
+    pub checkpoints: usize,
+}
+
+impl RenameView {
+    /// The physical registers of `dest`'s file rename may take this cycle.
+    #[must_use]
+    pub const fn registers_for(&self, dest: ArchReg) -> usize {
+        match dest {
+            ArchReg::Int(_) => self.int_regs,
+            ArchReg::Fp(_) => self.fp_regs,
+        }
+    }
+
+    /// Takes one physical register of `dest`'s file.
+    const fn take_register(&mut self, dest: ArchReg) {
+        match dest {
+            ArchReg::Int(_) => self.int_regs -= 1,
+            ArchReg::Fp(_) => self.fp_regs -= 1,
+        }
+    }
 }
 
 /// Out-of-order execution engine.
@@ -187,6 +215,10 @@ impl O3Engine {
             iq: self.issue_queue.available_slots().saturating_sub(pending_dispatch),
             lq: self.load_queue.free_slots(),
             sq: self.sq_free_last_cycle.saturating_sub(self.stores_renamed_last_cycle),
+            int_regs: self.free_list.available_in(RegFile::Int),
+            fp_regs: self.free_list.available_in(RegFile::Fp),
+            vec_regs: self.vec_free_list.available(),
+            checkpoints: self.checkpoints.available(),
         };
         self.sq_free_last_cycle = self.store_buffer.free_slots();
         self.stores_renamed_last_cycle = self.stores_renamed_this_cycle;
