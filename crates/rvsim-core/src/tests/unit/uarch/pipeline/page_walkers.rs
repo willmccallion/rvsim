@@ -17,6 +17,7 @@ use crate::uarch::pipeline::outstanding::{
 use crate::uarch::pipeline::rob::RobTag;
 
 const PAGE: u64 = 0x4000_0000;
+const OTHER_PAGE: u64 = 0x4000_1000;
 
 fn backend(sharing: WalkerSharing) -> BackendCommon {
     BackendCommon {
@@ -27,9 +28,14 @@ fn backend(sharing: WalkerSharing) -> BackendCommon {
 
 /// A data walk of `PAGE` for the load with ROB tag `tag`.
 fn data_walk(tag: u32) -> OutstandingWalk {
+    data_walk_of(PAGE, tag)
+}
+
+/// A data walk of `page` for the load with ROB tag `tag`.
+fn data_walk_of(page: u64, tag: u32) -> OutstandingWalk {
     OutstandingWalk {
         state: WalkState {
-            vaddr: VirtAddr::new(PAGE),
+            vaddr: VirtAddr::new(page),
             access: AccessType::Read,
             privilege: PrivilegeMode::Supervisor,
             level: 2,
@@ -74,6 +80,35 @@ fn per_side_walkers_run_a_fetch_walk_beside_a_data_walk() {
 
     assert!(common.has_free_walker(WalkSide::Fetch));
     assert!(!common.has_free_walker(WalkSide::Data));
+}
+
+#[test]
+fn a_walk_of_a_page_no_walk_is_reading_starts_at_once() {
+    let mut common = backend(WalkerSharing::Shared);
+    assert!(!common.memory.walks_page(&data_walk(10)));
+
+    run(&mut common, data_walk_of(OTHER_PAGE, 10));
+
+    assert!(!common.memory.walks_page(&data_walk(11)));
+}
+
+#[test]
+fn a_walk_of_a_page_a_queued_walk_will_read_waits_for_it() {
+    let mut common = backend(WalkerSharing::Shared);
+
+    queue(&mut common, data_walk(10));
+
+    assert!(common.memory.walks_page(&data_walk(11)));
+}
+
+#[test]
+fn a_queued_walk_keeps_the_memory_system_busy() {
+    let mut common = backend(WalkerSharing::Shared);
+    assert!(!common.memory.is_waiting());
+
+    queue(&mut common, data_walk(10));
+
+    assert!(common.memory.is_waiting());
 }
 
 #[test]
