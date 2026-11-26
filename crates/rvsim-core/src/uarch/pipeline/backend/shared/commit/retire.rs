@@ -101,8 +101,8 @@ pub(super) fn perform_syscall(state: &mut CoreCtx<'_>, entry: &mut RobEntry) -> 
         return None;
     }
     let outcome = syscall::serve_ecall(state, entry.pc);
-    entry.result = Some(match outcome {
-        Outcome::Continue { a0 } => a0,
+    entry.result = Some(match &outcome {
+        Outcome::Continue { a0, .. } => *a0,
         Outcome::Wait | Outcome::Ended { .. } => 0,
     });
     Some(outcome)
@@ -404,8 +404,10 @@ fn retire_system(
         // behind the ecall is dropped, and nothing is fetched while parked.
         SystemOp::Ecall => {
             match syscall {
-                Some(Outcome::Continue { .. }) => {
-                    state.core.mmu.sfence_vma(&syscall::flush_all());
+                Some(Outcome::Continue { revoked, .. }) => {
+                    for fence in syscall::fences_after(&revoked) {
+                        state.core.mmu.sfence_vma(&fence);
+                    }
                 }
                 Some(Outcome::Wait) => state.park_thread(None),
                 Some(Outcome::Ended { run_exit }) => state.park_thread(run_exit),
