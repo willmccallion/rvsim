@@ -353,15 +353,13 @@ fn begin_walk(
 /// from there instead of walking, as gem5's walker looks before it walks a
 /// queued request.
 fn serve_walk_queue<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCtx<'_>) {
-    let mut index = 0;
-    while let Some(queued) = pipeline.engine.common().memory.walk_queue.get(index) {
+    let queue = std::mem::take(&mut pipeline.engine.common_mut().memory.walk_queue);
+    for queued in queue {
         let common = pipeline.engine.common();
         if common.memory.walks_page_now(&queued.walk) || !common.has_free_walker(queued.walk.side())
         {
-            index += 1;
-            continue;
-        }
-        if let Some(queued) = pipeline.engine.common_mut().memory.walk_queue.remove(index) {
+            pipeline.engine.common_mut().memory.walk_queue.push_back(queued);
+        } else {
             resume_queued_walk(pipeline, state, queued);
         }
     }
