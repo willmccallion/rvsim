@@ -39,14 +39,17 @@ pub struct Transport {
     stream: TcpStream,
     /// Whether packets are acknowledged; `QStartNoAckMode` turns it off.
     acks: bool,
-    /// Bytes read ahead of the current packet.
+    /// Bytes read ahead of the current packet, interrupts left out.
     pending: Vec<u8>,
+    /// Whether an interrupt arrived that [`Self::interrupted`] has not
+    /// yet reported.
+    is_interrupt_pending: bool,
 }
 
 impl Transport {
     /// Frames packets over `stream`.
     pub const fn new(stream: TcpStream) -> Self {
-        Self { stream, acks: true, pending: Vec::new() }
+        Self { stream, acks: true, pending: Vec::new(), is_interrupt_pending: false }
     }
 
     /// Stops acknowledging packets, as `QStartNoAckMode` asks.
@@ -138,7 +141,7 @@ impl Transport {
                 match self.next_byte_blocking()? {
                     Some(ACK) | None => return Ok(()),
                     Some(NAK) => break,
-                    Some(INTERRUPT) => self.pending.push(INTERRUPT),
+                    Some(INTERRUPT) => self.is_interrupt_pending = true,
                     Some(_) => {}
                 }
             }
@@ -148,8 +151,8 @@ impl Transport {
     /// Whether the debugger has sent the interrupt byte; anything else
     /// that arrived is kept for the next packet. Does not wait.
     pub fn interrupted(&mut self) -> bool {
-        if let Some(at) = self.pending.iter().position(|&byte| byte == INTERRUPT) {
-            let _ = self.pending.remove(at);
+        if self.is_interrupt_pending {
+            self.is_interrupt_pending = false;
             return true;
         }
         if self.stream.set_nonblocking(true).is_err() {
@@ -233,5 +236,80 @@ mod tests {
     #[test]
     fn escaped_bytes_are_restored() {
         assert_eq!(unescape(b"a}\x5db}\x03c"), b"a}b#c");
+    }
+
+    /// A transport and the debugger's end of its loopback connection.
+    fn connected() -> (Transport, TcpStream) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let debugger =
+            TcpStream::connect(listener.local_addr().expect("its address")).expect("connect");
+        let (target, _) = listener.accept().expect("accept");
+        (Transport::new(target), debugger)
+    }
+
+    /// The next `count` bytes the debugger reads.
+    fn read_bytes(debugger: &mut TcpStream, count: usize) -> Vec<u8> {
+        let mut bytes = vec![0; count];
+        debugger.read_exact(&mut bytes).expect("bytes from the target");
+        bytes
+    }
+
+    #[test]
+    fn a_packet_with_a_wrong_checksum_is_refused_and_its_resend_taken() {
+        let (mut transport, mut debugger) = connected();
+        debugger.write_all(b"$g#00$g#67").expect("write");
+
+        let incoming = transport.receive().expect("receive");
+
+        assert_eq!(incoming, Incoming::Packet(b"g".to_vec()));
+        assert_eq!(read_bytes(&mut debugger, 2), b"-+");
+    }
+
+    #[test]
+    fn a_packet_is_resent_until_acknowledged() {
+        let (mut transport, mut debugger) = connected();
+        debugger.write_all(b"-+").expect("write");
+
+        transport.send(b"OK").expect("send");
+
+        assert_eq!(read_bytes(&mut debugger, 12), b"$OK#9a$OK#9a");
+    }
+
+    #[test]
+    fn an_interrupt_sent_while_awaiting_an_acknowledgement_is_kept() {
+        let (mut transport, mut debugger) = connected();
+        debugger.write_all(&[INTERRUPT, ACK]).expect("write");
+
+        transport.send(b"S05").expect("send");
+
+        assert!(transport.interrupted());
+        assert!(!transport.interrupted());
+    }
+
+    #[test]
+    fn the_interrupt_byte_arrives_on_its_own() {
+        let (mut transport, mut debugger) = connected();
+        debugger.write_all(&[INTERRUPT]).expect("write");
+
+        assert_eq!(transport.receive().expect("receive"), Incoming::Interrupt);
+    }
+
+    #[test]
+    fn a_closed_connection_reads_as_closed() {
+        let (mut transport, debugger) = connected();
+        drop(debugger);
+
+        assert_eq!(transport.receive().expect("receive"), Incoming::Closed);
+    }
+
+    #[test]
+    fn a_packet_cut_short_is_an_error() {
+        let (mut transport, mut debugger) = connected();
+        debugger.write_all(b"$g").expect("write");
+        drop(debugger);
+
+        let error = transport.receive().expect_err("a cut-short packet");
+
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
     }
 }
