@@ -39,10 +39,17 @@ fn map_megapage(ctx: &mut TestContext, va: u64, pa: u64) {
     write_pte(ctx, L1_PPN, va, 1, ((pa >> 12) << 10) | PTE_LEAF_RWX_AD);
 }
 
-/// The walks the out-of-order core started, and the cycles it took, to run
-/// `loads` with `walkers` page-table walkers. `x10` points at the first
-/// data megapage and `x13` at the second.
-fn walks_and_cycles(walkers: usize, loads: &[u32]) -> (u64, u64) {
+/// What the out-of-order core did running `loads` with `walkers` page-table
+/// walkers.
+struct Run {
+    walks: u64,
+    data_tlb_lookups: u64,
+    cycles: u64,
+}
+
+/// Runs `loads` on the out-of-order core with `walkers` page-table walkers.
+/// `x10` points at the first data megapage and `x13` at the second.
+fn run(walkers: usize, loads: &[u32]) -> Run {
     let mut config = Config::minimal();
     config.pipeline.backend = BackendKind::OutOfOrder;
     config.memory.page_walkers = NonZeroUsize::new(walkers).expect("a walker");
@@ -77,8 +84,9 @@ fn walks_and_cycles(walkers: usize, loads: &[u32]) -> (u64, u64) {
         .run_until(CYCLE_LIMIT, |ctx| ctx.state().harts[0].instructions_retired >= retired)
         .expect("the program retired");
 
-    let walks = ctx.sim.state.uncore.kernel.stats.get("core0.mmu.walks").unwrap_or(0.0) as u64;
-    (walks, cycles)
+    let stat = |path: &str| ctx.sim.state.uncore.kernel.stats.get(path).unwrap_or(0.0) as u64;
+    let data_tlb_lookups = stat("core0.mmu.dtlb.hits") + stat("core0.mmu.dtlb.misses");
+    Run { walks: stat("core0.mmu.walks"), data_tlb_lookups, cycles }
 }
 
 #[test]
@@ -87,10 +95,24 @@ fn loads_that_miss_on_one_page_together_walk_it_once() {
     let one_load = [i().ld(X11, X10, 0).build()];
     let two_loads = [i().ld(X11, X10, 0).build(), i().ld(X12, X10, 8).build()];
 
-    let (walks_for_one, _) = walks_and_cycles(2, &one_load);
-    let (walks_for_two, _) = walks_and_cycles(2, &two_loads);
+    let for_one = run(2, &one_load);
+    let for_two = run(2, &two_loads);
 
-    assert_eq!(walks_for_two, walks_for_one);
+    assert_eq!(for_two.walks, for_one.walks);
+}
+
+/// The load that waited for the walk of its page takes the translation
+/// that walk left in the TLB, without looking its page up again.
+#[test]
+fn a_load_that_waited_for_its_pages_walk_looks_the_page_up_once() {
+    let i = InstructionBuilder::new;
+    let one_load = [i().ld(X11, X10, 0).build()];
+    let two_loads = [i().ld(X11, X10, 0).build(), i().ld(X12, X10, 8).build()];
+
+    let for_one = run(2, &one_load);
+    let for_two = run(2, &two_loads);
+
+    assert_eq!(for_two.data_tlb_lookups, for_one.data_tlb_lookups + 1);
 }
 
 #[test]
@@ -98,12 +120,14 @@ fn with_one_walker_a_second_pages_walk_waits_for_the_first() {
     let i = InstructionBuilder::new;
     let loads = [i().ld(X11, X10, 0).build(), i().ld(X12, X13, 0).build()];
 
-    let (walks_with_one, cycles_with_one) = walks_and_cycles(1, &loads);
-    let (walks_with_two, cycles_with_two) = walks_and_cycles(2, &loads);
+    let with_one = run(1, &loads);
+    let with_two = run(2, &loads);
 
-    assert_eq!(walks_with_one, walks_with_two, "every page is walked once either way");
+    assert_eq!(with_one.walks, with_two.walks, "every page is walked once either way");
     assert!(
-        cycles_with_one > cycles_with_two,
-        "one walker: {cycles_with_one} cycles, two: {cycles_with_two}"
+        with_one.cycles > with_two.cycles,
+        "one walker: {} cycles, two: {}",
+        with_one.cycles,
+        with_two.cycles
     );
 }
