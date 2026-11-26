@@ -274,9 +274,7 @@ pub enum ProbeKind {
     Clean,
 }
 
-/// MESI / MOESI coherence state.
-///
-/// `Owned` is set only by MOESI implementations; MESI never produces it.
+/// A line's MESI coherence state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum MesiState {
     /// Line is dirty and held exclusively here.
