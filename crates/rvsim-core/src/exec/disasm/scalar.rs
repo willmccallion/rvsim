@@ -10,6 +10,7 @@ use crate::isa::op::{
     FpCompareOp, FpOp, IntAluOp, IntWidth, LogicOp, MemWidth, MinMaxOp, MulOp, OperandFormat,
     PackOp, RotateOp, ShiftAddOp, ShiftOp, SignInjectOp, Signedness, SingleBitOp, SystemOp,
 };
+use crate::isa::reg::{ArchReg, RegFile};
 
 /// The low six bits of an immediate shift or bit-index: the shift amount.
 const SHAMT_MASK: i64 = 0x3F;
@@ -83,7 +84,7 @@ fn load(ctrl: &ControlSignals, fields: &Decoded) -> String {
 
 /// An integer or floating-point store: `sd rs2, offset(rs1)`.
 fn store(ctrl: &ControlSignals, fields: &Decoded) -> String {
-    let (name, rs2) = if ctrl.rs2_fp {
+    let (name, rs2) = if ctrl.rs2_file == Some(RegFile::Fp) {
         (fp_store_name(ctrl.width), fields.rs2.fp_abi_name())
     } else {
         (int_store_name(ctrl.width), fields.rs2.int_abi_name())
@@ -399,8 +400,8 @@ fn floating_point(op: FpOp, ctrl: &ControlSignals, fields: &Decoded) -> Option<S
     };
     let p = format_suffix(format);
     let rd = if ctrl.fp_reg_write { fields.rd.fp_abi_name() } else { fields.rd.int_abi_name() };
-    let rs1 = ctrl.src1(fields.rs1).abi_name();
-    let rs2 = ctrl.src2(fields.rs2).abi_name();
+    let rs1 = ctrl.src1(fields.rs1).map_or("", ArchReg::abi_name);
+    let rs2 = ctrl.src2(fields.rs2).map_or("", ArchReg::abi_name);
     Some(match op {
         FpOp::Arith(op) => format!("{}.{p} {rd}, {rs1}, {rs2}", fp_arith_name(op)),
         FpOp::Sqrt => format!("fsqrt.{p} {rd}, {rs1}"),

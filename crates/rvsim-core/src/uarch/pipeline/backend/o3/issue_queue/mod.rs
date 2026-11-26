@@ -248,11 +248,9 @@ impl IssueQueueEntry {
         mem_dep: MemDepState,
     ) -> Self {
         let ctrl = &entry.inst.ctrl;
-        let src1 = resolve_operand(ctrl.src1(entry.inst.rs1), entry.regs.rs1_phys, prf);
-        let src2 = resolve_operand(ctrl.src2(entry.inst.rs2), entry.regs.rs2_phys, prf);
-        let src3 = ctrl.src3(entry.inst.rs3).map_or(OperandState::ready(PhysReg::ZERO, 0), |rs3| {
-            resolve_operand(rs3, entry.regs.rs3_phys, prf)
-        });
+        let src1 = resolve_source(ctrl.src1(entry.inst.rs1), entry.regs.rs1_phys, prf);
+        let src2 = resolve_source(ctrl.src2(entry.inst.rs2), entry.regs.rs2_phys, prf);
+        let src3 = resolve_source(ctrl.src3(entry.inst.rs3), entry.regs.rs3_phys, prf);
 
         let vec_src1 = VecOperandState::of(entry.regs.vs1, vec_prf);
         let vec_src2 = VecOperandState::of(entry.regs.vs2, vec_prf);
@@ -616,10 +614,11 @@ impl IssueQueue {
     }
 }
 
-/// An operand's state at dispatch: its value if the register holding it is
-/// ready, else the register to wait for.
-fn resolve_operand(reg: ArchReg, phys: PhysReg, prf: &PhysRegFile) -> OperandState {
-    if reg.is_hardwired_zero() {
+/// A source operand's state at dispatch: its value if the register holding
+/// it is ready, else the register to wait for. An operand the instruction
+/// does not read, or `x0`, is ready with value 0.
+fn resolve_source(reg: Option<ArchReg>, phys: PhysReg, prf: &PhysRegFile) -> OperandState {
+    if reg.is_none_or(ArchReg::is_hardwired_zero) {
         return OperandState::ready(PhysReg::ZERO, 0);
     }
     if prf.is_ready(phys) {

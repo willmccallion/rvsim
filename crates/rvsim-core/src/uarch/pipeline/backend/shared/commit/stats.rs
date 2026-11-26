@@ -2,6 +2,7 @@
 
 use crate::exec::signals::ControlFlow;
 use crate::isa::op::{AluOpGroup, SystemOp, VecOpGroup, VectorOp};
+use crate::isa::reg::RegFile;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::rob::RobEntry;
 
@@ -22,7 +23,7 @@ pub(super) fn update_instruction_stats(state: &mut CoreCtx<'_>, entry: &RobEntry
             state.uncore.kernel.stats.counter(state.core.stat_paths.commit.op_load).inc();
         }
     } else if entry.ctrl.mem_write {
-        if entry.ctrl.rs2_fp {
+        if entry.ctrl.rs2_file == Some(RegFile::Fp) {
             state.uncore.kernel.stats.counter(state.core.stat_paths.commit.fp_store).inc();
         } else {
             state.uncore.kernel.stats.counter(state.core.stat_paths.commit.op_store).inc();

@@ -17,7 +17,7 @@ use crate::isa::encoding::rvv::opcodes as v_opcodes;
 use crate::isa::instruction::{Decoded, decode as instruction_decode};
 use crate::isa::op::{AluOp, ArithOp, IntAluOp, SystemOp, VecLoadOp, VecStoreOp, VectorOp};
 use crate::isa::privileged::Trap;
-use crate::isa::reg;
+use crate::isa::reg::{self, RegFile};
 use crate::isa::rvv::{VtypeFields, parse_vtype};
 
 /// Vector load/store width encoding for EEW=8.
@@ -73,6 +73,8 @@ fn decode_instruction(inst: u32, d: &Decoded) -> Result<ControlSignals, DecodeFa
         a_src: OpASrc::Reg1,
         b_src: OpBSrc::Imm,
         alu: AluOp::Int(IntAluOp::Arith(ArithOp::Add)),
+        rs1_file: Some(RegFile::Int),
+        rs2_file: Some(RegFile::Int),
         ..Default::default()
     };
 
@@ -133,6 +135,10 @@ pub fn decode_inst(inst: u32, vtype_bits: u64) -> DecodedInst {
             ctrl = ControlSignals::default();
             fault = Some(DecodeFault::MisplacedRegisterGroup);
         }
+    }
+    if fault.is_some() {
+        ctrl.rs1_file = Some(RegFile::Int);
+        ctrl.rs2_file = Some(RegFile::Int);
     }
     DecodedInst { fields, ctrl, fault }
 }
