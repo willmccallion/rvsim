@@ -1,28 +1,16 @@
-//! Pseudo-LRU (PLRU) Replacement Policy.
+//! Bit pseudo-LRU (bit-PLRU, or MRU-bit) replacement: one bit per way.
 //!
-//! PLRU approximates the Least Recently Used algorithm using a binary tree of bits.
-//! It requires significantly less storage than full LRU (N-1 bits for N ways).
-//!
-//! Each bit in the tree represents a decision node pointing away from the most
-//! recently used subtree. To find a victim, the tree is traversed following the
-//! arrows (bits) to a leaf node.
-//!
-//! # Performance
-//!
-//! - **Time Complexity:**
-//!   - `update()`: O(1)
-//!   - `get_victim()`: O(1)
-//! - **Space Complexity:** O(S × W) bits where S is sets, W is ways (much less than LRU)
-//! - **Hardware Cost:** Low - simple bit operations
-//! - **Best Case:** Similar to LRU for most access patterns
-//! - **Worst Case:** Pathological cases can cause premature eviction of useful lines
+//! An access sets its way's bit; once every bit of a set is set, all but the
+//! one just set are cleared. The victim is the lowest way whose bit is clear,
+//! a way not touched since the bits last cleared. It approximates LRU with N
+//! bits per N-way set, against a tree PLRU's N-1.
 
 use super::{ReplacementPolicy, SetIdx, WayIdx};
 
 /// PLRU Policy state.
 #[derive(Debug)]
 pub struct PlruPolicy {
-    /// Bitmask representing the tree state for each set.
+    /// Each set's bits: one per way, set by an access to it.
     usage: Vec<u64>,
     /// Number of ways in the cache.
     ways: usize,
@@ -36,10 +24,7 @@ impl PlruPolicy {
 }
 
 impl ReplacementPolicy for PlruPolicy {
-    /// Updates the tree bits on access.
-    ///
-    /// Sets the bits along the path to the accessed way to point away from it,
-    /// protecting it from immediate eviction.
+    /// Sets `way`'s bit, clearing every other once all are set.
     fn update(&mut self, set: SetIdx, way: WayIdx) {
         let (set, way) = (set.index(), way.index());
         let mask = 1 << way;
@@ -51,9 +36,7 @@ impl ReplacementPolicy for PlruPolicy {
         }
     }
 
-    /// Identifies the victim way to evict.
-    ///
-    /// Traverses the tree bits to find the pseudo-least-recently-used way.
+    /// The lowest way whose bit is clear.
     fn get_victim(&mut self, set: SetIdx) -> WayIdx {
         let set = set.index();
         let unused = (0..self.ways).find(|&way| (self.usage[set] >> way) & 1 == 0);
