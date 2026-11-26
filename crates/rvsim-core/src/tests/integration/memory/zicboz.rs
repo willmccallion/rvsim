@@ -3,12 +3,13 @@
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::BackendKind;
 use crate::config::Config;
-use crate::config::defaults::RAM_BASE;
+use crate::config::defaults::{RAM_BASE, UART_BASE};
 use crate::isa::csr::MENVCFG_CBZE;
 use crate::isa::encoding::rv64i::{funct3 as i_f3, opcodes as i_op};
 use crate::isa::encoding::zicboz::{
     CBO_CLEAN_IMM, CBO_FLUSH_IMM, CBO_INVAL_IMM, CBO_ZERO_IMM, CBOZ_BLOCK_SIZE,
 };
+use crate::isa::privileged::cause::exception::STORE_ACCESS_FAULT;
 use crate::isa::reg::RegIdx;
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::JAL_SELF;
@@ -159,6 +160,30 @@ fn cbo_zero_in_machine_mode_ignores_menvcfg_cbze() {
 // without PMP entries configured, U-mode store always denies regardless
 // of CBZE. The riscv-tests / chipsalliance suites cover the success path
 // end-to-end via real M-mode firmware that programs PMP first.
+
+/// The UART's register file, eight bytes into its first block: a device
+/// region, which supports no cache-block operations.
+const DEVICE_ADDRESS: u64 = UART_BASE + 8;
+
+#[test]
+fn cbo_zero_on_a_device_region_faults_at_the_block() {
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
+
+    run_cbo_zero(&mut ctx, DEVICE_ADDRESS);
+
+    let csrs = &ctx.state().harts[0].csrs;
+    assert_eq!((csrs.mcause, csrs.mtval), (STORE_ACCESS_FAULT, UART_BASE));
+}
+
+#[test]
+fn cbo_clean_on_a_device_region_faults_at_its_operand() {
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal()).with_memory(RAM_SIZE, RAM_BASE);
+
+    run_cbo(&mut ctx, cbo_clean(X10), DEVICE_ADDRESS);
+
+    let csrs = &ctx.state().harts[0].csrs;
+    assert_eq!((csrs.mcause, csrs.mtval), (STORE_ACCESS_FAULT, DEVICE_ADDRESS));
+}
 
 // ── Zicbom (cbo.inval / cbo.clean / cbo.flush) ──────────────────────────────
 
