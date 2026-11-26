@@ -162,9 +162,12 @@ A syscall costs the pipeline what a serialising instruction costs: the
 `ecall` retires when every older instruction has and every older store
 has reached memory, the simulator performs the call, and the
 instructions fetched behind it are refetched, since they may have read
-`a0` or a mapping the call changed. There is no kernel to charge for the
-call itself, so OS-heavy workloads belong in full-system mode; this is
-the trade every SE mode makes.
+`a0` or a mapping the call changed. The hart keeps its translations
+unless the call removed a mapping or changed its permissions; then it
+flushes those pages one by one, or every translation past 64 pages, as
+RISC-V Linux does. There is no kernel to charge for the call itself, so
+OS-heavy workloads belong in full-system mode; this is the trade every
+SE mode makes.
 
 Time comes from the simulated clock: `clock_gettime`, `gettimeofday`,
 `times` and `getrusage` divide the cycle count by the core clock,

@@ -125,10 +125,11 @@ pub struct AddressSpace {
     mode: PagingMode,
     root: PhysAddr,
     pages: BTreeMap<Vpn, Mapping>,
-    /// How many times a mapping was removed or had its rights changed,
-    /// which a TLB may still hold the old form of.
+    /// The pages whose mapping was removed or had its rights changed since
+    /// [`Self::take_revoked`] last took them, which a TLB may still hold
+    /// the old form of.
     #[serde(skip)]
-    revocations: u64,
+    revoked: Vec<Vpn>,
 }
 
 impl AddressSpace {
@@ -143,7 +144,7 @@ impl AddressSpace {
         frames: &mut FrameAllocator,
     ) -> Result<Self, SpaceError> {
         let root = frames.alloc_zeroed(memory)?;
-        Ok(Self { mode, root, pages: BTreeMap::new(), revocations: 0 })
+        Ok(Self { mode, root, pages: BTreeMap::new(), revoked: Vec::new() })
     }
 
     /// The `satp` value that selects these tables.
@@ -204,7 +205,7 @@ impl AddressSpace {
         let frame = match self.pages.get(&vpn) {
             Some(mapping) => {
                 if mapping.permissions != permissions {
-                    self.revocations += 1;
+                    self.revoked.push(vpn);
                 }
                 mapping.frame
             }
@@ -243,16 +244,16 @@ impl AddressSpace {
         for vpn in Self::pages_of(start, len) {
             if self.pages.remove(&vpn).is_some() {
                 self.clear_pte(memory, vpn);
-                self.revocations += 1;
+                self.revoked.push(vpn);
             }
         }
     }
 
-    /// How many times a mapping has been removed or had its rights
-    /// changed: when it moves, other harts' TLBs may hold stale entries.
-    #[must_use]
-    pub const fn revocations(&self) -> u64 {
-        self.revocations
+    /// The pages whose mapping was removed or had its rights changed since
+    /// the last call, taken: other harts' TLBs, and the changing hart's
+    /// own, may hold stale entries for them.
+    pub fn take_revoked(&mut self) -> Vec<Vpn> {
+        std::mem::take(&mut self.revoked)
     }
 
     /// Whether every page of `[start, start + len)` is mapped.

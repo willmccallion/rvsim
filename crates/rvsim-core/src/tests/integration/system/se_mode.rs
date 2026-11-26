@@ -469,6 +469,94 @@ fn a_fault_ends_the_program_with_the_signals_exit_status() {
     }
 }
 
+/// The store's miss on the stack page, which every run of
+/// [`data_tlb_misses_around`] takes.
+const FIRST_TOUCH: u64 = 1;
+
+/// The data TLB misses of a program that stores to its stack, runs the
+/// syscalls `between`, loads the doubleword back and exits: the store's,
+/// and the load's if a syscall flushed the stack page's translation.
+fn data_tlb_misses_around(between: &[u32]) -> u64 {
+    let i = InstructionBuilder::new;
+    let mut code = vec![i().sd(SP, X0, -8).build()];
+    code.extend(between);
+    code.extend([
+        i().ld(T0, SP, -8).build(),
+        i().addi(A0, X0, 0).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
+        ECALL,
+    ]);
+    let mut sim = simulator(BackendKind::OutOfOrder, &code, &["prog"]);
+
+    assert_eq!(run_for(&mut sim, 50_000), StopReason::Exited(0));
+    sim.state.uncore.kernel.stats.get("core0.mmu.dtlb.misses").unwrap_or(0.0) as u64
+}
+
+/// `mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
+/// -1, 0)` with `len` in `a1`; the mapping's address lands in `a0`.
+fn map_anonymous_pages() -> [u32; 7] {
+    let i = InstructionBuilder::new;
+    [
+        i().addi(A0, X0, 0).build(),
+        i().addi(A2, X0, PROT_READ_WRITE).build(),
+        i().addi(A3, X0, MAP_PRIVATE_ANONYMOUS).build(),
+        i().addi(A4, X0, -1).build(),
+        i().addi(A5, X0, 0).build(),
+        i().addi(A7, X0, SYS_MMAP).build(),
+        ECALL,
+    ]
+}
+
+/// `mmap`s `pages` fresh pages and `munmap`s them again.
+fn map_and_unmap(pages: i32) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    let mut code = vec![i().lui(A1, pages).build()];
+    code.extend(map_anonymous_pages());
+    code.extend([i().addi(A7, X0, SYS_MUNMAP).build(), ECALL]);
+    code
+}
+
+/// A syscall that changes no mapping leaves the TLBs alone, as Linux does.
+#[test]
+fn a_syscall_that_changes_no_mapping_keeps_the_translations() {
+    let i = InstructionBuilder::new;
+    let getuid = [i().addi(A7, X0, SYS_GETUID).build(), ECALL];
+
+    assert_eq!(data_tlb_misses_around(&getuid), FIRST_TOUCH);
+}
+
+/// Unmapping up to 64 pages flushes them one by one and keeps every other
+/// translation; unmapping more flushes them all, as RISC-V Linux does.
+#[test]
+fn unmapping_more_than_64_pages_flushes_every_translation() {
+    assert_eq!(data_tlb_misses_around(&map_and_unmap(64)), FIRST_TOUCH);
+    assert_eq!(data_tlb_misses_around(&map_and_unmap(65)), FIRST_TOUCH + 1);
+}
+
+/// The page `munmap` removed leaves the TLB with it, so touching it again
+/// faults instead of reaching the old frame.
+#[test]
+fn an_access_to_a_page_munmap_removed_faults() {
+    let i = InstructionBuilder::new;
+    let mut code = vec![i().lui(A1, 1).build()];
+    code.extend(map_anonymous_pages());
+    code.extend([
+        i().addi(S0, A0, 0).build(),
+        i().sd(A0, X0, 0).build(),
+        i().addi(A7, X0, SYS_MUNMAP).build(),
+        ECALL,
+        i().ld(T0, S0, 0).build(),
+        i().addi(A0, X0, 0).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
+        ECALL,
+    ]);
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &code, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(139), "{backend:?}");
+    }
+}
+
 /// A static position-independent executable loads at the PIE base, its
 /// entry moved with it, and runs.
 #[test]
@@ -789,6 +877,10 @@ const SYS_EXIT_GROUP: i32 = 94;
 const SYS_SCHED_GETAFFINITY: i32 = 123;
 const SYS_TGKILL: i32 = 131;
 const SYS_MMAP: i32 = 222;
+const SYS_MUNMAP: i32 = 215;
+const SYS_GETUID: i32 = 174;
+const PROT_READ_WRITE: i32 = 3;
+const MAP_PRIVATE_ANONYMOUS: i32 = 0x22;
 /// `CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD`.
 const CLONE_THREAD_FLAGS: i32 = 0x1_0F00;
 /// A thread's flags with `CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID`, as
@@ -1326,7 +1418,6 @@ fn map_a_page(flags: i32) -> Vec<Line> {
 /// old page's 5 for ever.
 #[test]
 fn replacing_a_mapping_drops_the_other_threads_translations() {
-    const MAP_PRIVATE_ANONYMOUS: i32 = 0x22;
     const MAP_FIXED: i32 = 0x10;
     let i = InstructionBuilder::new;
     let mut lines = vec![inst(i().addi(A0, X0, 0).build())];

@@ -19,7 +19,7 @@ use super::file_calls::{self, FileCalls, UserMemory};
 use super::files::{Fd, PATH_MAX, open_flags};
 use super::{FrameAllocator, PAGE_SIZE, Permissions, Process, ThreadRef, page_ceil};
 use crate::arch::translation::SfenceVmaInfo;
-use crate::common::{PhysAddr, VirtAddr, usize_of};
+use crate::common::{PhysAddr, VirtAddr, Vpn, usize_of};
 use crate::isa::extension::{Extension, Isa};
 use crate::isa::reg::{self, RegIdx};
 use crate::sim::memory::GlobalMemory;
@@ -63,12 +63,15 @@ impl SyscallArgs {
 }
 
 /// What retiring the `ecall` leads to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// Carry on at the instruction after the `ecall`, with the result in `a0`.
     Continue {
         /// The syscall's return value, or its negated `errno`.
         a0: u64,
+        /// The pages whose mapping the call removed or changed, which the
+        /// calling hart's TLBs may still hold.
+        revoked: Vec<Vpn>,
     },
     /// The thread waits on a futex: its hart parks until another thread
     /// or a timeout resumes it with the call's result.
@@ -181,6 +184,13 @@ const HWPROBE_MISALIGNED_UNSUPPORTED: u64 = 4;
 /// The key the kernel writes back for one it does not know.
 const HWPROBE_KEY_UNKNOWN: i64 = -1;
 const HWPROBE_PAIR_BYTES: u64 = 16;
+/// The most pages RISC-V Linux flushes one by one after changing their
+/// mappings; past it, it flushes every translation
+/// (`tlb_flush_all_threshold` in `arch/riscv/mm/tlbflush.c`).
+const FLUSH_ALL_THRESHOLD: usize = 64;
+/// The register the kernel's `sfence.vma` takes a page's address in: any
+/// but `x0`, which names every page.
+const SFENCE_ADDRESS_REGISTER: RegIdx = reg::REG_A0;
 /// The epoch `CLOCK_REALTIME` starts from: 2023-11-14, so dates are sane
 /// and every run sees the same clock.
 const REALTIME_EPOCH_SECONDS: u64 = 1_700_000_000;
@@ -210,31 +220,32 @@ pub fn serve_ecall(state: &mut CoreCtx<'_>, pc: VirtAddr) -> Outcome {
         pc,
         cycle: state.uncore.kernel.cycle,
     };
-    let result =
-        call.dispatch(number, args).unwrap_or_else(|| process_call(state, caller, number, args));
+    let (result, revoked) = call
+        .dispatch(number, args)
+        .map_or_else(|| process_call(state, caller, number, args), |result| (result, Vec::new()));
     tracing::trace!(target: "rvsim::syscall", pc = %crate::common::trace::Hex(pc.val()), tid = caller.tid.as_u64(),
         number, name = name_of(number),
         a0 = %crate::common::trace::Hex(args.raw(0)), a1 = %crate::common::trace::Hex(args.raw(1)),
         a2 = %crate::common::trace::Hex(args.raw(2)), a3 = %crate::common::trace::Hex(args.raw(3)),
         result = ?result, "syscall");
     match result {
-        Ok(Reply::Value(value)) => Outcome::Continue { a0: value.cast_unsigned() },
+        Ok(Reply::Value(value)) => Outcome::Continue { a0: value.cast_unsigned(), revoked },
         Ok(Reply::Wait) => Outcome::Wait,
         Ok(Reply::Ended(run_exit)) => Outcome::Ended { run_exit },
-        Err(errno) => Outcome::Continue { a0: errno.return_value() },
+        Err(errno) => Outcome::Continue { a0: errno.return_value(), revoked },
     }
 }
 
 /// Serves syscall `number` against `caller`'s process's memory, files and
-/// clock. A call that removed a mapping or changed its rights leaves the
-/// process's other threads to drop their translations, as a kernel's TLB
-/// shootdown makes them.
+/// clock, and returns its result with the pages whose mapping it removed
+/// or changed. Those leave the process's other threads to drop their
+/// translations, as a kernel's TLB shootdown makes them.
 fn process_call(
     state: &mut CoreCtx<'_>,
     caller: ThreadRef,
     number: u64,
     args: SyscallArgs,
-) -> SysResult {
+) -> (SysResult, Vec<Vpn>) {
     let cycle = state.uncore.kernel.cycle;
     let ram_bytes = state.uncore.kernel.config.memory.ram_size;
     let isa = state.core.isa;
@@ -243,9 +254,8 @@ fn process_call(
     let threads_alive = uncore.host.processes.live_threads() as u64;
     let hart_count = uncore.host.processes.hart_count();
     let Some((process, frames)) = uncore.host.processes.process_and_frames(caller.tgid) else {
-        return Err(Errno::ESRCH);
+        return (Err(Errno::ESRCH), Vec::new());
     };
-    let revocations = process.space.revocations();
     let mut sys = Sys {
         process,
         frames,
@@ -258,10 +268,11 @@ fn process_call(
         misaligned_traps,
     };
     let result = sys.dispatch(number, args);
-    if sys.process.space.revocations() != revocations {
+    let revoked = sys.process.space.take_revoked();
+    if !revoked.is_empty() {
         uncore.host.processes.mark_translations_stale(caller);
     }
-    result
+    (result, revoked)
 }
 
 /// What a handler produces.
@@ -805,11 +816,31 @@ const fn user_pointer(raw: u64) -> Option<VirtAddr> {
     if raw == 0 { None } else { Some(VirtAddr::new(raw)) }
 }
 
-/// The flush the retire path applies after a syscall that changed the
-/// mappings: every translation, every ASID.
+/// `sfence.vma x0, x0`: every translation, every ASID.
 #[must_use]
 pub const fn flush_all() -> SfenceVmaInfo {
     SfenceVmaInfo { rs1_idx: RegIdx::new(0), rs2_idx: RegIdx::new(0), rs1_val: 0, rs2_val: 0 }
+}
+
+/// `sfence.vma` of the page `vpn` names, in every ASID.
+const fn flush_page(vpn: Vpn) -> SfenceVmaInfo {
+    SfenceVmaInfo {
+        rs1_idx: SFENCE_ADDRESS_REGISTER,
+        rs2_idx: RegIdx::new(0),
+        rs1_val: vpn.to_addr(),
+        rs2_val: 0,
+    }
+}
+
+/// The `sfence.vma`s RISC-V Linux runs on the calling hart after changing
+/// the mappings of `revoked`: one per page, or one of every translation
+/// past [`FLUSH_ALL_THRESHOLD`] pages.
+#[must_use]
+pub fn fences_after(revoked: &[Vpn]) -> Vec<SfenceVmaInfo> {
+    if revoked.len() > FLUSH_ALL_THRESHOLD {
+        return vec![flush_all()];
+    }
+    revoked.iter().map(|&vpn| flush_page(vpn)).collect()
 }
 
 /// The syscall's name for the trace.
