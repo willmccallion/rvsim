@@ -21,6 +21,7 @@ pub mod serialized_issue;
 pub mod squashed_divide;
 pub mod squashed_load_after_trap;
 pub mod stage_widths;
+pub mod timing_invariance;
 pub mod trap_latency;
 pub mod unit_status;
 pub mod unread_sources;
