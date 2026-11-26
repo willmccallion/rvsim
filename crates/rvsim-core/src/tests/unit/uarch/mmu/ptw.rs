@@ -20,6 +20,9 @@ use crate::tests::support::harness::TestContext;
 use crate::uarch::mmu::tlb::TlbGeometry;
 use crate::uarch::mmu::{HitsAndMisses, Mmu, TlbCounts, TranslateOutcome};
 
+/// The PTEs a walk reads at most: one per level of Sv57.
+const DEEPEST_WALK: usize = 5;
+
 /// Synchronously drives the MMU's async walker to completion. Reads each
 /// PTE from the memory image and feeds it back through
 /// `continue_walk` until the walk reaches `Ready`. Used by PTW unit tests
@@ -35,7 +38,7 @@ fn translate_sync(
     uncore: &Uncore,
 ) -> TranslationResult {
     let mut outcome = mmu.translate_async(vaddr, access, privilege, csrs, None);
-    loop {
+    for _ in 0..=DEEPEST_WALK {
         match outcome {
             TranslateOutcome::Ready(r) => return r,
             TranslateOutcome::NeedPte { pte_addr, state, .. } => {
@@ -44,6 +47,7 @@ fn translate_sync(
             }
         }
     }
+    panic!("the walk read more PTEs than Sv57 has levels");
 }
 
 const ROOT_PPN: u64 = 0x80000; // Base at 0x8000_0000
@@ -1022,7 +1026,7 @@ fn trace_walk(mmu: &mut Mmu, vaddr: u64, csrs: &Csrs, uncore: &Uncore) -> Traced
     );
     let mut reads = Vec::new();
     let mut first_after = None;
-    loop {
+    for _ in 0..=DEEPEST_WALK {
         match outcome {
             TranslateOutcome::Ready(result) => return TracedWalk { result, reads, first_after },
             TranslateOutcome::NeedPte { pte_addr, state, after } => {
@@ -1033,6 +1037,7 @@ fn trace_walk(mmu: &mut Mmu, vaddr: u64, csrs: &Csrs, uncore: &Uncore) -> Traced
             }
         }
     }
+    panic!("the walk read more PTEs than Sv57 has levels");
 }
 
 const WALKED_PAGE: u64 = 0x4000_1000;

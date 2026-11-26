@@ -19,6 +19,9 @@ use crate::uarch::mmu::tlb::TlbGeometry;
 use crate::uarch::mmu::{Mmu, TranslateOutcome};
 use proptest::prelude::*;
 
+/// The PTEs a walk reads at most: one per level of Sv57.
+const DEEPEST_WALK: usize = 5;
+
 /// Drives a synchronous translation: repeatedly invokes `translate_async` /
 /// `continue_walk` against the MMU and reads PTEs out of memory through the
 /// test context so the property tests stay shaped like the deleted
@@ -32,7 +35,7 @@ fn translate_sync(
     ctx: &mut TestContext,
 ) -> TranslationResult {
     let mut outcome = mmu.translate_async(va, access, privilege, csrs, None);
-    loop {
+    for _ in 0..=DEEPEST_WALK {
         match outcome {
             TranslateOutcome::Ready(result) => return result,
             TranslateOutcome::NeedPte { pte_addr, state, .. } => {
@@ -41,6 +44,7 @@ fn translate_sync(
             }
         }
     }
+    panic!("the walk read more PTEs than Sv57 has levels");
 }
 
 const ROOT_PPN: u64 = 0x80000;
