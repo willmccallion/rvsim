@@ -61,8 +61,8 @@ replaced by a default) must fail a test. `make mutants-diff` runs the same
 check against `origin/main`, listing any mutant no test caught in
 `target/mutants.out/missed.txt`; a missed one means a test is missing, or,
 rarely, that the mutant behaves the same as the original, which the PR
-should say. `make test-coverage` reports line coverage per file, which CI
-shows but does not gate.
+should say. `make test-coverage` reports line coverage per file and fails, in CI too,
+when the workspace's falls below 90%.
 
 The workspace denies `clippy::pedantic` and `clippy::nursery`. Fix a lint
 rather than allowing it, unless the surrounding code already allows it for

@@ -54,7 +54,7 @@ help:
 	@printf "\n  $(CYAN)Development$(RESET)\n"
 	@printf "    %-$(HELP_W)s  cargo check (all targets)\n" "make check"
 	@printf "    %-$(HELP_W)s  Run Rust tests\n" "make test"
-	@printf "    %-$(HELP_W)s  Run Rust tests with coverage (llvm-cov), per-file summary + lcov\n" "make test-coverage"
+	@printf "    %-$(HELP_W)s  Run Rust tests with coverage (llvm-cov); fails below COVERAGE_FLOOR\n" "make test-coverage"
 	@printf "    %-$(HELP_W)s  Mutation-test what the branch changed from MUTANTS_BASE (cargo-mutants)\n" "make mutants-diff"
 	@printf "    %-$(HELP_W)s  Run clippy linter\n" "make clippy"
 	@printf "    %-$(HELP_W)s  Build the Rust docs, warnings denied\n" "make doc"
@@ -176,10 +176,13 @@ accuracy-budget: python
 accuracy-report: $(VENV_STAMP)
 	$(PYTHON) tools/accuracy/report.py
 
+# Fails when the workspace's line coverage drops below COVERAGE_FLOOR percent.
+COVERAGE_FLOOR ?= 90
+
 test-coverage:
 	@printf "$(GREEN)Running cargo llvm-cov…$(RESET)\n"
 	$(CARGO) llvm-cov --workspace --exclude rvsim-bindings --lcov --output-path $(BUILD_DIR)/lcov.info
-	$(CARGO) llvm-cov report --summary-only
+	$(CARGO) llvm-cov report --summary-only --fail-under-lines $(COVERAGE_FLOOR)
 
 # Every mutant cargo-mutants makes in the code the branch changed since
 # MUTANTS_BASE must fail a test; it fails listing the ones none caught.
