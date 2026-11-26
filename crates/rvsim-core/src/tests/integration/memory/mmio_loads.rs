@@ -21,12 +21,18 @@ const DONE: u64 = 1;
 /// independent load of `mtime` that an out-of-order core could issue at
 /// once.
 fn program() -> Vec<u32> {
+    program_reading_mtime_with(InstructionBuilder::new().ld(T1, A0, 0).build())
+}
+
+/// [`program`] with `read`, which reads `mtime` at `a0` into `t1`, in
+/// place of its load.
+fn program_reading_mtime_with(read: u32) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let mut program: Vec<u32> = (0..CHAIN).map(|_| i().addi(T0, T0, 1).build()).collect();
     program.extend([
         i().lui(A0, (MTIME >> 12) as i32 + 1).build(),
         i().addi(A0, A0, (MTIME & 0xFFF) as i32 - 0x1000).build(),
-        i().ld(T1, A0, 0).build(),
+        read,
         i().jal(X0, 0).build(),
     ]);
     program
@@ -111,14 +117,14 @@ fn a_device_load_reads_the_device_not_a_buffered_store_to_it() {
     assert!(nonzero.is_empty(), "the receive register read a stored byte: {nonzero:#?}");
 }
 
-/// The cycle the instruction before [`program`]'s `mtime` load retired and
-/// the cycle the load's device read was sent.
-fn retire_and_device_read_cycles(backend: BackendKind) -> (u64, u64) {
+/// The cycle the instruction before `program`'s `mtime` read retired and
+/// the cycle the device read was sent.
+fn retire_and_device_read_cycles(backend: BackendKind, program: &[u32]) -> (u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.pipeline.width = 1;
     config.system.console = Console::Quiet;
-    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
+    let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, program);
     let older_than_load = CHAIN as u64 + 2;
     let mut older_retired = None;
 
@@ -141,7 +147,19 @@ fn retire_and_device_read_cycles(backend: BackendKind) -> (u64, u64) {
 #[test]
 fn a_device_read_is_sent_the_cycle_after_the_last_older_instruction_retires() {
     for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-        let (retired, sent) = retire_and_device_read_cycles(backend);
+        let (retired, sent) = retire_and_device_read_cycles(backend, &program());
+
+        assert_eq!(sent, retired + 1, "{backend:?}");
+    }
+}
+
+/// An LR from a device register reads it as a load does: the cycle after
+/// the last older instruction retires.
+#[test]
+fn a_device_lr_is_sent_the_cycle_after_the_last_older_instruction_retires() {
+    let lr = program_reading_mtime_with(InstructionBuilder::new().lr_d(T1, A0).build());
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let (retired, sent) = retire_and_device_read_cycles(backend, &lr);
 
         assert_eq!(sent, retired + 1, "{backend:?}");
     }
