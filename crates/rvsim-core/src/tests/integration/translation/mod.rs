@@ -5,3 +5,4 @@ pub mod load_prefetch_paging;
 pub mod tlb_latency;
 pub mod tlb_superpages;
 pub mod translation_fences;
+pub mod waiting_access_translation;

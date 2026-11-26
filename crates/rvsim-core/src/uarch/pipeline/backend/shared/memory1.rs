@@ -37,7 +37,7 @@
 use crate::uarch::pipeline::mailbox::{PteRead, read_pte};
 use std::ops::ControlFlow;
 
-use crate::arch::translation::{DirtyUpdates, PteUpdate, TranslationResult};
+use crate::arch::translation::{DirtyUpdates, TranslationResult};
 use crate::common::trace::Hex;
 use crate::common::{AccessType, PhysAddr, VirtAddr, crosses_cache_line, usize_of};
 use crate::exec::cbo;
@@ -73,9 +73,9 @@ enum EntryOutcome {
     /// Entry was passed downstream (`Mem1Mem2` push); continue iterating.
     Done,
     /// SB partial overlap or atomic-vs-SB conflict — retry on a later tick
-    /// once the blocking store has drained. Only this op waits; younger
-    /// memory ops keep flowing.
-    Replay(ExMem1Entry),
+    /// once the blocking store has drained, with the translations it has.
+    /// Only this op waits; younger memory ops keep flowing.
+    Replay(ExMem1Entry, PageTranslations),
     /// Entry was parked on a page-table walk in the engine's outstanding
     /// tables. Younger memory ops wait behind the unresolved older
     /// translation, so iteration halts and the remaining entries go back
@@ -144,20 +144,26 @@ pub fn memory1_stage<E: ExecutionEngine>(
         if let Some(seq) = engine.rob().find_entry(ex.op.rob_tag).map(|entry| entry.seq) {
             state.trace_stage(seq, Stage::Memory);
         }
-        let was_waiting = std::mem::take(&mut ex.replaying);
+        let replay = ex.replay.take();
+        let was_waiting = replay.is_some();
         let micro_op = ex.op.vec_mem.as_ref().map(|v| v.micro_op);
-        let translated = translations
-            .iter()
-            .position(|(tag, m, _)| *tag == ex.op.rob_tag && *m == micro_op)
-            .map(|i| translations.swap_remove(i).2)
-            .unwrap_or_default();
+        let translated = replay.map_or_else(
+            || {
+                translations
+                    .iter()
+                    .position(|(tag, m, _)| *tag == ex.op.rob_tag && *m == micro_op)
+                    .map(|i| translations.swap_remove(i).2)
+                    .unwrap_or_default()
+            },
+            |kept| *kept,
+        );
         match process_entry(state, engine, ex, translated, &mut outcome) {
             EntryOutcome::Done => {}
-            EntryOutcome::Replay(mut ex) => {
+            EntryOutcome::Replay(mut ex, translations) => {
                 if !was_waiting {
                     state.counter(state.core().stat_paths.lsq.rescheduled_mem_ops).inc();
                 }
-                ex.replaying = true;
+                ex.replay = Some(Box::new(translations));
                 engine.common_mut().memory.mem1_replay.push(ex);
             }
             EntryOutcome::Delayed(access) => engine.common_mut().memory.mem1_delayed.push(access),
@@ -263,6 +269,15 @@ struct TranslatedAccess {
     ex: ExMem1Entry,
     paddr: PhysAddr,
     dirty_updates: DirtyUpdates,
+    /// What translated it, for a retry to reuse.
+    translations: PageTranslations,
+}
+
+impl TranslatedAccess {
+    /// The access sent back to wait, keeping its translations.
+    fn wait(self) -> EntryOutcome {
+        EntryOutcome::Replay(self.ex, self.translations)
+    }
 }
 
 /// Translates `ex`, unless `known` already has, and the next page too when
@@ -284,9 +299,12 @@ fn translate_access<E: ExecutionEngine>(
         push_trap(engine, ex, trap);
         return ControlFlow::Break(EntryOutcome::Done);
     }
-    let (ex, second_dirty_update) = translate_second_page(state, engine, ex, &first, known.second)?;
-    let dirty_updates = DirtyUpdates::of(first.dirty_update, second_dirty_update);
-    ControlFlow::Continue(TranslatedAccess { ex, paddr: first.paddr, dirty_updates })
+    let (ex, second) = translate_second_page(state, engine, ex, &first, known.second)?;
+    let dirty_updates =
+        DirtyUpdates::of(first.dirty_update, second.as_ref().and_then(|r| r.dirty_update));
+    let paddr = first.paddr;
+    let translations = PageTranslations { first: Some(first), second };
+    ControlFlow::Continue(TranslatedAccess { ex, paddr, dirty_updates, translations })
 }
 
 /// The read or write `ex` makes of memory.
@@ -342,7 +360,7 @@ fn translate_second_page<E: ExecutionEngine>(
     ex: ExMem1Entry,
     first: &TranslationResult,
     known: Option<TranslationResult>,
-) -> ControlFlow<EntryOutcome, (ExMem1Entry, Option<PteUpdate>)> {
+) -> ControlFlow<EntryOutcome, (ExMem1Entry, Option<TranslationResult>)> {
     let Some(second_va) = misaligned::second_page_start(ex.op.alu, ex.op.ctrl.width.bytes()) else {
         return ControlFlow::Continue((ex, None));
     };
@@ -375,7 +393,7 @@ fn translate_second_page<E: ExecutionEngine>(
         push_trap(engine, ex, trap);
         return ControlFlow::Break(EntryOutcome::Done);
     }
-    ControlFlow::Continue((ex, r.dirty_update))
+    ControlFlow::Continue((ex, Some(r)))
 }
 
 /// `ex` waiting out the `cycles` an L2 TLB hit costs, to continue with
@@ -401,7 +419,7 @@ fn perform_store<E: ExecutionEngine>(
     access: TranslatedAccess,
     resolved: &mut Memory1Outcome,
 ) {
-    let TranslatedAccess { ex, paddr, dirty_updates } = access;
+    let TranslatedAccess { ex, paddr, dirty_updates, .. } = access;
     let vaddr = ex.vaddr();
     if ex.op.vec_mem.is_none() {
         resolve_store(state, engine, &ex, paddr, vaddr, resolved);
@@ -415,29 +433,29 @@ fn perform_atomic<E: ExecutionEngine>(
     engine: &mut E,
     access: TranslatedAccess,
 ) -> EntryOutcome {
-    let TranslatedAccess { ex, paddr, dirty_updates } = access;
-    let vaddr = ex.vaddr();
-    if ex.op.ctrl.performs_at_rob_head() {
+    let (paddr, vaddr, tag) = (access.paddr, access.ex.vaddr(), access.ex.op.rob_tag);
+    if access.ex.op.ctrl.performs_at_rob_head() {
         // It follows every older store to memory, sets its PTE's D bit
         // as its translation completes, then takes effect in the cache.
-        if !takes_effect_now(engine, ex.op.rob_tag) || drain_older_stores(state, engine) {
-            return EntryOutcome::Replay(ex);
+        if !takes_effect_now(engine, tag) || drain_older_stores(state, engine) {
+            return access.wait();
         }
-        if !apply_dirty_updates(state, engine, dirty_updates) {
-            return EntryOutcome::Replay(ex);
+        if !apply_dirty_updates(state, engine, access.dirty_updates) {
+            // A PTE changed since the walk, so the retry translates afresh.
+            return EntryOutcome::Replay(access.ex, PageTranslations::default());
         }
-        emit_load_req(state, engine, ex, paddr, vaddr, DirtyUpdates::NONE);
+        emit_load_req(state, engine, access.ex, paddr, vaddr, DirtyUpdates::NONE);
         return EntryOutcome::Done;
     }
     // LR: wait for older stores to this address to drain.
-    let size = ex.op.ctrl.width.bytes();
-    if older_store_unwritten(state, engine, &ex, paddr, size) {
-        return EntryOutcome::Replay(ex);
+    let size = access.ex.op.ctrl.width.bytes();
+    if older_store_unwritten(state, engine, &access.ex, paddr, size) {
+        return access.wait();
     }
-    if reads_a_device(state, paddr, size) && !takes_effect_now(engine, ex.op.rob_tag) {
-        return EntryOutcome::Replay(ex);
+    if reads_a_device(state, paddr, size) && !takes_effect_now(engine, tag) {
+        return access.wait();
     }
-    emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
+    emit_load_req(state, engine, access.ex, paddr, vaddr, access.dirty_updates);
     EntryOutcome::Done
 }
 
@@ -448,28 +466,27 @@ fn perform_load<E: ExecutionEngine>(
     engine: &mut E,
     access: TranslatedAccess,
 ) -> EntryOutcome {
-    let TranslatedAccess { ex, paddr, dirty_updates } = access;
-    let (pc, vaddr, size) = (ex.op.pc, ex.vaddr(), ex.op.ctrl.width.bytes());
+    let (paddr, dirty_updates) = (access.paddr, access.dirty_updates);
+    let ex = &access.ex;
+    let (pc, vaddr, size, tag) = (ex.op.pc, ex.vaddr(), ex.op.ctrl.width.bytes(), ex.op.rob_tag);
     // A device read has side effects, so it waits until nothing older can
     // still fault, redirect or be interrupted: the load must be the oldest
     // instruction in the machine. A register need not read back what was
     // written to it, so the read goes to the device after the stores to it.
     if reads_a_device(state, paddr, size) {
-        if !takes_effect_now(engine, ex.op.rob_tag)
-            || older_store_unwritten(state, engine, &ex, paddr, size)
-        {
-            return EntryOutcome::Replay(ex);
+        if !takes_effect_now(engine, tag) || older_store_unwritten(state, engine, ex, paddr, size) {
+            return access.wait();
         }
-        emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates);
+        emit_load_req(state, engine, access.ex, paddr, vaddr, dirty_updates);
         send_load_prefetches(state, engine, pc, vaddr, paddr);
         return EntryOutcome::Done;
     }
-    match forward_from_pending_stores(state, engine, &ex, paddr, usize_of(size)) {
+    match forward_from_pending_stores(state, engine, ex, paddr, usize_of(size)) {
         ForwardResult::Hit(raw_val) => {
-            push_sb_forwarded_load(state, engine, ex, paddr, vaddr, dirty_updates, raw_val);
+            push_sb_forwarded_load(state, engine, access.ex, paddr, vaddr, dirty_updates, raw_val);
         }
-        ForwardResult::Stall => return EntryOutcome::Replay(ex),
-        ForwardResult::Miss => emit_load_req(state, engine, ex, paddr, vaddr, dirty_updates),
+        ForwardResult::Stall => return access.wait(),
+        ForwardResult::Miss => emit_load_req(state, engine, access.ex, paddr, vaddr, dirty_updates),
     }
     send_load_prefetches(state, engine, pc, vaddr, paddr);
     EntryOutcome::Done
@@ -526,7 +543,9 @@ fn process_span<E: ExecutionEngine>(
             send_load_prefetches(state, engine, pc, vaddr, paddr);
             EntryOutcome::Done
         }
-        SpanForward::Stall => EntryOutcome::Replay(ex),
+        SpanForward::Stall => {
+            EntryOutcome::Replay(ex, PageTranslations { first: Some(first), second: None })
+        }
         SpanForward::Miss => {
             emit_span_read(state, engine, ex, paddr, vaddr, bytes);
             send_load_prefetches(state, engine, pc, vaddr, paddr);
