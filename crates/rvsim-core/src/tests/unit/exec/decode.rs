@@ -17,7 +17,7 @@ use crate::isa::op::{
     SingleBitOp,
 };
 use crate::isa::privileged::Trap;
-use crate::isa::reg::{ArchReg, RegIdx};
+use crate::isa::reg::{ArchReg, RegFile, RegIdx};
 
 /// Operand format: 64-bit (`X`) or word (`W`) integer, or single, double
 /// or half precision.
@@ -294,7 +294,9 @@ fn each_load_and_store_decodes_to_its_width_extension_and_register_file() {
                 let extension = if ctrl.signed_load { Signed } else { Unsigned };
                 Load(ctrl.width, extension, dest_of(decoded).unwrap_or(Int))
             }
-            (false, true) => Store(ctrl.width, if ctrl.rs2_fp { Fp } else { Int }),
+            (false, true) => {
+                Store(ctrl.width, if ctrl.rs2_file == Some(RegFile::Fp) { Fp } else { Int })
+            }
             access => panic!("{decoded:?} has memory access {access:?}"),
         }
     });

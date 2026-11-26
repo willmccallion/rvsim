@@ -214,11 +214,12 @@ fn is_held_by_ordering(entry: &InOrderEntry, ctx: &IssueContext<'_>) -> bool {
 fn read_operands(entry: &InOrderEntry, rob: &Rob, state: &StageCtx<'_>) -> Option<[u64; 3]> {
     let ctrl = &entry.inst.ctrl;
     let tags = &entry.regs;
-    let rv1 = read_operand_by_tag(ctrl.src1(entry.inst.rs1), tags.rs1, rob, state);
-    let rv2 = read_operand_by_tag(ctrl.src2(entry.inst.rs2), tags.rs2, rob, state);
-    let rv3 = ctrl
-        .src3(entry.inst.rs3)
-        .map_or(Some(0), |rs3| read_operand_by_tag(rs3, tags.rs3, rob, state));
+    let read = |src: Option<ArchReg>, tag| {
+        src.map_or(Some(0), |reg| read_operand_by_tag(reg, tag, rob, state))
+    };
+    let rv1 = read(ctrl.src1(entry.inst.rs1), tags.rs1);
+    let rv2 = read(ctrl.src2(entry.inst.rs2), tags.rs2);
+    let rv3 = read(ctrl.src3(entry.inst.rs3), tags.rs3);
     if let (Some(v1), Some(v2), Some(v3)) = (rv1, rv2, rv3) {
         return Some([v1, v2, v3]);
     }

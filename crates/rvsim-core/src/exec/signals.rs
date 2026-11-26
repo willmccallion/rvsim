@@ -9,7 +9,7 @@ use crate::isa::fp::Rounding;
 use crate::isa::op::{
     AluOp, AtomicOp, CsrOp, MemWidth, OperandFormat, SystemOp, VecSrcEncoding, VectorOp,
 };
-use crate::isa::reg::{ArchReg, RegIdx};
+use crate::isa::reg::{ArchReg, RegFile, RegIdx};
 use crate::isa::rvv::{Sew, VRegIdx};
 
 /// Source for ALU operand A.
@@ -133,12 +133,12 @@ pub struct ControlSignals {
     /// How an FP arithmetic op or conversion rounds; `None` for every
     /// instruction whose result does not depend on a rounding mode.
     pub fp_rm: Option<Rounding>,
-    /// `rs1` is a floating-point register.
-    pub rs1_fp: bool,
-    /// `rs2` is a floating-point register.
-    pub rs2_fp: bool,
-    /// `rs3` is a floating-point register.
-    pub rs3_fp: bool,
+    /// The register file `rs1` is read from; `None` if it is not read.
+    pub rs1_file: Option<RegFile>,
+    /// The register file `rs2` is read from; `None` if it is not read.
+    pub rs2_file: Option<RegFile>,
+    /// The register file `rs3` is read from; `None` if it is not read.
+    pub rs3_file: Option<RegFile>,
     /// Atomic memory operation type.
     pub atomic_op: Option<AtomicOp>,
     /// An atomic with the `aq` bit: no younger load may perform before it.
@@ -178,20 +178,34 @@ pub struct ControlSignals {
     pub vec_broadcast_vs2: bool,
 }
 
+/// Register `idx` of `file`, or `None` when the operand is not read.
+const fn source(file: Option<RegFile>, idx: RegIdx) -> Option<ArchReg> {
+    match file {
+        Some(file) => Some(file.reg(idx)),
+        None => None,
+    }
+}
+
+/// Whether an operand is read from the floating-point registers.
+const fn is_fp(file: Option<RegFile>) -> bool {
+    matches!(file, Some(RegFile::Fp))
+}
+
 impl ControlSignals {
-    /// `rs1` in the register file this instruction reads it from.
-    pub const fn src1(&self, rs1: RegIdx) -> ArchReg {
-        if self.rs1_fp { ArchReg::Fp(rs1) } else { ArchReg::Int(rs1) }
+    /// The register `rs1` names, if this instruction reads it.
+    pub const fn src1(&self, rs1: RegIdx) -> Option<ArchReg> {
+        source(self.rs1_file, rs1)
     }
 
-    /// `rs2` in the register file this instruction reads it from.
-    pub const fn src2(&self, rs2: RegIdx) -> ArchReg {
-        if self.rs2_fp { ArchReg::Fp(rs2) } else { ArchReg::Int(rs2) }
+    /// The register `rs2` names, if this instruction reads it.
+    pub const fn src2(&self, rs2: RegIdx) -> Option<ArchReg> {
+        source(self.rs2_file, rs2)
     }
 
-    /// `rs3`, which only the fused multiply-adds read.
+    /// The register `rs3` names, if this instruction reads it; only the
+    /// fused multiply-adds do.
     pub const fn src3(&self, rs3: RegIdx) -> Option<ArchReg> {
-        if self.rs3_fp { Some(ArchReg::Fp(rs3)) } else { None }
+        source(self.rs3_file, rs3)
     }
 
     /// The scalar register this instruction writes as `rd`, if any. A
@@ -224,7 +238,7 @@ impl ControlSignals {
 
     /// True for anything that reads or writes a floating-point register.
     pub const fn touches_fp_registers(&self) -> bool {
-        self.fp_reg_write || self.rs1_fp || self.rs2_fp || self.rs3_fp
+        self.fp_reg_write || is_fp(self.rs1_file) || is_fp(self.rs2_file) || is_fp(self.rs3_file)
     }
 
     /// True for anything that reads memory: a scalar load, LR, an AMO, or a

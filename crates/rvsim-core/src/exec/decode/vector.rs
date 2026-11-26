@@ -14,6 +14,7 @@ use crate::isa::op::{
     VecFpOp, VecLoadOp, VecSrcEncoding, VecStoreOp, VectorOp, WholeRegisters, WidenIntReduceOp,
     WidenMaccOp, WidenOp,
 };
+use crate::isa::reg::RegFile;
 use crate::isa::rvv::{Sew, VRegIdx};
 
 /// The instruction bit holding the top bit of `vror.vi`'s 6-bit rotate.
@@ -189,7 +190,7 @@ fn decode_arithmetic(c: &mut ControlSignals, inst: u32, funct3: u32) -> Result<(
         }
         v_funct3::OPFVF => {
             c.vec_src_encoding = VecSrcEncoding::VF;
-            c.rs1_fp = true;
+            c.rs1_file = Some(RegFile::Fp);
             let (op, writes_vec) = decode_opfvf(f6, inst)?;
             c.vec_op = Some(op);
             c.vec_reg_write = writes_vec;

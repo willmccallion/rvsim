@@ -114,8 +114,8 @@ impl O3Engine {
         let reads_old_vd = is_vector && (ctrl.vec_reg_write || is_vec_store(ctrl.vec_op));
         let vs3_count = if reads_old_vd { groups.vd } else { 0 };
         RenamedRegisters {
-            rs1_phys: map.get(ctrl.src1(inst.rs1)),
-            rs2_phys: map.get(ctrl.src2(inst.rs2)),
+            rs1_phys: ctrl.src1(inst.rs1).map_or(PhysReg::ZERO, |rs1| map.get(rs1)),
+            rs2_phys: ctrl.src2(inst.rs2).map_or(PhysReg::ZERO, |rs2| map.get(rs2)),
             rs3_phys: ctrl.src3(inst.rs3).map_or(PhysReg::ZERO, |rs3| map.get(rs3)),
             vs1: map.vec_group(ctrl.vs1, vs1_count),
             vs2: map.vec_group(ctrl.vs2, vs2_count),

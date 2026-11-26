@@ -129,6 +129,26 @@ const FP_ABI_NAMES: [&str; 32] = [
     "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
 ];
 
+/// The scalar register file an operand is read from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegFile {
+    /// The integer registers, x0–x31.
+    Int,
+    /// The floating-point registers, f0–f31.
+    Fp,
+}
+
+impl RegFile {
+    /// Register `idx` in this file.
+    #[must_use]
+    pub const fn reg(self, idx: RegIdx) -> ArchReg {
+        match self {
+            Self::Int => ArchReg::Int(idx),
+            Self::Fp => ArchReg::Fp(idx),
+        }
+    }
+}
+
 /// An architectural integer or floating-point register.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ArchReg {

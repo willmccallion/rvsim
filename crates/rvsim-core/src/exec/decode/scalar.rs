@@ -24,6 +24,7 @@ use crate::isa::op::{
     FpCompareOp, FpOp, IntAluOp, IntWidth, LogicOp, MemWidth, MinMaxOp, MulOp, OperandFormat,
     PackOp, RotateOp, ShiftAddOp, ShiftOp, SignInjectOp, Signedness, SingleBitOp, SystemOp,
 };
+use crate::isa::reg::RegFile;
 
 /// funct6 (bits 31:26) of the 64-bit shift-immediate encodings, whose low
 /// six immediate bits are the shift amount.
@@ -133,14 +134,14 @@ pub(super) fn decode(c: &mut ControlSignals, inst: u32, d: &Decoded) -> Result<(
         f_opcodes::OP_STORE_FP => {
             let (width, format) = fp_mem_width(d.funct3).ok_or(DecodeFault::UnknownEncoding)?;
             c.mem_write = true;
-            c.rs2_fp = true;
+            c.rs2_file = Some(RegFile::Fp);
             c.width = width;
             c.format = OperandFormat::Fp(format);
         }
         f_opcodes::OP_FP => {
             c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(DecodeFault::UnknownEncoding)?);
-            c.rs1_fp = true;
-            c.rs2_fp = true;
+            c.rs1_file = Some(RegFile::Fp);
+            c.rs2_file = Some(RegFile::Fp);
             c.fp_reg_write = true;
             c.b_src = OpBSrc::Reg2;
             let op = op_fp(c, d).ok_or(DecodeFault::UnknownEncoding)?;
@@ -321,7 +322,7 @@ fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<FpOp> {
         f_funct7::FMV_F_X | d_funct7::FMV_D_X | h_funct7::FMV_H_X
             if rs2 == 0 && d.funct3 == f_funct3::FMV_X_W =>
         {
-            c.rs1_fp = false;
+            c.rs1_file = Some(RegFile::Int);
             FpOp::MoveFromInt
         }
         f_funct7::FCVT_W_F | d_funct7::FCVT_W_D | h_funct7::FCVT_W_H => {
@@ -334,7 +335,7 @@ fn op_fp(c: &mut ControlSignals, d: &Decoded) -> Option<FpOp> {
             }
         }
         f_funct7::FCVT_F_W | d_funct7::FCVT_D_W | h_funct7::FCVT_H_W => {
-            c.rs1_fp = false;
+            c.rs1_file = Some(RegFile::Int);
             match FcvtInt::of(rs2)? {
                 FcvtInt::W => FpOp::FromInt(IntWidth::Word, Signedness::Signed),
                 FcvtInt::Wu => FpOp::FromInt(IntWidth::Word, Signedness::Unsigned),
@@ -379,9 +380,9 @@ const fn writes_int_register(c: &mut ControlSignals) {
 
 /// Decodes a fused multiply-add with the `signs` into `c`.
 fn decode_fused(c: &mut ControlSignals, d: &Decoded, signs: FmaSigns) -> Result<(), DecodeFault> {
-    c.rs1_fp = true;
-    c.rs2_fp = true;
-    c.rs3_fp = true;
+    c.rs1_file = Some(RegFile::Fp);
+    c.rs2_file = Some(RegFile::Fp);
+    c.rs3_file = Some(RegFile::Fp);
     c.fp_reg_write = true;
     c.b_src = OpBSrc::Reg2;
     c.format = OperandFormat::Fp(fp_format(d.funct7).ok_or(DecodeFault::UnknownEncoding)?);

@@ -9,6 +9,7 @@ use super::InOrderEngine;
 use super::issue::ProducerTags;
 use crate::common::trace::Hex;
 use crate::exec::compute::vector::mem::is_vec_store;
+use crate::isa::reg::ArchReg;
 use crate::trace_rename;
 use crate::uarch::ctx::StageCtx;
 use crate::uarch::pipeline::engine::{ExecutionEngine, Renamed};
@@ -44,9 +45,10 @@ impl InOrderEngine {
 
         // Capture source tags BEFORE updating scoreboard for rd.
         let ctrl = decoded.inst.ctrl;
-        let rs1_tag = self.scoreboard.get_producer(ctrl.src1(decoded.inst.rs1));
-        let rs2_tag = self.scoreboard.get_producer(ctrl.src2(decoded.inst.rs2));
-        let rs3_tag = ctrl.src3(decoded.inst.rs3).and_then(|rs3| self.scoreboard.get_producer(rs3));
+        let producer = |src: Option<ArchReg>| src.and_then(|reg| self.scoreboard.get_producer(reg));
+        let rs1_tag = producer(ctrl.src1(decoded.inst.rs1));
+        let rs2_tag = producer(ctrl.src2(decoded.inst.rs2));
+        let rs3_tag = producer(ctrl.src3(decoded.inst.rs3));
 
         if let Some(dest) = ctrl.dest(decoded.inst.rd) {
             self.scoreboard.set_producer(dest, rob_tag);

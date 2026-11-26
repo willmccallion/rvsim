@@ -91,7 +91,7 @@ pub fn decode_stage(
 
         let rs3_idx = inst.rs3();
         if bundle_hazard == BundleHazard::EndsBundle {
-            let sources = [Some(ctrl.src1(d.rs1)), Some(ctrl.src2(d.rs2)), ctrl.src3(rs3_idx)];
+            let sources = [ctrl.src1(d.rs1), ctrl.src2(d.rs2), ctrl.src3(rs3_idx)];
             if sources.into_iter().flatten().any(|src| bundle_writes.contains(&src)) {
                 break;
             }
