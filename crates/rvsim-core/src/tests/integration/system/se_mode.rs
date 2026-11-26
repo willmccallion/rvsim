@@ -25,6 +25,9 @@ const SYS_GETPID: i32 = 172;
 const SYS_GETTID: i32 = 178;
 const M5_FAIL: u32 = 0x22;
 const M5_DUMP_STATS: u32 = 0x41;
+const M5_DUMP_RESET_STATS: u32 = 0x42;
+/// A function number gem5 assigns no operation.
+const M5_UNASSIGNED: u32 = 0x7E;
 const SYS_WRITE: i32 = 64;
 const AT_FDCWD: i32 = -100;
 /// `vsetvli x0, x0, e8`: a vector instruction with no effect on the test.
@@ -346,6 +349,43 @@ fn a_pseudo_op_dumps_the_stats_with_its_label() {
         let labels: Vec<u64> =
             sim.state.uncore.run.stats_dumps.iter().map(|dump| dump.label).collect();
         assert_eq!(labels, vec![3], "{backend:?}");
+    }
+}
+
+/// A dump-and-reset ends one stats region and starts the next where the
+/// dump ended.
+#[test]
+fn a_pseudo_op_dump_and_reset_starts_the_next_region_at_the_dump() {
+    let i = InstructionBuilder::new;
+    let mut code = vec![
+        i().addi(A0, X0, 1).build(),
+        PseudoOp::encode(M5_DUMP_RESET_STATS),
+        i().addi(A0, X0, 2).build(),
+        PseudoOp::encode(M5_DUMP_RESET_STATS),
+    ];
+    code.extend(exit_with(0));
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut sim = simulator(backend, &code, &["prog"]);
+
+        let stop = run_for(&mut sim, 50_000);
+
+        assert_eq!(stop, StopReason::Exited(0), "{backend:?}");
+        let [first, second] = sim.stats_dumps() else {
+            panic!("{backend:?}: {} dumps, not two", sim.stats_dumps().len());
+        };
+        assert_eq!((first.label, second.label), (1, 2), "{backend:?}");
+        assert_eq!(first.epoch.instructions_retired, 0, "{backend:?}");
+        assert_eq!(second.epoch.instructions_retired, first.instructions_retired, "{backend:?}");
+    }
+}
+
+/// A function number rvsim does not perform is skipped, as gem5 skips one.
+#[test]
+fn an_unassigned_pseudo_op_is_skipped() {
+    let mut code = vec![PseudoOp::encode(M5_UNASSIGNED)];
+    code.extend(exit_with(5));
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        assert_eq!(run(backend, &code, &["prog"]), StopReason::Exited(5), "{backend:?}");
     }
 }
 
