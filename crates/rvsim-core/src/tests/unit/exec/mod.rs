@@ -10,3 +10,4 @@ pub mod disasm_objdump;
 pub mod disasm_vec;
 pub mod fpu;
 pub mod misaligned;
+pub mod opcode_operands;
