@@ -128,6 +128,10 @@ pub const L2_TLB_LATENCY: u64 = 4;
 /// Pointer PTEs the walker caches; none, as in gem5's RISC-V walker.
 pub const WALK_CACHE_ENTRIES: usize = 0;
 
+/// Page-table walks a core runs at once: one, as on every core with a
+/// published figure (Rocket, BOOM, the P550's data side).
+pub const PAGE_WALKERS: NonZeroUsize = NonZeroUsize::MIN;
+
 /// Default cache size in bytes (4 KiB).
 pub const CACHE_SIZE: NonZeroUsize = non_zero(4096);
 

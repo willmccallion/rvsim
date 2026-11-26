@@ -939,7 +939,7 @@ fn translate_each(mmu: &mut Mmu, csrs: &Csrs, tc: &TestContext, access: AccessTy
 }
 
 #[test]
-fn a_first_load_to_a_page_misses_every_tlb_and_walks() {
+fn a_first_load_to_a_page_misses_every_tlb() {
     let (mut mmu, csrs, tc) = mmu_over_pages(8);
 
     translate_each(&mut mmu, &csrs, &tc, AccessType::Read, &PAGES[..1]);
@@ -947,7 +947,6 @@ fn a_first_load_to_a_page_misses_every_tlb_and_walks() {
     let expected = TlbCounts {
         dtlb: HitsAndMisses { hits: 0, misses: 1 },
         l2_tlb: HitsAndMisses { hits: 0, misses: 1 },
-        walks: 1,
         ..TlbCounts::default()
     };
     assert_eq!(mmu.take_counts(), expected);
@@ -990,7 +989,6 @@ fn a_fetch_counts_in_the_instruction_tlb() {
     let expected = TlbCounts {
         itlb: HitsAndMisses { hits: 0, misses: 1 },
         l2_tlb: HitsAndMisses { hits: 0, misses: 1 },
-        walks: 1,
         ..TlbCounts::default()
     };
     assert_eq!(mmu.take_counts(), expected);
@@ -1002,8 +1000,7 @@ fn a_machine_without_an_l2_tlb_counts_no_l2_lookups() {
 
     translate_each(&mut mmu, &csrs, &tc, AccessType::Read, &PAGES[..1]);
 
-    let expected =
-        TlbCounts { dtlb: HitsAndMisses { hits: 0, misses: 1 }, walks: 1, ..TlbCounts::default() };
+    let expected = TlbCounts { dtlb: HitsAndMisses { hits: 0, misses: 1 }, ..TlbCounts::default() };
     assert_eq!(mmu.take_counts(), expected);
 }
 

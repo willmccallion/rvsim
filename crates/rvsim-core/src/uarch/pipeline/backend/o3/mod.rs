@@ -29,6 +29,7 @@ use crate::uarch::pipeline::backend::shared::vec_mem::{VecMemInflight, VecMemMic
 use crate::uarch::pipeline::engine::BackendCommon;
 use crate::uarch::pipeline::engine::CacheRoutes;
 use crate::uarch::pipeline::engine::Renamed;
+use crate::uarch::pipeline::engine::WalkerPool;
 use crate::uarch::pipeline::engine::{BundleHazard, DataCacheFlush, ExecutionEngine};
 use crate::uarch::pipeline::latches::IdExEntry;
 use crate::uarch::pipeline::latches::{
@@ -253,7 +254,12 @@ impl O3Engine {
                 config.pipeline.vec_store_buffer_size,
                 config.pipeline.vec_store_forwarding,
             ),
-            common: BackendCommon { pipeline_id, caches, ..BackendCommon::default() },
+            common: BackendCommon {
+                pipeline_id,
+                caches,
+                walkers: WalkerPool::of(config),
+                ..BackendCommon::default()
+            },
         }
     }
 

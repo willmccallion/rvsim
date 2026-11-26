@@ -33,7 +33,7 @@ use crate::uarch::pipeline::frontend::fetch1::{dispatch_fetch_group, drain_fetch
 use crate::uarch::pipeline::latches::Mem1Mem2Entry;
 use crate::uarch::pipeline::outstanding::{
     DelayedAccess, OutstandingFetch, OutstandingLoad, OutstandingStore, OutstandingWalk, PartRead,
-    StoreOwner, WalkContinuation,
+    QueuedWalk, StoreOwner, WalkContinuation,
 };
 
 /// Processes every packet currently in the engine's mailbox.
@@ -45,7 +45,9 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
         };
 
         if let Some(walk) = pipeline.engine.common_mut().memory.outstanding_walks.remove(&req_id) {
-            complete_walk(pipeline, state, walk, &data);
+            if !walk.is_squashed() {
+                complete_walk(pipeline, state, walk, &data);
+            }
         } else if let Some(fetch) =
             pipeline.engine.common_mut().fetch.outstanding_fetches.remove(&req_id)
         {
@@ -63,6 +65,7 @@ pub fn drain<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCt
             acknowledge_write(pipeline, state, store.owner, req_id);
         }
     }
+    serve_walk_queue(pipeline, state);
     release_forwarded_loads(&mut pipeline.engine, state.uncore().kernel.cycle);
 
     drain_fetch_reorder(
@@ -262,6 +265,7 @@ fn dispatch_walk_continuation<E: ExecutionEngine>(
             }
             pipeline.engine.execute_mem1_mut().push(entry);
         }
+        WalkContinuation::Squashed => {}
     }
 }
 
@@ -315,9 +319,74 @@ pub struct PteRead {
     pub after: u64,
 }
 
+/// Starts `walk`, whose first PTE read is `read`, on a free walker, or
+/// queues it: behind a walk of the same page, whose fill it will find in
+/// the TLB, or until a walker of its side frees.
+pub fn start_walk(
+    common: &mut BackendCommon,
+    state: &mut StageCtx<'_>,
+    walk: OutstandingWalk,
+    read: PteRead,
+) {
+    if common.memory.walks_page(&walk) || !common.has_free_walker(walk.side()) {
+        let earliest = state.uncore().kernel.cycle + read.after;
+        common.memory.walk_queue.push_back(QueuedWalk { walk, pte_addr: read.addr, earliest });
+        return;
+    }
+    begin_walk(common, state, walk, read);
+}
+
+/// Sends `walk`'s first PTE read on a walker.
+fn begin_walk(
+    common: &mut BackendCommon,
+    state: &mut StageCtx<'_>,
+    walk: OutstandingWalk,
+    read: PteRead,
+) {
+    let walks = state.core().stat_paths.mmu.walks;
+    state.counter(walks).inc();
+    read_pte(common, state, walk, read);
+}
+
+/// Gives the walkers free this cycle to the oldest queued walks they can
+/// serve. A queued walk whose page the TLBs now hold takes its translation
+/// from there instead of walking, as gem5's walker looks before it walks a
+/// queued request.
+fn serve_walk_queue<E: ExecutionEngine>(pipeline: &mut Pipeline<E>, state: &mut StageCtx<'_>) {
+    let mut index = 0;
+    while let Some(queued) = pipeline.engine.common().memory.walk_queue.get(index) {
+        let common = pipeline.engine.common();
+        if common.memory.walks_page_now(&queued.walk) || !common.has_free_walker(queued.walk.side())
+        {
+            index += 1;
+            continue;
+        }
+        if let Some(queued) = pipeline.engine.common_mut().memory.walk_queue.remove(index) {
+            resume_queued_walk(pipeline, state, queued);
+        }
+    }
+}
+
+/// Starts `queued` on the walker it now has, unless the TLBs already
+/// translate its page.
+fn resume_queued_walk<E: ExecutionEngine>(
+    pipeline: &mut Pipeline<E>,
+    state: &mut StageCtx<'_>,
+    queued: QueuedWalk,
+) {
+    let QueuedWalk { walk, pte_addr, earliest } = queued;
+    if let Some(result) = state.cached_translation(&walk.state) {
+        let page = walk.state.vaddr.val() >> PAGE_SHIFT;
+        dispatch_walk_continuation(pipeline, state, walk.continuation, page, result);
+        return;
+    }
+    let after = earliest.saturating_sub(state.uncore().kernel.cycle);
+    begin_walk(pipeline.engine.common_mut(), state, walk, PteRead { addr: pte_addr, after });
+}
+
 /// Parks `walk` until `read` answers and sends the read to the cache the
 /// walker reads from.
-pub fn read_pte(
+fn read_pte(
     common: &mut BackendCommon,
     state: &mut StageCtx<'_>,
     walk: OutstandingWalk,

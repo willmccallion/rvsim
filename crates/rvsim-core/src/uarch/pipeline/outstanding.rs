@@ -10,7 +10,7 @@
 
 use crate::arch::translation::DirtyUpdates;
 use crate::arch::translation::TranslationResult;
-use crate::common::{FetchSeq, LineAddr, PhysAddr, VirtAddr};
+use crate::common::{AccessType, FetchSeq, LineAddr, PhysAddr, VirtAddr};
 use crate::sim::memory::write_log::WriteSeq;
 use crate::sim::packet::MemRespData;
 use crate::uarch::mmu::ptw::WalkState;
@@ -207,6 +207,49 @@ pub struct OutstandingWalk {
     pub continuation: WalkContinuation,
 }
 
+/// The walkers a walk uses: instruction fetch's or data's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalkSide {
+    /// An instruction fetch's translation.
+    Fetch,
+    /// A load's, store's or cache-block operation's.
+    Data,
+}
+
+impl OutstandingWalk {
+    /// Whether it translates for instruction fetch or for data.
+    #[must_use]
+    pub fn side(&self) -> WalkSide {
+        if self.state.access == AccessType::Fetch { WalkSide::Fetch } else { WalkSide::Data }
+    }
+
+    /// Whether it translates the same page as `other`, in the same address
+    /// space.
+    #[must_use]
+    pub fn walks_page_of(&self, other: &Self) -> bool {
+        self.state.vaddr.page_number() == other.state.vaddr.page_number()
+            && self.state.asid == other.state.asid
+    }
+
+    /// Whether a squash or flush removed the access it translates.
+    #[must_use]
+    pub const fn is_squashed(&self) -> bool {
+        matches!(self.continuation, WalkContinuation::Squashed)
+    }
+}
+
+/// A walk waiting for a walker of its side, or for the walk ahead of it of
+/// the same page, whose fill it will find in the TLB.
+#[derive(Clone, Debug)]
+pub struct QueuedWalk {
+    /// The walk.
+    pub walk: OutstandingWalk,
+    /// Its first PTE's address.
+    pub pte_addr: PhysAddr,
+    /// The earliest cycle that read can go: once the L2 TLB has missed.
+    pub earliest: u64,
+}
+
 /// What an in-progress walk resumes once it completes.
 #[derive(Clone, Debug)]
 pub enum WalkContinuation {
@@ -230,6 +273,10 @@ pub enum WalkContinuation {
         /// The translations it obtained before this walk.
         translations: Box<PageTranslations>,
     },
+    /// The access a squash or flush removed. The walk keeps its walker
+    /// until the PTE read it has in flight answers, then ends without
+    /// filling a TLB.
+    Squashed,
 }
 
 /// A load answered from the store buffer: its data is known at once, but

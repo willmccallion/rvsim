@@ -177,6 +177,8 @@ def config_for(variant: Variant) -> Config:
         l2_tlb_size=0,
         l2_tlb_ways=4,
         l2_tlb_latency=4,
+        # gem5's RISC-V ITB and DTB each have a walker (RiscvTLB.py).
+        walker_sharing="PerSide",
         bus_width=bus["width_bytes"],
         bus_latency=bus["latency"],
         memory_controller=MemoryController.Simple(

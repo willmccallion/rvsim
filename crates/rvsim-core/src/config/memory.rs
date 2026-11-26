@@ -2,6 +2,7 @@
 
 use super::defaults;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroUsize;
 
 /// Memory controller implementation types.
 ///
@@ -108,6 +109,13 @@ pub struct MemoryConfig {
     /// The cache the page-table walker reads PTEs from
     pub walker_port: WalkerPort,
 
+    /// Page-table walks the core runs at once; a TLB miss beyond them
+    /// waits for a walker
+    pub page_walkers: NonZeroUsize,
+
+    /// Whether instruction fetch and data accesses share the walkers
+    pub walker_sharing: WalkerSharing,
+
     /// Trap on misaligned memory accesses instead of handling them natively.
     /// When true, misaligned loads/stores raise `LoadAddressMisaligned` /
     /// `StoreAddressMisaligned` exceptions (matching spike's default behavior).
@@ -166,6 +174,8 @@ impl Default for MemoryConfig {
             l2_tlb_latency: defaults::L2_TLB_LATENCY,
             walk_cache_entries: defaults::WALK_CACHE_ENTRIES,
             walker_port: WalkerPort::default(),
+            page_walkers: defaults::PAGE_WALKERS,
+            walker_sharing: WalkerSharing::default(),
             misaligned_access_trap: false,
             paging_mode_max: crate::isa::privileged::PagingMode::Sv57,
         }
@@ -182,6 +192,18 @@ pub enum WalkerPort {
     /// L1D to the core's own loads, and an L1D copy written there is
     /// probed for first.
     L2,
+}
+
+/// Which accesses a core's page-table walkers serve.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default, serde::Deserialize, serde::Serialize)]
+pub enum WalkerSharing {
+    /// Fetch and data walks share the walkers, as on Rocket and BOOM, whose
+    /// one walker serves both, and the P550, whose manual describes one.
+    #[default]
+    Shared,
+    /// Fetch and data walks each have `page_walkers` of their own, as
+    /// gem5's ITB and DTB each have a walker.
+    PerSide,
 }
 
 /// Address-bit interleave strategy. Names read high-order to low-order bit,

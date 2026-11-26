@@ -119,8 +119,6 @@ pub struct TlbCounts {
     /// Walks that found a table below the root in the walk cache; none
     /// when there is no walk cache.
     pub walk_cache: HitsAndMisses,
-    /// Page-table walks started: every TLB level missed.
-    pub walks: u64,
 }
 
 /// An access looking up its page in a TLB.
@@ -197,6 +195,26 @@ impl Mmu {
     #[must_use]
     pub fn with_walk_cache(self, entries: usize) -> Self {
         Self { walk_cache: WalkCache::new(entries), ..self }
+    }
+
+    /// What the TLBs already translate for the access `walk` was started
+    /// for: its address, or the fault its page's permissions raise; `None`
+    /// when it must walk. Nothing is counted and no entry is marked used.
+    #[must_use]
+    pub fn cached_translation(&self, walk: &WalkState, csrs: &Csrs) -> Option<TranslationResult> {
+        let vpn = walk.vaddr.page_number();
+        let l1 = if walk.access == AccessType::Fetch { &self.itlb } else { &self.dtlb };
+        let hit = l1.peek(vpn, walk.asid).or_else(|| self.l2_tlb.peek(vpn, walk.asid))?;
+        let lookup = HitLookup {
+            vaddr: walk.vaddr,
+            access: walk.access,
+            privilege: walk.privilege,
+            mstatus: csrs.mstatus,
+        };
+        Some(match lookup.outcome(&hit)? {
+            Ok(paddr) => TranslationResult::success(paddr, 0),
+            Err(trap) => TranslationResult::fault(trap, 0),
+        })
     }
 
     /// The lookups and walks counted since the last call, which starts a
@@ -304,7 +322,6 @@ impl Mmu {
         match ptw::start_walk(request, vaddr, csrs, start, pmp) {
             WalkStep::Done(result) => TranslateOutcome::Ready(result),
             WalkStep::NeedPte { pte_addr, state } => {
-                self.counts.walks += 1;
                 TranslateOutcome::NeedPte { pte_addr, state, after }
             }
         }

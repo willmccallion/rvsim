@@ -45,6 +45,16 @@ as Bare, which is how a kernel probes for the deepest mode and falls back.
   data, so a walk's cost depends on where they are found. Superpage
   alignment, reserved bits, the U, SUM and MXR rules and the PMP check on
   each PTE are all applied.
+- **Walkers.** The core runs `page_walkers` walks at once (default 1),
+  shared by fetch and data as on Rocket, BOOM and the P550, or one set per
+  side (`walker_sharing="PerSide"`), as gem5's instruction and data TLBs
+  each have a walker. A miss to a page already being walked waits for that
+  walk; a miss that finds every walker busy queues, oldest first. A queued
+  miss looks its page up again when its turn comes and walks only if the
+  TLBs still miss, as gem5's walker does. A walk whose access a squash or
+  flush removed keeps its walker until the PTE read in flight answers, and
+  fills no TLB. Nothing published gives the Cortex-A72's count; its preset
+  and the generic machines take the default.
 - **Walk cache.** With `walk_cache_entries` above 0, the walker keeps the
   pointer PTEs it reads (the A72's intermediate table walk caches, Rocket's
   PTE cache) in a fully associative LRU cache tagged by ASID, or global

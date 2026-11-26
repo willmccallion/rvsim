@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use crate::arch::Hart;
 use crate::arch::csr::Csrs;
 use crate::common::{FetchSeq, InstSeq, VirtAddr};
-use crate::config::{BackendKind, Config, WalkerPort};
+use crate::config::{BackendKind, Config, WalkerPort, WalkerSharing, defaults};
 use crate::isa::privileged::Trap;
 use crate::isa::rvv::VectorConfig;
 use crate::sim::components::{CacheId, ComponentId, PipelineId, ReqId};
@@ -38,12 +38,15 @@ use crate::uarch::pipeline::outstanding::OutstandingFetch;
 use crate::uarch::pipeline::outstanding::OutstandingLoad;
 use crate::uarch::pipeline::outstanding::OutstandingStore;
 use crate::uarch::pipeline::outstanding::OutstandingWalk;
+use crate::uarch::pipeline::outstanding::QueuedWalk;
 use crate::uarch::pipeline::outstanding::WalkContinuation;
+use crate::uarch::pipeline::outstanding::WalkSide;
 use crate::uarch::pipeline::rob::{HeadAtCycleStart, Rob, RobTag};
 use crate::uarch::pipeline::snapshot::LatchSnapshot;
 use crate::uarch::pipeline::squash::SquashScope;
 use crate::uarch::pipeline::squash::{FetchRedirect, PendingSquash};
 use crate::uarch::pipeline::trace::Departure;
+use std::num::NonZeroUsize;
 
 /// Where the next fetch1 pass starts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -273,8 +276,12 @@ pub struct MemoryInFlight {
     pub outstanding_loads: HashMap<ReqId, OutstandingLoad>,
     /// Inflight store write-allocate requests keyed by request id.
     pub outstanding_stores: HashMap<ReqId, OutstandingStore>,
-    /// Inflight page-table walks keyed by the current PTE-read request id.
+    /// Inflight page-table walks keyed by the current PTE-read request id,
+    /// each holding a walker.
     pub outstanding_walks: HashMap<ReqId, OutstandingWalk>,
+    /// Walks waiting for a walker, or for a walk of their page, oldest
+    /// first.
+    pub walk_queue: VecDeque<QueuedWalk>,
     /// Memory ops memory1 could not service yet: loads that partially
     /// overlap an older store still in the store buffer, and LR/AMO ops
     /// with an older store to the same address. They are retried at the
@@ -294,6 +301,35 @@ pub struct MemoryInFlight {
     /// Secondary request of a line-straddling load, mapped to the request
     /// its [`OutstandingLoad`](crate::uarch::pipeline::outstanding::OutstandingLoad) is filed under.
     pub load_parts: std::collections::HashMap<ReqId, ReqId>,
+}
+
+impl MemoryInFlight {
+    /// Whether a walk of `walk`'s page is running for an access still in
+    /// flight.
+    #[must_use]
+    pub fn walks_page_now(&self, walk: &OutstandingWalk) -> bool {
+        self.outstanding_walks
+            .values()
+            .any(|other| !other.is_squashed() && other.walks_page_of(walk))
+    }
+
+    /// Whether a walk of `walk`'s page is running or queued.
+    #[must_use]
+    pub fn walks_page(&self, walk: &OutstandingWalk) -> bool {
+        self.walks_page_now(walk)
+            || self.walk_queue.iter().any(|queued| queued.walk.walks_page_of(walk))
+    }
+
+    /// Ends the walks of every access `doomed` names: a queued one at once,
+    /// a running one once its PTE read in flight answers.
+    fn squash_walks(&mut self, doomed: impl Fn(&WalkContinuation) -> bool) {
+        for walk in self.outstanding_walks.values_mut() {
+            if doomed(&walk.continuation) {
+                walk.continuation = WalkContinuation::Squashed;
+            }
+        }
+        self.walk_queue.retain(|queued| !doomed(&queued.walk.continuation));
+    }
 }
 
 impl FetchInFlight {
@@ -317,6 +353,7 @@ impl MemoryInFlight {
         !self.outstanding_loads.is_empty()
             || !self.outstanding_stores.is_empty()
             || !self.outstanding_walks.is_empty()
+            || !self.walk_queue.is_empty()
             || !self.forwarded_loads.is_empty()
             || !self.forwarded_results.is_empty()
     }
@@ -394,6 +431,31 @@ pub struct BackendCommon {
     pub pipeline_id: PipelineId,
     /// The caches this engine sends requests to.
     pub caches: CacheRoutes,
+    /// The page-table walkers the core has.
+    pub walkers: WalkerPool,
+}
+
+/// The page-table walkers a core has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalkerPool {
+    /// Walks a side, or both sides together when they share, run at once.
+    pub count: NonZeroUsize,
+    /// Whether fetch and data walks share the walkers.
+    pub sharing: WalkerSharing,
+}
+
+impl WalkerPool {
+    /// The walkers `config` gives a core.
+    #[must_use]
+    pub const fn of(config: &Config) -> Self {
+        Self { count: config.memory.page_walkers, sharing: config.memory.walker_sharing }
+    }
+}
+
+impl Default for WalkerPool {
+    fn default() -> Self {
+        Self { count: defaults::PAGE_WALKERS, sharing: WalkerSharing::default() }
+    }
 }
 
 /// The caches a pipeline sends its requests to.
@@ -424,6 +486,17 @@ impl CacheRoutes {
 }
 
 impl BackendCommon {
+    /// Whether a walk for `side` can have a walker now.
+    #[must_use]
+    pub fn has_free_walker(&self, side: WalkSide) -> bool {
+        let walks = self.memory.outstanding_walks.values();
+        let busy = match self.walkers.sharing {
+            WalkerSharing::Shared => walks.count(),
+            WalkerSharing::PerSide => walks.filter(|walk| walk.side() == side).count(),
+        };
+        busy < self.walkers.count.get()
+    }
+
     /// Drops every in-flight memory operation `scope` squashes.
     pub fn squash(&mut self, scope: SquashScope) {
         match scope {
@@ -449,9 +522,8 @@ impl BackendCommon {
         self.memory
             .outstanding_loads
             .retain(|_, load| load.entry.op.rob_tag.is_older_or_eq(keep_tag));
-        self.memory.outstanding_walks.retain(|_, walk| match &walk.continuation {
-            WalkContinuation::LoadStore { entry, .. } => entry.op.rob_tag.is_older_or_eq(keep_tag),
-            WalkContinuation::Fetch { .. } => true,
+        self.memory.squash_walks(|continuation| {
+            matches!(continuation, WalkContinuation::LoadStore { entry, .. } if entry.op.rob_tag.is_newer_than(keep_tag))
         });
         self.memory.mem1_replay.retain(|entry| entry.op.rob_tag.is_older_or_eq(keep_tag));
         self.memory.mem1_delayed.retain(|access| access.entry.op.rob_tag.is_older_or_eq(keep_tag));
@@ -470,9 +542,9 @@ impl BackendCommon {
     pub fn squash_all(&mut self) {
         self.commit.pending_squash = None;
         self.memory.outstanding_loads.clear();
-        self.memory
-            .outstanding_walks
-            .retain(|_, walk| matches!(walk.continuation, WalkContinuation::Fetch { .. }));
+        self.memory.squash_walks(|continuation| {
+            matches!(continuation, WalkContinuation::LoadStore { .. })
+        });
         self.memory.mem1_replay.clear();
         self.memory.mem1_delayed.clear();
         self.memory.forwarded_loads.clear();
@@ -594,8 +666,7 @@ impl BackendCommon {
     pub fn drop_fetches(&mut self) {
         self.fetch.outstanding_fetches.clear();
         self.memory
-            .outstanding_walks
-            .retain(|_, walk| !matches!(walk.continuation, WalkContinuation::Fetch { .. }));
+            .squash_walks(|continuation| matches!(continuation, WalkContinuation::Fetch { .. }));
         self.fetch.fetch_reorder.clear();
         self.fetch.fetch_restart = FetchRestart::FromPc;
         self.fetch.fetch_hold_until = 0;
@@ -806,7 +877,7 @@ impl<E: ExecutionEngine> Pipeline<E> {
         // Fetch walks too, which the engine's flush leaves to the frontend.
         // Committed stores' writes are still in the memory system; their
         // acknowledgements free store-buffer slots.
-        common.memory.outstanding_walks.clear();
+        common.memory.squash_walks(|_| true);
         common.commit.trap = TrapProgress::None;
         self.engine.flush(state);
     }

@@ -105,6 +105,23 @@ class PageWalker(unittest.TestCase):
         ):
             Simulator(Config(walker_port="L2", l2=None))
 
+    def test_one_walker_serves_fetch_and_data_unless_told_otherwise(self):
+        default = check_config(Config().to_dict())["memory"]
+        gem5_like = check_config(
+            Config(page_walkers=2, walker_sharing="PerSide").to_dict()
+        )["memory"]
+
+        self.assertEqual(
+            (default["page_walkers"], default["walker_sharing"]), (1, "Shared")
+        )
+        self.assertEqual(
+            (gem5_like["page_walkers"], gem5_like["walker_sharing"]), (2, "PerSide")
+        )
+
+    def test_a_core_without_a_walker_is_refused(self):
+        with self.assertRaises(ValueError):
+            Simulator(Config(page_walkers=0))
+
 
 class Lpddr4(unittest.TestCase):
     def test_an_lpddr4_controller_reaches_the_core(self):
