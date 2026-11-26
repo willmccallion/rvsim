@@ -16,10 +16,8 @@ pub enum ReplacementPolicyKind {
     /// Evicts the cache line that was accessed least recently.
     #[default]
     Lru,
-    /// Pseudo-LRU (tree-based) replacement policy.
-    ///
-    /// Approximates LRU using a binary tree structure for lower
-    /// hardware overhead while maintaining good performance.
+    /// Bit pseudo-LRU: one bit per way, set by an access and cleared for
+    /// the others once all are set; the victim is the lowest clear way.
     Plru,
     /// First In First Out replacement policy.
     ///

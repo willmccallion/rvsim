@@ -280,7 +280,7 @@ own latencies and a TLB large enough that no step walks.
 
 ```python
 ReplacementPolicy.Lru()      # Least recently used (default)
-ReplacementPolicy.Plru()     # Tree pseudo-LRU
+ReplacementPolicy.Plru()     # Bit pseudo-LRU: one bit per way
 ReplacementPolicy.Fifo()     # First in, first out
 ReplacementPolicy.Random()   # Random eviction
 ReplacementPolicy.Mru()      # Most recently used
