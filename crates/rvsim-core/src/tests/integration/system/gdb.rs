@@ -6,6 +6,7 @@ use crate::tests::support::regs::{A1, T0, T2, X0, X6, X28};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
+use std::time::Duration;
 
 use crate::config::{BackendKind, Config, Console};
 use crate::system::gdb::Outcome;
@@ -17,6 +18,10 @@ use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
 const STORED_AT: u64 = PROGRAM_BASE + 4 + 0x100;
 /// The `addi a1` before the exit, where the breakpoint goes.
 const BREAK_AT: u64 = PROGRAM_BASE + 12;
+/// How long the debugger waits for a reply, so a stub that never answers
+/// fails the test instead of hanging it. Running to a breakpoint takes
+/// well under a second.
+const REPLY_PATIENCE: Duration = Duration::from_secs(30);
 
 /// Stores 7, sets the exit code 3, exits.
 fn program() -> Vec<u32> {
@@ -41,6 +46,7 @@ struct Debugger {
 impl Debugger {
     fn connect(address: std::net::SocketAddr) -> Self {
         let stream = TcpStream::connect(address).expect("connect");
+        stream.set_read_timeout(Some(REPLY_PATIENCE)).expect("a read timeout");
         let mut gdb = Self { stream, acks: true };
         assert!(gdb.ask("qSupported:swbreak+;hwbreak+").contains("QStartNoAckMode+"));
         assert_eq!(gdb.ask("QStartNoAckMode"), "OK");
