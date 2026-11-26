@@ -1,6 +1,6 @@
 //! Vector instruction decoding.
 
-use super::{DecodeFault, VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32};
+use super::{DecodeFault, FP_SOURCE, INT_SOURCE, VEC_WIDTH_8, VEC_WIDTH_16, VEC_WIDTH_32};
 use crate::exec::signals::{ControlSignals, OpBSrc};
 use crate::isa::encoding::rvv::{
     encoding as v_enc, funct3 as v_funct3, funct6 as v_f6, opcodes as v_opcodes,
@@ -14,7 +14,6 @@ use crate::isa::op::{
     VecFpOp, VecLoadOp, VecSrcEncoding, VecStoreOp, VectorOp, WholeRegisters, WidenIntReduceOp,
     WidenMaccOp, WidenOp,
 };
-use crate::isa::reg::RegFile;
 use crate::isa::rvv::{Sew, VRegIdx};
 
 /// The instruction bit holding the top bit of `vror.vi`'s 6-bit rotate.
@@ -111,6 +110,7 @@ const fn decode_config(c: &mut ControlSignals, inst: u32) -> Result<(), DecodeFa
     let bit30 = (inst >> 30) & 1;
     let config = if bit31 == 0 {
         // vsetvli: zimm[10:0] from bits 30:20
+        c.rs1_file = INT_SOURCE;
         VecConfigOp::Vsetvli { vtype: v_enc::zimm_vsetvli(inst) }
     } else if bit30 == 1 {
         // vsetivli: zimm[9:0] from bits 29:20, uimm[4:0] from bits 19:15
@@ -120,6 +120,8 @@ const fn decode_config(c: &mut ControlSignals, inst: u32) -> Result<(), DecodeFa
     } else {
         // vsetvl: vtype from rs2
         c.b_src = OpBSrc::Reg2;
+        c.rs1_file = INT_SOURCE;
+        c.rs2_file = INT_SOURCE;
         VecConfigOp::Vsetvl
     };
     c.vec_op = Some(VectorOp::Config(config));
@@ -144,6 +146,7 @@ fn decode_arithmetic(c: &mut ControlSignals, inst: u32, funct3: u32) -> Result<(
         v_funct3::OPIVX => {
             c.vec_reg_write = true;
             c.vec_src_encoding = VecSrcEncoding::VX;
+            c.rs1_file = INT_SOURCE;
             c.vec_op = Some(decode_opivx(f6)?);
         }
         v_funct3::OPIVI => {
@@ -174,6 +177,7 @@ fn decode_arithmetic(c: &mut ControlSignals, inst: u32, funct3: u32) -> Result<(
         }
         v_funct3::OPMVX => {
             c.vec_src_encoding = VecSrcEncoding::VX;
+            c.rs1_file = INT_SOURCE;
             let (op, writes_vec) = decode_opmvx(f6)?;
             c.vec_op = Some(op);
             c.vec_reg_write = writes_vec;
@@ -190,7 +194,7 @@ fn decode_arithmetic(c: &mut ControlSignals, inst: u32, funct3: u32) -> Result<(
         }
         v_funct3::OPFVF => {
             c.vec_src_encoding = VecSrcEncoding::VF;
-            c.rs1_file = Some(RegFile::Fp);
+            c.rs1_file = FP_SOURCE;
             let (op, writes_vec) = decode_opfvf(f6, inst)?;
             c.vec_op = Some(op);
             c.vec_reg_write = writes_vec;
@@ -792,6 +796,7 @@ pub(super) const fn decode_vec_load(
     c.vd = VRegIdx::new(vd_raw);
     c.vs2 = VRegIdx::new(v_enc::vs2(inst));
     c.vec_reg_write = true;
+    c.rs1_file = INT_SOURCE;
 
     match mop {
         MOP_UNIT => {
@@ -809,6 +814,7 @@ pub(super) const fn decode_vec_load(
         }
         MOP_STRIDED => {
             c.vec_op = Some(VectorOp::Load(VecLoadOp::Strided));
+            c.rs2_file = INT_SOURCE;
         }
         MOP_INDEXED_ORD => {
             c.vec_op = Some(VectorOp::Load(VecLoadOp::IndexedOrdered));
@@ -849,6 +855,7 @@ pub(super) const fn decode_vec_store(
     c.vd = VRegIdx::new(vd_raw); // vd is vs3 (store data) for stores
     c.vs2 = VRegIdx::new(v_enc::vs2(inst));
     c.vec_reg_write = false; // stores don't write vector registers
+    c.rs1_file = INT_SOURCE;
 
     match mop {
         MOP_UNIT => {
@@ -865,6 +872,7 @@ pub(super) const fn decode_vec_store(
         }
         MOP_STRIDED => {
             c.vec_op = Some(VectorOp::Store(VecStoreOp::Strided));
+            c.rs2_file = INT_SOURCE;
         }
         MOP_INDEXED_ORD => {
             c.vec_op = Some(VectorOp::Store(VecStoreOp::IndexedOrdered));

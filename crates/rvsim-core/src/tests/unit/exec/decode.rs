@@ -591,6 +591,91 @@ fn only_a_fused_multiply_add_reads_rs3() {
     assert_eq!(fadd_s.ctrl.src3(fa3), None);
 }
 
+/// The register files an instruction reads `rs1` and `rs2` from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Reads(Option<RegFile>, Option<RegFile>);
+
+const INT_REG: Option<RegFile> = Some(RegFile::Int);
+const FP_REG: Option<RegFile> = Some(RegFile::Fp);
+const UNREAD: Option<RegFile> = None;
+
+/// Each row's rs1 field names a1 or fa1 and its rs2 field a2 or fa2 when
+/// it reads them; the fields of the others hold immediates, sub-opcodes or
+/// vector registers.
+#[rustfmt::skip]
+const SOURCES: &[(&str, u32, Reads)] = &[
+    ("lui a0, 74565", 0x12345537, Reads(UNREAD, UNREAD)),
+    ("auipc a0, 74565", 0x12345517, Reads(UNREAD, UNREAD)),
+    ("jal a0, 8", 0x0080056f, Reads(UNREAD, UNREAD)),
+    ("jalr a0, 16(a1)", 0x01058567, Reads(INT_REG, UNREAD)),
+    ("beq a1, a2, 8", 0x00c58463, Reads(INT_REG, INT_REG)),
+    ("ld a0, 16(a1)", 0x0105b503, Reads(INT_REG, UNREAD)),
+    ("sd a2, 16(a1)", 0x00c5b823, Reads(INT_REG, INT_REG)),
+    ("addi a0, a1, 16", 0x01058513, Reads(INT_REG, UNREAD)),
+    ("addiw a0, a1, 16", 0x0105851b, Reads(INT_REG, UNREAD)),
+    ("slli a0, a1, 16", 0x01059513, Reads(INT_REG, UNREAD)),
+    ("clz a0, a1", 0x60059513, Reads(INT_REG, UNREAD)),
+    ("add a0, a1, a2", 0x00c58533, Reads(INT_REG, INT_REG)),
+    ("mulw a0, a1, a2", 0x02c5853b, Reads(INT_REG, INT_REG)),
+    ("lr.d a0, (a1)", 0x1005b52f, Reads(INT_REG, UNREAD)),
+    ("sc.d a0, a2, (a1)", 0x18c5b52f, Reads(INT_REG, INT_REG)),
+    ("amoadd.d a0, a2, (a1)", 0x00c5b52f, Reads(INT_REG, INT_REG)),
+    ("flw fa0, 16(a1)", 0x0105a507, Reads(INT_REG, UNREAD)),
+    ("fsd fa2, 16(a1)", 0x00c5b827, Reads(INT_REG, FP_REG)),
+    ("fadd.d fa0, fa1, fa2", 0x02c5f553, Reads(FP_REG, FP_REG)),
+    ("fsgnj.s fa0, fa1, fa2", 0x20c58553, Reads(FP_REG, FP_REG)),
+    ("fmin.d fa0, fa1, fa2", 0x2ac58553, Reads(FP_REG, FP_REG)),
+    ("feq.d a0, fa1, fa2", 0xa2c5a553, Reads(FP_REG, FP_REG)),
+    ("fsqrt.d fa0, fa1", 0x5a05f553, Reads(FP_REG, UNREAD)),
+    ("fclass.d a0, fa1", 0xe2059553, Reads(FP_REG, UNREAD)),
+    ("fmv.x.d a0, fa1", 0xe2058553, Reads(FP_REG, UNREAD)),
+    ("fmv.d.x fa0, a1", 0xf2058553, Reads(INT_REG, UNREAD)),
+    ("fcvt.l.d a0, fa1", 0xc225f553, Reads(FP_REG, UNREAD)),
+    ("fcvt.d.lu fa0, a1", 0xd235f553, Reads(INT_REG, UNREAD)),
+    ("fcvt.s.d fa0, fa1", 0x4015f553, Reads(FP_REG, UNREAD)),
+    ("fmadd.d fa0, fa1, fa2, fa3", 0x6ac5f543, Reads(FP_REG, FP_REG)),
+    ("csrrw a0, mscratch, a1", 0x34059573, Reads(INT_REG, UNREAD)),
+    ("csrrs a0, mscratch, a1", 0x3405a573, Reads(INT_REG, UNREAD)),
+    ("csrrwi a0, mscratch, 17", 0x3408d573, Reads(UNREAD, UNREAD)),
+    ("csrrci a0, mscratch, 17", 0x3408f573, Reads(UNREAD, UNREAD)),
+    ("sfence.vma a1, a2", 0x12c58073, Reads(INT_REG, INT_REG)),
+    ("fence rw, rw", 0x0330000f, Reads(UNREAD, UNREAD)),
+    ("fence.i", 0x0000100f, Reads(UNREAD, UNREAD)),
+    ("cbo.zero (a1)", 0x0045a00f, Reads(INT_REG, UNREAD)),
+    ("ecall", 0x00000073, Reads(UNREAD, UNREAD)),
+    ("vsetvli a0, a1, e32, m1, ta, ma", 0x0d05f557, Reads(INT_REG, UNREAD)),
+    ("vsetivli a0, 17, e32, m1, ta, ma", 0xcd08f557, Reads(UNREAD, UNREAD)),
+    ("vsetvl a0, a1, a2", 0x80c5f557, Reads(INT_REG, INT_REG)),
+    ("vadd.vv v1, v2, v3", 0x022180d7, Reads(UNREAD, UNREAD)),
+    ("vadd.vx v1, v2, a1", 0x0225c0d7, Reads(INT_REG, UNREAD)),
+    ("vadd.vi v1, v2, 5", 0x0222b0d7, Reads(UNREAD, UNREAD)),
+    ("vmv.x.s a0, v2", 0x42202557, Reads(UNREAD, UNREAD)),
+    ("vmv.s.x v1, a1", 0x4205e0d7, Reads(INT_REG, UNREAD)),
+    ("vfadd.vf v1, v2, fa1", 0x0225d0d7, Reads(FP_REG, UNREAD)),
+    ("vfmv.f.s fa0, v2", 0x42201557, Reads(UNREAD, UNREAD)),
+    ("vle32.v v4, (a1)", 0x0205e207, Reads(INT_REG, UNREAD)),
+    ("vlse32.v v4, (a1), a2", 0x0ac5e207, Reads(INT_REG, INT_REG)),
+    ("vluxei32.v v4, (a1), v8", 0x0685e207, Reads(INT_REG, UNREAD)),
+    ("vse32.v v4, (a1)", 0x0205e227, Reads(INT_REG, UNREAD)),
+    ("vsse32.v v4, (a1), a2", 0x0ac5e227, Reads(INT_REG, INT_REG)),
+    ("vaesem.vv v1, v2", 0xa22120f7, Reads(UNREAD, UNREAD)),
+];
+
+#[test]
+fn each_instruction_reads_only_the_sources_its_operation_uses() {
+    check_rows(SOURCES, |decoded, _| Reads(decoded.ctrl.rs1_file, decoded.ctrl.rs2_file));
+}
+
+#[test]
+fn an_instruction_that_traps_reads_no_sources() {
+    let reserved_rounding_fadd = 0x02c5_d553;
+
+    let decoded = decode(reserved_rounding_fadd);
+
+    assert!(decoded.fault.is_some());
+    assert_eq!(Reads(decoded.ctrl.rs1_file, decoded.ctrl.rs2_file), Reads(UNREAD, UNREAD));
+}
+
 #[rustfmt::skip]
 const VECTOR_IMMEDIATES: &[(&str, u32, VecSrcEncoding)] = &[
     ("vadd.vi v1, v2, -1", 0x022fb0d7, VecSrcEncoding::VI(-1)),
