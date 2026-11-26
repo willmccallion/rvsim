@@ -2,6 +2,7 @@
 
 pub mod commit_redirect;
 pub mod committed_prediction_stats;
+pub mod committed_store_drain;
 pub mod compressed_hints;
 pub mod compressed_without_c;
 pub mod csr_head_execution;

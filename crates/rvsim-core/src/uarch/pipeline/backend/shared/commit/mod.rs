@@ -181,19 +181,28 @@ impl CommitRegisters<'_> {
 
 /// Executes the Commit stage.
 ///
-/// Retires up to `res.width` instructions from the ROB head per cycle.
-/// Handles register writes, CSR application, trap dispatch, and
-/// store buffer drain. Store drains emit `MemReq` packets through the
-/// engine's `BackendCommon`.
-pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option<CommitEvent> {
-    let CommitResources { common, rob, store_buffer, vec_store_buffer, width, mut registers } = res;
-    let width = if state.core.single_step { 1 } else { width };
+/// Retires up to `res.width` instructions from the ROB head per cycle and
+/// handles CSR application and trap dispatch, then sends the next committed
+/// store's write. Store drains emit `MemReq` packets through the engine's
+/// `BackendCommon`.
+pub fn commit_stage(state: &mut CoreCtx<'_>, mut res: CommitResources<'_>) -> Option<CommitEvent> {
     let now = state.uncore.kernel.cycle;
-    common.deliver_commit_notices(&mut state.core.branch_predictor, now);
-    if let CommitFlow::Stop(event) = trap_or_interrupt(state, common, rob) {
-        return event;
-    }
+    res.common.deliver_commit_notices(&mut state.core.branch_predictor, now);
+    let event = match trap_or_interrupt(state, res.common, res.rob) {
+        CommitFlow::Stop(event) => event,
+        CommitFlow::Continue => retire_heads(state, &mut res),
+    };
+    // A pending trap or a waiting WFI holds retirement, not the store
+    // buffer: what has committed is written whatever the pipeline does.
+    send_one_write(state, res.common, res.store_buffer, res.vec_store_buffer);
+    event
+}
 
+/// Retires up to the commit width from the ROB head, stopping at an
+/// instruction that is not ready, a stop PC or a watchpoint hit.
+fn retire_heads(state: &mut CoreCtx<'_>, res: &mut CommitResources<'_>) -> Option<CommitEvent> {
+    let CommitResources { common, rob, store_buffer, vec_store_buffer, width, registers } = res;
+    let width = if state.core.single_step { 1 } else { *width };
     let mut event = None;
     let mut retired_count: usize = 0;
     let mut youngest_retired = None;
@@ -204,7 +213,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         {
             break;
         }
-        let gate = gate_head(state, common, rob, store_buffer, vec_store_buffer, &mut registers);
+        let gate = gate_head(state, common, rob, store_buffer, vec_store_buffer, registers);
         if let CommitFlow::Stop(stop) = gate {
             event = stop;
             break;
@@ -215,8 +224,7 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         retire::perform_pseudo_result(state, &mut entry);
         retired_count += 1;
         youngest_retired = Some(entry.seq);
-        let mut targets =
-            RetireTargets { common, store_buffer, vec_store_buffer, registers: &mut registers };
+        let mut targets = RetireTargets { common, store_buffer, vec_store_buffer, registers };
         if let CommitFlow::Stop(stop) = retire_entry(state, &mut targets, &entry, syscall) {
             event = stop;
             break;
@@ -231,7 +239,6 @@ pub fn commit_stage(state: &mut CoreCtx<'_>, res: CommitResources<'_>) -> Option
         common.note_committed(seq, state.uncore.kernel.cycle);
     }
     count_retire_width(state, retired_count, rob_empty_at_start);
-    send_one_write(state, common, store_buffer, vec_store_buffer);
     event
 }
 
