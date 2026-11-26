@@ -533,6 +533,50 @@ fn unmapping_more_than_64_pages_flushes_every_translation() {
     assert_eq!(data_tlb_misses_around(&map_and_unmap(65)), FIRST_TOUCH + 1);
 }
 
+/// An `mprotect` that leaves the stack page's permissions as they were
+/// keeps its translation: there is nothing stale to flush.
+#[test]
+fn an_mprotect_that_keeps_a_pages_permissions_keeps_its_translation() {
+    let i = InstructionBuilder::new;
+    let same_permissions = [
+        i().addi(A0, SP, -8).build(),
+        i().lui(A3, -1).build(),
+        i().and(A0, A0, A3).build(),
+        i().lui(A1, 1).build(),
+        i().addi(A2, X0, PROT_READ_WRITE).build(),
+        i().addi(A7, X0, SYS_MPROTECT).build(),
+        ECALL,
+    ];
+
+    assert_eq!(data_tlb_misses_around(&same_permissions), FIRST_TOUCH);
+}
+
+/// A page `mprotect` made inaccessible leaves the TLB with its readable
+/// translation, so a load from it faults. (A store would fault even past a
+/// stale entry: it rechecks its PTE before setting D.)
+#[test]
+fn a_load_from_a_page_mprotect_made_inaccessible_faults() {
+    let i = InstructionBuilder::new;
+    let mut code = vec![i().lui(A1, 1).build()];
+    code.extend(map_anonymous_pages());
+    code.extend([
+        i().addi(S0, A0, 0).build(),
+        i().ld(T0, S0, 0).build(),
+        i().addi(A2, X0, PROT_NONE).build(),
+        i().addi(A7, X0, SYS_MPROTECT).build(),
+        ECALL,
+        i().ld(T0, S0, 0).build(),
+        i().addi(A0, X0, 0).build(),
+        i().addi(A7, X0, SYS_EXIT).build(),
+        ECALL,
+    ]);
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let stop = run(backend, &code, &["prog"]);
+
+        assert_eq!(stop, StopReason::Exited(139), "{backend:?}");
+    }
+}
+
 /// The page `munmap` removed leaves the TLB with it, so touching it again
 /// faults instead of reaching the old frame.
 #[test]
@@ -879,6 +923,8 @@ const SYS_TGKILL: i32 = 131;
 const SYS_MMAP: i32 = 222;
 const SYS_MUNMAP: i32 = 215;
 const SYS_GETUID: i32 = 174;
+const SYS_MPROTECT: i32 = 226;
+const PROT_NONE: i32 = 0;
 const PROT_READ_WRITE: i32 = 3;
 const MAP_PRIVATE_ANONYMOUS: i32 = 0x22;
 /// `CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD`.
