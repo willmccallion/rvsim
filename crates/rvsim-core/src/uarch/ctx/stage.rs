@@ -11,7 +11,7 @@
 use super::{csr, memory};
 use crate::arch::Hart;
 use crate::arch::pmp::PmpResult;
-use crate::arch::translation::PteUpdate;
+use crate::arch::translation::{PteUpdate, TranslationResult};
 use crate::common::InstSeq;
 use crate::common::{AccessType, PhysAddr, VirtAddr};
 use crate::exec::state::ArchState;
@@ -163,7 +163,6 @@ impl<'a> StageCtx<'a> {
             (paths.l2_tlb_misses, counts.l2_tlb.misses),
             (paths.walk_cache_hits, counts.walk_cache.hits),
             (paths.walk_cache_misses, counts.walk_cache.misses),
-            (paths.walks, counts.walks),
         ] {
             self.uncore.kernel.stats.counter(stat).add(value);
         }
@@ -215,6 +214,13 @@ impl<'a> StageCtx<'a> {
             uncore.kernel.stats.counter(stat).inc();
         }
         prefetches
+    }
+
+    /// What this hart's TLBs already translate for the access `walk` was
+    /// started for; `None` when it must walk.
+    #[must_use]
+    pub fn cached_translation(&self, walk: &WalkState) -> Option<TranslationResult> {
+        self.core.mmu.cached_translation(walk, &self.hart.csrs)
     }
 
     /// Resumes a walk that was parked waiting on a PTE response, for an

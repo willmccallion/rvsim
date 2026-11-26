@@ -35,7 +35,9 @@ pub use coherence::{
 };
 pub use components::{ComponentDefaults, InOrderDefaults, TageScLDefaults};
 pub use general::{Console, GeneralConfig, SePagingMode};
-pub use memory::{AddressMappingKind, MemoryConfig, MemoryControllerKind, WalkerPort};
+pub use memory::{
+    AddressMappingKind, MemoryConfig, MemoryControllerKind, WalkerPort, WalkerSharing,
+};
 pub use pipeline::{
     BackendKind, CsrSquash, FuConfig, MAX_VECTOR_MEM_WIDTH, MemDepPredictorKind, MicroBtbConfig,
     PipelineConfig, StoreSetConfig, VecStoreForwarding,

@@ -34,7 +34,7 @@
 //!   - For **stores**: pass to M1→M2 with the resolved `paddr`. Memory2
 //!     resolves the store buffer and checks for ordering violations.
 
-use crate::uarch::pipeline::mailbox::{PteRead, read_pte};
+use crate::uarch::pipeline::mailbox::{PteRead, start_walk};
 use std::ops::ControlFlow;
 
 use crate::arch::translation::{DirtyUpdates, TranslationResult};
@@ -1034,8 +1034,8 @@ fn send_load_prefetches<E: ExecutionEngine>(
     }
 }
 
-/// Parks `ex` on a walk for an access of `access_size` bytes and sends the
-/// walk's first PTE read.
+/// Parks `ex` on a walk for an access of `access_size` bytes and starts
+/// the walk, or queues it for a walker.
 fn park_walk<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
     engine: &mut E,
@@ -1053,7 +1053,7 @@ fn park_walk<E: ExecutionEngine>(
             translations: Box::new(translations),
         },
     };
-    read_pte(engine.common_mut(), state, walk, read);
+    start_walk(engine.common_mut(), state, walk, read);
 }
 
 /// Returns `ComponentId::Bus` when `paddr` is MMIO and `ComponentId::Cache(L1D)`

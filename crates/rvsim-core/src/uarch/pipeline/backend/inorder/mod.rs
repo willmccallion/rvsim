@@ -33,6 +33,7 @@ use crate::uarch::pipeline::backend::shared::vec_mem::{
 use crate::uarch::pipeline::backend::shared::{commit, memory1, memory2, writeback};
 use crate::uarch::pipeline::engine::CacheRoutes;
 use crate::uarch::pipeline::engine::Renamed;
+use crate::uarch::pipeline::engine::WalkerPool;
 use crate::uarch::pipeline::engine::{
     BackendCommon, BundleHazard, DataCacheFlush, ExecutionEngine,
 };
@@ -285,7 +286,12 @@ impl InOrderEngine {
 
     /// Creates a new in-order engine from config and routing IDs.
     pub fn new(config: &Config, pipeline_id: PipelineId, caches: CacheRoutes) -> Self {
-        let common = BackendCommon { pipeline_id, caches, ..BackendCommon::default() };
+        let common = BackendCommon {
+            pipeline_id,
+            caches,
+            walkers: WalkerPool::of(config),
+            ..BackendCommon::default()
+        };
         Self {
             rob: Rob::new(config.pipeline.rob_size),
             store_buffer: StoreBuffer::new(config.pipeline.store_buffer_size),

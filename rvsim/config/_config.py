@@ -147,6 +147,8 @@ class Config:
     l2_tlb_latency: int = _MEMORY["l2_tlb_latency"]
     walk_cache_entries: int = _MEMORY["walk_cache_entries"]
     walker_port: str = _MEMORY["walker_port"]
+    page_walkers: int = _MEMORY["page_walkers"]
+    walker_sharing: str = _MEMORY["walker_sharing"]
     misaligned_access_trap: bool = _MEMORY["misaligned_access_trap"]
     paging_mode_max: str = _MEMORY["paging_mode_max"]
     # ISA extensions

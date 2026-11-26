@@ -44,7 +44,7 @@ use crate::uarch::mmu::ptw::WalkState;
 use crate::uarch::pipeline::engine::{BackendCommon, ExecutionEngine, FetchRestart};
 use crate::uarch::pipeline::frontend::read_inst_half;
 use crate::uarch::pipeline::latches::{Fetch1Fetch2Entry, Latch};
-use crate::uarch::pipeline::mailbox::{PteRead, read_pte};
+use crate::uarch::pipeline::mailbox::{PteRead, start_walk};
 use crate::uarch::pipeline::outstanding::{OutstandingFetch, OutstandingWalk, WalkContinuation};
 
 /// The cache line most recently returned by the I-cache (gem5's
@@ -190,7 +190,7 @@ const fn fault_entry(seq: InstSeq, pc: VirtAddr, trap: Trap) -> Fetch1Fetch2Entr
 }
 
 /// Parks an instruction whose translation needs a page-table walk and
-/// sends the walk's first PTE read. The group sequence number is reserved
+/// starts the walk, or queues it for a walker. The group sequence number is reserved
 /// now so the instruction drains after everything fetch1 issued before it.
 fn park_fetch_walk<E: ExecutionEngine>(
     state: &mut StageCtx<'_>,
@@ -207,7 +207,7 @@ fn park_fetch_walk<E: ExecutionEngine>(
         access_size: FETCH_TRANSLATION_BYTES,
         continuation: WalkContinuation::Fetch { fetch_seq, entry },
     };
-    read_pte(common, state, walk, read);
+    start_walk(common, state, walk, read);
 }
 
 /// Hands a fetch group to the frontend.
