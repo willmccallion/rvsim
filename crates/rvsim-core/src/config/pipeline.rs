@@ -75,7 +75,9 @@ pub struct PipelineConfig {
     pub decode_rename_latency: u64,
 
     /// Cycles from rename writing a bundle to the backend issuing from it:
-    /// gem5's two from rename to IEW, Rocket's one from ID to EX. At least 1.
+    /// gem5's two from rename to IEW, Rocket's one from ID to EX. At least 1
+    /// on the in-order backend and 2 on the out-of-order one, whose
+    /// dispatch takes a stage of its own.
     pub rename_issue_latency: u64,
 
     /// Which CSR accesses squash the instructions fetched behind them and
