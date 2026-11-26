@@ -1363,17 +1363,22 @@ fn replacing_a_mapping_drops_the_other_threads_translations() {
 /// one does, with the same instructions retired.
 #[test]
 fn a_checkpoint_resumes_a_thread_waiting_on_a_futex() {
+    const RUN_BUDGET: u64 = 400_000;
+    const STEP: u64 = 10;
     let code = join_a_slow_thread();
     for machine in MACHINES {
         let mut whole = threaded(machine, &code, 2);
-        let expected = run_for(&mut whole, 400_000);
+        let expected = run_for(&mut whole, RUN_BUDGET);
         let mut first = threaded(machine, &code, 2);
+        let mut cycles = 0;
         while !first.hart(0).wfi_waiting {
+            assert!(cycles < RUN_BUDGET, "{machine:?}: the joiner never waits");
             assert_eq!(
-                run_for(&mut first, 10),
+                run_for(&mut first, STEP),
                 StopReason::Cycles,
                 "{machine:?}: the joiner waits"
             );
+            cycles += STEP;
         }
         assert!(first.exit_codes()[0].is_none(), "{machine:?}: the thread still runs");
         let mut saved = Vec::new();
@@ -1381,7 +1386,7 @@ fn a_checkpoint_resumes_a_thread_waiting_on_a_futex() {
         let mut second = threaded(machine, &code, 2);
         second.restore_checkpoint(&mut saved.as_slice()).expect("the checkpoint restores");
 
-        let resumed = run_for(&mut second, 400_000);
+        let resumed = run_for(&mut second, RUN_BUDGET);
 
         assert_eq!(expected, StopReason::Exited(4), "{machine:?}");
         assert_eq!(resumed, expected, "{machine:?}");
