@@ -3,8 +3,8 @@ name: Quality
 # How well the tests check the code. On a pull request, every mutant
 # cargo-mutants makes in the Rust the PR changed must fail a test
 # (`make mutants-diff`), split four ways to fit the runners; a PR that
-# changes no Rust has none. Coverage is reported, not gated
-# (`make test-coverage`).
+# changes no Rust has none. Coverage fails below the Makefile's
+# COVERAGE_FLOOR of line coverage (`make test-coverage`).
 on:
   push:
     branches: [main]
