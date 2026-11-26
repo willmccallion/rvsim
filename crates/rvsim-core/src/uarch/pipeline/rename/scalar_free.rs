@@ -10,7 +10,7 @@
 
 use super::free_list::FreeList;
 use super::prf::PhysReg;
-use crate::isa::reg::{ArchReg, RegIdx};
+use crate::isa::reg::{ArchReg, RegFile, RegIdx};
 
 /// The integer and FP architectural registers, which start mapped and are
 /// never on a free list.
@@ -56,6 +56,15 @@ impl ScalarFreeLists {
     /// Returns `reg` to its file's list; the hardwired zero stays out.
     pub fn reclaim(&mut self, reg: PhysReg) {
         if self.is_fp(reg) { self.fp.reclaim(reg) } else { self.int.reclaim(reg) }
+    }
+
+    /// The free registers of `file`.
+    #[must_use]
+    pub fn available_in(&self, file: RegFile) -> usize {
+        match file {
+            RegFile::Int => self.int.available(),
+            RegFile::Fp => self.fp.available(),
+        }
     }
 
     /// The free registers of both files.
