@@ -17,6 +17,7 @@ pub mod load_queue_rename;
 pub mod pipeline_stats;
 pub mod privileged_rules;
 pub mod rename_free_lists;
+pub mod rename_store_entries;
 pub mod renamed_sources;
 pub mod rob_tag_wrap;
 pub mod serialized_issue;
