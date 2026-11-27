@@ -1042,6 +1042,26 @@ fn sfence(rs1: Option<u64>) -> SfenceVmaInfo {
     }
 }
 
+/// The address space the translations are made in.
+const OWN_ASID: u64 = 5;
+const OTHER_ASID: u64 = 7;
+/// The register an `sfence.vma` names its ASID in.
+const ASID_REGISTER: u8 = 2;
+
+/// An `sfence.vma` naming no address and the address space `asid`.
+fn sfence_asid(asid: u64) -> SfenceVmaInfo {
+    SfenceVmaInfo { rs2_idx: RegIdx::new(ASID_REGISTER), rs2_val: asid, ..sfence(None) }
+}
+
+/// The walked pages, translated in address space `OWN_ASID` with no walk
+/// cache.
+fn mmu_in_own_address_space() -> (Mmu, Csrs, TestContext) {
+    let (mmu, mut csrs, tc) = mmu_with_walk_cache(0);
+    let satp = (csr::SATP_MODE_SV39 << 60) | (OWN_ASID << csr::SATP_ASID_SHIFT) | ROOT_PPN;
+    csrs.write(csr::SATP, satp);
+    (mmu, csrs, tc)
+}
+
 #[test]
 fn a_walk_cache_lets_a_walk_read_only_the_leaf_of_a_table_it_has_walked() {
     let (mut mmu, csrs, tc) = mmu_with_walk_cache(4);
@@ -1090,6 +1110,28 @@ fn an_sfence_naming_an_address_keeps_the_walk_cache() {
 
     let again = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
     assert_eq!(again.reads.len(), 1, "the leaf TLB entry went; the tables stay");
+}
+
+#[test]
+fn an_sfence_naming_no_asid_flushes_every_address_spaces_translations() {
+    let (mut mmu, csrs, tc) = mmu_in_own_address_space();
+    let uncore = &tc.state().uncore;
+    let _ = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+
+    mmu.sfence_vma(&sfence(None));
+
+    assert_eq!(trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore).reads.len(), 3);
+}
+
+#[test]
+fn an_sfence_naming_another_asid_keeps_this_ones_translations() {
+    let (mut mmu, csrs, tc) = mmu_in_own_address_space();
+    let uncore = &tc.state().uncore;
+    let _ = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+
+    mmu.sfence_vma(&sfence_asid(OTHER_ASID));
+
+    assert!(trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore).reads.is_empty(), "a TLB hit");
 }
 
 #[test]
