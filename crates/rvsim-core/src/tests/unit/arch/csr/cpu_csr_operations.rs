@@ -544,3 +544,93 @@ fn a_write_to_an_unimplemented_csr_leaves_it_reading_zero() {
 
     assert_eq!(state.csr_read(CsrAddr::from_u32(0xFFF)), 0);
 }
+
+/// A PMP configuration byte: unlocked, a top-of-range region (A = 01),
+/// readable, writable and executable.
+const PMP_TOR_RWX: u64 = 0b0000_1111;
+const MISA_MXL_RV64: u64 = 2;
+const MISA_I: u64 = 1 << (b'I' - b'A');
+
+/// A write to each of these CSRs, and what reading it back gives: the
+/// bits of the write the CSR keeps.
+const ROUND_TRIPS: [(CsrAddr, u64, u64); 14] = [
+    (csr::SEPC, 0x8000_1000, 0x8000_1000),
+    (csr::SCAUSE, 9, 9),
+    (csr::FRM, 0b011, 0b011),
+    (csr::MCOUNTEREN, u64::MAX, csr::COUNTEREN_WRITABLE),
+    (csr::SCOUNTEREN, u64::MAX, csr::COUNTEREN_WRITABLE),
+    (csr::PMPCFG0, PMP_TOR_RWX, PMP_TOR_RWX),
+    (csr::PMPCFG2, PMP_TOR_RWX, PMP_TOR_RWX),
+    (csr::VSTART, 3, 3),
+    (csr::VXSAT, 1, 1),
+    (csr::VXRM, 0b10, 0b10),
+    (csr::VCSR, 0b101, 0b101),
+    (csr::TSELECT, 1, 1),
+    (csr::TDATA2, 0x8000_1234, 0x8000_1234),
+    (csr::TCONTROL, u64::MAX, csr::TCONTROL_WRITABLE),
+];
+
+#[test]
+fn each_writable_csr_reads_back_the_bits_it_keeps() {
+    for (addr, written, kept) in ROUND_TRIPS {
+        let mut sys = minimal_system();
+        let mut state = sys.core_ctx(0);
+
+        state.csr_write(addr, written);
+
+        assert_eq!(state.csr_read(addr), kept, "{addr:?}");
+    }
+}
+
+/// sstatus, sie and sip read the machine CSRs' supervisor bits: sie and
+/// sip only those mideleg delegates.
+#[test]
+fn the_supervisor_views_read_the_bits_the_machine_csrs_delegate() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+    let delegated = csr::MIP_SSIP | csr::MIP_STIP;
+    state.hart.csrs.mideleg = delegated;
+    state.hart.csrs.mie = u64::MAX;
+    state.hart.csrs.mip = csr::MIP_SSIP;
+    state.csr_write(csr::MSTATUS, csr::MSTATUS_SIE);
+
+    assert_ne!(state.csr_read(csr::SSTATUS) & csr::MSTATUS_SIE, 0, "sstatus");
+    assert_eq!(state.csr_read(csr::SIE), delegated, "sie");
+    assert_eq!(state.csr_read(csr::SIP), csr::MIP_SSIP, "sip");
+}
+
+#[test]
+fn vxsat_and_tcontrol_read_zero_after_reset() {
+    let mut sys = minimal_system();
+    let state = sys.core_ctx(0);
+
+    assert_eq!(state.csr_read(csr::VXSAT), 0);
+    assert_eq!(state.csr_read(csr::TCONTROL), 0);
+}
+
+#[test]
+fn vlenb_reads_the_vector_register_length_in_bytes() {
+    let config = Config::minimal();
+    let mut sys = SystemState::build(&config);
+
+    let vlenb = sys.core_ctx(0).csr_read(csr::VLENB);
+
+    assert_eq!(vlenb, config.pipeline.vlen.bits() as u64 / 8);
+}
+
+#[test]
+fn tinfo_reads_that_each_trigger_is_an_address_match_trigger() {
+    let mut sys = minimal_system();
+
+    assert_eq!(sys.core_ctx(0).csr_read(csr::TINFO), csr::TINFO_MCONTROL);
+}
+
+#[test]
+fn misa_reads_rv64_with_the_base_integer_isa() {
+    let mut sys = minimal_system();
+
+    let misa = sys.core_ctx(0).csr_read(csr::MISA);
+
+    assert_eq!(misa >> 62, MISA_MXL_RV64);
+    assert_ne!(misa & MISA_I, 0);
+}
