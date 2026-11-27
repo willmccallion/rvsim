@@ -12,7 +12,9 @@ use crate::isa::privileged::PagingMode;
 use crate::soc::bus::HartIrqs;
 use crate::system::SystemState;
 use crate::system::simulator::ProbeWidth;
-use crate::tests::support::harness::{build_simulator, minimal_system};
+use crate::tests::support::builder::instruction::InstructionBuilder;
+use crate::tests::support::harness::{PROGRAM_BASE, TestContext, build_simulator, minimal_system};
+use crate::tests::support::regs::{T0, T1, X0};
 
 #[test]
 fn the_machine_id_registers_read_zero_on_a_default_hart() {
@@ -552,6 +554,7 @@ const PMP_TOR_RWX: u64 = 0b0000_1111;
 const UNIMPLEMENTED_CSR: CsrAddr = CsrAddr::from_u32(0x5C0);
 const MISA_MXL_RV64: u64 = 2;
 const MISA_I: u64 = 1 << (b'I' - b'A');
+const CYCLE_LIMIT: u64 = 200;
 
 /// A write to each of these CSRs, and what reading it back gives: the
 /// bits of the write the CSR keeps.
@@ -653,4 +656,43 @@ fn the_simulator_reads_no_value_from_an_unimplemented_csr() {
     let mut sim = build_simulator(&Config::minimal());
 
     assert_eq!(sim.read_csr(0, UNIMPLEMENTED_CSR), None);
+}
+
+/// Runs `inst` on the minimal machine, from the hart `prepare` leaves.
+fn run_one(inst: u32, prepare: impl FnOnce(&mut TestContext)) -> TestContext {
+    let program = [inst, InstructionBuilder::new().jal(X0, 0).build()];
+    let mut ctx =
+        TestContext::with_fast_memory(&Config::minimal()).load_program(PROGRAM_BASE, &program);
+    prepare(&mut ctx);
+    ctx.run_until(CYCLE_LIMIT, |ctx| ctx.state().harts[0].instructions_retired >= 1)
+        .expect("the instruction retired");
+    ctx
+}
+
+#[test]
+fn csrrs_sets_its_bits_beside_the_ones_the_csr_holds() {
+    let csrrs = InstructionBuilder::new().csrrs(T0, csr::MSCRATCH.as_u32(), T1).build();
+
+    let ctx = run_one(csrrs, |ctx| {
+        ctx.state_mut().harts[0].csrs.mscratch = 0b1010;
+        ctx.set_reg(T1, 0b0101);
+    });
+
+    assert_eq!(ctx.state().harts[0].csrs.mscratch, 0b1111);
+}
+
+/// mip's SEIP that software set takes part in a CSRRC of another bit, so
+/// clearing SSIP leaves it set.
+#[test]
+fn csrrc_of_ssip_keeps_a_software_set_seip() {
+    let csrrc = InstructionBuilder::new().csrrc(X0, csr::MIP.as_u32(), T1).build();
+
+    let ctx = run_one(csrrc, |ctx| {
+        let hart = &mut ctx.state_mut().harts[0];
+        hart.csrs.mip = csr::MIP_SSIP | csr::MIP_SEIP;
+        hart.sw_seip = true;
+        ctx.set_reg(T1, csr::MIP_SSIP);
+    });
+
+    assert_eq!(ctx.state().harts[0].csrs.mip & (csr::MIP_SSIP | csr::MIP_SEIP), csr::MIP_SEIP);
 }
