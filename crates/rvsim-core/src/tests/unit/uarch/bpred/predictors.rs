@@ -10,6 +10,7 @@ use crate::config::{
     TournamentConfig,
 };
 use crate::uarch::bpred::btb::TargetBuffers;
+use crate::uarch::bpred::direction::{Jump, Retired};
 use crate::uarch::bpred::predictors::bht::BhtPredictor;
 use crate::uarch::bpred::predictors::gshare::GSharePredictor;
 use crate::uarch::bpred::predictors::perceptron::PerceptronPredictor;
@@ -18,6 +19,8 @@ use crate::uarch::bpred::predictors::static_bp::StaticPredictor;
 use crate::uarch::bpred::predictors::tage::TagePredictor;
 use crate::uarch::bpred::predictors::tournament::TournamentPredictor;
 use crate::uarch::bpred::{BranchPredUnit, ControlInst, DirectionPredictor};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 const PC: u64 = 0x1000;
 /// A PC whose tags with no history are not 0, so no empty entry matches.
@@ -360,6 +363,67 @@ fn sc_l_tage_predicts_an_indirect_jump_whose_target_follows_the_history() {
     }
 
     assert_eq!(correct, MEASURED);
+}
+
+/// A direction predictor that predicts every branch not taken and keeps
+/// the indirect target the unit hands it for each instruction it commits.
+struct IndirectTargetLog(Rc<RefCell<Vec<Option<VirtAddr>>>>);
+
+impl DirectionPredictor for IndirectTargetLog {
+    type History = ();
+
+    fn lookup(&self, _pc: VirtAddr, _target: VirtAddr) -> (bool, ()) {
+        (false, ())
+    }
+
+    fn unconditional(&self, _pc: VirtAddr, _jump: Jump) {}
+
+    fn update_histories(&mut self, _pc: VirtAddr, _taken: bool, _history: &()) {}
+
+    fn squash(&mut self, _history: &()) {}
+
+    fn correct(&mut self, _pc: VirtAddr, _taken: bool, _history: &()) {}
+
+    fn commit(&mut self, _pc: VirtAddr, retired: Retired, _history: &()) {
+        self.0.borrow_mut().push(retired.indirect_target);
+    }
+}
+
+/// The indirect targets a unit over `IndirectTargetLog` hands on as it
+/// commits `jumps`, each predicted at its PC and resolved to its target.
+fn indirect_targets_committed(jumps: &[(u64, ControlInst, u64)]) -> Vec<Option<VirtAddr>> {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut bp = Driver::new(IndirectTargetLog(Rc::clone(&log)));
+    for &(pc, inst, target) in jumps {
+        let (seq, predicted) = bp.predict(pc, inst);
+        if predicted != Some(target) {
+            bp.unit.mispredict(seq, true, VirtAddr::new(target));
+        }
+        bp.unit.commit(seq);
+    }
+    log.take()
+}
+
+#[test]
+fn an_indirect_jump_trains_the_direction_predictor_on_its_target() {
+    let jump = ControlInst::IndirectJump { returns: false, link: None };
+
+    let committed = indirect_targets_committed(&[(PC, jump, TARGET)]);
+
+    assert_eq!(committed, vec![Some(VirtAddr::new(TARGET))]);
+}
+
+/// The return-address stack predicts a return, so its target is not one
+/// for the indirect predictor to learn.
+#[test]
+fn a_return_trains_the_direction_predictor_on_no_target() {
+    let call =
+        ControlInst::Jump { target: VirtAddr::new(TARGET), link: Some(VirtAddr::new(PC + 4)) };
+    let ret = ControlInst::IndirectJump { returns: true, link: None };
+
+    let committed = indirect_targets_committed(&[(PC, call, TARGET), (TARGET, ret, PC + 4)]);
+
+    assert_eq!(committed, vec![None, None]);
 }
 
 /// An indirect jump that mispredicts teaches the BTB its real target.
