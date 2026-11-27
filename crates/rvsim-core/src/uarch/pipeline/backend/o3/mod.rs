@@ -83,6 +83,8 @@ pub struct RenameView {
     pub lq: usize,
     /// Store-buffer entries rename may take this cycle.
     pub sq: usize,
+    /// Vector-store-buffer entries rename may take this cycle.
+    pub vec_sq: usize,
     /// Integer physical registers rename may take this cycle.
     pub int_regs: usize,
     /// FP physical registers rename may take this cycle.
@@ -109,6 +111,39 @@ impl RenameView {
             ArchReg::Int(_) => self.int_regs -= 1,
             ArchReg::Fp(_) => self.fp_regs -= 1,
         }
+    }
+}
+
+/// A store buffer's entries free as the last cycle ended, which rename
+/// works from. Write acknowledgements land before the engine ticks, so the
+/// count is taken as the tick ends, less the stores renamed after it.
+#[derive(Clone, Copy, Debug)]
+struct FreeStoreEntries {
+    /// Entries free as the engine's last tick ended.
+    after_tick: usize,
+    /// Stores renamed since.
+    renamed_since: usize,
+}
+
+impl FreeStoreEntries {
+    const fn new(capacity: usize) -> Self {
+        Self { after_tick: capacity, renamed_since: 0 }
+    }
+
+    /// The entries free as the last cycle ended.
+    const fn last_cycle(&self) -> usize {
+        self.after_tick - self.renamed_since
+    }
+
+    /// Counts the `free` entries the buffer holds as the engine's tick ends.
+    const fn count_after_tick(&mut self, free: usize) {
+        self.after_tick = free;
+        self.renamed_since = 0;
+    }
+
+    /// Counts a store rename has given an entry.
+    const fn record_rename(&mut self) {
+        self.renamed_since += 1;
     }
 }
 
@@ -166,13 +201,10 @@ pub struct O3Engine {
     squash_width: usize,
     /// The free slots rename works from this cycle.
     rename_view: RenameView,
-    /// Store-buffer slots free when last cycle's engine tick began, before
-    /// this cycle's write acknowledgements freed more.
-    sq_free_last_cycle: usize,
-    /// Stores renamed last cycle, after that count was taken.
-    stores_renamed_last_cycle: usize,
-    /// Stores renamed so far this cycle.
-    stores_renamed_this_cycle: usize,
+    /// The store buffer's entries free as the last cycle ended.
+    free_store_entries: FreeStoreEntries,
+    /// The vector store buffer's entries free as the last cycle ended.
+    free_vec_store_entries: FreeStoreEntries,
     /// Cycles a squash still spends walking the ROB; rename is blocked
     /// while it does.
     squash_stall_remaining: u64,
@@ -206,23 +238,65 @@ impl O3Engine {
     /// Takes the free-slot view rename works from this cycle: ROB, issue-
     /// and load-queue slots as they stand before this cycle's commit and
     /// issue free more, less the `pending_dispatch` instructions renamed
-    /// last cycle that have yet to enter the issue queue; store-buffer
-    /// slots as they stood a cycle ago, since this cycle's write
-    /// acknowledgements have already landed, less the stores renamed since.
+    /// last cycle that have yet to enter the issue queue; store-buffer and
+    /// vector-store-buffer slots as the last cycle ended, since this
+    /// cycle's write acknowledgements have already landed.
     fn take_rename_view(&mut self, pending_dispatch: usize) {
         self.rename_view = RenameView {
             rob: self.rob.free_slots(),
             iq: self.issue_queue.available_slots().saturating_sub(pending_dispatch),
             lq: self.load_queue.free_slots(),
-            sq: self.sq_free_last_cycle.saturating_sub(self.stores_renamed_last_cycle),
+            sq: self.free_store_entries.last_cycle(),
+            vec_sq: self.free_vec_store_entries.last_cycle(),
             int_regs: self.free_list.available_in(RegFile::Int),
             fp_regs: self.free_list.available_in(RegFile::Fp),
             vec_regs: self.vec_free_list.available(),
             checkpoints: self.checkpoints.available(),
         };
-        self.sq_free_last_cycle = self.store_buffer.free_slots();
-        self.stores_renamed_last_cycle = self.stores_renamed_this_cycle;
-        self.stores_renamed_this_cycle = 0;
+    }
+
+    /// Runs this cycle's backend stages, commit first, after taking the
+    /// view rename works from.
+    fn run_stages(
+        &mut self,
+        state: &mut CoreCtx<'_>,
+        rename_output: &mut Vec<O3Entry>,
+        redirect: &mut Option<FetchRedirect>,
+    ) {
+        let now = state.uncore.kernel.cycle;
+
+        self.take_rename_view(rename_output.len());
+        self.count_squash_stall(state);
+        if let Some(squash) = self.common.take_due_squash(now) {
+            self.apply_squash(state, squash, redirect);
+            rename_output.clear();
+        }
+        self.common.commit.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
+        if self.retire(state, redirect) {
+            return;
+        }
+        self.serialization.observe(self.rob.is_empty(), now);
+
+        let memory2_violation = self.memory2(state);
+        self.retire_vector_memory_results();
+        let mut writeback_slots = self.writeback_memory_results(state);
+        let memory1_violation = self.memory1(state, now);
+        self.squash_on_violation(
+            state,
+            now,
+            OrderViolation::older(memory2_violation, memory1_violation),
+        );
+
+        let memory_blocked = self.note_memory_backpressure(state);
+        writeback_slots -= self.writeback_forwarded_loads(state, writeback_slots);
+        writeback_slots -= self.writeback_finished_results(state, now, writeback_slots);
+        self.issue_vec_mem_waves();
+        self.send_vector_memory_micro_ops();
+        self.complete_vector_results(now, writeback_slots);
+
+        self.issue(state, now, memory_blocked);
+        self.dispatch(state, rename_output);
+        self.publish_mdp_stats(state);
     }
 
     /// Creates a new O3 engine from config and routing IDs.
@@ -262,9 +336,8 @@ impl O3Engine {
             checkpoints: CheckpointTable::new(config.pipeline.checkpoint_count),
             squash_width: config.pipeline.squash_width,
             rename_view: RenameView::default(),
-            sq_free_last_cycle: config.pipeline.store_buffer_size,
-            stores_renamed_last_cycle: 0,
-            stores_renamed_this_cycle: 0,
+            free_store_entries: FreeStoreEntries::new(config.pipeline.store_buffer_size),
+            free_vec_store_entries: FreeStoreEntries::new(config.pipeline.vec_store_buffer_size),
             squash_stall_remaining: 0,
             mispredict_recovery: None,
             serialization: serialize::Serialization::Off,
@@ -347,40 +420,9 @@ impl ExecutionEngine for O3Engine {
         rename_output: &mut Vec<O3Entry>,
         redirect: &mut Option<FetchRedirect>,
     ) {
-        let now = state.uncore.kernel.cycle;
-
-        self.take_rename_view(rename_output.len());
-        self.count_squash_stall(state);
-        if let Some(squash) = self.common.take_due_squash(now) {
-            self.apply_squash(state, squash, redirect);
-            rename_output.clear();
-        }
-        self.common.commit.head_at_cycle_start = HeadAtCycleStart::latch(&self.rob);
-        if self.retire(state, redirect) {
-            return;
-        }
-        self.serialization.observe(self.rob.is_empty(), now);
-
-        let memory2_violation = self.memory2(state);
-        self.retire_vector_memory_results();
-        let mut writeback_slots = self.writeback_memory_results(state);
-        let memory1_violation = self.memory1(state, now);
-        self.squash_on_violation(
-            state,
-            now,
-            OrderViolation::older(memory2_violation, memory1_violation),
-        );
-
-        let memory_blocked = self.note_memory_backpressure(state);
-        writeback_slots -= self.writeback_forwarded_loads(state, writeback_slots);
-        writeback_slots -= self.writeback_finished_results(state, now, writeback_slots);
-        self.issue_vec_mem_waves();
-        self.send_vector_memory_micro_ops();
-        self.complete_vector_results(now, writeback_slots);
-
-        self.issue(state, now, memory_blocked);
-        self.dispatch(state, rename_output);
-        self.publish_mdp_stats(state);
+        self.run_stages(state, rename_output, redirect);
+        self.free_store_entries.count_after_tick(self.store_buffer.free_slots());
+        self.free_vec_store_entries.count_after_tick(self.vec_store_buffer.free_slots());
     }
 
     fn can_accept(&self) -> usize {

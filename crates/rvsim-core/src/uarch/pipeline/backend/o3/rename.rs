@@ -176,8 +176,8 @@ impl O3Engine {
         }
         Some(Destinations { rob_tag, renamed, vd })
     }
-    /// Takes `ctrl`'s store-buffer or load-queue slots for ROB entry
-    /// `rob_tag`, which `has_room_for` saw free.
+    /// Takes `ctrl`'s store-buffer, vector-store-buffer or load-queue slots
+    /// for ROB entry `rob_tag`, which `has_room_for` saw free.
     fn allocate_memory_slots(
         &mut self,
         rob_tag: RobTag,
@@ -185,8 +185,12 @@ impl O3Engine {
         load_slots: LoadSlots,
     ) {
         let store_slot_allocated = if ctrl.uses_store_buffer() {
+            self.rename_view.sq -= 1;
+            self.free_store_entries.record_rename();
             self.store_buffer.allocate(rob_tag, ctrl.width)
         } else if is_vec_store(ctrl.vec_op) {
+            self.rename_view.vec_sq -= 1;
+            self.free_vec_store_entries.record_rename();
             self.vec_store_buffer.allocate(rob_tag)
         } else {
             true
@@ -200,10 +204,6 @@ impl O3Engine {
             store_slot_allocated && load_slot_allocated,
             "has_room_for checked the memory slots"
         );
-        if ctrl.uses_store_buffer() {
-            self.rename_view.sq -= 1;
-            self.stores_renamed_this_cycle += 1;
-        }
         self.rename_view.lq -= load_slots.count();
     }
 }
@@ -364,7 +364,7 @@ impl BackendSlots<'_> {
         let store_slot = if decoded.inst.ctrl.uses_store_buffer() {
             self.view.sq > 0 && !self.store_buffer.is_full()
         } else if is_vec_store(decoded.inst.ctrl.vec_op) {
-            self.vec_store_buffer.free_slots() > 0
+            self.view.vec_sq > 0 && self.vec_store_buffer.free_slots() > 0
         } else {
             true
         };
