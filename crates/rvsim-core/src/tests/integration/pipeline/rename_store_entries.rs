@@ -46,7 +46,9 @@ enum Stores {
 }
 
 impl Stores {
-    /// `count` stores of this kind, each to a line of its own.
+    /// `count` stores of this kind, each to a line of its own, after as
+    /// many instructions for every kind, so a two-wide core fetches the
+    /// stores in the same pairs.
     fn program(self, count: usize) -> Vec<u32> {
         let i = InstructionBuilder::new;
         let bases = [A0, A1, A2, A3];
@@ -56,7 +58,7 @@ impl Stores {
             program.push(i().addi(base, A0, line * LINE_BYTES).build());
         }
         match self {
-            Self::Scalar => {}
+            Self::Scalar => program.push(i().nop().build()),
             Self::Vector => program.push(vsetivli_e8(ELEMENTS)),
             Self::EmptyVector => program.push(vsetivli_e8(0)),
         }
