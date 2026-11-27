@@ -25,8 +25,6 @@ use crate::uarch::pipeline::latches::{
     IdExEntry, IssueRegisters, RenameIssueEntry, SourceReadiness,
 };
 use crate::uarch::pipeline::lsq::load_queue::LoadQueue;
-use crate::uarch::pipeline::lsq::store_buffer::StoreBuffer;
-use crate::uarch::pipeline::lsq::vec_store_buffer::VecStoreBuffer;
 use crate::uarch::pipeline::rename::prf::PhysReg;
 use crate::uarch::pipeline::rename::scalar_free::ScalarFreeLists;
 use crate::uarch::pipeline::rename::vec_prf::{VecPhysReg, VecRegGroup};
@@ -96,8 +94,6 @@ impl O3Engine {
 
     const fn backend_slots(&self) -> BackendSlots<'_> {
         BackendSlots {
-            store_buffer: &self.store_buffer,
-            vec_store_buffer: &self.vec_store_buffer,
             load_queue: &self.load_queue,
             free_list: &self.free_list,
             view: self.rename_view,
@@ -348,8 +344,6 @@ impl O3Engine {
 /// The backend structures an instruction needs a slot in besides the ROB
 /// and issue queue `can_accept` covers.
 struct BackendSlots<'a> {
-    store_buffer: &'a StoreBuffer,
-    vec_store_buffer: &'a VecStoreBuffer,
     load_queue: &'a LoadQueue,
     free_list: &'a ScalarFreeLists,
     /// The slots and registers rename sees free this cycle.
@@ -362,9 +356,9 @@ impl BackendSlots<'_> {
     /// op, as gem5's rename checks each instruction's own resources.
     fn has_room_for(&self, decoded: &IdExEntry, load_slots: LoadSlots) -> bool {
         let store_slot = if decoded.inst.ctrl.uses_store_buffer() {
-            self.view.sq > 0 && !self.store_buffer.is_full()
+            self.view.sq > 0
         } else if is_vec_store(decoded.inst.ctrl.vec_op) {
-            self.view.vec_sq > 0 && self.vec_store_buffer.free_slots() > 0
+            self.view.vec_sq > 0
         } else {
             true
         };
