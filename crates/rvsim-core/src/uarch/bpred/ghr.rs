@@ -153,6 +153,23 @@ mod tests {
     }
 
     #[test]
+    fn push_drops_bits_beyond_a_length_past_the_first_words() {
+        const LENGTH: usize = 100;
+        let mut ghr = Ghr::with_len(LENGTH);
+        for _ in 0..=LENGTH {
+            ghr.push(true);
+        }
+        assert!(ghr.bit(LENGTH - 1));
+        assert!(!ghr.bit(LENGTH)); // masked off
+    }
+
+    #[test]
+    fn a_word_past_the_storage_reads_zero() {
+        let ghr = Ghr::with_len(64);
+        assert_eq!(ghr.word(GHR_MAX_WORDS), 0);
+    }
+
+    #[test]
     fn the_default_ghr_is_empty_with_zero_length() {
         let ghr = Ghr::default();
         assert_eq!(ghr.len, 0);
