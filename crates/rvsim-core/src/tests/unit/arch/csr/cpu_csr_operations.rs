@@ -548,6 +548,8 @@ fn a_write_to_an_unimplemented_csr_leaves_it_reading_zero() {
 /// A PMP configuration byte: unlocked, a top-of-range region (A = 01),
 /// readable, writable and executable.
 const PMP_TOR_RWX: u64 = 0b0000_1111;
+/// A CSR address in the supervisor custom range, which no CSR here holds.
+const UNIMPLEMENTED_CSR: CsrAddr = CsrAddr::from_u32(0x5C0);
 const MISA_MXL_RV64: u64 = 2;
 const MISA_I: u64 = 1 << (b'I' - b'A');
 
@@ -633,4 +635,22 @@ fn misa_reads_rv64_with_the_base_integer_isa() {
 
     assert_eq!(misa >> 62, MISA_MXL_RV64);
     assert_ne!(misa & MISA_I, 0);
+}
+
+#[test]
+fn writing_the_simulator_panic_csr_traps_with_the_value_as_its_cause() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+    state.hart.csrs.mtvec = 0x8000_0000;
+
+    state.csr_write(csr::CSR_SIM_PANIC, 42);
+
+    assert_eq!(state.hart.csrs.mcause, 42);
+}
+
+#[test]
+fn the_simulator_reads_no_value_from_an_unimplemented_csr() {
+    let mut sim = build_simulator(&Config::minimal());
+
+    assert_eq!(sim.read_csr(0, UNIMPLEMENTED_CSR), None);
 }
