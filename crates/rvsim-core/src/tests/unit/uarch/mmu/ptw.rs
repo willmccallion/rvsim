@@ -18,7 +18,7 @@ use crate::sim::memory::GlobalMemory;
 use crate::soc::uncore::Uncore;
 use crate::tests::support::harness::TestContext;
 use crate::uarch::mmu::tlb::TlbGeometry;
-use crate::uarch::mmu::{HitsAndMisses, Mmu, TlbCounts, TranslateOutcome};
+use crate::uarch::mmu::{HitsAndMisses, Mmu, TlbCounts, TranslateOutcome, translate_now};
 
 /// The PTEs a walk reads at most: one per level of Sv57.
 const DEEPEST_WALK: usize = 5;
@@ -138,6 +138,18 @@ fn bare_mode_bypass() {
 
     assert!(res.trap.is_none(), "Trap: {:?}", res.trap);
     assert_eq!(res.paddr.val(), 0x1234_5678);
+}
+
+/// The host reaches a machine-mode address untranslated, as the hart does,
+/// though `satp` holds Sv39.
+#[test]
+fn a_host_translation_passes_a_machine_mode_address_through() {
+    let (_, csrs, _) = setup_mmu();
+    let vaddr = VirtAddr::new(0x1234_5678);
+
+    let paddr = translate_now(vaddr, AccessType::Read, PrivilegeMode::Machine, &csrs, |_| None);
+
+    assert_eq!(paddr, Ok(PhysAddr::new(vaddr.val())));
 }
 
 #[test]
