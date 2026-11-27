@@ -187,31 +187,31 @@ proptest! {
         prop_assert_eq!(result.paddr.val(), expected_paddr);
     }
 
-    /// A VA with a stray bit above the mode's top must page-fault before
-    /// any walk happens.
+    /// A VA with one bit above the mode's top flipped from its canonical
+    /// value must page-fault, though the page its low bits name is mapped.
     #[test]
     fn non_canonical_addresses_fault(
         mode_idx in 0usize..3,
+        vpn_path in proptest::collection::vec(0u64..0x1FF, 5),
         stray_bit in 0u32..7,
+        leaf_ppn_seed in 0u64..1024,
     ) {
         let (mode_val, levels) = modes()[mode_idx];
         let top_bit = PAGE_SHIFT + VPN_BITS * levels as u32 - 1;
-        let bit = u64::from(top_bit) + 1 + u64::from(stray_bit);
+        let bit = top_bit + 1 + stray_bit;
         if bit >= 64 {
             return Ok(());
         }
-        let va = 1u64 << bit;
-
         let (mut mmu, csrs, mut ctx) = build_mmu(mode_to_satp(mode_val));
-        let result = translate_sync(
-            &mut mmu,
-            VirtAddr::new(va),
-            AccessType::Read,
-            PrivilegeMode::Supervisor,
-            &csrs,
-            &mut ctx,
-        );
-        prop_assert!(matches!(result.trap, Some(Trap::LoadPageFault(_))));
+        let canonical = build_va(levels, 0, &vpn_path, 0);
+        let _ = install_table(&mut ctx, levels, 0, canonical, aligned_leaf_ppn(0, leaf_ppn_seed));
+        let mut load = |va: u64| {
+            let supervisor = PrivilegeMode::Supervisor;
+            translate_sync(&mut mmu, VirtAddr::new(va), AccessType::Read, supervisor, &csrs, &mut ctx)
+        };
+
+        prop_assert!(load(canonical).trap.is_none(), "the canonical page is mapped");
+        prop_assert!(matches!(load(canonical ^ (1 << bit)).trap, Some(Trap::LoadPageFault(_))));
     }
 
     /// A leaf PPN with non-zero low bits below the leaf's superpage must
