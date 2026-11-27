@@ -1134,6 +1134,26 @@ fn an_sfence_naming_another_asid_keeps_this_ones_translations() {
     assert!(trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore).reads.is_empty(), "a TLB hit");
 }
 
+/// The data TLB holds one page, so the second page's walk evicts the
+/// first, which the larger L2 TLB keeps; the L2 TLB's hit for it puts it
+/// back in the data TLB.
+#[test]
+fn an_l2_tlb_hit_for_a_load_refills_the_data_tlb() {
+    let one_entry = TlbGeometry { entries: 1, ways: 0 };
+    let eight_entries = TlbGeometry { entries: 8, ways: 0 };
+    let mut mmu = Mmu::new(one_entry, eight_entries, 4, PagingMode::Sv57);
+    let (_, csrs, tc) = mmu_with_walk_cache(0);
+    let uncore = &tc.state().uncore;
+    for page in [WALKED_PAGE, NEIGHBOUR_PAGE, WALKED_PAGE] {
+        let _ = trace_walk(&mut mmu, page, &csrs, uncore);
+    }
+    let _ = mmu.take_counts();
+
+    let _ = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+
+    assert_eq!(mmu.take_counts().dtlb, HitsAndMisses { hits: 1, misses: 0 });
+}
+
 #[test]
 fn after_a_full_sfence_a_walk_follows_a_rewritten_pointer() {
     let (mut mmu, csrs, mut tc) = mmu_with_walk_cache(4);
