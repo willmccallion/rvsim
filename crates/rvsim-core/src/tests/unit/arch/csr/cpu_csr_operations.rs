@@ -9,6 +9,7 @@ use crate::config::Config;
 use crate::isa::csr;
 use crate::isa::csr::CsrAddr;
 use crate::isa::privileged::PagingMode;
+use crate::isa::privileged::cause::exception;
 use crate::soc::bus::HartIrqs;
 use crate::system::SystemState;
 use crate::system::simulator::ProbeWidth;
@@ -695,4 +696,133 @@ fn csrrc_of_ssip_keeps_a_software_set_seip() {
     });
 
     assert_eq!(ctx.state().harts[0].csrs.mip & (csr::MIP_SSIP | csr::MIP_SEIP), csr::MIP_SEIP);
+}
+
+/// Every field of mstatus software may write.
+const MSTATUS_WRITABLE_FIELDS: u64 = csr::MSTATUS_SIE
+    | csr::MSTATUS_MIE
+    | csr::MSTATUS_SPIE
+    | csr::MSTATUS_MPIE
+    | csr::MSTATUS_SPP
+    | csr::MSTATUS_MPP
+    | csr::MSTATUS_VS
+    | csr::MSTATUS_FS
+    | csr::MSTATUS_MPRV
+    | csr::MSTATUS_SUM
+    | csr::MSTATUS_MXR
+    | csr::MSTATUS_TVM
+    | csr::MSTATUS_TW
+    | csr::MSTATUS_TSR;
+/// The reserved MPP encoding, between S (1) and M (3).
+const MPP_RESERVED: u64 = 2;
+const S_LEVEL_INTERRUPTS: u64 = csr::MIP_SSIP | csr::MIP_STIP | csr::MIP_SEIP;
+
+#[test]
+fn an_mstatus_write_keeps_every_writable_field() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MSTATUS, MSTATUS_WRITABLE_FIELDS);
+
+    assert_eq!(state.hart.csrs.mstatus & MSTATUS_WRITABLE_FIELDS, MSTATUS_WRITABLE_FIELDS);
+}
+
+#[test]
+fn an_mstatus_write_of_the_reserved_mpp_leaves_user_mode() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MSTATUS, MPP_RESERVED << csr::MSTATUS_MPP_SHIFT);
+
+    assert_eq!(state.hart.csrs.mstatus & csr::MSTATUS_MPP, 0);
+}
+
+#[test]
+fn medeleg_cannot_delegate_an_ecall_from_machine_mode() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MEDELEG, u64::MAX);
+
+    let medeleg = state.csr_read(csr::MEDELEG);
+    assert_eq!(medeleg & (1 << exception::ENVIRONMENT_CALL_FROM_M_MODE), 0);
+    assert_ne!(medeleg & (1 << exception::ENVIRONMENT_CALL_FROM_U_MODE), 0);
+}
+
+#[test]
+fn mideleg_delegates_only_supervisor_interrupts() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::MIDELEG, u64::MAX);
+
+    assert_eq!(state.csr_read(csr::MIDELEG), S_LEVEL_INTERRUPTS);
+}
+
+/// The machine timer's pending bit is the CLINT's, not software's.
+#[test]
+fn an_mip_write_changes_only_the_supervisor_bits() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+    state.hart.csrs.mip = csr::MIP_MTIP | csr::MIP_SSIP;
+
+    state.csr_write(csr::MIP, csr::MIP_STIP);
+
+    assert_eq!(state.hart.csrs.mip, csr::MIP_MTIP | csr::MIP_STIP);
+}
+
+#[test]
+fn an_sstatus_write_of_zero_keeps_the_machine_fields() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+    let machine_fields = csr::MSTATUS_MIE | csr::MSTATUS_MPP;
+    state.csr_write(csr::MSTATUS, machine_fields | csr::MSTATUS_SIE);
+
+    state.csr_write(csr::SSTATUS, 0);
+
+    assert_eq!(state.hart.csrs.mstatus & (machine_fields | csr::MSTATUS_SIE), machine_fields);
+}
+
+#[test]
+fn an_sie_write_of_zero_clears_only_the_delegated_enables() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+    state.hart.csrs.mideleg = csr::MIP_SSIP | csr::MIP_STIP;
+    state.hart.csrs.mie = csr::MIE_MTIE | csr::MIP_SSIP | csr::MIP_STIP;
+
+    state.csr_write(csr::SIE, 0);
+
+    assert_eq!(state.hart.csrs.mie, csr::MIE_MTIE);
+}
+
+#[test]
+fn an_sip_write_of_zero_clears_a_delegated_ssip_and_nothing_else() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+    state.hart.csrs.mideleg = csr::MIP_SSIP;
+    state.hart.csrs.mip = csr::MIP_MTIP | csr::MIP_SSIP;
+
+    state.csr_write(csr::SIP, 0);
+
+    assert_eq!(state.hart.csrs.mip, csr::MIP_MTIP);
+}
+
+#[test]
+fn an_sip_write_cannot_set_an_undelegated_ssip() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::SIP, csr::MIP_SSIP);
+
+    assert_eq!(state.hart.csrs.mip & csr::MIP_SSIP, 0);
+}
+
+#[test]
+fn tselect_saturates_at_the_last_trigger() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+
+    state.csr_write(csr::TSELECT, 5);
+
+    assert_eq!(state.csr_read(csr::TSELECT), crate::arch::trigger::TRIGGER_COUNT as u64 - 1);
 }
