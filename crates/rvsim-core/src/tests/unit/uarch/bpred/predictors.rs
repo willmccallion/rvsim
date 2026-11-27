@@ -326,6 +326,42 @@ fn sc_l_tage_learns_an_indirect_jump_target_with_the_longest_ittage_history() {
     assert_eq!(prediction, Some(TARGET));
 }
 
+/// A conditional branch alternates, and the indirect jump after it goes to
+/// one target after a taken branch and another after a not-taken one. The
+/// BTB, holding the last target, is wrong every time; the indirect
+/// predictor, indexed by the history, learns both.
+#[test]
+fn sc_l_tage_predicts_an_indirect_jump_whose_target_follows_the_history() {
+    const ROUNDS: usize = 200;
+    const MEASURED: usize = 20;
+    const AFTER_TAKEN: u64 = 0x3000;
+    const AFTER_NOT_TAKEN: u64 = 0x4000;
+    let pipeline = Config::minimal().pipeline;
+    let mut bp = Driver::new(ScLTagePredictor::new(
+        &pipeline.tage,
+        &pipeline.sc,
+        &pipeline.ittage,
+        &pipeline.loop_predictor,
+    ));
+    let jump = ControlInst::IndirectJump { returns: false, link: None };
+    let mut correct = 0;
+
+    for round in 0..ROUNDS {
+        let taken = round % 2 == 0;
+        let _ = bp.run_branch(PC, taken);
+        let target = if taken { AFTER_TAKEN } else { AFTER_NOT_TAKEN };
+        let (seq, predicted) = bp.predict(PC + 8, jump);
+        if predicted != Some(target) {
+            bp.unit.mispredict(seq, true, VirtAddr::new(target));
+        } else if round >= ROUNDS - MEASURED {
+            correct += 1;
+        }
+        bp.unit.commit(seq);
+    }
+
+    assert_eq!(correct, MEASURED);
+}
+
 /// An indirect jump that mispredicts teaches the BTB its real target.
 fn a_mispredicted_indirect_jump_trains_the_btb<P: DirectionPredictor>(direction: P) {
     let mut bp = Driver::new(direction);
