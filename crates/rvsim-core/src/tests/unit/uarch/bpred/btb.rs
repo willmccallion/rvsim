@@ -292,3 +292,43 @@ fn invalidating_a_pc_drops_it_from_both_btbs() {
 
     assert_eq!(buffers.lookup(BRANCH_PC), None);
 }
+
+/// Eight sets of two ways: `SET_THREE` and `SET_THREE_ALIAS` share set 3.
+const TWO_WAY_SIZE: usize = 16;
+const SET_THREE: u64 = 3 << 2;
+const SET_THREE_ALIAS: u64 = SET_THREE + (8 << 2);
+
+/// A two-way BTB holding a conditional branch at each of `pcs`.
+fn two_way_holding(pcs: &[u64]) -> Btb {
+    let mut btb = Btb::new(TWO_WAY_SIZE, 2);
+    for &pc in pcs {
+        btb.update(VirtAddr::new(pc), VirtAddr::new(pc + 0x100), BranchKind::Conditional);
+    }
+    btb
+}
+
+#[test]
+fn invalidate_drops_the_entry_from_its_own_set() {
+    let mut btb = two_way_holding(&[SET_THREE]);
+
+    btb.invalidate(VirtAddr::new(SET_THREE));
+
+    assert!(btb.lookup(VirtAddr::new(SET_THREE)).is_none());
+}
+
+#[test]
+fn invalidate_keeps_the_other_entry_of_its_set() {
+    let mut btb = two_way_holding(&[SET_THREE, SET_THREE_ALIAS]);
+
+    btb.invalidate(VirtAddr::new(SET_THREE));
+
+    assert!(btb.lookup(VirtAddr::new(SET_THREE_ALIAS)).is_some());
+}
+
+#[test]
+fn a_second_pc_in_a_two_way_set_takes_its_free_way() {
+    let btb = two_way_holding(&[SET_THREE, SET_THREE_ALIAS]);
+
+    assert!(btb.lookup(VirtAddr::new(SET_THREE)).is_some());
+    assert!(btb.lookup(VirtAddr::new(SET_THREE_ALIAS)).is_some());
+}
