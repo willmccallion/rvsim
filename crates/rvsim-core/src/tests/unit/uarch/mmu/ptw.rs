@@ -104,14 +104,21 @@ fn write_pte(memory: &mut GlobalMemory, base_ppn: u64, vpn_index: u64, pte: u64)
 }
 
 /// Maps the 4 KiB page holding `vaddr` to `target_ppn` with R, W, X, A and
-/// D set, using the page tables at `ROOT_PPN + 1` and `ROOT_PPN + 2`.
-fn map_4k_page(memory: &mut GlobalMemory, vaddr: u64, target_ppn: u64) {
-    let l1_table_ppn = ROOT_PPN + 1;
-    let l0_table_ppn = ROOT_PPN + 2;
+/// D set, through `levels` levels of tables: the root at `ROOT_PPN`, each
+/// level below at the PPN after the one above.
+fn map_4k_page_in(memory: &mut GlobalMemory, levels: u32, vaddr: u64, target_ppn: u64) {
     let index = |level: u32| (vaddr >> (12 + 9 * level)) & 0x1FF;
-    write_pte(memory, ROOT_PPN, index(2), make_pte(l1_table_ppn, 0));
-    write_pte(memory, l1_table_ppn, index(1), make_pte(l0_table_ppn, 0));
-    write_pte(memory, l0_table_ppn, index(0), make_pte(target_ppn, R | W | X | A | D));
+    let mut table = ROOT_PPN;
+    for level in (1..levels).rev() {
+        write_pte(memory, table, index(level), make_pte(table + 1, 0));
+        table += 1;
+    }
+    write_pte(memory, table, index(0), make_pte(target_ppn, R | W | X | A | D));
+}
+
+/// Maps the 4 KiB page holding `vaddr` under Sv39.
+fn map_4k_page(memory: &mut GlobalMemory, vaddr: u64, target_ppn: u64) {
+    map_4k_page_in(memory, 3, vaddr, target_ppn);
 }
 
 #[test]
@@ -459,24 +466,30 @@ fn supervisor_cannot_fetch_user_page() {
     assert!(matches!(res.trap, Some(Trap::InstructionPageFault(_))), "Trap: {:?}", res.trap);
 }
 
+/// Asserts a load of `va`, which is not canonical under `mode`'s `levels`
+/// levels, page-faults though the page its low bits name is mapped: its
+/// canonical twin, which copies its top bit into the bits above, loads.
+fn assert_non_canonical_faults(mode: u64, levels: u32, va: u64) {
+    let (mut mmu, csrs, mut tc) = setup_mmu_with_mode(mode);
+    let above_top = 64 - (12 + 9 * levels);
+    let twin = ((va << above_top).cast_signed() >> above_top).cast_unsigned();
+    map_4k_page_in(&mut tc.state_mut().uncore.kernel.memory, levels, twin, ROOT_PPN + 0x10);
+    let uncore = &tc.state().uncore;
+    let mut load = |va: u64| {
+        let supervisor = PrivilegeMode::Supervisor;
+        translate_sync(&mut mmu, VirtAddr::new(va), AccessType::Read, supervisor, &csrs, uncore)
+    };
+
+    assert!(load(twin).trap.is_none(), "the canonical twin's page is mapped");
+    let res = load(va);
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
+}
+
+/// Sv39 requires bits 63..39 to copy bit 38; here bit 38 is set and they
+/// are clear.
 #[test]
 fn non_canonical_address_faults() {
-    let (mut mmu, csrs, tc) = setup_mmu();
-
-    // SV39 requires bits 63..39 to sign-extend bit 38; here bit 38=1 but 63..39=0.
-    let non_canon = VirtAddr::new(1 << 38);
-
-    let res = translate_sync(
-        &mut mmu,
-        non_canon,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        &tc.state().uncore,
-    );
-
-    // Non-canonical address is unmapped in the virtual address space → PageFault
-    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
+    assert_non_canonical_faults(csr::SATP_MODE_SV39, 3, 1 << 38);
 }
 
 fn setup_mmu_with_mode(mode: u64) -> (Mmu, Csrs, TestContext) {
@@ -643,33 +656,12 @@ fn sv48_pointer_at_level_0_causes_fault() {
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
+/// Bit 47 set with bits 63..48 clear, and a stray bit above 47 with 47
+/// clear, are both non-canonical under Sv48.
 #[test]
 fn sv48_non_canonical_address_faults() {
-    let (mut mmu, csrs, tc) = setup_mmu_with_mode(csr::SATP_MODE_SV48);
-
-    // bit 47 = 1 but bits 63..48 = 0 → non-canonical for Sv48.
-    let non_canon_low = VirtAddr::new(1u64 << 47);
-    let res = translate_sync(
-        &mut mmu,
-        non_canon_low,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        &tc.state().uncore,
-    );
-    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
-
-    // bit 47 = 0 but a stray upper bit set → non-canonical.
-    let non_canon_hi = VirtAddr::new(1u64 << 50);
-    let res = translate_sync(
-        &mut mmu,
-        non_canon_hi,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        &tc.state().uncore,
-    );
-    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
+    assert_non_canonical_faults(csr::SATP_MODE_SV48, 4, 1 << 47);
+    assert_non_canonical_faults(csr::SATP_MODE_SV48, 4, 1 << 50);
 }
 
 #[test]
@@ -780,22 +772,10 @@ fn sv57_pointer_at_level_0_causes_fault() {
     assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
 }
 
+/// Bit 56 set with bits 63..57 clear is non-canonical under Sv57.
 #[test]
 fn sv57_non_canonical_address_faults() {
-    let (mut mmu, csrs, tc) = setup_mmu_with_mode(csr::SATP_MODE_SV57);
-
-    // bit 56 = 1 but bits 63..57 = 0 → non-canonical.
-    let non_canon = VirtAddr::new(1u64 << 56);
-
-    let res = translate_sync(
-        &mut mmu,
-        non_canon,
-        AccessType::Read,
-        PrivilegeMode::Supervisor,
-        &csrs,
-        &tc.state().uncore,
-    );
-    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
+    assert_non_canonical_faults(csr::SATP_MODE_SV57, 5, 1 << 56);
 }
 
 /// Walks a load of `0x4000_0000` through a root pointer with `pointer_extra`
