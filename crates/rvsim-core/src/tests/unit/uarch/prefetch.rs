@@ -75,6 +75,20 @@ fn a_stride_shorter_than_a_line_steps_whole_lines() {
     assert_eq!(lines(&sent, CacheLevel::L1D), vec![line + LINE, line + 2 * LINE]);
 }
 
+/// A load stepping 8 bytes at a time stays in a line for eight accesses,
+/// its furthest L2 request almost the whole L2 stream ahead of it; it
+/// requests nothing more until it reaches the next line.
+#[test]
+fn a_stride_shorter_than_a_line_requests_each_line_once() {
+    let mut pf = prefetcher(2, 5);
+    let base = 0x20_0000;
+    let _ = walk(&mut pf, base, 8, WARMUP + 1);
+
+    let same_line = pf.train(LOAD, VirtAddr::new(base + 8 * (WARMUP + 1)), identity());
+
+    assert_eq!(same_line, Vec::new());
+}
+
 #[test]
 fn no_l2_stream_when_it_reaches_no_further_than_the_l1d_stream() {
     let mut pf = prefetcher(4, 4);
