@@ -1,5 +1,6 @@
 pub mod branch_predictor;
 pub mod btb;
+pub mod control_inst;
 pub mod pipelined_training;
 pub mod predictors;
 pub mod ras;
