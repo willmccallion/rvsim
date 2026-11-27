@@ -4,3 +4,4 @@ pub mod bpred;
 pub mod mmu;
 pub mod pipeline;
 pub mod prefetch;
+pub mod watch;
