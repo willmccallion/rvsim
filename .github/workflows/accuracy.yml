@@ -28,7 +28,7 @@ jobs:
         run: nix develop --command make accuracy ACCURACY_OUT=accuracy.json
       - name: Keep the errors
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: accuracy
           path: accuracy.json
