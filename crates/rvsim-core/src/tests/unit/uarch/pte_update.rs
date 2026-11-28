@@ -13,7 +13,6 @@ const PTE_V_R_W: u64 = 0b111;
 const PTE_A: u64 = 1 << 6;
 const PTE_D: u64 = 1 << 7;
 const PTE_FRAME: u64 = 0x8_0400 << 10;
-const OUTSIDE_RAM: u64 = 0x10;
 
 fn update_setting_a_and_d(pte_addr: u64) -> PteUpdate {
     PteUpdate {
@@ -66,14 +65,4 @@ fn an_update_to_a_pte_that_changed_beyond_its_ad_bits_is_refused() {
 
     assert_eq!(outcome, PteUpdateOutcome::Changed);
     assert_eq!(stored_pte(&sys), Some(remapped));
-}
-
-#[test]
-fn an_update_to_a_pte_outside_ram_is_refused() {
-    let mut sys = minimal_system();
-    let mut core = sys.core_ctx(0);
-
-    let outcome = core.stage().apply_pte_update(&update_setting_a_and_d(OUTSIDE_RAM));
-
-    assert_eq!(outcome, PteUpdateOutcome::Changed);
 }

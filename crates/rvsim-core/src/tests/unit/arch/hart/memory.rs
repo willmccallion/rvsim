@@ -6,8 +6,16 @@
 //! hierarchy through a `Simulator`.
 
 use crate::common::{AccessType, VirtAddr};
+use crate::isa::csr;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::tests::support::harness::minimal_system;
+use crate::tests::support::pmp_entry;
 use crate::uarch::mmu::TranslateOutcome;
+
+/// A page-table root below RAM, where no page table can be read.
+const ROOT_OUTSIDE_RAM_PPN: u64 = 0x10;
+const MAPPED_VA: u64 = 0x4000_0000;
+const PMP_NAPOT_RWX: u8 = (0b11 << 3) | 0b111;
 
 #[test]
 fn a_bare_read_translates_to_its_own_address_without_trapping() {
@@ -123,4 +131,20 @@ fn a_bare_write_to_an_unmapped_address_traps() {
         panic!("NeedPte not expected in direct mode")
     };
     assert!(result.trap.is_some());
+}
+
+#[test]
+fn a_walk_to_a_page_table_outside_ram_takes_an_access_fault() {
+    let mut sys = minimal_system();
+    let hart = &mut sys.harts[0];
+    hart.privilege = PrivilegeMode::Supervisor;
+    hart.csrs.satp = (csr::SATP_MODE_SV39 << 60) | ROOT_OUTSIDE_RAM_PPN;
+    hart.pmp.set_addr(pmp_entry(0), u64::MAX >> 10);
+    hart.pmp.set_cfg(pmp_entry(0), PMP_NAPOT_RWX);
+    let mut state = sys.core_ctx(0);
+
+    let outcome = state.translate(VirtAddr::new(MAPPED_VA), AccessType::Read, 8);
+
+    let TranslateOutcome::Ready(result) = outcome else { panic!("the walk read the PTE") };
+    assert_eq!(result.trap, Some(Trap::LoadAccessFault(MAPPED_VA)));
 }
