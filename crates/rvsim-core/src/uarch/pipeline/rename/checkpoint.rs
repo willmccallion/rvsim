@@ -101,9 +101,7 @@ impl CheckpointTable {
 
     /// Frees the checkpoint at `id`.
     pub fn free(&mut self, id: CheckpointId) {
-        let idx = id.0 as usize;
-        if idx < self.slots.len() && self.slots[idx].is_some() {
-            self.slots[idx] = None;
+        if self.slots[id.0 as usize].take().is_some() {
             self.count -= 1;
         }
     }
