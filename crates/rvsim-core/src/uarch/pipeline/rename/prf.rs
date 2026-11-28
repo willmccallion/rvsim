@@ -57,24 +57,20 @@ impl PhysRegFile {
         if idx == 0 {
             return; // PhysReg::ZERO hardwired zero
         }
-        if idx < self.values.len() {
-            self.values[idx] = val;
-            self.ready[idx] = true;
-        }
+        self.values[idx] = val;
+        self.ready[idx] = true;
     }
 
     /// Read the value of a physical register.
     #[inline]
     pub fn read(&self, p: PhysReg) -> u64 {
-        let idx = p.0 as usize;
-        if idx < self.values.len() { self.values[idx] } else { 0 }
+        self.values[p.index()]
     }
 
     /// Returns true if the physical register value is available.
     #[inline]
     pub fn is_ready(&self, p: PhysReg) -> bool {
-        let idx = p.0 as usize;
-        if idx < self.ready.len() { self.ready[idx] } else { false }
+        self.ready[p.index()]
     }
 
     /// Mark the first `num_arch` physical registers as ready (initial arch state).
@@ -97,10 +93,7 @@ impl PhysRegFile {
         if p == PhysReg::ZERO {
             return;
         }
-        let idx = p.index();
-        if idx < self.ready.len() {
-            self.ready[idx] = false;
-        }
+        self.ready[p.index()] = false;
     }
 
     /// Total number of physical registers.

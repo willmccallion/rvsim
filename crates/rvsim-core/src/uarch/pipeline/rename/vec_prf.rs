@@ -147,26 +147,19 @@ impl VecPhysRegFile {
     /// Returns true if the physical register is ready (result available).
     #[inline]
     pub fn is_ready(&self, p: VecPhysReg) -> bool {
-        let idx = p.as_usize();
-        if idx < self.ready.len() { self.ready[idx] } else { false }
+        self.ready[p.as_usize()]
     }
 
     /// Mark a physical register as not-ready (allocated but result pending).
     #[inline]
     pub fn allocate(&mut self, p: VecPhysReg) {
-        let idx = p.as_usize();
-        if idx < self.ready.len() {
-            self.ready[idx] = false;
-        }
+        self.ready[p.as_usize()] = false;
     }
 
     /// Mark a physical register as ready (result available).
     #[inline]
     pub fn mark_ready(&mut self, p: VecPhysReg) {
-        let idx = p.as_usize();
-        if idx < self.ready.len() {
-            self.ready[idx] = true;
-        }
+        self.ready[p.as_usize()] = true;
     }
 
     /// Mark the first `num_arch` identity-mapped slots as ready.
