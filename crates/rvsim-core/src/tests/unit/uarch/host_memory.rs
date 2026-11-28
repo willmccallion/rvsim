@@ -2,8 +2,9 @@
 //! writes that cross page boundaries and stop at their limits.
 
 use crate::common::PhysAddr;
+use crate::config::Config;
 use crate::isa::csr;
-use crate::isa::privileged::PrivilegeMode;
+use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::system::SystemState;
 use crate::tests::support::harness::minimal_system;
 
@@ -21,6 +22,9 @@ const PTE_VRWAD: u64 = 0b1100_0111 | PTE_V;
 const FIRST_BYTES: usize = 8;
 const SECOND_BYTES: usize = 4;
 const STRING_LIMIT: usize = 16;
+/// Mid-page, so a write just before it does not end at a page boundary.
+const TOHOST: u64 = 0x8000_9100;
+const BYTES_BEFORE_TOHOST: u64 = 8;
 
 fn store(sys: &mut SystemState, paddr: u64, bytes: &[u8]) {
     sys.uncore.kernel.memory.load(PhysAddr::new(paddr), bytes);
@@ -89,6 +93,25 @@ fn a_host_write_across_a_page_boundary_lands_each_part_in_its_own_frame() {
     let first_part = read_physical(&sys, FIRST_FRAME + PAGE_SIZE - FIRST_BYTES as u64, FIRST_BYTES);
     assert_eq!(first_part, vec![1; FIRST_BYTES]);
     assert_eq!(read_physical(&sys, SECOND_FRAME, SECOND_BYTES), vec![2; SECOND_BYTES]);
+}
+
+/// A machine-mode hart, which reaches memory untranslated, with HTIF's
+/// window at `TOHOST` inside RAM.
+fn system_with_htif() -> SystemState {
+    let mut config = Config::minimal();
+    config.system.tohost_addr = Some(PhysAddr::new(TOHOST));
+    SystemState::build(&config)
+}
+
+#[test]
+fn a_host_write_into_the_htif_window_writes_the_bytes_before_it_and_faults_at_it() {
+    let mut sys = system_with_htif();
+    let start = TOHOST - BYTES_BEFORE_TOHOST;
+
+    let written = sys.core_ctx(0).write_now(start, &[0x5a; 2 * BYTES_BEFORE_TOHOST as usize]);
+
+    assert_eq!(written, Err(Trap::StoreAccessFault(TOHOST)));
+    assert_eq!(read_physical(&sys, start, BYTES_BEFORE_TOHOST as usize), [0x5a; 8]);
 }
 
 #[test]

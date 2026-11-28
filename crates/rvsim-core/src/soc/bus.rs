@@ -307,6 +307,20 @@ impl Bus {
             && !self.htif_range.is_some_and(|htif| htif.overlaps(paddr, size))
     }
 
+    /// How many of the `size` bytes from `paddr` are plain RAM before the
+    /// first that is not: past the RAM range or inside the HTIF window.
+    #[must_use]
+    pub fn ram_prefix(&self, paddr: PhysAddr, size: u64) -> u64 {
+        let start = paddr.val();
+        let Some(ram) = self.ram.filter(|ram| ram.range.contains(paddr)) else { return 0 };
+        let end = start.saturating_add(size).min(ram.range.end());
+        let end = match self.htif_range {
+            Some(htif) if htif.overlaps(paddr, end - start) => htif.base.val().clamp(start, end),
+            _ => end,
+        };
+        end - start
+    }
+
     const fn beats(&self) -> Beats {
         Beats { width_bytes: self.width_bytes, cycles: self.beat_cycles }
     }

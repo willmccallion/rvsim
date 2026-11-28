@@ -187,10 +187,11 @@ impl CoreCtx<'_> {
         while !rest.is_empty() {
             let paddr = self.translate_now(VirtAddr::new(cursor), AccessType::Write)?;
             let (chunk, tail) = rest.split_at(rest.len().min(bytes_to_page_end(cursor)));
-            if !self.uncore.bus.is_ram(paddr, chunk.len() as u64) {
-                return Err(Trap::StoreAccessFault(cursor));
+            let writable = usize_of(self.uncore.bus.ram_prefix(paddr, chunk.len() as u64));
+            self.uncore.kernel.memory.write_bytes(Writer::External, paddr, &chunk[..writable]);
+            if writable < chunk.len() {
+                return Err(Trap::StoreAccessFault(cursor.wrapping_add(writable as u64)));
             }
-            self.uncore.kernel.memory.write_bytes(Writer::External, paddr, chunk);
             cursor = cursor.wrapping_add(chunk.len() as u64);
             rest = tail;
         }
