@@ -25,6 +25,8 @@ const STRING_LIMIT: usize = 16;
 /// Mid-page, so a write just before it does not end at a page boundary.
 const TOHOST: u64 = 0x8000_9100;
 const BYTES_BEFORE_TOHOST: u64 = 8;
+/// HTIF's tohost and fromhost.
+const HTIF_WINDOW_BYTES: u64 = 16;
 
 fn store(sys: &mut SystemState, paddr: u64, bytes: &[u8]) {
     sys.uncore.kernel.memory.load(PhysAddr::new(paddr), bytes);
@@ -112,6 +114,17 @@ fn a_host_write_into_the_htif_window_writes_the_bytes_before_it_and_faults_at_it
 
     assert_eq!(written, Err(Trap::StoreAccessFault(TOHOST)));
     assert_eq!(read_physical(&sys, start, BYTES_BEFORE_TOHOST as usize), [0x5a; 8]);
+}
+
+#[test]
+fn a_host_write_just_past_the_htif_window_writes_every_byte() {
+    let mut sys = system_with_htif();
+    let start = TOHOST + HTIF_WINDOW_BYTES;
+
+    let written = sys.core_ctx(0).write_now(start, &[0x5a; 8]);
+
+    assert_eq!(written, Ok(()));
+    assert_eq!(read_physical(&sys, start, 8), [0x5a; 8]);
 }
 
 #[test]

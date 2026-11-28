@@ -313,11 +313,10 @@ impl Bus {
     pub fn ram_prefix(&self, paddr: PhysAddr, size: u64) -> u64 {
         let start = paddr.val();
         let Some(ram) = self.ram.filter(|ram| ram.range.contains(paddr)) else { return 0 };
-        let end = start.saturating_add(size).min(ram.range.end());
-        let end = match self.htif_range {
-            Some(htif) if htif.overlaps(paddr, end - start) => htif.base.val().clamp(start, end),
-            _ => end,
-        };
+        let mut end = start.saturating_add(size).min(ram.range.end());
+        if let Some(htif) = self.htif_range.filter(|htif| htif.end() > start) {
+            end = end.min(htif.base.val().max(start));
+        }
         end - start
     }
 
