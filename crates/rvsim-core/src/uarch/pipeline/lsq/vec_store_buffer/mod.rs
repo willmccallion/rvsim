@@ -31,10 +31,15 @@
 //!
 //! `take_drainable_line` hands commit one cache-line buffer per cycle from
 //! the oldest committed-and-fully-resolved entry, which commit writes as
-//! one masked line write (or, for a device, as naturally aligned writes).
+//! one masked line write. A store to a device instead writes each element
+//! as its own access, in element order, one per cycle
+//! (`next_device_element`): the V spec has every active element accessed,
+//! and a device may observe each access.
 //! Between lines, the order is insertion order — which is element-index
 //! order under the pipeline's FIFO memory path. This matches spike, ARM
 //! SVE, and AVX-512.
+
+use std::collections::VecDeque;
 
 use crate::common::{PhysAddr, usize_of};
 use crate::config::VecStoreForwarding;
@@ -84,47 +89,17 @@ impl VsbLine {
             self.valid_mask >> i & 1 == 1 && byte >= start && byte < end
         })
     }
-
-    /// The line's valid bytes as naturally aligned writes of 1, 2, 4 or 8
-    /// bytes, `(address, data, width)`, for a device that must see each.
-    #[must_use]
-    pub fn natural_writes(&self) -> Vec<(PhysAddr, u64, MemWidth)> {
-        let mut writes = Vec::new();
-        let mut offset = 0usize;
-        while offset < VSB_LINE_BYTES {
-            if (self.valid_mask >> offset) & 1 == 0 {
-                offset += 1;
-                continue;
-            }
-            let run_end = (offset..VSB_LINE_BYTES)
-                .find(|&i| (self.valid_mask >> i) & 1 == 0)
-                .unwrap_or(VSB_LINE_BYTES);
-            while offset < run_end {
-                let addr = self.line_addr + offset as u64;
-                let bytes = [8usize, 4, 2, 1]
-                    .into_iter()
-                    .find(|&n| {
-                        addr.trailing_zeros() as usize >= n.trailing_zeros() as usize
-                            && run_end - offset >= n
-                    })
-                    .unwrap_or(1);
-                let data = (0..bytes)
-                    .fold(0u64, |data, b| data | (u64::from(self.data[offset + b]) << (b * 8)));
-                writes.push((PhysAddr::new(addr), data, mem_width_of(bytes)));
-                offset += bytes;
-            }
-        }
-        writes
-    }
 }
 
-const fn mem_width_of(bytes: usize) -> MemWidth {
-    match bytes {
-        8 => MemWidth::Double,
-        4 => MemWidth::Word,
-        2 => MemWidth::Half,
-        _ => MemWidth::Byte,
-    }
+/// One element's write, as its store resolved it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ElementWrite {
+    /// Its first byte.
+    pub paddr: PhysAddr,
+    /// Its bytes, little-endian.
+    pub data: u64,
+    /// Its width.
+    pub width: MemWidth,
 }
 
 /// One in-flight vector store instruction.
@@ -144,6 +119,12 @@ pub struct VecStoreBufferEntry {
     /// Lines whose writes are sent and not all acknowledged: they still
     /// forward, since the memory system has not yet performed them.
     pub sent: Vec<SentVsbLine>,
+    /// The element writes still to send, in the order they resolved, which
+    /// is element order. A store to a device sends these, one access per
+    /// element, instead of its lines.
+    pub elements: VecDeque<ElementWrite>,
+    /// The element writes sent and not yet acknowledged.
+    pub element_writes: Vec<ReqId>,
 }
 
 /// A drained line and the writes carrying it that are not yet acknowledged.
@@ -249,6 +230,8 @@ impl VecStoreBuffer {
             resolved_elements: 0,
             committed: false,
             sent: Vec::new(),
+            elements: VecDeque::new(),
+            element_writes: Vec::new(),
         };
 
         if let Some(slot) = self.slots.iter_mut().find(|slot| slot.is_none()) {
@@ -324,6 +307,7 @@ impl VecStoreBuffer {
             cur_data = if shift_bits >= 64 { 0 } else { cur_data >> shift_bits };
         }
 
+        entry.elements.push_back(ElementWrite { paddr, data, width });
         entry.resolved_elements += 1;
     }
 
@@ -596,6 +580,38 @@ impl VecStoreBuffer {
         Some((entry.rob_tag, line))
     }
 
+    /// The next element write of the oldest drainable store when any of
+    /// its lines `is_device` picks: a device sees each element's access.
+    #[must_use]
+    pub fn next_device_element(
+        &self,
+        is_device: impl Fn(&VsbLine) -> bool,
+    ) -> Option<(RobTag, ElementWrite)> {
+        let entry = self.slots[self.oldest_drainable_entry_index()?].as_ref()?;
+        if !entry.lines.iter().any(is_device) {
+            return None;
+        }
+        Some((entry.rob_tag, *entry.elements.front()?))
+    }
+
+    /// Records the writes carrying the element write
+    /// [`Self::next_device_element`] gave for `rob_tag`. Once its last
+    /// element has gone, its lines forward until every one is acknowledged.
+    pub fn element_sent(&mut self, rob_tag: RobTag, requests: &[ReqId]) {
+        let Some(entry) = self.find_mut(rob_tag) else { return };
+        let _ = entry.elements.pop_front();
+        entry.element_writes.extend_from_slice(requests);
+        if entry.elements.is_empty() {
+            let writes = std::mem::take(&mut entry.element_writes);
+            let lines = std::mem::take(&mut entry.lines);
+            entry
+                .sent
+                .extend(lines.into_iter().map(|line| SentVsbLine { line, writes: writes.clone() }));
+            entry.sent.retain(|sent| !sent.writes.is_empty());
+        }
+        self.release_finished();
+    }
+
     /// Records the writes carrying the line [`Self::take_drainable_line`]
     /// last handed out for `rob_tag`; it forwards until they are all
     /// acknowledged.
@@ -609,9 +625,11 @@ impl VecStoreBuffer {
         self.release_finished();
     }
 
-    /// The memory system acknowledged `req`, one of a drained line's writes.
+    /// The memory system acknowledged `req`, one of a drained line's or
+    /// element's writes.
     pub fn write_acked(&mut self, req: ReqId) {
         for entry in self.slots.iter_mut().flatten() {
+            entry.element_writes.retain(|pending| *pending != req);
             for sent in &mut entry.sent {
                 sent.writes.retain(|pending| *pending != req);
             }

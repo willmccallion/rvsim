@@ -14,7 +14,7 @@ use crate::trace_commit;
 use crate::uarch::ctx::CoreCtx;
 use crate::uarch::pipeline::engine::BackendCommon;
 use crate::uarch::pipeline::lsq::store_buffer::{StoreBuffer, StoreData};
-use crate::uarch::pipeline::lsq::vec_store_buffer::{VSB_LINE_BYTES, VecStoreBuffer};
+use crate::uarch::pipeline::lsq::vec_store_buffer::{VSB_LINE_BYTES, VecStoreBuffer, VsbLine};
 use crate::uarch::pipeline::lsq::write_buffer::WcbLine;
 use crate::uarch::pipeline::outstanding::{OutstandingStore, StoreOwner};
 
@@ -80,7 +80,7 @@ pub(super) fn send_data_store(
     if via_wcb {
         merge_into_wcb(state, paddr, data, width).then(Vec::new)
     } else {
-        send_direct_store(state, common, paddr, data, width)
+        send_direct_store(state, common, paddr, data, width, StoreOwner::StoreBuffer)
     }
 }
 
@@ -93,13 +93,14 @@ fn send_direct_store(
     paddr: PhysAddr,
     data: u64,
     width: MemWidth,
+    owner: StoreOwner,
 ) -> Option<Vec<ReqId>> {
     if state.core.wcb.has_pending() {
         state.core.wcb.request_send_all();
         return None;
     }
     let hart = WriteOrigin::Hart(state.hart.hart_id);
-    let store = StoreWrite { origin: hart, owner: StoreOwner::StoreBuffer };
+    let store = StoreWrite { origin: hart, owner };
     Some(emit_store_write_packet(state, common, paddr, data, width, store))
 }
 
@@ -185,7 +186,7 @@ pub fn send_one_write(
 ) {
     if !send_urgent_wcb_line(state, common)
         && !try_drain_one_store(state, common, store_buffer, vec_store_buffer)
-        && !drain_vec_store_line(state, common, store_buffer, vec_store_buffer)
+        && !drain_vec_store(state, common, store_buffer, vec_store_buffer)
     {
         send_idle_wcb_line(state, common);
     }
@@ -232,12 +233,49 @@ pub(super) fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon,
     state.uncore.kernel.stats.counter(state.core.stat_paths.wcb.drains).inc();
 }
 
-/// Writes the next line of a committed vector store: to RAM as one masked
-/// line write, and to a device as the naturally aligned writes it must see.
-/// The line follows the older stores to its bytes: those the store buffer
-/// has yet to send, and those the WCB holds, which a younger store cannot
-/// have joined while the line was unsent. Returns whether a line went.
-pub(super) fn drain_vec_store_line(
+/// Writes the next of a committed vector store's writes: a store to a
+/// device one element at a time, any other one line at a time. Returns
+/// whether a write went.
+pub(super) fn drain_vec_store(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    store_buffer: &StoreBuffer,
+    vec_store_buffer: &mut VecStoreBuffer,
+) -> bool {
+    drain_device_element(state, common, vec_store_buffer)
+        .unwrap_or_else(|| drain_vec_store_line(state, common, store_buffer, vec_store_buffer))
+}
+
+/// Writes the next element of a committed vector store to a device as its
+/// own access, once the WCB has written what it holds, as a scalar store to
+/// a device waits. An older scalar store cannot still be waiting: the store
+/// buffer drains first and in order, and waits for the same WCB. `None`
+/// when the next vector store is not to a device, else whether it went.
+fn drain_device_element(
+    state: &mut CoreCtx<'_>,
+    common: &mut BackendCommon,
+    vec_store_buffer: &mut VecStoreBuffer,
+) -> Option<bool> {
+    let bus = &state.uncore.bus;
+    let is_device =
+        |line: &VsbLine| !bus.is_ram(PhysAddr::new(line.line_addr), VSB_LINE_BYTES as u64);
+    let (rob_tag, element) = vec_store_buffer.next_device_element(is_device)?;
+    let owner = StoreOwner::VecStoreBuffer;
+    let Some(requests) =
+        send_direct_store(state, common, element.paddr, element.data, element.width, owner)
+    else {
+        return Some(false);
+    };
+    vec_store_buffer.element_sent(rob_tag, &requests);
+    Some(true)
+}
+
+/// Writes the next line of a committed vector store to RAM as one masked
+/// line write. The line follows the older stores to its bytes: those the
+/// store buffer has yet to send, and those the WCB holds, which a younger
+/// store cannot have joined while the line was unsent. Returns whether a
+/// line went.
+fn drain_vec_store_line(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
     store_buffer: &StoreBuffer,
@@ -253,18 +291,8 @@ pub(super) fn drain_vec_store_line(
     let Some((rob_tag, line)) = vec_store_buffer.take_drainable_line() else { return false };
     let paddr = PhysAddr::new(line.line_addr);
     let owner = StoreOwner::VecStoreBuffer;
-    let requests = if state.uncore.bus.is_ram(paddr, VSB_LINE_BYTES as u64) {
-        vec![emit_line_write(state, common, paddr, &line.data, line.valid_mask, owner)]
-    } else {
-        let write = StoreWrite { origin: WriteOrigin::Hart(state.hart.hart_id), owner };
-        line.natural_writes()
-            .into_iter()
-            .flat_map(|(paddr, data, width)| {
-                emit_store_write_packet(state, common, paddr, data, width, write)
-            })
-            .collect()
-    };
-    vec_store_buffer.line_sent(rob_tag, requests);
+    let request = emit_line_write(state, common, paddr, &line.data, line.valid_mask, owner);
+    vec_store_buffer.line_sent(rob_tag, vec![request]);
     true
 }
 

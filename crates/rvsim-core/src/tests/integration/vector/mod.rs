@@ -1,5 +1,6 @@
 //! Vector configuration, execution and memory in the pipelines.
 
+pub mod device_stores;
 pub mod inorder_vector_memory;
 pub mod mask_rename;
 pub mod scalar_after_vector_store;
