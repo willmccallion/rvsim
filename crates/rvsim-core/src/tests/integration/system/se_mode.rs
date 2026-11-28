@@ -5,6 +5,7 @@ use crate::Simulator;
 use crate::common::{SimError, VirtAddr};
 use crate::config::defaults::RAM_BASE;
 use crate::config::{BackendKind, Config, Console};
+use crate::isa::encoding::privileged::EBREAK;
 use crate::isa::op::pseudo::PseudoOp;
 use crate::isa::reg::RegIdx;
 use crate::system::checkpoint::CheckpointError;
@@ -15,6 +16,10 @@ use crate::tests::support::harness::build_simulator;
 use crate::tests::support::regs::{A0, A1, A2, A3, A4, A5, A7, S0, S1, S2, SP, T0, T1, X0};
 
 const ECALL: u32 = 0x0000_0073;
+const ILLEGAL: u32 = 0;
+const EXIT_STATUS_SIGILL: u64 = 128 + 4;
+const EXIT_STATUS_SIGTRAP: u64 = 128 + 5;
+const EXIT_STATUS_SIGBUS: u64 = 128 + 7;
 const SYS_EXIT: i32 = 93;
 const SYS_BRK: i32 = 214;
 const SYS_OPENAT: i32 = 56;
@@ -467,6 +472,42 @@ fn a_fault_ends_the_program_with_the_signals_exit_status() {
 
         assert_eq!(stop, StopReason::Exited(139), "{backend:?}");
     }
+}
+
+/// What a user program that executes `fault` ends with, on each backend,
+/// on a machine that traps misaligned accesses.
+fn assert_fault_ends_with(fault: &[u32], status: u64) {
+    for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
+        let mut config = config(backend);
+        config.memory.misaligned_access_trap = true;
+        let stop = run_for(&mut simulator_on(&config, fault, &["prog"]), 50_000);
+
+        assert_eq!(stop, StopReason::Exited(status), "{backend:?}");
+    }
+}
+
+#[test]
+fn an_illegal_instruction_ends_the_program_with_sigill() {
+    assert_fault_ends_with(&[ILLEGAL], EXIT_STATUS_SIGILL);
+}
+
+#[test]
+fn a_breakpoint_ends_the_program_with_sigtrap() {
+    assert_fault_ends_with(&[EBREAK], EXIT_STATUS_SIGTRAP);
+}
+
+#[test]
+fn a_misaligned_load_ends_the_program_with_sigbus() {
+    let i = InstructionBuilder::new;
+
+    assert_fault_ends_with(&[i().lw(A0, SP, 1).build()], EXIT_STATUS_SIGBUS);
+}
+
+#[test]
+fn a_misaligned_store_ends_the_program_with_sigbus() {
+    let i = InstructionBuilder::new;
+
+    assert_fault_ends_with(&[i().sw(SP, A0, 1).build()], EXIT_STATUS_SIGBUS);
 }
 
 /// The store's miss on the stack page, which every run of
