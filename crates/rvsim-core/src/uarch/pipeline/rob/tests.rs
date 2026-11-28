@@ -381,3 +381,108 @@ fn a_control_outcome_is_recorded_on_its_entry() {
     assert_eq!(control.target, Some(VirtAddr::new(0x2000)));
     assert!(!control.outcome.mispredicted);
 }
+
+#[test]
+fn a_tag_displays_as_its_number() {
+    assert_eq!(RobTag::new(42).to_string(), "42");
+}
+
+#[test]
+fn a_fault_only_first_trim_keeps_the_shortest_vl() {
+    let mut rob = Rob::new(4);
+    let tag = alloc(&mut rob, 0x1000, 1, make_ctrl(false, false)).unwrap();
+
+    rob.set_vl_trim(tag, 5);
+    rob.set_vl_trim(tag, 3);
+    rob.set_vl_trim(tag, 4);
+
+    assert_eq!(rob.find_entry(tag).unwrap().vl_trim, Some(3));
+}
+
+#[test]
+fn a_saturation_flag_once_set_stays_set() {
+    let mut rob = Rob::new(4);
+    let tag = alloc(&mut rob, 0x1000, 1, make_ctrl(false, false)).unwrap();
+
+    rob.set_vxsat(tag, true);
+    rob.set_vxsat(tag, false);
+
+    assert!(rob.find_entry(tag).unwrap().vxsat);
+}
+
+#[cfg(feature = "commit-log")]
+#[test]
+fn element_accesses_accumulate_on_their_entry_for_the_commit_log() {
+    use crate::common::PhysAddr;
+    use crate::isa::op::MemWidth;
+    use crate::isa::rvv::ElemIdx;
+    use crate::uarch::pipeline::commit_log::{MemEffect, VectorElementAccess};
+
+    let access = |element: usize| VectorElementAccess {
+        element: ElemIdx::new(element),
+        effect: MemEffect::new(
+            VirtAddr::new(0x2000),
+            PhysAddr::new(0x2000),
+            MemWidth::Byte,
+            Some(1),
+            None,
+        ),
+    };
+    let mut rob = Rob::new(4);
+    let tag = alloc(&mut rob, 0x1000, 1, make_ctrl(false, false)).unwrap();
+
+    rob.add_vec_mem_effects(tag, &[access(0), access(1)]);
+    rob.add_vec_mem_effects(tag, &[access(2)]);
+
+    assert_eq!(rob.find_entry(tag).unwrap().vec_mem_effects, [access(0), access(1), access(2)]);
+}
+
+#[test]
+fn a_squash_after_a_vsetvl_keeps_its_configuration_in_force() {
+    let mut rob = Rob::new(8);
+    let mut config = VectorConfig::default();
+    config.vl = 5;
+    let vsetvl = alloc(&mut rob, 0x1000, 1, make_ctrl(true, false)).unwrap();
+    rob.set_vec_csr_update(vsetvl, config);
+    alloc(&mut rob, 0x1004, 2, make_ctrl(true, false)).unwrap();
+
+    rob.flush_after(vsetvl);
+
+    assert_eq!(rob.youngest_vec_csr_update(), Some(config));
+}
+
+#[test]
+fn a_squash_after_a_fence_leaves_it_holding_younger_loads() {
+    let mut rob = Rob::new(8);
+    let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
+    let fence = alloc_fence(&mut rob, 0b0011, 0b0011).unwrap();
+    alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+
+    rob.flush_after(fence);
+    let load = alloc_with_inst(&mut rob, 0, load_ctrl).unwrap();
+
+    assert!(rob.has_fence_blocking(load, FenceSet::memory(true, false)));
+}
+
+#[test]
+fn every_kind_of_memory_instruction_is_an_older_memory_access() {
+    let vector = |vec_op| ControlSignals { vec_op: Some(vec_op), ..Default::default() };
+    let kinds = [
+        ("load", ControlSignals { mem_read: true, ..Default::default() }),
+        ("store", ControlSignals { mem_write: true, ..Default::default() }),
+        ("vector load", vector(crate::isa::op::VectorOp::Load(VecLoadOp::Unit))),
+        ("vector store", vector(crate::isa::op::VectorOp::Store(VecStoreOp::Unit))),
+        (
+            "cache-block operation",
+            ControlSignals { system_op: crate::isa::op::SystemOp::CboZero, ..Default::default() },
+        ),
+    ];
+
+    for (name, ctrl) in kinds {
+        let mut rob = Rob::new(4);
+        alloc(&mut rob, 0, 0, ctrl).unwrap();
+        let younger = alloc(&mut rob, 4, 1, make_ctrl(true, false)).unwrap();
+
+        assert!(rob.has_older_memory_access(younger), "{name}");
+    }
+}
