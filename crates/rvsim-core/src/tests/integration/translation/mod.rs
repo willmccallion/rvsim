@@ -2,6 +2,7 @@
 
 pub mod hardware_ad_bits;
 pub mod load_prefetch_paging;
+pub mod modify_privilege;
 pub mod page_walkers;
 pub mod tlb_latency;
 pub mod tlb_superpages;
