@@ -6,4 +6,5 @@ pub mod host_memory;
 pub mod mmu;
 pub mod pipeline;
 pub mod prefetch;
+pub mod pte_update;
 pub mod watch;
