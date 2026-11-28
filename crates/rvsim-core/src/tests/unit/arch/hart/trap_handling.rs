@@ -4,6 +4,7 @@
 //! including trap dispatch and context saving.
 
 use crate::common::{PhysAddr, VirtAddr};
+use crate::isa::csr::{MSTATUS_MIE, MSTATUS_MPIE, MSTATUS_SIE, MSTATUS_SPIE, MSTATUS_SPP};
 use crate::isa::privileged::cause::CAUSE_INTERRUPT_BIT;
 use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::isa::reg::RegIdx;
@@ -532,4 +533,68 @@ fn an_undelegated_user_interrupt_or_hardware_fault_traps_to_machine_mode() {
         assert_eq!(state.hart.csrs.mcause, trap.mcause_code(), "{trap}");
         assert_eq!(state.hart.pc, VirtAddr::new(0x8000_0400), "{trap}");
     }
+}
+
+const ILLEGAL_INSTRUCTION_DELEGATED: u64 = 1 << 2;
+
+/// The `mstatus` after an illegal instruction taken in `privilege` and
+/// delegated to supervisor mode, from `mstatus` before it.
+fn mstatus_after_delegated_trap(privilege: PrivilegeMode, mstatus: u64) -> u64 {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+    state.hart.privilege = privilege;
+    state.hart.csrs.medeleg = ILLEGAL_INSTRUCTION_DELEGATED;
+    state.hart.csrs.mstatus = mstatus;
+
+    state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
+
+    state.hart.csrs.mstatus
+}
+
+#[test]
+fn a_delegated_trap_moves_sie_into_spie_and_clears_sie() {
+    let after = mstatus_after_delegated_trap(PrivilegeMode::User, MSTATUS_SIE);
+
+    assert_eq!(after, MSTATUS_SPIE);
+}
+
+#[test]
+fn a_delegated_trap_with_sie_clear_clears_spie() {
+    let after = mstatus_after_delegated_trap(PrivilegeMode::User, MSTATUS_SPIE | MSTATUS_MPIE);
+
+    assert_eq!(after, MSTATUS_MPIE);
+}
+
+#[test]
+fn a_delegated_trap_with_sie_clear_leaves_spie_clear() {
+    let after = mstatus_after_delegated_trap(PrivilegeMode::User, MSTATUS_MPIE);
+
+    assert_eq!(after, MSTATUS_MPIE);
+}
+
+#[test]
+fn a_delegated_trap_from_supervisor_mode_sets_spp() {
+    let after = mstatus_after_delegated_trap(PrivilegeMode::Supervisor, 0);
+
+    assert_eq!(after, MSTATUS_SPP);
+}
+
+#[test]
+fn a_delegated_trap_from_user_mode_clears_spp() {
+    let after = mstatus_after_delegated_trap(PrivilegeMode::User, MSTATUS_SPP);
+
+    assert_eq!(after, 0);
+}
+
+#[test]
+fn a_trap_with_mie_clear_leaves_mpie_clear() {
+    let mut sys = minimal_system();
+    let mut state = sys.core_ctx(0);
+    state.hart.privilege = PrivilegeMode::Machine;
+    state.hart.csrs.mstatus = 0;
+
+    state.trap(&Trap::IllegalInstruction(0), state.hart.pc);
+
+    assert_eq!(state.hart.csrs.mstatus & MSTATUS_MPIE, 0);
+    assert_eq!(state.hart.csrs.mstatus & MSTATUS_MIE, 0);
 }
