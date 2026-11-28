@@ -219,40 +219,64 @@ fn a_drained_entry_keeps_its_slot_until_its_writes_are_acknowledged() {
     assert_eq!((before_ack, b.len()), ((1, true), 0));
 }
 
-fn line_with(line_addr: u64, bytes: std::ops::Range<usize>) -> VsbLine {
-    let mut line = VsbLine::new(line_addr);
-    for i in bytes {
-        line.data[i] = u8::try_from(i).unwrap();
-        line.valid_mask |= 1 << i;
-    }
-    line
+const DEVICE: u64 = 0x1000_0000;
+const RAM: u64 = 0x8000_0000;
+
+/// Lines below RAM are a device's.
+fn is_device(line: &VsbLine) -> bool {
+    line.line_addr < RAM
+}
+
+const fn byte_write(paddr: u64, data: u64) -> ElementWrite {
+    ElementWrite { paddr: PhysAddr::new(paddr), data, width: MemWidth::Byte }
+}
+
+/// A committed store whose two byte elements both write `DEVICE`.
+fn device_store_of_two_elements() -> VecStoreBuffer {
+    let mut b = vsb(2);
+    b.reserve_for_test(RobTag::new(1), 2);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(DEVICE), 0x41, MemWidth::Byte);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(DEVICE), 0x42, MemWidth::Byte);
+    b.mark_committed(RobTag::new(1));
+    b
 }
 
 #[test]
-fn a_device_write_splits_a_run_into_naturally_aligned_pieces() {
-    let line = line_with(0x1000_0000, 3..16);
+fn a_device_store_hands_out_each_element_in_the_order_it_resolved() {
+    let mut b = device_store_of_two_elements();
 
-    let writes: Vec<_> =
-        line.natural_writes().into_iter().map(|(a, d, w)| (a.val(), d, w)).collect();
+    let first = b.next_device_element(is_device);
+    b.element_sent(RobTag::new(1), &[ReqId::new(1)]);
+    let second = b.next_device_element(is_device);
 
-    assert_eq!(
-        writes,
-        vec![
-            (0x1000_0003, 0x03, MemWidth::Byte),
-            (0x1000_0004, 0x0706_0504, MemWidth::Word),
-            (0x1000_0008, 0x0F0E_0D0C_0B0A_0908, MemWidth::Double),
-        ]
-    );
+    assert_eq!(first, Some((RobTag::new(1), byte_write(DEVICE, 0x41))));
+    assert_eq!(second, Some((RobTag::new(1), byte_write(DEVICE, 0x42))));
 }
 
 #[test]
-fn a_device_write_skips_the_bytes_no_element_wrote() {
-    let mut line = line_with(0x1000_0000, 0..2);
-    line.valid_mask |= 1 << 4;
+fn a_store_to_ram_drains_by_line_not_by_element() {
+    let mut b = vsb(2);
+    b.reserve_for_test(RobTag::new(1), 1);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(RAM), 0x41, MemWidth::Byte);
+    b.mark_committed(RobTag::new(1));
 
-    let addresses: Vec<u64> = line.natural_writes().iter().map(|(a, _, _)| a.val()).collect();
+    assert_eq!(b.next_device_element(is_device), None);
+    assert!(b.next_drainable_line().is_some());
+}
 
-    assert_eq!(addresses, vec![0x1000_0000, 0x1000_0004]);
+#[test]
+fn a_device_store_forwards_until_its_last_element_write_is_acknowledged() {
+    let mut b = device_store_of_two_elements();
+    b.element_sent(RobTag::new(1), &[ReqId::new(1)]);
+    b.write_acked(ReqId::new(1));
+    b.element_sent(RobTag::new(1), &[ReqId::new(2)]);
+
+    let left_to_send = b.next_device_element(is_device);
+    let in_flight = b.forward_load(PhysAddr::new(DEVICE), MemWidth::Byte, RobTag::new(2));
+    b.write_acked(ReqId::new(2));
+
+    assert_eq!((left_to_send, in_flight), (None, ForwardResult::Hit(0x42)));
+    assert!(b.is_empty());
 }
 
 #[test]
