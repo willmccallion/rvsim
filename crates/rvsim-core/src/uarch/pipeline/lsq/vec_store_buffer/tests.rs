@@ -548,6 +548,41 @@ fn with_stall_forwarding_only_a_touched_span_stalls() {
     );
 }
 
+/// A store of `expected` elements, one of them resolved at `addr`, that
+/// stalls loads of its line under `VecStoreForwarding::Stall`.
+fn stall_policy_store(expected: usize, addr: u64) -> VecStoreBuffer {
+    let mut b = vsb_with(VecStoreForwarding::Stall);
+    b.reserve_for_test(RobTag::new(1), expected);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(addr), 0xAB, MemWidth::Byte);
+    b
+}
+
+fn word_load(b: &VecStoreBuffer, addr: u64) -> ForwardResult {
+    b.forward_load(PhysAddr::new(addr), MemWidth::Word, RobTag::new(2))
+}
+
+#[test]
+fn with_stall_forwarding_a_load_in_the_line_of_an_unresolved_store_stalls() {
+    let b = stall_policy_store(2, LINE + 32);
+
+    assert_eq!(word_load(&b, LINE), ForwardResult::Stall);
+}
+
+#[test]
+fn with_stall_forwarding_a_load_in_another_line_than_an_unresolved_store_misses() {
+    let b = stall_policy_store(2, LINE + 32);
+
+    assert_eq!(word_load(&b, LINE + 64), ForwardResult::Miss);
+}
+
+#[test]
+fn with_stall_forwarding_a_load_beside_a_resolved_stores_bytes_misses() {
+    let b = stall_policy_store(1, LINE + 32);
+
+    assert_eq!(word_load(&b, LINE), ForwardResult::Miss);
+    assert_eq!(word_load(&b, LINE + 32), ForwardResult::Stall);
+}
+
 fn crossing_load(b: &VecStoreBuffer, load: u32) -> ForwardResult {
     b.forward_load(PhysAddr::new(LINE + 60), MemWidth::Double, RobTag::new(load))
 }
