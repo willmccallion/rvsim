@@ -1,4 +1,5 @@
 pub mod hazards;
+pub mod in_flight;
 pub mod latches;
 pub mod page_walkers;
 pub mod register_files;
