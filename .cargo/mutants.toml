@@ -1,7 +1,0 @@
-# cargo-mutants configuration.
-
-# `send_one_write` sends each cycle's committed write. Every mutant of it
-# stops committed stores from draining, so the simulator's drain waits for
-# them forever: the tests hang, which cargo-mutants reports as a timeout,
-# not a failure.
-exclude_re = ["send_one_write"]
