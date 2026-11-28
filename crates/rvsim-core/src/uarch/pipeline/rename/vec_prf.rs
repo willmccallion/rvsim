@@ -368,6 +368,24 @@ mod tests {
     }
 
     #[test]
+    fn a_group_is_empty_only_when_it_has_no_registers() {
+        let group = VecRegGroup::from_slice(&[VecPhysReg::from_index(3)]);
+
+        assert!(VecRegGroup::EMPTY.is_empty());
+        assert!(!group.is_empty());
+    }
+
+    #[test]
+    fn a_view_has_the_vlen_of_its_register_file() {
+        let wide = Vlen::new_unchecked(256);
+        let mut prf = VecPhysRegFile::new(64, wide);
+
+        let view = VecPrfView::new(&mut prf, [VecPhysReg::ZERO; 32]);
+
+        assert_eq!(VectorRegFile::vlen(&view), wide);
+    }
+
+    #[test]
     fn an_identity_mapped_view_reads_back_what_the_vpr_does() {
         use crate::arch::regs::vpr::Vpr;
 
