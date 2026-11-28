@@ -605,25 +605,41 @@ fn reserved_line_under_store_prefetch(harts: i32, iterations: i32) -> Vec<u32> {
     code
 }
 
-#[test]
-fn store_prefetches_of_a_reserved_line_keep_lr_sc_atomic() {
+/// `harts` harts on `backend` each increment a line with LR/SC while hart
+/// 1's store run keeps prefetching it away, and every increment lands.
+fn assert_store_prefetches_keep_lr_sc_atomic(harts: usize, backend: BackendKind) {
     let iterations = 20;
-    for harts in [2, 4] {
-        for backend in [BackendKind::InOrder, BackendKind::OutOfOrder] {
-            let label = format!("{harts} {backend:?}");
-            let config = prefetching(harts, backend);
-            let program = reserved_line_under_store_prefetch(harts as i32, iterations);
-            let mut system = MultiHart::with_config(&config, &program);
+    let config = prefetching(harts, backend);
+    let program = reserved_line_under_store_prefetch(harts as i32, iterations);
+    let mut system = MultiHart::with_config(&config, &program);
 
-            let exit = run_audited(&mut system, RESERVED_LINE_CYCLES);
+    let exit = run_audited(&mut system, RESERVED_LINE_CYCLES);
 
-            assert_eq!(exit, Some(harts as u64 * iterations as u64), "{label}: every increment");
-            assert!(
-                core_stat(&system, "core1.cache.l1d.prefetches.store_stream") > 0,
-                "{label}: hart 1's store run was prefetched"
-            );
-        }
-    }
+    assert_eq!(exit, Some(harts as u64 * iterations as u64), "every increment");
+    assert!(
+        core_stat(&system, "core1.cache.l1d.prefetches.store_stream") > 0,
+        "hart 1's store run was prefetched"
+    );
+}
+
+#[test]
+fn store_prefetches_of_a_reserved_line_keep_lr_sc_atomic_on_two_in_order_harts() {
+    assert_store_prefetches_keep_lr_sc_atomic(2, BackendKind::InOrder);
+}
+
+#[test]
+fn store_prefetches_of_a_reserved_line_keep_lr_sc_atomic_on_two_o3_harts() {
+    assert_store_prefetches_keep_lr_sc_atomic(2, BackendKind::OutOfOrder);
+}
+
+#[test]
+fn store_prefetches_of_a_reserved_line_keep_lr_sc_atomic_on_four_in_order_harts() {
+    assert_store_prefetches_keep_lr_sc_atomic(4, BackendKind::InOrder);
+}
+
+#[test]
+fn store_prefetches_of_a_reserved_line_keep_lr_sc_atomic_on_four_o3_harts() {
+    assert_store_prefetches_keep_lr_sc_atomic(4, BackendKind::OutOfOrder);
 }
 
 #[test]
