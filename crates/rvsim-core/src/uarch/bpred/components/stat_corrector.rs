@@ -654,4 +654,689 @@ mod tests {
         assert_eq!(stepped(-32, false, 6), -32);
         assert_eq!(stepped(0, true, 6), 1);
     }
+
+    #[test]
+    fn a_counter_steps_down_by_one_within_its_range() {
+        assert_eq!(stepped(-5, false, 6), -6);
+        assert_eq!(stepped(5, false, 6), 4);
+    }
+
+    #[test]
+    fn a_centred_counter_is_twice_its_value_plus_one() {
+        assert_eq!([centred(0), centred(-1), centred(3), centred(-4)], [1, -1, 7, -7]);
+    }
+
+    #[test]
+    fn a_low_mask_sets_that_many_low_bits() {
+        assert_eq!([low_mask(0), low_mask(8), low_mask(64)], [0, 0xFF, u64::MAX]);
+    }
+
+    #[test]
+    fn the_pc_hash_folds_the_pc_over_itself_shifted_right_two() {
+        assert_eq!(pc_hash(0x1234), 0x16B9);
+        assert_eq!(pc_hash(0xDEAD_BEEC), 0xE906_D157);
+    }
+
+    #[test]
+    fn each_source_reads_its_own_history() {
+        let histories = ScHistories {
+            global: 1,
+            backward: 2,
+            path: 3,
+            local: [4, 5, 6, 7],
+            imli_count: 8,
+            imli_history: 9,
+        };
+        let sources =
+            [Source::Global, Source::Backward, Source::Path, Source::Local(1), Source::Imli];
+
+        let read: Vec<u64> = sources.iter().map(|&source| histories.of(source)).collect();
+
+        assert_eq!(read, [1, 2, 3, 5, 8]);
+        assert_eq!(histories.of(Source::ImliHistory), 9);
+    }
+
+    fn gehl(source: Source, lengths: &[u32], log_entries: u32, weights: usize) -> Gehl {
+        let config = GehlConfig { lengths: lengths.to_vec(), log_entries, weight_init: 0 };
+        Gehl::new(source, &config, false, weights)
+    }
+
+    #[test]
+    fn a_gehl_table_starts_with_alternating_counters_but_for_an_unpaired_last_entry() {
+        assert_eq!(Gehl::initial_table(1), [0]);
+        assert_eq!(Gehl::initial_table(3), [-1, 0, 0]);
+        assert_eq!(Gehl::initial_table(4), [-1, 0, -1, 0]);
+    }
+
+    #[test]
+    fn only_the_backward_component_hashes_the_prediction_into_its_pc() {
+        let backward = gehl(Source::Backward, &[4], 4, 1);
+        let global = gehl(Source::Global, &[4], 4, 1);
+
+        assert_eq!(backward.hashed_pc(5, true), 11);
+        assert_eq!(backward.hashed_pc(5, false), 10);
+        assert_eq!(global.hashed_pc(5, true), 5);
+    }
+
+    #[test]
+    fn a_gehl_index_hashes_the_pc_with_the_history_shifted_per_table() {
+        let component = gehl(Source::Global, &[64; 8], 20, 1);
+        let cases = [
+            (0, 0x97_3CEB_3FFC, 0x2163_6369_8B52_9B4A, 660_734),
+            (1, 0xEA_5EB5_61A4, 0x795B_929E_9A9A_80FD, 878_395),
+            (2, 0x94_A02F_34A4, 0x9B08_923D_10C6_7FD9, 526_253),
+            (3, 0xE8_035E_FA24, 0x781F_9C58_D664_5FA9, 837_262),
+            (4, 0x8D_4265_0644, 0x3116_2427_3BFD_1D33, 646_380),
+            (5, 0xB7_FEE2_9474, 0x8A7D_43B5_7863_3074, 103_648),
+            (6, 0x8C_D622_5674, 0x65AA_9C82_79F2_48B0, 1_048_442),
+            (7, 0xDC_A399_F828, 0x3B5F_3D86_268E_CC45, 295_395),
+        ];
+
+        for (table, pc, history, index) in cases {
+            assert_eq!(component.index(table, pc, history), index, "table {table}");
+        }
+    }
+
+    #[test]
+    fn a_gehl_vote_doubles_for_a_non_negative_weight() {
+        let mut component = gehl(Source::Global, &[4, 4], 4, 2);
+        component.tables[0][0] = 2;
+        component.tables[1][0] = -1;
+        component.weights[0] = 0;
+        component.weights[1] = -1;
+
+        let histories = ScHistories::default();
+
+        assert_eq!(component.vote(0, false, &histories, 0), 8);
+        assert_eq!(component.vote(0, false, &histories, 1), 4);
+    }
+
+    #[test]
+    fn only_the_imli_history_weight_stays_out_of_the_threshold() {
+        let counts = |source| gehl(source, &[4], 4, 1).weight_counts_in_threshold();
+
+        assert!(counts(Source::Global));
+        assert!(counts(Source::Imli));
+        assert!(!counts(Source::ImliHistory));
+    }
+
+    fn trained_gehl(a: i8, b: i8, weight: i8, total: i32, taken: bool) -> (i8, i8, i8) {
+        let mut component = gehl(Source::Global, &[4, 4], 4, 1);
+        component.tables[0][0] = a;
+        component.tables[1][0] = b;
+        component.weights[0] = weight;
+        let prediction = scored(total, 40, true, TageConfLevel::Low);
+        let widths =
+            Widths { counter: 6, weight: 6, chooser: 7, threshold: 12, per_pc_threshold: 8 };
+
+        component.train(&prediction, taken, 0, &widths);
+
+        (component.weights[0], component.tables[0][0], component.tables[1][0])
+    }
+
+    #[test]
+    fn a_gehl_trains_its_counters_and_moves_its_weight_when_its_vote_decided_the_sign() {
+        let rows = [
+            ((1, -5, 2, 6, true), (2, 2, -4)),
+            ((-3, -3, 0, -30, true), (0, -2, -2)),
+            ((-5, -3, 1, -18, true), (1, -4, -2)),
+            ((3, -6, 0, 0, false), (0, 2, -7)),
+            ((6, 5, 0, 21, false), (-1, 5, 4)),
+        ];
+
+        for ((a, b, weight, total, taken), expected) in rows {
+            let row = (a, b, weight, total, taken);
+            assert_eq!(trained_gehl(a, b, weight, total, taken), expected, "{row:?}");
+        }
+    }
+
+    fn local_histories(mix_pc: bool) -> LocalHistories {
+        LocalHistories::new(&LocalGehlConfig {
+            histories: 16,
+            index_shift: 2,
+            mix_pc,
+            gehl: GehlConfig::default(),
+        })
+    }
+
+    #[test]
+    fn a_local_history_is_picked_by_the_pc_folded_over_itself() {
+        let locals = local_histories(false);
+
+        assert_eq!(locals.entry(0x35), 8);
+    }
+
+    #[test]
+    fn a_local_history_shifts_in_each_outcome() {
+        let mut locals = local_histories(false);
+
+        for taken in [true, true, false] {
+            locals.push(0x35, taken);
+        }
+
+        assert_eq!(locals.get(0x35), 0b110);
+        assert_eq!(locals.get(0x36), 0, "another branch's history is untouched");
+    }
+
+    #[test]
+    fn a_mixing_local_history_xors_the_low_pc_bits_into_each_update() {
+        let mut locals = local_histories(true);
+
+        locals.push(0x35, true);
+        locals.push(0x35, false);
+
+        assert_eq!(locals.get(0x35), 13);
+    }
+
+    fn bias_tables(counter_bits: u32) -> [Vec<i8>; 3] {
+        StatCorrector::initial_bias(3, counter_bits).into()
+    }
+
+    #[test]
+    fn the_bias_tables_start_agreeing_with_the_prediction_before_the_corrector() {
+        let [bias, bias_sk, bias_bank] = bias_tables(6);
+
+        assert_eq!(bias[..4], [-32, 31, -1, 0]);
+        assert_eq!(bias_sk[..4], [-8, 7, -32, 31]);
+        assert_eq!(bias_bank, bias);
+        assert_eq!(bias[4..], bias[..4], "the pattern repeats every four entries");
+    }
+
+    #[test]
+    fn the_bias_tables_start_at_the_extremes_of_a_narrower_counter() {
+        let [bias, bias_sk, _] = bias_tables(4);
+
+        assert_eq!(bias[..4], [-8, 7, -1, 0]);
+        assert_eq!(bias_sk[..4], [-2, 1, -8, 7]);
+    }
+
+    fn scored(sum: i32, threshold: i32, before_sc: bool, conf: TageConfLevel) -> ScPrediction {
+        ScPrediction {
+            pc: VirtAddr::new(0),
+            backward: false,
+            histories: ScHistories::default(),
+            tage: tage(conf, before_sc),
+            before_sc,
+            sum,
+            threshold,
+            taken: before_sc,
+        }
+    }
+
+    const THRESHOLD: i32 = 40;
+
+    fn chosen(conf: TageConfLevel, sum: i32, first: i8, second: i8) -> bool {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        sc.first_chooser = first;
+        sc.second_chooser = second;
+        sc.choose(conf, true, sum, THRESHOLD)
+    }
+
+    #[test]
+    fn a_corrector_that_agrees_with_the_prediction_keeps_it() {
+        let sc = StatCorrector::new(&ScConfig::default());
+        assert!(chosen(TageConfLevel::Low, 5, 0, 0));
+        assert!(!sc.choose(TageConfLevel::Low, false, -5, THRESHOLD));
+    }
+
+    #[test]
+    fn a_high_confidence_prediction_resists_a_sum_below_a_quarter_of_the_threshold() {
+        assert!(chosen(TageConfLevel::High, -9, -1, -1));
+        assert!(chosen(TageConfLevel::High, -9, 0, 0));
+    }
+
+    #[test]
+    fn a_high_confidence_prediction_yields_between_a_quarter_and_half_when_the_chooser_says_so() {
+        assert!(chosen(TageConfLevel::High, -10, 0, 0));
+        assert!(!chosen(TageConfLevel::High, -10, 0, -1));
+        assert!(chosen(TageConfLevel::High, -19, 0, 0));
+        assert!(!chosen(TageConfLevel::High, -19, 0, -1));
+    }
+
+    #[test]
+    fn a_high_confidence_prediction_yields_to_a_sum_of_half_the_threshold() {
+        assert!(!chosen(TageConfLevel::High, -20, 0, 0));
+        assert!(!chosen(TageConfLevel::High, -45, 0, 0));
+    }
+
+    #[test]
+    fn a_medium_confidence_prediction_yields_below_a_quarter_only_when_the_chooser_says_so() {
+        assert!(chosen(TageConfLevel::Medium, -9, 0, 0));
+        assert!(!chosen(TageConfLevel::Medium, -9, -1, 0));
+    }
+
+    #[test]
+    fn a_medium_confidence_prediction_yields_to_a_sum_of_a_quarter_of_the_threshold() {
+        assert!(!chosen(TageConfLevel::Medium, -10, 0, 0));
+        assert!(!chosen(TageConfLevel::Medium, -15, 0, 0));
+    }
+
+    #[test]
+    fn a_low_confidence_prediction_always_yields_to_the_corrector() {
+        assert!(!chosen(TageConfLevel::Low, -1, 0, 0));
+        assert!(!chosen(TageConfLevel::None, -1, 0, 0));
+    }
+
+    #[test]
+    fn a_prediction_keeps_the_histories_it_read() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+        let prediction = predict(&sc, FORWARD, meta);
+        sc.speculate(&prediction, true);
+
+        let read = predict(&sc, FORWARD, meta).histories;
+
+        assert_eq!(read.global, 1);
+        assert_eq!(read.imli_history, 1);
+        assert_ne!(read, ScHistories::default());
+    }
+
+    #[test]
+    fn a_prediction_keeps_the_local_history_of_its_own_branch() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+        let prediction = predict(&sc, FORWARD, meta);
+        sc.speculate(&prediction, true);
+
+        let read = predict(&sc, FORWARD, meta).histories;
+
+        assert_eq!(read.local[0], 1);
+    }
+
+    #[test]
+    fn a_prediction_sums_its_three_bias_counters_doubled_by_a_non_negative_weight() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        sc.gehls.clear();
+        let meta = tage(TageConfLevel::Low, true);
+        let keys = sc.keys(PC.val(), &meta, true);
+        sc.bias[keys.bias] = 2;
+        sc.bias_sk[keys.bias_sk] = -2;
+        sc.bias_bank[keys.bias_bank] = 3;
+
+        sc.bias_weights[keys.weight] = 0;
+        let doubled = predict(&sc, FORWARD, meta).sum;
+        sc.bias_weights[keys.weight] = -1;
+        let single = predict(&sc, FORWARD, meta).sum;
+
+        assert_eq!((doubled, single), (18, 9));
+    }
+
+    #[test]
+    fn a_prediction_adds_each_gehl_components_vote_to_the_bias_sum() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+        let with_gehls = predict(&sc, FORWARD, meta);
+        let histories = sc.histories(PC.val(), 0);
+        let keys = sc.keys(PC.val(), &meta, true);
+        let votes: i32 =
+            sc.gehls.iter().map(|gehl| gehl.vote(PC.val(), true, &histories, keys.weight)).sum();
+        sc.gehls.clear();
+        let bias_only = predict(&sc, FORWARD, meta);
+
+        assert_eq!(with_gehls.sum, bias_only.sum + votes);
+    }
+
+    #[test]
+    fn a_branch_to_its_own_address_is_not_a_backward_branch() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+
+        let to_itself = predict(&sc, PC, meta);
+        sc.speculate(&to_itself, true);
+
+        assert!(!to_itself.backward);
+        assert_eq!(sc.imli_count, 0);
+    }
+
+    #[test]
+    fn the_corrector_shifts_each_outcome_into_the_global_and_imli_histories() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+
+        for taken in [true, false, true] {
+            let prediction = predict(&sc, FORWARD, meta);
+            sc.speculate(&prediction, taken);
+        }
+
+        assert_eq!(sc.global, 0b101);
+        assert_eq!(sc.imli_histories[0], 0b101);
+        assert_eq!(sc.locals[0].get(PC.val()), 0b101);
+    }
+
+    #[test]
+    fn the_backward_history_records_only_taken_backward_branches() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let meta = tage(TageConfLevel::Low, true);
+        for (target, taken) in
+            [(BACKWARD, true), (BACKWARD, false), (FORWARD, true), (BACKWARD, true)]
+        {
+            let prediction = predict(&sc, target, meta);
+            sc.speculate(&prediction, taken);
+        }
+
+        assert_eq!(sc.backward, 0b1001);
+    }
+
+    /// What TAGE knew of a branch at `pc`, and the table keys that gives.
+    struct KeyCase {
+        pc: u64,
+        conf: TageConfLevel,
+        disagrees: bool,
+        bank: usize,
+        alt: bool,
+        before: bool,
+        keys: [usize; 5],
+    }
+
+    const KEY_CASES: [KeyCase; 16] = [
+        KeyCase {
+            pc: 0xd73cf256c,
+            conf: TageConfLevel::Low,
+            disagrees: false,
+            bank: 59,
+            alt: false,
+            before: true,
+            keys: [221, 229, 117, 55, 7],
+        },
+        KeyCase {
+            pc: 0x9dae44550,
+            conf: TageConfLevel::Medium,
+            disagrees: true,
+            bank: 51,
+            alt: false,
+            before: false,
+            keys: [16, 20, 208, 4, 4],
+        },
+        KeyCase {
+            pc: 0x2cb008850,
+            conf: TageConfLevel::High,
+            disagrees: true,
+            bank: 19,
+            alt: true,
+            before: false,
+            keys: [16, 198, 90, 4, 4],
+        },
+        KeyCase {
+            pc: 0xbe3eff9c0,
+            conf: TageConfLevel::None,
+            disagrees: false,
+            bank: 38,
+            alt: false,
+            before: false,
+            keys: [192, 156, 144, 48, 0],
+        },
+        KeyCase {
+            pc: 0xba7677794,
+            conf: TageConfLevel::Low,
+            disagrees: false,
+            bank: 10,
+            alt: false,
+            before: false,
+            keys: [196, 40, 164, 49, 1],
+        },
+        KeyCase {
+            pc: 0x102b9388,
+            conf: TageConfLevel::Medium,
+            disagrees: true,
+            bank: 56,
+            alt: true,
+            before: true,
+            keys: [169, 25, 233, 42, 2],
+        },
+        KeyCase {
+            pc: 0x576c468ac,
+            conf: TageConfLevel::High,
+            disagrees: true,
+            bank: 53,
+            alt: true,
+            before: true,
+            keys: [29, 59, 91, 7, 7],
+        },
+        KeyCase {
+            pc: 0x74b4d8474,
+            conf: TageConfLevel::None,
+            disagrees: true,
+            bank: 5,
+            alt: true,
+            before: true,
+            keys: [165, 149, 153, 41, 1],
+        },
+        KeyCase {
+            pc: 0x8ff666588,
+            conf: TageConfLevel::Low,
+            disagrees: false,
+            bank: 53,
+            alt: true,
+            before: true,
+            keys: [169, 121, 221, 42, 2],
+        },
+        KeyCase {
+            pc: 0x3c20ba2c0,
+            conf: TageConfLevel::Medium,
+            disagrees: false,
+            bank: 1,
+            alt: true,
+            before: false,
+            keys: [192, 44, 8, 48, 0],
+        },
+        KeyCase {
+            pc: 0x166809a10,
+            conf: TageConfLevel::High,
+            disagrees: false,
+            bank: 24,
+            alt: true,
+            before: true,
+            keys: [81, 227, 107, 20, 4],
+        },
+        KeyCase {
+            pc: 0xaf5570ec,
+            conf: TageConfLevel::None,
+            disagrees: true,
+            bank: 59,
+            alt: false,
+            before: true,
+            keys: [93, 189, 113, 23, 7],
+        },
+        KeyCase {
+            pc: 0xbfaf8cda8,
+            conf: TageConfLevel::Low,
+            disagrees: true,
+            bank: 4,
+            alt: false,
+            before: true,
+            keys: [11, 121, 21, 2, 2],
+        },
+        KeyCase {
+            pc: 0x4acc6d8f0,
+            conf: TageConfLevel::Medium,
+            disagrees: true,
+            bank: 19,
+            alt: true,
+            before: false,
+            keys: [48, 76, 88, 12, 4],
+        },
+        KeyCase {
+            pc: 0xec20ef164,
+            conf: TageConfLevel::High,
+            disagrees: true,
+            bank: 15,
+            alt: false,
+            before: true,
+            keys: [245, 135, 195, 61, 5],
+        },
+        KeyCase {
+            pc: 0xc77064c2c,
+            conf: TageConfLevel::None,
+            disagrees: true,
+            bank: 43,
+            alt: false,
+            before: true,
+            keys: [157, 113, 49, 39, 7],
+        },
+    ];
+
+    #[test]
+    fn a_branchs_table_keys_hash_its_pc_with_what_tage_knew_of_it() {
+        let sc = StatCorrector::new(&ScConfig::default());
+
+        for KeyCase { pc, conf, disagrees, bank, alt, before, keys: expected } in KEY_CASES {
+            let meta = TageScMeta {
+                conf,
+                provider_bank: bank,
+                alt_bank_present: alt,
+                pred_taken: before,
+                provider_disagrees_with_alt: disagrees,
+            };
+
+            let keys = sc.keys(pc, &meta, before);
+
+            let found =
+                [keys.bias, keys.bias_sk, keys.bias_bank, keys.per_pc_threshold, keys.weight];
+            assert_eq!(found, expected, "pc {pc:#x} {conf:?}");
+        }
+    }
+
+    #[test]
+    fn the_threshold_adds_a_step_for_each_component_doubling_its_vote() {
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let keys = sc.keys(PC.val(), &tage(TageConfLevel::Low, true), true);
+
+        assert_eq!(sc.threshold(&keys), 35 + 12 * 7);
+
+        sc.per_pc_thresholds[keys.per_pc_threshold] = 5;
+        sc.gehls[1].weights[keys.weight] = -1;
+        assert_eq!(sc.threshold(&keys), 35 + 5 + 12 * 6);
+    }
+
+    fn corrected(sum: i32, before_sc: bool, conf: TageConfLevel) -> (StatCorrector, ScPrediction) {
+        let sc = StatCorrector::new(&ScConfig::default());
+        let mut prediction = scored(sum, THRESHOLD, before_sc, conf);
+        prediction.pc = PC;
+        (sc, prediction)
+    }
+
+    fn choosers_after(conf: TageConfLevel, sum: i32, taken: bool) -> (i8, i8) {
+        let (mut sc, prediction) = corrected(sum, true, conf);
+
+        sc.train_choosers(&prediction, taken);
+
+        (sc.first_chooser, sc.second_chooser)
+    }
+
+    #[test]
+    fn the_second_chooser_learns_from_high_confidence_predictions_in_its_zone() {
+        for (sum, taken, expected) in
+            [(-5, true, 0), (-10, true, 1), (-19, false, -1), (-20, true, 0), (-30, true, 0)]
+        {
+            let (first, second) = choosers_after(TageConfLevel::High, sum, taken);
+
+            assert_eq!((first, second), (0, expected), "sum {sum}");
+        }
+    }
+
+    #[test]
+    fn the_first_chooser_learns_from_medium_confidence_predictions_below_a_quarter() {
+        for (sum, taken, expected) in
+            [(-9, true, 1), (-9, false, -1), (-10, true, 0), (-15, true, 0)]
+        {
+            let (first, second) = choosers_after(TageConfLevel::Medium, sum, taken);
+
+            assert_eq!((first, second), (expected, 0), "sum {sum}");
+        }
+    }
+
+    #[test]
+    fn a_low_confidence_prediction_trains_neither_chooser() {
+        assert_eq!(choosers_after(TageConfLevel::Low, -9, true), (0, 0));
+        assert_eq!(choosers_after(TageConfLevel::Low, -15, true), (0, 0));
+    }
+
+    #[test]
+    fn an_agreeing_corrector_does_not_train_the_choosers() {
+        let (mut sc, prediction) = corrected(5, true, TageConfLevel::Medium);
+
+        sc.update(&prediction, true);
+
+        assert_eq!((sc.first_chooser, sc.second_chooser), (0, 0));
+    }
+
+    #[test]
+    fn a_disagreeing_corrector_trains_the_choosers_on_commit() {
+        let (mut sc, prediction) = corrected(-5, true, TageConfLevel::Medium);
+
+        sc.update(&prediction, true);
+
+        assert_eq!(sc.first_chooser, 1);
+    }
+
+    fn thresholds_after(sum: i32, taken: bool) -> (i32, i32) {
+        let (mut sc, prediction) = corrected(sum, true, TageConfLevel::Low);
+        let keys = sc.keys(PC.val(), &prediction.tage, true);
+
+        sc.update(&prediction, taken);
+
+        (sc.threshold, sc.per_pc_thresholds[keys.per_pc_threshold])
+    }
+
+    #[test]
+    fn a_wrong_corrector_raises_both_thresholds() {
+        assert_eq!(thresholds_after(-5, true), (281, 1));
+    }
+
+    #[test]
+    fn a_right_but_weak_corrector_lowers_both_thresholds() {
+        assert_eq!(thresholds_after(THRESHOLD - 1, true), (279, -1));
+    }
+
+    #[test]
+    fn a_right_and_confident_corrector_leaves_the_thresholds_and_counters_alone() {
+        let (mut sc, prediction) = corrected(THRESHOLD, true, TageConfLevel::Low);
+        let keys = sc.keys(PC.val(), &prediction.tage, true);
+        let bias = sc.bias[keys.bias];
+
+        sc.update(&prediction, true);
+
+        assert_eq!((sc.threshold, sc.bias[keys.bias]), (35 << 3, bias));
+    }
+
+    #[test]
+    fn training_steps_the_bias_counters_toward_the_outcome() {
+        let (mut sc, prediction) = corrected(-5, true, TageConfLevel::Low);
+        let keys = sc.keys(PC.val(), &prediction.tage, true);
+        let before = [sc.bias[keys.bias], sc.bias_sk[keys.bias_sk], sc.bias_bank[keys.bias_bank]];
+
+        sc.update(&prediction, true);
+
+        let after = [sc.bias[keys.bias], sc.bias_sk[keys.bias_sk], sc.bias_bank[keys.bias_bank]];
+        assert_eq!(after, before.map(|ctr| stepped(i32::from(ctr), true, 6) as i8));
+    }
+
+    fn trained_bias(row: (i8, i8, i8, i8, i32, bool)) -> (i8, i8, i8, i8) {
+        let (a, b, c, weight, total, taken) = row;
+        let mut sc = StatCorrector::new(&ScConfig::default());
+        let keys = Keys { bias: 1, bias_sk: 2, bias_bank: 3, per_pc_threshold: 0, weight: 0 };
+        sc.bias[1] = a;
+        sc.bias_sk[2] = b;
+        sc.bias_bank[3] = c;
+        sc.bias_weights[0] = weight;
+
+        sc.train_bias(&keys, total, taken);
+
+        (sc.bias_weights[0], sc.bias[1], sc.bias_sk[2], sc.bias_bank[3])
+    }
+
+    #[test]
+    fn the_bias_tables_train_their_counters_and_weight_like_a_gehl_component() {
+        let rows = [
+            ((6, 5, 5, 1, -15, false), (1, 5, 4, 4)),
+            ((-5, -5, 6, 1, 12, false), (1, -6, -6, 5)),
+            ((4, -2, 1, 0, -12, true), (0, 5, -1, 2)),
+            ((-6, -6, 1, 2, -3, false), (3, -7, -7, 0)),
+            ((-2, -1, -4, -1, 9, true), (-2, -1, 0, -3)),
+        ];
+
+        for (row, expected) in rows {
+            assert_eq!(trained_bias(row), expected, "{row:?}");
+        }
+    }
 }
