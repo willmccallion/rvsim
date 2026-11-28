@@ -16,7 +16,6 @@ use crate::uarch::mmu::tlb::PageSize;
 
 const HANG_DETECTION_THRESHOLD: u64 = 5000;
 const STUCK_PC_OFFSET: u64 = 0x124;
-const MAPPED_VIRTUAL_PAGE: u64 = 0x4_0000;
 const PTE_VALID_READ: u64 = 0b11;
 const RAM_FRAME: u64 = RAM_BASE >> 12;
 
@@ -125,21 +124,22 @@ fn a_hart_stuck_on_wfi_is_reported_as_waiting() {
     assert!(!log.contains("potential-hang"), "{log}");
 }
 
+/// A machine-mode fetch is not translated, so a data TLB entry for the
+/// stuck PC's page, here pointing at a frame without the WFI, is no guide.
 #[test]
-fn a_stuck_pc_is_read_through_the_data_tlb_when_it_holds_the_page() {
+fn a_machine_mode_pc_is_read_untranslated_whatever_the_data_tlb_holds() {
     let mut sys = traced_system();
-    let physical = RAM_BASE + STUCK_PC_OFFSET;
-    sys.uncore.load_binary_at(&WFI.to_le_bytes(), PhysAddr::new(physical));
-    let virtual_pc = VirtAddr::new((MAPPED_VIRTUAL_PAGE << 12) | STUCK_PC_OFFSET);
+    let pc = RAM_BASE + STUCK_PC_OFFSET;
+    sys.uncore.load_binary_at(&WFI.to_le_bytes(), PhysAddr::new(pc));
     sys.core_ctx(0).core.mmu.dtlb.insert(
-        virtual_pc.page_number(),
-        Ppn::new(RAM_FRAME),
+        VirtAddr::new(pc).page_number(),
+        Ppn::new(RAM_FRAME + 1),
         PTE_VALID_READ,
         Asid::new(0),
         PageSize::Kib4,
     );
 
-    let log = log_of_hart_stuck_at(&mut sys, virtual_pc, HANG_DETECTION_THRESHOLD);
+    let log = log_of_hart_stuck_at(&mut sys, VirtAddr::new(pc), HANG_DETECTION_THRESHOLD);
 
     assert!(log.contains("wfi-wait"), "{log}");
 }

@@ -1,13 +1,14 @@
 //! Main Execution Loop — pre/post-tick orchestration of pipeline, interrupts, and cycles.
 
 use super::CoreCtx;
-use crate::common::PhysAddr;
+use crate::common::AccessType;
 use crate::common::trace::Hex;
 use crate::isa::csr;
 use crate::isa::encoding::privileged::WFI;
-use crate::isa::privileged::{PrivilegeMode, Satp};
+use crate::isa::privileged::PrivilegeMode;
 use crate::soc::bus::HartIrqs;
 use crate::trace_trap;
+use crate::uarch::mmu;
 
 /// Cycles at one PC before the simulator reports a possible hang.
 const HANG_DETECTION_THRESHOLD: u64 = 5000;
@@ -68,22 +69,19 @@ impl CoreCtx<'_> {
         if debug.same_pc_count != HANG_DETECTION_THRESHOLD {
             return;
         }
-        let asid = Satp::new(self.hart.csrs.satp).asid();
-        // Hang detection reads the instruction at the stuck PC for
-        // tracing straight from the memory image (bench-side
-        // observability — no cache modelling needed).
-        let paddr_raw = if let Some(hit) = self.core.mmu.dtlb.peek(self.hart.pc.page_number(), asid)
-        {
-            hit.ppn.to_addr() | self.hart.pc.page_offset()
-        } else {
-            self.hart.pc.val()
-        };
-        let inst = self
-            .uncore
-            .kernel
-            .memory
-            .read_array(PhysAddr::new(paddr_raw))
-            .map_or(0, u32::from_le_bytes);
+        // Reads the stuck instruction from the memory image, translated as
+        // its fetch would be, for the trace alone: no TLB, cache or A/D bit
+        // is touched.
+        let memory = &self.uncore.kernel.memory;
+        let fetched = mmu::translate_now(
+            self.hart.pc,
+            AccessType::Fetch,
+            self.hart.privilege,
+            &self.hart.csrs,
+            |pte_addr| memory.read(pte_addr, 8),
+        );
+        let inst =
+            fetched.ok().and_then(|paddr| memory.read_array(paddr)).map_or(0, u32::from_le_bytes);
         if inst == WFI {
             trace_trap!(self.uncore.kernel.config.general.trace_instructions;
                 event = "wfi-wait",
