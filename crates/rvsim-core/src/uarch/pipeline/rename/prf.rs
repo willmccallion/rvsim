@@ -136,6 +136,18 @@ mod tests {
     }
 
     #[test]
+    fn mark_arch_ready_readies_exactly_the_first_n_registers() {
+        const ARCH_REGS: usize = 8;
+        let mut prf = PhysRegFile::new(16);
+
+        prf.mark_arch_ready(ARCH_REGS);
+
+        let ready: Vec<bool> = (0..16).map(|i| prf.is_ready(PhysReg::from_index(i))).collect();
+        assert_eq!(ready.iter().filter(|&&is_ready| is_ready).count(), ARCH_REGS);
+        assert!(ready[..ARCH_REGS].iter().all(|&is_ready| is_ready));
+    }
+
+    #[test]
     fn allocating_the_zero_register_leaves_it_ready() {
         let mut prf = PhysRegFile::new(64);
         prf.allocate(PhysReg::ZERO);
