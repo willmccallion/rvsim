@@ -14,7 +14,7 @@ use crate::isa::privileged::{PrivilegeMode, Trap};
 use crate::sim::memory::write_log::Writer;
 use crate::soc::uncore::Uncore;
 use crate::uarch::CoreUnits;
-use crate::uarch::mmu::ptw::WalkState;
+use crate::uarch::mmu::ptw::{PTE_SIZE, WalkState};
 use crate::uarch::mmu::{self, TranslateOutcome};
 
 /// How many bytes lie between `vaddr` and the end of its page.
@@ -70,7 +70,9 @@ pub(super) fn translate_continue(
 }
 
 /// Applies the post-translation PMP + bus-address checks shared by the
-/// initial translate and walk continuation paths.
+/// initial translate and walk continuation paths. A walk's next PTE must
+/// be in RAM: a page table elsewhere is an access fault, as the spec has
+/// for a PTE read a region's attributes forbid, before the read goes out.
 fn finalize_outcome(
     hart: &Hart,
     uncore: &Uncore,
@@ -92,6 +94,12 @@ fn finalize_outcome(
                 }
             }
             TranslateOutcome::Ready(result)
+        }
+        TranslateOutcome::NeedPte { pte_addr, .. } if !uncore.bus.is_ram(pte_addr, PTE_SIZE) => {
+            TranslateOutcome::Ready(TranslationResult::fault(
+                Trap::access_fault(access, vaddr.val()),
+                0,
+            ))
         }
         need_pte @ TranslateOutcome::NeedPte { .. } => need_pte,
     }

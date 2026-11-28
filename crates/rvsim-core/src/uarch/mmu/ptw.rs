@@ -42,7 +42,7 @@ const VPN_BITS_PER_LEVEL: u64 = 9;
 /// Bit mask to extract VPN index from virtual address (9 bits: 0x1FF).
 const VPN_ENTRY_MASK: u64 = 0x1FF;
 /// Size of a Page Table Entry in bytes.
-const PTE_SIZE: u64 = 8;
+pub const PTE_SIZE: u64 = 8;
 /// Bits 63-54, reserved for Svnapot, Svpbmt and future extensions.
 const PTE_RESERVED_BITS: u64 = u64::MAX << 54;
 /// D, A and U, reserved in a pointer PTE.
