@@ -313,3 +313,38 @@ fn is_fully_resolved_tracks_progress() {
     b.resolve_element(RobTag::new(1), PhysAddr::new(0x8000_0001), 0xBB, MemWidth::Byte);
     assert!(b.is_fully_resolved(RobTag::new(1)));
 }
+
+#[test]
+fn a_buffer_is_empty_until_a_store_is_allocated() {
+    let mut b = vsb(2);
+    assert!(b.is_empty());
+
+    b.reserve_for_test(RobTag::new(1), 1);
+
+    assert!(!b.is_empty());
+}
+
+#[test]
+fn a_store_just_past_the_loaded_bytes_is_not_an_older_store_to_them() {
+    let mut b = vsb(2);
+    b.reserve_for_test(RobTag::new(1), 1);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(0x8000_0008), 0xAB, MemWidth::Byte);
+
+    let before_the_store = b.has_older_store_to(PhysAddr::new(0x8000_0004), 4, RobTag::new(2));
+    let up_to_the_store = b.has_older_store_to(PhysAddr::new(0x8000_0005), 4, RobTag::new(2));
+
+    assert_eq!((before_the_store, up_to_the_store), (false, true));
+}
+
+#[test]
+fn an_element_inside_a_line_marks_only_its_own_bytes_of_that_line() {
+    let mut b = vsb(2);
+    b.reserve_for_test(RobTag::new(1), 1);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(0x8000_0025), 0xBEEF, MemWidth::Half);
+    b.mark_committed(RobTag::new(1));
+
+    let (_, line) = b.take_drainable_line().unwrap();
+
+    assert_eq!(line.line_addr, 0x8000_0000);
+    assert_eq!(line.valid_mask, 0b11 << 0x25);
+}
