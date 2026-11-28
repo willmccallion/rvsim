@@ -20,7 +20,8 @@
 //!     byte (`valid_mask & load_byte_mask == load_byte_mask`) → `Hit(data)`,
 //!     some of them → `Stall`.
 //!   - No entry touches it → `Miss`.
-//! - Loads that straddle a 64-byte cache line never forward; they `Miss`.
+//! - A load that straddles a 64-byte line never forwards: it `Stall`s while
+//!   an older entry holds bytes in either line, and `Miss`es otherwise.
 //!
 //! Memory-ordering violations against vec stores that have not yet resolved
 //! all their elements are caught by the existing `LoadQueue` CAM at memory2,
