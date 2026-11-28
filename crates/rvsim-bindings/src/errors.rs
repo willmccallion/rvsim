@@ -35,7 +35,7 @@ create_exception!(
     rvsim._core,
     Stalled,
     SimulationError,
-    "A hart retired nothing for the stall limit's cycles: its pipeline is stuck."
+    "A hart retired nothing, or committed stores did not finish draining, within the stall limit's cycles: the simulator is stuck."
 );
 create_exception!(
     rvsim._core,
@@ -53,7 +53,7 @@ pub fn sim_error(error: &SimError) -> PyErr {
         | SimError::UnsupportedProgram { .. }
         | SimError::ProcessMemory(_) => LoadError::new_err(message),
         SimError::KernelPanic { .. } => KernelPanic::new_err(message),
-        SimError::Stalled { .. } => Stalled::new_err(message),
+        SimError::Stalled { .. } | SimError::WritesStuck { .. } => Stalled::new_err(message),
         SimError::OutputDir { .. }
         | SimError::Debugger { .. }
         | SimError::RamAllocation { .. }

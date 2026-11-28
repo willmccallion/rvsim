@@ -44,7 +44,7 @@ fn drain_after(backend: BackendKind, cycles: u64) -> u64 {
     let committed = ctx.sim.state.harts[0].instructions_retired.saturating_sub(2).min(STORES);
     let in_ram_before = (0..committed).take_while(|&s| slot(&mut ctx, s) == MARK).count() as u64;
 
-    ctx.sim.drain();
+    ctx.sim.drain().expect("the committed stores drain");
 
     assert_eq!(
         ctx.sim.state.cores[0].pipeline.fetch_pc(),
@@ -71,7 +71,7 @@ fn keeps_running_after_a_drain(backend: BackendKind, cycles: u64) {
     config.system.console = Console::Quiet;
     let mut ctx = TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program());
     ctx.run(cycles);
-    ctx.sim.drain();
+    ctx.sim.drain().expect("the committed stores drain");
     let retired_at_drain = ctx.sim.state.harts[0].instructions_retired;
 
     ctx.run(200);

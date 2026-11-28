@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::arch::Hart;
 use crate::arch::csr::Csrs;
 use crate::arch::pmp::PmpEntry;
-use crate::common::{PhysAddr, VirtAddr, usize_of};
+use crate::common::{PhysAddr, SimError, VirtAddr, usize_of};
 use crate::isa::privileged::PrivilegeMode;
 use crate::isa::reg::RegIdx;
 use crate::sim::memory::Ram;
@@ -70,6 +70,9 @@ pub enum CheckpointError {
         /// This system's value.
         current: u64,
     },
+    /// The machine could not be drained to its committed state first.
+    #[error("draining before the checkpoint: {0}")]
+    Drain(#[from] SimError),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -189,7 +192,7 @@ impl Simulator {
         if self.state.uncore.host.processes.host_files_open() > 0 {
             return Err(CheckpointError::Unsupported("while the program has host files open"));
         }
-        self.drain();
+        self.drain()?;
         let state = &self.state;
         let ram = state.uncore.kernel.memory.ram();
         let reservations = state.uncore.kernel.memory.reservations();
@@ -253,7 +256,7 @@ impl Simulator {
             .check_device_states(&header.devices)
             .map_err(CheckpointError::Device)?;
 
-        self.drain();
+        self.drain()?;
         if let Some(ram) = self.state.uncore.kernel.memory.ram_mut() {
             read_pages(input, ram.bytes_mut())?;
         }

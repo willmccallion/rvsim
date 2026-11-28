@@ -76,7 +76,7 @@ pub fn serve(
     stream: TcpStream,
     mut keep_going: impl FnMut() -> bool,
 ) -> Result<Outcome, SimError> {
-    sim.drain();
+    sim.drain()?;
     let mut session = Session {
         sim,
         transport: Transport::new(stream),
@@ -494,7 +494,7 @@ impl Session<'_> {
             self.send(format!("W{:02x}", code & 0xff).as_bytes())?;
             return Ok(Flow::End(Outcome::Exited(code)));
         }
-        self.sim.drain();
+        self.sim.drain()?;
         let mut extra = String::new();
         let signal = match reason {
             StopReason::Pc { hart } => {

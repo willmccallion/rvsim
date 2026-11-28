@@ -414,7 +414,9 @@ impl PySimulator {
 
     /// Cycles a hart may go without retiring an instruction, outside WFI,
     /// before a run fails with an error naming the hart and PC: a stuck
-    /// pipeline. 1,000,000 by default; ``None`` turns the check off.
+    /// pipeline. Also the cycles finishing the committed stores at an exit
+    /// or a checkpoint may take. 1,000,000 by default; ``None`` turns the
+    /// checks off.
     #[getter]
     const fn stall_limit(&self) -> Option<u64> {
         self.inner.stall_limit()
@@ -659,7 +661,7 @@ impl PySimulator {
             }
             self.inner.tick().map_err(|e| sim_error(&e))?;
             ticks += 1;
-            if self.inner.take_exit().is_some() {
+            if self.inner.take_exit().map_err(|e| sim_error(&e))?.is_some() {
                 return Ok(None);
             }
             let retired = self.inner.hart(0).instructions_retired - retired_before;
