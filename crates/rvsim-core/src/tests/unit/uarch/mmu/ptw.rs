@@ -60,7 +60,6 @@ const R: u64 = 1 << 1;
 const W: u64 = 1 << 2;
 const X: u64 = 1 << 3;
 const U: u64 = 1 << 4;
-#[allow(dead_code)]
 const G: u64 = 1 << 5;
 const A: u64 = 1 << 6;
 const D: u64 = 1 << 7;
@@ -323,6 +322,8 @@ fn write_to_clean_page_sets_dirty() {
 
     let upd = res.dirty_update.expect("a store to a clean page sets D when it retires");
     assert_eq!(upd.set_bits, A | D);
+    assert_eq!(upd.pte_addr, PhysAddr::new((ROOT_PPN << 12) + l2_idx * 8));
+    assert_eq!(upd.walked_pte, pte_val, "A was already set, so the walk checked the PTE as read");
 }
 
 #[test]
@@ -344,6 +345,7 @@ fn read_from_unaccessed_page_sets_accessed() {
 
     let upd = res.accessed_update.expect("the walker sets A on an unaccessed page");
     assert_eq!(upd.set_bits, A);
+    assert_eq!(upd.pte_addr, PhysAddr::new((ROOT_PPN << 12) + l2_idx * 8));
     assert!(res.dirty_update.is_none(), "a load never sets D");
 }
 
@@ -1198,4 +1200,49 @@ fn without_an_l2_tlb_a_walk_starts_at_once() {
     let walk = trace_walk(&mut mmu, PAGES[0], &csrs, &tc.state().uncore);
 
     assert_eq!(walk.first_after, Some(0));
+}
+
+#[test]
+fn a_leaf_without_the_valid_bit_raises_a_page_fault() {
+    let (mut mmu, csrs, mut tc) = setup_mmu();
+    let uncore = &mut tc.state_mut().uncore;
+    let vaddr = VirtAddr::new(0x8000_0000);
+    let l2_idx = (0x8000_0000 >> 30) & 0x1FF;
+    let invalid_leaf = make_pte(ROOT_PPN + 0x40000, R | W | X | A | D) & !V;
+    write_pte(&mut uncore.kernel.memory, ROOT_PPN, l2_idx, invalid_leaf);
+
+    let res =
+        translate_sync(&mut mmu, vaddr, AccessType::Read, PrivilegeMode::Supervisor, &csrs, uncore);
+
+    assert!(matches!(res.trap, Some(Trap::LoadPageFault(_))), "Trap: {:?}", res.trap);
+}
+
+fn satp_in(asid: u64) -> u64 {
+    (csr::SATP_MODE_SV39 << 60) | (asid << csr::SATP_ASID_SHIFT) | ROOT_PPN
+}
+
+/// The PTEs the neighbouring page's walk reads in `OTHER_ASID`, after the
+/// walked page's in `OWN_ASID`, when the pointer to the leaf table sets
+/// `pointer_extra`.
+fn reads_in_another_address_space(pointer_extra: u64) -> usize {
+    let (mut mmu, mut csrs, mut tc) = mmu_with_walk_cache(4);
+    let memory = &mut tc.state_mut().uncore.kernel.memory;
+    let leaf_table_index = (WALKED_PAGE >> 21) & 0x1FF;
+    write_pte(memory, ROOT_PPN + 1, leaf_table_index, make_pte(ROOT_PPN + 2, 0) | pointer_extra);
+    let uncore = &tc.state().uncore;
+    csrs.write(csr::SATP, satp_in(OWN_ASID));
+    let _ = trace_walk(&mut mmu, WALKED_PAGE, &csrs, uncore);
+    csrs.write(csr::SATP, satp_in(OTHER_ASID));
+
+    trace_walk(&mut mmu, NEIGHBOUR_PAGE, &csrs, uncore).reads.len()
+}
+
+#[test]
+fn a_global_pointer_lets_walks_in_every_address_space_skip_to_its_table() {
+    assert_eq!(reads_in_another_address_space(G), 1);
+}
+
+#[test]
+fn a_non_global_pointer_serves_only_the_address_space_that_walked_it() {
+    assert_eq!(reads_in_another_address_space(0), 3);
 }
