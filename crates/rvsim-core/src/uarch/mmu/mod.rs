@@ -377,7 +377,7 @@ impl Mmu {
     }
 }
 
-/// Translates `vaddr` for a data `access` at `privilege` now, reading each
+/// Translates `vaddr` for an `access` at `privilege` now, reading each
 /// PTE with `read_pte`, as the host reaches the program's memory for a
 /// pseudo-operation: the hart's permissions apply, but the TLBs are
 /// neither consulted nor filled and no A or D bit is set or required.
