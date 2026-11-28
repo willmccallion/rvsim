@@ -819,6 +819,9 @@ impl Simulator {
             if let Some(code) = self.take_exit()? {
                 return Ok(StopReason::Exited(code));
             }
+            if self.state.uncore.kernel.cycle == before {
+                return Err(SimError::NoProgress { cycle: before });
+            }
             if let Some(reason) = self.stop_reason(stop, start_cycle, start_instructions) {
                 return Ok(reason);
             }

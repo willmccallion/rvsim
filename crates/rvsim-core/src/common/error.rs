@@ -96,6 +96,15 @@ pub enum SimError {
         cycles: u64,
     },
 
+    /// A cycle of the run left the clock where it was, with nothing to stop
+    /// at: only a pending exit holds the clock, and the run takes that, so
+    /// this is a simulator bug.
+    #[error("the run stopped advancing at cycle {cycle}")]
+    NoProgress {
+        /// The cycle it stayed at.
+        cycle: u64,
+    },
+
     /// A cache was given more caches above it than a line can track.
     #[error("cache {cache:?} has more upstream caches than a line tracks")]
     TooManyUpstreams {

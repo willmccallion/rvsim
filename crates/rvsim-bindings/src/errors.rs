@@ -53,7 +53,9 @@ pub fn sim_error(error: &SimError) -> PyErr {
         | SimError::UnsupportedProgram { .. }
         | SimError::ProcessMemory(_) => LoadError::new_err(message),
         SimError::KernelPanic { .. } => KernelPanic::new_err(message),
-        SimError::Stalled { .. } | SimError::WritesStuck { .. } => Stalled::new_err(message),
+        SimError::Stalled { .. } | SimError::WritesStuck { .. } | SimError::NoProgress { .. } => {
+            Stalled::new_err(message)
+        }
         SimError::OutputDir { .. }
         | SimError::Debugger { .. }
         | SimError::RamAllocation { .. }
