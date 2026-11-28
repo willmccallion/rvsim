@@ -187,12 +187,13 @@ test-coverage:
 # Every mutant cargo-mutants makes in the code the branch changed since
 # MUTANTS_BASE must fail a test; it fails listing the ones none caught.
 # MUTANTS_SHARD=k/n runs the kth of n shares, as CI does.
+# The commit-log feature is on so the code behind it is mutated and tested too.
 MUTANTS_BASE ?= origin/main
 mutants-diff:
 	@printf "$(GREEN)Mutation-testing the changes since $(MUTANTS_BASE)…$(RESET)\n"
 	@mkdir -p $(BUILD_DIR)
 	git diff $(MUTANTS_BASE)...HEAD > $(BUILD_DIR)/mutants.diff
-	$(CARGO) mutants --in-diff $(BUILD_DIR)/mutants.diff --output $(BUILD_DIR) $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
+	$(CARGO) mutants --in-diff $(BUILD_DIR)/mutants.diff --output $(BUILD_DIR) --features rvsim-core/commit-log $(if $(MUTANTS_SHARD),--shard $(MUTANTS_SHARD))
 
 clippy:
 	@printf "$(GREEN)Running clippy…$(RESET)\n"
