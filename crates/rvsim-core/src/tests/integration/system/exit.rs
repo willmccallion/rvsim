@@ -3,6 +3,7 @@
 //! them, though the cycles spent finishing them are not counted.
 
 use crate::Simulator;
+use crate::common::SimError;
 use crate::config::{BackendKind, Config, Console};
 use crate::isa::reg::RegIdx;
 use crate::system::SystemState;
@@ -73,7 +74,7 @@ fn the_run_ends_on_the_cycle_of_the_exit() {
         let mut ctx = system(backend);
         let exited_at = ctx.run_until(20_000, |ctx| ctx.sim.state.uncore.peek_exit().is_some());
 
-        let code = ctx.sim.take_exit();
+        let code = ctx.sim.take_exit().expect("the committed stores drain");
 
         assert_eq!(code, Some(EXIT_CODE as u64), "{backend:?}");
         let exited_at = exited_at.expect("the guest exits");
@@ -90,9 +91,24 @@ fn the_run_ends_on_the_cycle_of_the_exit() {
 fn a_run_resumed_after_the_exit_counts_the_cycles_since() {
     let mut ctx = system(BackendKind::InOrder);
     ctx.run_until(20_000, |ctx| ctx.sim.state.uncore.peek_exit().is_some());
-    ctx.sim.take_exit();
+    ctx.sim.take_exit().expect("the committed stores drain");
 
     ctx.sim.tick().expect("the run ticks");
 
     assert_eq!(ctx.sim.cycle(), ctx.sim.state.uncore.kernel.cycle);
+}
+
+/// Each console store takes `DEVICE_LATENCY` cycles, so finishing the
+/// ones still buffered at the exit takes longer than this.
+const DRAIN_LIMIT: u64 = DEVICE_LATENCY / 2;
+
+#[test]
+fn an_exit_whose_stores_outlast_the_stall_limit_is_an_error() {
+    let mut ctx = system(BackendKind::OutOfOrder);
+    ctx.run_until(20_000, |ctx| ctx.sim.state.uncore.peek_exit().is_some());
+    ctx.sim.set_stall_limit(Some(DRAIN_LIMIT));
+
+    let exit = ctx.sim.take_exit();
+
+    assert!(matches!(exit, Err(SimError::WritesStuck { cycles: DRAIN_LIMIT })), "{exit:?}");
 }

@@ -85,6 +85,17 @@ pub enum SimError {
         cycles: u64,
     },
 
+    /// Committed stores went `cycles` cycles without finishing their writes
+    /// while the simulator drained them: the memory system is stuck, which
+    /// is a simulator bug.
+    #[error(
+        "committed stores did not finish writing in {cycles} cycles of draining: the memory system is stuck"
+    )]
+    WritesStuck {
+        /// Cycles the drain ran.
+        cycles: u64,
+    },
+
     /// A cache was given more caches above it than a line can track.
     #[error("cache {cache:?} has more upstream caches than a line tracks")]
     TooManyUpstreams {

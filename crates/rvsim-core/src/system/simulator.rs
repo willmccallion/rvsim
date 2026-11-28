@@ -519,8 +519,10 @@ impl Simulator {
     }
 
     /// Cycles a hart may go without retiring an instruction, outside WFI,
-    /// before [`Self::tick`] fails with [`SimError::Stalled`]; `None` when
-    /// the check is off. [`DEFAULT_STALL_LIMIT`] by default.
+    /// before [`Self::tick`] fails with [`SimError::Stalled`], and cycles a
+    /// drain of committed stores may run before it fails with
+    /// [`SimError::WritesStuck`]; `None` when the checks are off.
+    /// [`DEFAULT_STALL_LIMIT`] by default.
     #[must_use]
     pub const fn stall_limit(&self) -> Option<u64> {
         self.stall_limit
@@ -618,22 +620,37 @@ impl Simulator {
     /// has taken effect: the self-contained architectural state a
     /// checkpoint records. Like gem5's drain, it takes simulated time and
     /// perturbs the timing of a run that continues afterwards.
-    pub fn drain(&mut self) {
-        self.complete_committed_writes();
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::WritesStuck`] when the committed stores run for
+    /// [`Self::stall_limit`] cycles without finishing.
+    pub fn drain(&mut self) -> Result<(), SimError> {
+        self.complete_committed_writes()?;
         let uncore = &mut self.state.uncore;
         uncore.bus.drain_devices(&mut uncore.kernel.memory);
+        Ok(())
     }
 
     /// Discards every core's speculative work and runs the memory system
-    /// until every committed store has taken effect.
-    fn complete_committed_writes(&mut self) {
+    /// until every committed store has taken effect, or fails once that
+    /// has taken the stall limit's cycles.
+    fn complete_committed_writes(&mut self) -> Result<(), SimError> {
         for core in 0..self.core_count() {
             let (pipeline, mut ctx) = self.state.pipeline_ctx(core);
             pipeline.flush(&mut ctx);
         }
-        if self.committed_writes_pending() {
-            while self.drain_writes_for_a_cycle() {}
+        if !self.committed_writes_pending() {
+            return Ok(());
         }
+        let mut cycles = 0;
+        while self.drain_writes_for_a_cycle() {
+            cycles += 1;
+            if self.stall_limit.is_some_and(|limit| cycles >= limit) {
+                return Err(SimError::WritesStuck { cycles });
+            }
+        }
+        Ok(())
     }
 
     /// Whether any core has a committed store yet to finish writing.
@@ -790,7 +807,7 @@ impl Simulator {
         stop: &StopAt,
         mut keep_going: impl FnMut() -> bool,
     ) -> Result<StopReason, SimError> {
-        if let Some(code) = self.take_exit() {
+        if let Some(code) = self.take_exit()? {
             return Ok(StopReason::Exited(code));
         }
         let start_cycle = self.state.uncore.kernel.cycle;
@@ -799,6 +816,9 @@ impl Simulator {
             let before = self.state.uncore.kernel.cycle;
             let limit = stop.cycles.map_or(u64::MAX, |n| start_cycle + n - before);
             self.advance(stop, limit)?;
+            if let Some(code) = self.take_exit()? {
+                return Ok(StopReason::Exited(code));
+            }
             if let Some(reason) = self.stop_reason(stop, start_cycle, start_instructions) {
                 return Ok(reason);
             }
@@ -883,9 +903,6 @@ impl Simulator {
         start_cycle: u64,
         start_instructions: u64,
     ) -> Option<StopReason> {
-        if let Some(code) = self.take_exit() {
-            return Some(StopReason::Exited(code));
-        }
         if stop.guest_breaks
             && let Some(label) = self.state.uncore.run.pending_break.take()
         {
@@ -1114,11 +1131,16 @@ impl Simulator {
     /// the stores the guest committed before it exited. Those take memory
     /// cycles the run does not count: [`Self::cycle`] and the stats window
     /// stay at the exit until the run is resumed.
-    pub fn take_exit(&mut self) -> Option<u64> {
-        let code = self.state.uncore.take_exit()?;
+    ///
+    /// # Errors
+    ///
+    /// [`SimError::WritesStuck`] when those stores run for
+    /// [`Self::stall_limit`] cycles without finishing.
+    pub fn take_exit(&mut self) -> Result<Option<u64>, SimError> {
+        let Some(code) = self.state.uncore.take_exit() else { return Ok(None) };
         self.state.uncore.run.exited_at = Some(self.state.uncore.kernel.cycle);
-        self.complete_committed_writes();
-        Some(code)
+        self.complete_committed_writes()?;
+        Ok(Some(code))
     }
 
     /// Synchronously reads `width` bytes from physical memory.
