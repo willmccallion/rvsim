@@ -100,9 +100,11 @@ impl TestContext {
         self
     }
 
-    /// Set a general-purpose register value.
+    /// Sets a general-purpose register of hart 0, as a debugger write does:
+    /// its pipeline resumes from the new architectural value on either
+    /// backend.
     pub fn set_reg(&mut self, reg: RegIdx, val: u64) {
-        self.sim.state.harts[0].regs.write(reg, val);
+        self.sim.set_reg(0, reg, val);
     }
 
     /// Read a general-purpose register value.
