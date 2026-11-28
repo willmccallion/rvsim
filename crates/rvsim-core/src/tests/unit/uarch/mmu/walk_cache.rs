@@ -111,3 +111,28 @@ fn a_machine_without_a_walk_cache_keeps_nothing() {
     assert!(!cache.exists());
     assert_eq!(cache.lookup(VirtAddr::new(VADDR), ASID), None);
 }
+
+#[test]
+fn walking_a_table_again_makes_it_the_most_recently_used() {
+    let mut cache = WalkCache::new(2);
+    let megapage = |n: u64| VADDR + (n << 21);
+    cache.insert(pointer(megapage(0), 0, 0x200, false));
+    cache.insert(pointer(megapage(1), 0, 0x201, false));
+    cache.insert(pointer(megapage(0), 0, 0x200, false));
+
+    cache.insert(pointer(megapage(2), 0, 0x202, false));
+
+    assert!(cache.lookup(VirtAddr::new(megapage(0)), ASID).is_some(), "walked again, so kept");
+    assert_eq!(cache.lookup(VirtAddr::new(megapage(1)), ASID), None, "least recently used");
+}
+
+#[test]
+fn tables_at_different_levels_for_the_same_prefix_are_kept_apart() {
+    let mut cache = WalkCache::new(2);
+    cache.insert(pointer(0, 0, 0x200, false));
+    cache.insert(pointer(0, 1, 0x100, false));
+
+    let start = cache.lookup(VirtAddr::new(0), ASID);
+
+    assert_eq!(start, Some(TableStart { level: 0, ppn: 0x200 }));
+}
