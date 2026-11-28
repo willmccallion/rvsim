@@ -8,9 +8,10 @@ use crate::exec::inst::Inst;
 use crate::exec::signals::ControlSignals;
 use crate::isa::fence::Fence;
 use crate::isa::op::{
-    AluOp, AmoOp, AtomicOp, DivOp, IntAluOp, MemWidth, SystemOp, VecLoadOp, VectorOp,
+    AluOp, AmoOp, AtomicOp, DivOp, IntAluOp, MemWidth, SystemOp, VecLoadOp, VecStoreOp, VectorOp,
 };
 use crate::isa::reg::RegIdx;
+use crate::isa::rvv::Vlen;
 use crate::sim::components::PipelineId;
 use crate::system::SystemState;
 use crate::uarch::pipeline::backend::o3::O3Engine;
@@ -473,6 +474,164 @@ fn the_queue_snapshot_lists_entries_oldest_first_across_the_tag_wrap() {
     let snapshot: Vec<RobTag> = iq.queue_snapshot().iter().map(|e| e.rob_tag).collect();
 
     assert_eq!(snapshot, tags);
+}
+
+/// A vector register file whose `ready` registers hold their results.
+fn vec_prf_with_ready(ready: &[VecPhysReg]) -> VecPhysRegFile {
+    let mut vec_prf = VecPhysRegFile::new(64, Vlen::default());
+    for &reg in ready {
+        vec_prf.mark_ready(reg);
+    }
+    vec_prf
+}
+
+#[test]
+fn a_vector_wakeup_readies_a_group_that_contains_the_register() {
+    let (waited_on, other) = (VecPhysReg::from_index(40), VecPhysReg::from_index(41));
+    let vec_prf = vec_prf_with_ready(&[waited_on, other]);
+    let mut state =
+        VecOperandState { group: VecRegGroup::from_slice(&[waited_on, other]), ready: false };
+
+    state.wakeup_check(waited_on, &vec_prf);
+
+    assert!(state.ready);
+}
+
+#[test]
+fn a_vector_wakeup_of_another_register_leaves_a_waiting_group_waiting() {
+    let (waited_on, unrelated) = (VecPhysReg::from_index(40), VecPhysReg::from_index(41));
+    let vec_prf = vec_prf_with_ready(&[waited_on]);
+    let mut state = VecOperandState { group: VecRegGroup::from_slice(&[waited_on]), ready: false };
+
+    state.wakeup_check(unrelated, &vec_prf);
+
+    assert!(!state.ready);
+}
+
+/// A masked vector entry for `rob_tag` whose mask is `mask`, not yet ready.
+fn waiting_on_mask(rob_tag: u32, mask: VecPhysReg) -> IssueQueueEntry {
+    let mut entry = IssueQueueEntry { mask_ready: false, ..ready_nop(rob_tag) };
+    entry.entry.regs.mask = Some(mask);
+    entry
+}
+
+#[test]
+fn a_vector_wakeup_of_the_mask_register_lets_the_masked_op_issue() {
+    let mask = VecPhysReg::from_index(40);
+    let vec_prf = vec_prf_with_ready(&[mask]);
+    let mut iq = queue_of(4, [waiting_on_mask(1, mask)]);
+    let (rob, store_buffer) = (Rob::new(8), StoreBuffer::new(4));
+
+    let before = issue_one(&mut iq, &rob, &store_buffer);
+    iq.wakeup_vec_phys(mask, &vec_prf);
+    let after = issue_one(&mut iq, &rob, &store_buffer);
+
+    assert!(before.is_empty());
+    assert_eq!(after, [1]);
+}
+
+#[test]
+fn a_vector_wakeup_of_another_register_does_not_ready_the_mask() {
+    let (mask, unrelated) = (VecPhysReg::from_index(40), VecPhysReg::from_index(41));
+    let vec_prf = vec_prf_with_ready(&[unrelated]);
+    let mut iq = queue_of(4, [waiting_on_mask(1, mask)]);
+
+    iq.wakeup_vec_phys(unrelated, &vec_prf);
+
+    assert!(issue_one(&mut iq, &Rob::new(8), &StoreBuffer::new(4)).is_empty());
+}
+
+fn oldest_hold(iq: &mut IssueQueue, rob: &Rob, store_buffer: &StoreBuffer) -> Option<IssueHold> {
+    let units = FuPool::new(&FuConfig { num_mem: 8, ..FuConfig::default() });
+    selection_under(iq, &single_issue(&units, 0, false), store_buffer, rob).oldest
+}
+
+#[test]
+fn nothing_holds_an_oldest_entry_that_can_issue() {
+    let mut iq = queue_of(4, [ready_nop(1)]);
+
+    assert_eq!(oldest_hold(&mut iq, &Rob::new(8), &StoreBuffer::new(4)), None);
+}
+
+#[test]
+fn a_store_data_half_is_not_held_by_the_ordering_rules() {
+    let mut rob = Rob::new(8);
+    let older_store = allocate(&mut rob, ControlSignals { mem_write: true, ..Default::default() });
+    let store_ctrl = ControlSignals { mem_write: true, ..Default::default() };
+    let store = allocate(&mut rob, store_ctrl);
+    let entry = IssueQueueEntry {
+        mem_dep: MemDepState::WaitAll,
+        store_issue: StoreIssue::AddressIssued,
+        ..ready_entry(store.raw(), store_ctrl)
+    };
+    let mut iq = queue_of(4, [entry]);
+    let mut store_buffer = StoreBuffer::new(4);
+    let _ = store_buffer.allocate(older_store, MemWidth::Word);
+
+    assert_eq!(oldest_hold(&mut iq, &rob, &store_buffer), None);
+}
+
+fn vector_load() -> ControlSignals {
+    ControlSignals { vec_op: Some(VectorOp::Load(VecLoadOp::Unit)), ..Default::default() }
+}
+
+fn vector_store() -> ControlSignals {
+    ControlSignals { vec_op: Some(VectorOp::Store(VecStoreOp::Unit)), ..Default::default() }
+}
+
+#[test]
+fn a_vector_memory_op_waits_for_an_older_store_to_resolve_its_address() {
+    for (name, ctrl) in [("load", vector_load()), ("store", vector_store())] {
+        let mut rob = Rob::new(8);
+        let store = allocate(&mut rob, ControlSignals { mem_write: true, ..Default::default() });
+        let vector = allocate(&mut rob, ctrl);
+        let mut iq = queue_of(4, [ready_entry(vector.raw(), ctrl)]);
+        let mut store_buffer = StoreBuffer::new(4);
+        let _ = store_buffer.allocate(store, MemWidth::Word);
+
+        let unresolved = issue_one(&mut iq, &rob, &store_buffer);
+        store_buffer.resolve_address(store, VirtAddr::new(0x8000_0000), PhysAddr::new(0x8000_0000));
+        let resolved = issue_one(&mut iq, &rob, &store_buffer);
+
+        assert!(unresolved.is_empty(), "vector {name}");
+        assert_eq!(resolved, [vector.raw()], "vector {name}");
+    }
+}
+
+#[test]
+fn a_vector_memory_op_waits_for_committed_stores_to_drain() {
+    let mut rob = Rob::new(8);
+    let vector = allocate(&mut rob, vector_load());
+    let mut iq = queue_of(4, [ready_entry(vector.raw(), vector_load())]);
+    let committed = RobTag::new(0);
+    let mut store_buffer = StoreBuffer::new(4);
+    let _ = store_buffer.allocate(committed, MemWidth::Word);
+    store_buffer.resolve(committed, VirtAddr::new(0x8000_0000), PhysAddr::new(0x8000_0000), 7);
+    store_buffer.mark_committed(committed);
+
+    assert!(issue_one(&mut iq, &rob, &store_buffer).is_empty());
+}
+
+#[test]
+fn a_load_waiting_on_a_store_issues_once_the_store_is_reported_resolved() {
+    let mut rob = Rob::new(8);
+    let store = allocate(&mut rob, ControlSignals { mem_write: true, ..Default::default() });
+    let load_ctrl = ControlSignals { mem_read: true, ..Default::default() };
+    let load = allocate(&mut rob, load_ctrl);
+    let entry = IssueQueueEntry {
+        mem_dep: MemDepState::WaitFor(store),
+        ..ready_entry(load.raw(), load_ctrl)
+    };
+    let mut iq = queue_of(4, [entry]);
+    let mut store_buffer = StoreBuffer::new(4);
+    let _ = store_buffer.allocate(store, MemWidth::Word);
+
+    let before = issue_one(&mut iq, &rob, &store_buffer);
+    iq.wakeup_mem_dep(&[store]);
+    let after = issue_one(&mut iq, &rob, &store_buffer);
+
+    assert!(before.is_empty());
+    assert_eq!(after, [load.raw()]);
 }
 
 #[test]
