@@ -202,3 +202,27 @@ fn a_two_slot_buffer_drains_ten_stores_in_turn() {
         );
     }
 }
+
+/// Whether the store buffer holds back a younger write to `[start, end)`.
+fn holds_back(sb: &StoreBuffer, start: u64, end: u64) -> bool {
+    sb.has_unsent_older_write_to(RobTag::new(9), |s, e| s < end && e > start)
+}
+
+#[test]
+fn an_older_unsent_store_holds_back_a_younger_write_to_its_bytes_only() {
+    let mut sb = StoreBuffer::new(4);
+    committed_store(&mut sb, 1, 0x1000, 0x55);
+
+    assert!(holds_back(&sb, 0x1004, 0x1005));
+    assert!(!holds_back(&sb, 0x1008, 0x1010));
+}
+
+#[test]
+fn an_older_store_already_sent_holds_back_no_younger_write() {
+    let mut sb = StoreBuffer::new(4);
+    committed_store(&mut sb, 1, 0x1000, 0x55);
+    let write = sb.begin_write().expect("committed store");
+    sb.issue_write(write, &[ReqId::new(7)]);
+
+    assert!(!holds_back(&sb, 0x1000, 0x1008));
+}
