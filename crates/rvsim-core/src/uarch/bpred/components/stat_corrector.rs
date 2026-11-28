@@ -80,6 +80,41 @@ impl ScHistories {
     }
 }
 
+/// The most GEHL components: the global, backward, path, IMLI and IMLI
+/// history ones, and one per local history.
+const MAX_GEHLS: usize = 5 + MAX_LOCAL_HISTORIES;
+
+/// What one component read for a prediction: the centred sum of its
+/// counters and whether its weight doubled that sum's vote. Training uses
+/// these, not the counters as they are by commit, as hardware that carries
+/// a prediction's reads to commit does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ComponentRead {
+    sum: i32,
+    doubled: bool,
+}
+
+impl ComponentRead {
+    const fn vote(self) -> i32 {
+        (1 + self.doubled as i32) * self.sum
+    }
+
+    /// Whether this component's vote decided the sign of `total`, gem5's
+    /// `(xsum + percsum >= 0) != (xsum >= 0)`.
+    const fn decided(self, total: i32) -> bool {
+        let others = total - self.doubled as i32 * self.sum;
+        (others + self.sum >= 0) != (others >= 0)
+    }
+
+    /// Steps `weight` toward doubling the vote when the sum read agreed
+    /// with the outcome and the vote decided `total`'s sign.
+    fn train_weight(self, weight: &mut i8, total: i32, taken: bool, bits: u32) {
+        if self.decided(total) {
+            step(weight, (self.sum >= 0) == taken, bits);
+        }
+    }
+}
+
 /// A GEHL component: one counter table per history length.
 #[derive(Debug)]
 struct Gehl {
@@ -131,32 +166,39 @@ impl Gehl {
         hash as usize & (self.tables[table].len() - 1)
     }
 
-    /// The weighted vote, `StatisticalCorrector::gPredict`.
-    fn vote(&self, pc: u64, before_sc: bool, histories: &ScHistories, weight: usize) -> i32 {
+    /// What the component reads for its vote, `StatisticalCorrector::gPredict`.
+    fn read(
+        &self,
+        pc: u64,
+        before_sc: bool,
+        histories: &ScHistories,
+        weight: usize,
+    ) -> ComponentRead {
         let (pc, history) = (self.hashed_pc(pc, before_sc), histories.of(self.source));
-        let sum: i32 = (0..self.tables.len())
+        let sum = (0..self.tables.len())
             .map(|table| centred(self.tables[table][self.index(table, pc, history)]))
             .sum();
-        (1 + i32::from(self.weights[weight] >= 0)) * sum
+        ComponentRead { sum, doubled: self.weights[weight] >= 0 }
     }
 
-    /// `StatisticalCorrector::gUpdate`: trains the counters and moves the
-    /// weight when this component's vote decided the total's sign.
-    fn train(&mut self, prediction: &ScPrediction, taken: bool, weight: usize, bits: &Widths) {
+    /// `StatisticalCorrector::gUpdate`: steps the counters `prediction` read
+    /// toward the outcome and moves the weight when the vote `read` gave
+    /// decided the total's sign.
+    fn train(
+        &mut self,
+        prediction: &ScPrediction,
+        read: ComponentRead,
+        taken: bool,
+        keys: &Keys,
+        bits: &Widths,
+    ) {
         let pc = self.hashed_pc(prediction.pc.val(), prediction.before_sc);
         let history = prediction.histories.of(self.source);
-        let mut sum = 0;
         for table in 0..self.tables.len() {
             let index = self.index(table, pc, history);
-            let ctr = &mut self.tables[table][index];
-            sum += centred(*ctr);
-            step(ctr, taken, bits.counter);
+            step(&mut self.tables[table][index], taken, bits.counter);
         }
-        let weight = &mut self.weights[weight];
-        let others = prediction.sum - i32::from(*weight >= 0) * sum;
-        if (others + sum >= 0) != (others >= 0) {
-            step(weight, (sum >= 0) == taken, bits.weight);
-        }
+        read.train_weight(&mut self.weights[keys.weight], prediction.sum, taken, bits.weight);
     }
 
     /// Whether this component's weight raises the threshold.
@@ -231,6 +273,10 @@ pub struct ScPrediction {
     histories: ScHistories,
     tage: TageScMeta,
     before_sc: bool,
+    /// What the bias tables read.
+    bias: ComponentRead,
+    /// What each GEHL component read, in the corrector's order.
+    gehls: [ComponentRead; MAX_GEHLS],
     sum: i32,
     threshold: i32,
     taken: bool,
@@ -353,13 +399,12 @@ impl StatCorrector {
     ) -> ScPrediction {
         let histories = self.histories(pc.val(), path);
         let keys = self.keys(pc.val(), &tage, before_sc);
-        let bias_sum = centred(self.bias[keys.bias])
-            + centred(self.bias_sk[keys.bias_sk])
-            + centred(self.bias_bank[keys.bias_bank]);
-        let mut sum = (1 + i32::from(self.bias_weights[keys.weight] >= 0)) * bias_sum;
-        for gehl in &self.gehls {
-            sum += gehl.vote(pc.val(), before_sc, &histories, keys.weight);
+        let bias = self.bias_read(&keys);
+        let mut gehls = [ComponentRead::default(); MAX_GEHLS];
+        for (read, gehl) in gehls.iter_mut().zip(&self.gehls) {
+            *read = gehl.read(pc.val(), before_sc, &histories, keys.weight);
         }
+        let sum = bias.vote() + gehls.iter().map(|read| read.vote()).sum::<i32>();
         let threshold = self.threshold(&keys);
         ScPrediction {
             pc,
@@ -367,10 +412,20 @@ impl StatCorrector {
             histories,
             tage,
             before_sc,
+            bias,
+            gehls,
             sum,
             threshold,
             taken: self.choose(tage.conf, before_sc, sum, threshold),
         }
+    }
+
+    /// What the three bias tables read at `keys`.
+    fn bias_read(&self, keys: &Keys) -> ComponentRead {
+        let sum = centred(self.bias[keys.bias])
+            + centred(self.bias_sk[keys.bias_sk])
+            + centred(self.bias_bank[keys.bias_bank]);
+        ComponentRead { sum, doubled: self.bias_weights[keys.weight] >= 0 }
     }
 
     /// Follows the corrector's sign where it disagrees, unless TAGE is
@@ -485,10 +540,10 @@ impl StatCorrector {
         self.threshold = stepped(self.threshold, wrong, self.widths.threshold);
         let per_pc = &mut self.per_pc_thresholds[keys.per_pc_threshold];
         *per_pc = stepped(*per_pc, wrong, self.widths.per_pc_threshold);
-        self.train_bias(&keys, prediction.sum, taken);
+        self.train_bias(&keys, prediction, taken);
         let widths = self.widths;
-        for gehl in &mut self.gehls {
-            gehl.train(prediction, taken, keys.weight, &widths);
+        for (gehl, &read) in self.gehls.iter_mut().zip(&prediction.gehls) {
+            gehl.train(prediction, read, taken, &keys, &widths);
         }
     }
 
@@ -509,15 +564,11 @@ impl StatCorrector {
         }
     }
 
-    fn train_bias(&mut self, keys: &Keys, sum: i32, taken: bool) {
-        let bias_sum = centred(self.bias[keys.bias])
-            + centred(self.bias_sk[keys.bias_sk])
-            + centred(self.bias_bank[keys.bias_bank]);
+    /// Steps the bias counters `prediction` read toward the outcome, and
+    /// their weight as a GEHL component's.
+    fn train_bias(&mut self, keys: &Keys, prediction: &ScPrediction, taken: bool) {
         let weight = &mut self.bias_weights[keys.weight];
-        let others = sum - i32::from(*weight >= 0) * bias_sum;
-        if (others + bias_sum >= 0) != (others >= 0) {
-            step(weight, (bias_sum >= 0) == taken, self.widths.weight);
-        }
+        prediction.bias.train_weight(weight, prediction.sum, taken, self.widths.weight);
         let bits = self.widths.counter;
         step(&mut self.bias[keys.bias], taken, bits);
         step(&mut self.bias_sk[keys.bias_sk], taken, bits);
@@ -747,8 +798,8 @@ mod tests {
 
         let histories = ScHistories::default();
 
-        assert_eq!(component.vote(0, false, &histories, 0), 8);
-        assert_eq!(component.vote(0, false, &histories, 1), 4);
+        assert_eq!(component.read(0, false, &histories, 0).vote(), 8);
+        assert_eq!(component.read(0, false, &histories, 1).vote(), 4);
     }
 
     #[test]
@@ -760,18 +811,43 @@ mod tests {
         assert!(!counts(Source::ImliHistory));
     }
 
-    fn trained_gehl(a: i8, b: i8, weight: i8, total: i32, taken: bool) -> (i8, i8, i8) {
+    const WIDTHS: Widths =
+        Widths { counter: 6, weight: 6, chooser: 7, threshold: 12, per_pc_threshold: 8 };
+    const FIRST_KEYS: Keys =
+        Keys { bias: 0, bias_sk: 0, bias_bank: 0, per_pc_threshold: 0, weight: 0 };
+
+    /// A two-table global component whose first entries hold `a` and `b`.
+    fn gehl_holding(a: i8, b: i8, weight: i8) -> Gehl {
         let mut component = gehl(Source::Global, &[4, 4], 4, 1);
         component.tables[0][0] = a;
         component.tables[1][0] = b;
         component.weights[0] = weight;
-        let prediction = scored(total, 40, true, TageConfLevel::Low);
-        let widths =
-            Widths { counter: 6, weight: 6, chooser: 7, threshold: 12, per_pc_threshold: 8 };
+        component
+    }
 
-        component.train(&prediction, taken, 0, &widths);
+    fn trained_gehl(a: i8, b: i8, weight: i8, total: i32, taken: bool) -> (i8, i8, i8) {
+        let mut component = gehl_holding(a, b, weight);
+        let prediction = scored(total, 40, true, TageConfLevel::Low);
+        let read = component.read(0, true, &prediction.histories, 0);
+
+        component.train(&prediction, read, taken, &FIRST_KEYS, &WIDTHS);
 
         (component.weights[0], component.tables[0][0], component.tables[1][0])
+    }
+
+    /// The vote the prediction read (sum -4, doubled) decided a total of
+    /// -1; the counters another branch moved since would not have.
+    #[test]
+    fn a_gehl_trains_its_weight_on_what_its_prediction_read() {
+        let mut component = gehl_holding(3, -6, 0);
+        let prediction = scored(-1, 40, true, TageConfLevel::Low);
+        let read = component.read(0, true, &prediction.histories, 0);
+        component.tables[0][0] = 6;
+        component.tables[1][0] = 5;
+
+        component.train(&prediction, read, false, &FIRST_KEYS, &WIDTHS);
+
+        assert_eq!(component.weights[0], 1);
     }
 
     #[test]
@@ -857,6 +933,8 @@ mod tests {
             histories: ScHistories::default(),
             tage: tage(conf, before_sc),
             before_sc,
+            bias: ComponentRead::default(),
+            gehls: [ComponentRead::default(); MAX_GEHLS],
             sum,
             threshold,
             taken: before_sc,
@@ -968,8 +1046,11 @@ mod tests {
         let with_gehls = predict(&sc, FORWARD, meta);
         let histories = sc.histories(PC.val(), 0);
         let keys = sc.keys(PC.val(), &meta, true);
-        let votes: i32 =
-            sc.gehls.iter().map(|gehl| gehl.vote(PC.val(), true, &histories, keys.weight)).sum();
+        let votes: i32 = sc
+            .gehls
+            .iter()
+            .map(|gehl| gehl.read(PC.val(), true, &histories, keys.weight).vote())
+            .sum();
         sc.gehls.clear();
         let bias_only = predict(&sc, FORWARD, meta);
 
@@ -1319,8 +1400,10 @@ mod tests {
         sc.bias_sk[2] = b;
         sc.bias_bank[3] = c;
         sc.bias_weights[0] = weight;
+        let mut prediction = scored(total, 40, true, TageConfLevel::Low);
+        prediction.bias = sc.bias_read(&keys);
 
-        sc.train_bias(&keys, total, taken);
+        sc.train_bias(&keys, &prediction, taken);
 
         (sc.bias_weights[0], sc.bias[1], sc.bias_sk[2], sc.bias_bank[3])
     }
