@@ -77,7 +77,7 @@ impl VsbLine {
     }
 
     /// True when the line holds any byte in `start..end`.
-    fn holds_any_of(&self, start: u64, end: u64) -> bool {
+    pub fn holds_any_of(&self, start: u64, end: u64) -> bool {
         (0..VSB_LINE_BYTES as u64).any(|i| {
             let byte = self.line_addr + i;
             self.valid_mask >> i & 1 == 1 && byte >= start && byte < end
@@ -574,11 +574,12 @@ impl VecStoreBuffer {
         ForwardResult::Miss
     }
 
-    /// The line [`Self::take_drainable_line`] takes next.
+    /// The line [`Self::take_drainable_line`] takes next, and its store.
     #[must_use]
-    pub fn next_drainable_line(&self) -> Option<&VsbLine> {
+    pub fn next_drainable_line(&self) -> Option<(RobTag, &VsbLine)> {
         let idx = self.oldest_drainable_entry_index()?;
-        self.slots[idx].as_ref()?.lines.first()
+        let entry = self.slots[idx].as_ref()?;
+        Some((entry.rob_tag, entry.lines.first()?))
     }
 
     /// Takes the next line to write: the first line of the oldest committed

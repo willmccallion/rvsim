@@ -185,7 +185,7 @@ pub fn send_one_write(
 ) {
     if !send_urgent_wcb_line(state, common)
         && !try_drain_one_store(state, common, store_buffer, vec_store_buffer)
-        && !drain_vec_store_line(state, common, vec_store_buffer)
+        && !drain_vec_store_line(state, common, store_buffer, vec_store_buffer)
     {
         send_idle_wcb_line(state, common);
     }
@@ -234,15 +234,19 @@ pub(super) fn send_wcb_line(state: &mut CoreCtx<'_>, common: &mut BackendCommon,
 
 /// Writes the next line of a committed vector store: to RAM as one masked
 /// line write, and to a device as the naturally aligned writes it must see.
-/// The line follows the older stores the WCB holds for its bytes, which a
-/// younger store cannot have joined while the line was unsent. Returns
-/// whether a line went.
+/// The line follows the older stores to its bytes: those the store buffer
+/// has yet to send, and those the WCB holds, which a younger store cannot
+/// have joined while the line was unsent. Returns whether a line went.
 pub(super) fn drain_vec_store_line(
     state: &mut CoreCtx<'_>,
     common: &mut BackendCommon,
+    store_buffer: &StoreBuffer,
     vec_store_buffer: &mut VecStoreBuffer,
 ) -> bool {
-    let Some(next) = vec_store_buffer.next_drainable_line() else { return false };
+    let Some((rob_tag, next)) = vec_store_buffer.next_drainable_line() else { return false };
+    if store_buffer.has_unsent_older_write_to(rob_tag, |start, end| next.holds_any_of(start, end)) {
+        return false;
+    }
     if state.core.wcb.request_send_masked(PhysAddr::new(next.line_addr), next.valid_mask) {
         return false;
     }
