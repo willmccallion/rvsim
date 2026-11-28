@@ -337,6 +337,64 @@ fn a_store_just_past_the_loaded_bytes_is_not_an_older_store_to_them() {
 }
 
 #[test]
+fn only_an_older_store_with_unresolved_elements_is_unresolved_before_a_load() {
+    let mut b = vsb(4);
+    b.reserve_for_test(RobTag::new(1), 1);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(0x8000_0000), 0xAB, MemWidth::Byte);
+    b.reserve_for_test(RobTag::new(3), 1);
+
+    let after_a_resolved_older_store = b.has_unresolved_store_before(RobTag::new(2));
+    b.reserve_for_test(RobTag::new(0), 1);
+    let after_an_unresolved_older_store = b.has_unresolved_store_before(RobTag::new(2));
+
+    assert_eq!((after_a_resolved_older_store, after_an_unresolved_older_store), (false, true));
+}
+
+#[test]
+fn an_older_line_still_to_send_holds_back_a_write_to_its_bytes_only() {
+    let mut b = vsb(4);
+    b.reserve_for_test(RobTag::new(1), 1);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(0x8000_0008), 0xAB, MemWidth::Byte);
+
+    let over_the_byte = b.has_unsent_older_line_to(PhysAddr::new(0x8000_0008), 4, RobTag::new(2));
+    let just_before = b.has_unsent_older_line_to(PhysAddr::new(0x8000_0000), 8, RobTag::new(2));
+    let from_a_younger = b.has_unsent_older_line_to(PhysAddr::new(0x8000_0008), 4, RobTag::new(1));
+
+    assert_eq!((over_the_byte, just_before, from_a_younger), (true, false, false));
+}
+
+#[test]
+fn a_line_already_sent_no_longer_holds_back_a_write() {
+    let mut b = vsb(4);
+    b.reserve_for_test(RobTag::new(1), 1);
+    b.resolve_element(RobTag::new(1), PhysAddr::new(0x8000_0008), 0xAB, MemWidth::Byte);
+    b.mark_committed(RobTag::new(1));
+    b.take_drainable_line().unwrap();
+
+    assert!(!b.has_unsent_older_line_to(PhysAddr::new(0x8000_0008), 4, RobTag::new(2)));
+}
+
+#[test]
+fn a_vector_store_between_a_scalar_store_and_a_load_is_the_loads_youngest_writer() {
+    let mut b = vsb(4);
+    b.reserve_for_test(RobTag::new(2), 1);
+    b.resolve_element(RobTag::new(2), PhysAddr::new(0x8000_0008), 0xAB, MemWidth::Byte);
+    let (scalar, load) = (RobTag::new(1), RobTag::new(3));
+
+    let over_the_byte = b.writes_to_between(scalar, load, PhysAddr::new(0x8000_0008), 4);
+    let elsewhere = b.writes_to_between(scalar, load, PhysAddr::new(0x8000_0000), 8);
+    let older_than_the_scalar =
+        b.writes_to_between(RobTag::new(2), load, PhysAddr::new(0x8000_0008), 4);
+    let younger_than_the_load =
+        b.writes_to_between(scalar, RobTag::new(2), PhysAddr::new(0x8000_0008), 4);
+
+    assert_eq!(
+        (over_the_byte, elsewhere, older_than_the_scalar, younger_than_the_load),
+        (true, false, false, false)
+    );
+}
+
+#[test]
 fn an_element_inside_a_line_marks_only_its_own_bytes_of_that_line() {
     let mut b = vsb(2);
     b.reserve_for_test(RobTag::new(1), 1);
