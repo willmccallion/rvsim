@@ -46,8 +46,8 @@ enum L1dPrefetcher {
     InTheLoadStoreUnit(PageBoundary),
 }
 
-/// Cycles the loop takes.
-fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
+/// The machine a run uses, with `prefetcher` on the L1D.
+fn machine(backend: BackendKind, prefetcher: L1dPrefetcher) -> Config {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
     config.cache.l1_d.enabled = true;
@@ -72,10 +72,20 @@ fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
     config.cache.l2.enabled = true;
     config.cache.l2.latency = 60;
     config.system.console = Console::Quiet;
-    let mut ctx =
-        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &strided_loop());
+    config
+}
 
-    ctx.run_until(50_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("loop finished")
+/// Runs the loop to its end on `config`, returning the machine and the
+/// cycles taken.
+fn run_loop(config: &Config) -> (TestContext, u64) {
+    let mut ctx = TestContext::with_fast_memory(config).load_program(PROGRAM_BASE, &strided_loop());
+    let cycles = ctx.run_until(50_000, |ctx| ctx.get_reg(DONE_REG) == DONE).expect("loop finished");
+    (ctx, cycles)
+}
+
+/// Cycles the loop takes.
+fn cycles(backend: BackendKind, prefetcher: L1dPrefetcher) -> u64 {
+    run_loop(&machine(backend, prefetcher)).1
 }
 
 /// The dependent misses serialise without a prefetcher; with one that has
@@ -129,4 +139,37 @@ fn crossing_pages_beats_stopping_at_them_on_a_stream_through_several() {
     );
 
     assert!(cross < stop, "crossing {cross} cycles, stopping {stop}");
+}
+
+/// The prefetches the load/store unit's prefetcher sent into the L1D and
+/// into the L2, for a loop run with `l1_lines` and `l2_lines`.
+fn load_prefetches_sent(l1_lines: usize, l2_lines: usize) -> (f64, f64) {
+    let mut config =
+        machine(BackendKind::InOrder, L1dPrefetcher::InTheLoadStoreUnit(PageBoundary::Stop));
+    config.cache.load_prefetcher = LoadPrefetcherConfig::Stride {
+        table_size: 64,
+        l1_lines,
+        l2_lines,
+        page_boundary: PageBoundary::Stop,
+    };
+    let (ctx, _) = run_loop(&config);
+    let paths = ctx.sim.state.cores[0].units.stat_paths.load_prefetch;
+    let stats = &ctx.sim.state.uncore.kernel.stats;
+    (stats.get(paths.l1).unwrap_or(0.0), stats.get(paths.l2).unwrap_or(0.0))
+}
+
+#[test]
+fn prefetches_into_the_l1d_count_under_the_l1_stat_alone() {
+    let (l1, l2) = load_prefetches_sent(4, 0);
+
+    assert!(l1 > 0.0, "{l1} L1D prefetches");
+    assert_eq!(l2, 0.0);
+}
+
+#[test]
+fn prefetches_further_ahead_count_under_the_l2_stat() {
+    let (l1, l2) = load_prefetches_sent(4, 8);
+
+    assert!(l1 > 0.0, "{l1} L1D prefetches");
+    assert!(l2 > 0.0, "{l2} L2 prefetches");
 }
