@@ -18,6 +18,7 @@ const PTE_W: u64 = 1 << 2;
 const PTE_X: u64 = 1 << 3;
 const PTE_U: u64 = 1 << 4;
 const PTE_G: u64 = 1 << 5;
+const PTE_D: u64 = 1 << 7;
 
 fn fully_associative(entries: usize) -> Tlb {
     Tlb::new(TlbGeometry { entries, ways: 0 })
@@ -245,12 +246,149 @@ fn the_least_recently_used_entry_is_evicted_when_full() {
             PageSize::Kib4,
         );
     }
-    let _ = tlb.lookup(Vpn::new(0), Asid::new(0));
+    for vpn in 0..3 {
+        let _ = tlb.lookup(Vpn::new(vpn), Asid::new(0));
+    }
 
     tlb.insert(Vpn::new(9), Ppn::new(0x900), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
 
-    assert!(tlb.lookup(Vpn::new(0), Asid::new(0)).is_some(), "recently used entry kept");
+    for vpn in 0..3 {
+        assert!(tlb.lookup(Vpn::new(vpn), Asid::new(0)).is_some(), "entry {vpn} was used since");
+    }
+    assert_eq!(tlb.lookup(Vpn::new(3), Asid::new(0)), None, "least recently used evicted");
+}
+
+#[test]
+fn inserting_a_page_again_makes_it_the_most_recently_used() {
+    let mut tlb = fully_associative(4);
+    for vpn in 0..4 {
+        tlb.insert(
+            Vpn::new(vpn),
+            Ppn::new(0x100 + vpn),
+            PTE_V | PTE_R,
+            Asid::new(0),
+            PageSize::Kib4,
+        );
+    }
+    tlb.insert(Vpn::new(0), Ppn::new(0x100), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
+
+    tlb.insert(Vpn::new(9), Ppn::new(0x900), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
+
+    assert!(tlb.lookup(Vpn::new(0), Asid::new(0)).is_some(), "inserted again, so kept");
     assert_eq!(tlb.lookup(Vpn::new(1), Asid::new(0)), None, "least recently used evicted");
+}
+
+#[test]
+fn inserting_a_page_again_replaces_its_translation() {
+    let mut tlb = fully_associative(4);
+    tlb.insert(Vpn::new(1), Ppn::new(0x100), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
+
+    tlb.insert(Vpn::new(1), Ppn::new(0x200), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
+
+    assert_eq!(tlb.lookup(Vpn::new(1), Asid::new(0)).map(|hit| hit.ppn), Some(Ppn::new(0x200)));
+}
+
+#[test]
+fn the_same_page_in_two_address_spaces_holds_two_entries() {
+    let mut tlb = fully_associative(4);
+    tlb.insert(Vpn::new(1), Ppn::new(0x100), PTE_V | PTE_R, Asid::new(1), PageSize::Kib4);
+    tlb.insert(Vpn::new(1), Ppn::new(0x200), PTE_V | PTE_R, Asid::new(2), PageSize::Kib4);
+
+    let first = tlb.lookup(Vpn::new(1), Asid::new(1)).map(|hit| hit.ppn);
+    let second = tlb.lookup(Vpn::new(1), Asid::new(2)).map(|hit| hit.ppn);
+
+    assert_eq!((first, second), (Some(Ppn::new(0x100)), Some(Ppn::new(0x200))));
+}
+
+#[test]
+fn a_superpage_and_a_base_page_starting_at_the_same_address_hold_two_entries() {
+    let mut tlb = fully_associative(4);
+    tlb.insert(Vpn::new(0), Ppn::new(0x8_0000), PTE_V | PTE_R, Asid::new(0), PageSize::Mib2);
+    tlb.insert(Vpn::new(0), Ppn::new(0x9_0000), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
+
+    let base_page = tlb.lookup(Vpn::new(0), Asid::new(0)).map(|hit| hit.ppn);
+    let rest_of_superpage = tlb.lookup(Vpn::new(1), Asid::new(0)).map(|hit| hit.ppn);
+
+    assert_eq!(base_page, Some(Ppn::new(0x9_0000)));
+    assert_eq!(rest_of_superpage, Some(Ppn::new(0x8_0001)));
+}
+
+#[test]
+fn a_hit_reports_the_dirty_bit_of_the_pte() {
+    let mut tlb = fully_associative(4);
+    tlb.insert(Vpn::new(1), Ppn::new(0x100), PTE_V | PTE_R | PTE_D, Asid::new(0), PageSize::Kib4);
+    tlb.insert(Vpn::new(2), Ppn::new(0x200), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
+
+    let dirty = tlb.lookup(Vpn::new(1), Asid::new(0)).map(|hit| hit.d);
+    let clean = tlb.lookup(Vpn::new(2), Asid::new(0)).map(|hit| hit.d);
+
+    assert_eq!((dirty, clean), (Some(true), Some(false)));
+}
+
+#[test]
+fn a_smaller_superpage_translates_ahead_of_a_larger_one_in_a_single_set_tlb() {
+    let mut tlb = fully_associative(4);
+    tlb.insert(Vpn::new(0), Ppn::new(0x8_0000), PTE_V | PTE_R, Asid::new(0), PageSize::Gib1);
+    tlb.insert(Vpn::new(0x200), Ppn::new(0x9_0000), PTE_V | PTE_R, Asid::new(0), PageSize::Mib2);
+
+    let hit = tlb.lookup(Vpn::new(0x234), Asid::new(0)).map(|hit| hit.ppn);
+
+    assert_eq!(hit, Some(Ppn::new(0x9_0034)));
+}
+
+#[test]
+fn of_equal_sized_pages_translating_an_address_the_first_inserted_wins() {
+    let mut tlb = fully_associative(4);
+    let global = PTE_V | PTE_R | PTE_G;
+    tlb.insert(Vpn::new(0x200), Ppn::new(0x8_0000), global, Asid::new(1), PageSize::Mib2);
+    tlb.insert(Vpn::new(0x200), Ppn::new(0x9_0000), global, Asid::new(2), PageSize::Mib2);
+
+    let hit = tlb.lookup(Vpn::new(0x234), Asid::new(3)).map(|hit| hit.ppn);
+
+    assert_eq!(hit, Some(Ppn::new(0x8_0034)));
+}
+
+#[test]
+fn a_set_associative_tlb_holds_as_many_base_pages_as_it_has_slots() {
+    let mut tlb = Tlb::new(TlbGeometry { entries: 8, ways: 2 });
+    for vpn in 0..8 {
+        tlb.insert(
+            Vpn::new(vpn),
+            Ppn::new(0x100 + vpn),
+            PTE_V | PTE_R,
+            Asid::new(0),
+            PageSize::Kib4,
+        );
+    }
+
+    for vpn in 0..8 {
+        assert!(tlb.lookup(Vpn::new(vpn), Asid::new(0)).is_some(), "page {vpn} should be held");
+    }
+}
+
+#[test]
+fn superpages_in_consecutive_pages_spread_over_the_sets() {
+    let mut tlb = Tlb::new(TlbGeometry { entries: 8, ways: 2 });
+    let megapage = |n: u64| Vpn::new(n << 9);
+    for n in 0..3 {
+        let ppn = Ppn::new(0x8_0000 + (n << 9));
+        tlb.insert(megapage(n), ppn, PTE_V | PTE_R, Asid::new(0), PageSize::Mib2);
+    }
+
+    for n in 0..3 {
+        assert!(tlb.lookup(megapage(n), Asid::new(0)).is_some(), "megapage {n} should be held");
+    }
+}
+
+#[test]
+fn a_base_page_translates_ahead_of_a_superpage_in_the_same_set() {
+    let mut tlb = Tlb::new(TlbGeometry { entries: 8, ways: 2 });
+    tlb.insert(Vpn::new(0x200), Ppn::new(0x8_0000), PTE_V | PTE_R, Asid::new(0), PageSize::Mib2);
+    tlb.insert(Vpn::new(0x201), Ppn::new(0x9_0000), PTE_V | PTE_R, Asid::new(0), PageSize::Kib4);
+
+    let hit = tlb.lookup(Vpn::new(0x201), Asid::new(0)).map(|hit| hit.ppn);
+
+    assert_eq!(hit, Some(Ppn::new(0x9_0000)));
 }
 
 #[test]
