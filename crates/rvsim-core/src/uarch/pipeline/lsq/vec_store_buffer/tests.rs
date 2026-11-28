@@ -394,6 +394,205 @@ fn a_vector_store_between_a_scalar_store_and_a_load_is_the_loads_youngest_writer
     );
 }
 
+const LINE: u64 = 0x8000_0000;
+const EIGHT_BYTES: u64 = 0x0807_0605_0403_0201;
+
+fn vsb_with(forwarding: VecStoreForwarding) -> VecStoreBuffer {
+    VecStoreBuffer::new(4, forwarding)
+}
+
+/// Resolves the doubleword `EIGHT_BYTES` of store `tag` at `addr`.
+fn store_doubleword(b: &mut VecStoreBuffer, tag: u32, addr: u64) {
+    b.reserve_for_test(RobTag::new(tag), 1);
+    b.resolve_element(RobTag::new(tag), PhysAddr::new(addr), EIGHT_BYTES, MemWidth::Double);
+}
+
+fn span(b: &VecStoreBuffer, addr: u64, bytes: usize, load: u32) -> SpanForward {
+    b.forward_span(PhysAddr::new(addr), bytes, RobTag::new(load))
+}
+
+#[test]
+fn a_span_a_store_holds_whole_is_forwarded() {
+    let mut b = vsb(4);
+    store_doubleword(&mut b, 1, LINE + 8);
+
+    assert_eq!(span(&b, LINE + 8, 8, 2), SpanForward::Hit([1, 2, 3, 4, 5, 6, 7, 8].into()));
+}
+
+#[test]
+fn a_span_inside_a_stores_bytes_is_forwarded_from_its_offset() {
+    let mut b = vsb(4);
+    store_doubleword(&mut b, 1, LINE + 8);
+
+    assert_eq!(span(&b, LINE + 10, 4, 2), SpanForward::Hit([3, 4, 5, 6].into()));
+}
+
+#[test]
+fn a_span_a_store_holds_only_part_of_stalls() {
+    let mut b = vsb(4);
+    store_doubleword(&mut b, 1, LINE + 8);
+
+    let starting_before = span(&b, LINE + 4, 8, 2);
+    let running_past = span(&b, LINE + 12, 8, 2);
+
+    assert_eq!((starting_before, running_past), (SpanForward::Stall, SpanForward::Stall));
+}
+
+#[test]
+fn a_span_no_store_touches_misses() {
+    let mut b = vsb(4);
+    store_doubleword(&mut b, 1, LINE + 8);
+
+    let same_line_other_bytes = span(&b, LINE + 16, 8, 2);
+    let other_line = span(&b, LINE + 64 + 8, 8, 2);
+
+    assert_eq!((same_line_other_bytes, other_line), (SpanForward::Miss, SpanForward::Miss));
+}
+
+#[test]
+fn a_span_only_younger_stores_touch_misses() {
+    let mut b = vsb(4);
+    store_doubleword(&mut b, 5, LINE + 8);
+
+    assert_eq!(span(&b, LINE + 8, 8, 3), SpanForward::Miss);
+}
+
+#[test]
+fn the_youngest_older_store_touching_a_span_decides_it() {
+    let mut whole_over_partial = vsb(4);
+    store_doubleword(&mut whole_over_partial, 1, LINE + 12);
+    store_doubleword(&mut whole_over_partial, 2, LINE + 8);
+    let mut partial_over_whole = vsb(4);
+    store_doubleword(&mut partial_over_whole, 1, LINE + 8);
+    store_doubleword(&mut partial_over_whole, 2, LINE + 12);
+
+    assert_eq!(
+        span(&whole_over_partial, LINE + 8, 8, 3),
+        SpanForward::Hit([1, 2, 3, 4, 5, 6, 7, 8].into())
+    );
+    assert_eq!(span(&partial_over_whole, LINE + 8, 8, 3), SpanForward::Stall);
+}
+
+#[test]
+fn a_span_of_a_whole_line_needs_every_byte_of_it() {
+    let mut b = vsb(4);
+    b.reserve_for_test(RobTag::new(1), 8);
+    for n in 0..8 {
+        b.resolve_element(
+            RobTag::new(1),
+            PhysAddr::new(LINE + 8 * n),
+            EIGHT_BYTES,
+            MemWidth::Double,
+        );
+    }
+    let mut partial = vsb(4);
+    store_doubleword(&mut partial, 1, LINE);
+
+    let SpanForward::Hit(bytes) = span(&b, LINE, 64, 2) else { panic!("a full line forwards") };
+    assert_eq!(bytes.len(), 64);
+    assert_eq!(span(&partial, LINE, 64, 2), SpanForward::Stall);
+}
+
+#[test]
+fn a_span_just_short_of_a_line_is_forwarded_from_a_full_line() {
+    let mut b = vsb(4);
+    b.reserve_for_test(RobTag::new(1), 8);
+    for n in 0..8 {
+        b.resolve_element(
+            RobTag::new(1),
+            PhysAddr::new(LINE + 8 * n),
+            EIGHT_BYTES,
+            MemWidth::Double,
+        );
+    }
+
+    let SpanForward::Hit(bytes) = span(&b, LINE, 63, 2) else { panic!("a full line forwards") };
+
+    assert_eq!(bytes.len(), 63);
+}
+
+#[test]
+fn a_drained_line_still_forwards_a_span() {
+    let mut b = vsb(4);
+    store_doubleword(&mut b, 1, LINE + 8);
+    b.mark_committed(RobTag::new(1));
+    let (tag, _) = b.take_drainable_line().unwrap();
+    b.line_sent(tag, vec![ReqId::new(1)]);
+
+    assert_eq!(span(&b, LINE + 8, 8, 2), SpanForward::Hit([1, 2, 3, 4, 5, 6, 7, 8].into()));
+}
+
+#[test]
+fn without_forwarding_any_older_store_stalls_a_span() {
+    let mut b = vsb_with(VecStoreForwarding::Off);
+    store_doubleword(&mut b, 1, LINE + 128);
+
+    let behind_a_store = span(&b, LINE, 8, 2);
+    let before_any_store = span(&b, LINE, 8, 1);
+
+    assert_eq!((behind_a_store, before_any_store), (SpanForward::Stall, SpanForward::Miss));
+}
+
+#[test]
+fn with_stall_forwarding_only_a_touched_span_stalls() {
+    let mut b = vsb_with(VecStoreForwarding::Stall);
+    store_doubleword(&mut b, 1, LINE + 8);
+
+    let touched = span(&b, LINE + 4, 8, 2);
+    let same_line_apart = span(&b, LINE + 16, 8, 2);
+    let other_line = span(&b, LINE + 64 + 8, 8, 2);
+
+    assert_eq!(
+        (touched, same_line_apart, other_line),
+        (SpanForward::Stall, SpanForward::Miss, SpanForward::Miss)
+    );
+}
+
+fn crossing_load(b: &VecStoreBuffer, load: u32) -> ForwardResult {
+    b.forward_load(PhysAddr::new(LINE + 60), MemWidth::Double, RobTag::new(load))
+}
+
+#[test]
+fn a_load_across_a_line_boundary_stalls_on_an_older_store_in_either_line() {
+    for store_at in [LINE, LINE + 64] {
+        let mut b = vsb(4);
+        store_doubleword(&mut b, 1, store_at);
+
+        assert_eq!(crossing_load(&b, 2), ForwardResult::Stall, "store at {store_at:#x}");
+    }
+}
+
+#[test]
+fn a_load_across_a_line_boundary_misses_when_no_older_store_is_in_either_line() {
+    let mut elsewhere = vsb(4);
+    store_doubleword(&mut elsewhere, 1, LINE + 128);
+    let mut younger = vsb(4);
+    store_doubleword(&mut younger, 5, LINE);
+    let mut third_line_before = vsb(4);
+    store_doubleword(&mut third_line_before, 1, LINE - 64);
+
+    assert_eq!(crossing_load(&elsewhere, 2), ForwardResult::Miss);
+    assert_eq!(crossing_load(&younger, 2), ForwardResult::Miss);
+    assert_eq!(crossing_load(&third_line_before, 2), ForwardResult::Miss);
+}
+
+#[test]
+fn without_forwarding_a_load_across_a_line_stalls_on_any_older_store() {
+    let mut b = vsb_with(VecStoreForwarding::Off);
+    store_doubleword(&mut b, 1, LINE + 128);
+
+    assert_eq!(crossing_load(&b, 2), ForwardResult::Stall);
+    assert_eq!(crossing_load(&b, 1), ForwardResult::Miss);
+}
+
+#[test]
+fn a_line_the_store_has_not_written_into_does_not_stall_a_load_across_it() {
+    let mut b = vsb(4);
+    b.reserve_for_test(RobTag::new(1), 1);
+
+    assert_eq!(crossing_load(&b, 2), ForwardResult::Miss);
+}
+
 #[test]
 fn an_element_inside_a_line_marks_only_its_own_bytes_of_that_line() {
     let mut b = vsb(2);
