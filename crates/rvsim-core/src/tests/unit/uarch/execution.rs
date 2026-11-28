@@ -1,5 +1,5 @@
-//! The execution loop's diagnostics: hang detection at one PC and the
-//! trace of privilege mode switches.
+//! The execution loop's diagnostics: hang detection at one PC, the trace
+//! of privilege mode switches and the trace of CSR accesses.
 
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex};
 use crate::common::{Asid, PhysAddr, Ppn, VirtAddr};
 use crate::config::Config;
 use crate::config::defaults::RAM_BASE;
+use crate::exec::execute::{CsrRequest, perform_csr_access};
+use crate::isa::csr;
 use crate::isa::encoding::privileged::WFI;
+use crate::isa::op::CsrOp;
 use crate::isa::privileged::PrivilegeMode;
 use crate::soc::bus::HartIrqs;
 use crate::system::SystemState;
@@ -51,8 +54,12 @@ fn logged_during(action: impl FnOnce()) -> String {
 }
 
 fn traced_system() -> SystemState {
+    system_tracing(true)
+}
+
+fn system_tracing(trace_instructions: bool) -> SystemState {
     let mut config = Config::minimal();
-    config.general.trace_instructions = true;
+    config.general.trace_instructions = trace_instructions;
     SystemState::build(&config)
 }
 
@@ -175,4 +182,32 @@ fn a_privilege_switch_is_not_traced_when_tracing_is_off() {
     let log = logged_during(|| state.post_tick(PrivilegeMode::Machine));
 
     assert_eq!(log, "");
+}
+
+/// What a `csrrw` of `mscratch` logs on a machine that traces
+/// instructions or not.
+fn csr_write_log(trace_instructions: bool) -> String {
+    let mut sys = system_tracing(trace_instructions);
+    let mut state = sys.core_ctx(0);
+    let request = CsrRequest {
+        pc: VirtAddr::new(RAM_BASE),
+        addr: csr::MSCRATCH,
+        op: CsrOp::Rw,
+        src: 1,
+        writes: true,
+    };
+
+    logged_during(|| {
+        let _ = perform_csr_access(&state.stage(), &request);
+    })
+}
+
+#[test]
+fn a_csr_access_is_traced_when_instructions_are() {
+    assert!(csr_write_log(true).contains("write-deferred"));
+}
+
+#[test]
+fn a_csr_access_is_not_traced_when_instructions_are_not() {
+    assert_eq!(csr_write_log(false), "");
 }
