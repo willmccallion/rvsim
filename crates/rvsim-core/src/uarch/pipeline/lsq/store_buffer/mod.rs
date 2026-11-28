@@ -412,6 +412,21 @@ impl StoreBuffer {
         })
     }
 
+    /// True when a committed store older than `rob_tag` has yet to send a
+    /// write to any byte `holds_any_of(start, end)` reports for its span
+    /// `[start, end)`, so a younger write of those bytes must wait for it.
+    pub fn has_unsent_older_write_to(
+        &self,
+        rob_tag: RobTag,
+        holds_any_of: impl Fn(u64, u64) -> bool,
+    ) -> bool {
+        self.older_than(rob_tag).any(|entry| {
+            let StoreResolution::Committed { paddr, data } = entry.resolution else { return false };
+            let (start, end) = StoreData::span(Some(data), paddr, entry.width);
+            entry.write == WriteProgress::Unsent && holds_any_of(start, end)
+        })
+    }
+
     /// Checks whether any store buffer entry older than `rob_tag` has an
     /// unresolved address. Used by the issue queue to prevent loads from
     /// issuing before older stores have their addresses resolved.

@@ -1,6 +1,7 @@
 //! Committed scalar and vector stores to the same bytes reach memory in
-//! program order when the write-combining buffer holds the scalar ones:
-//! a load after both, and memory once they drain, see the younger store.
+//! program order, whether the write-combining buffer holds the scalar
+//! store or has no room for it yet: a load after both, and memory once
+//! they drain, see the younger store.
 
 use crate::common::PhysAddr;
 use crate::config::{BackendKind, Config, Console};
@@ -13,8 +14,10 @@ use crate::tests::support::regs::{A0, A1, A2, A3, A4, A5, X0};
 const SOURCE: u64 = PROGRAM_BASE + 0x400;
 const DEST: u64 = SOURCE + 0x100;
 const OUT: u64 = DEST + 0x100;
+const FILLERS: u64 = OUT + 0x100;
+const LINE_BYTES: u64 = 64;
 const BYTES: u64 = 16;
-const WCB_ENTRIES: usize = 16;
+const ROOMY_WCB_ENTRIES: usize = 16;
 const DONE_REG: RegIdx = RegIdx::new(31);
 const DONE: u64 = 7;
 const SCALAR_VALUE: i32 = -1;
@@ -42,13 +45,45 @@ enum Order {
     VectorThenScalar,
 }
 
-/// The two stores to `DEST` in `order`, then `ld DEST` with its value
-/// stored to `OUT`.
-fn program(order: Order) -> Vec<u32> {
+/// The two stores in `order` and the write-combining buffer they meet.
+#[derive(Clone, Copy)]
+struct Scenario {
+    order: Order,
+    wcb_entries: usize,
+    /// Stores to other lines just before the two, which fill a small WCB.
+    filler_stores: u64,
+}
+
+impl Scenario {
+    const fn roomy(order: Order) -> Self {
+        Self { order, wcb_entries: ROOMY_WCB_ENTRIES, filler_stores: 0 }
+    }
+
+    /// The smallest WCB, which the filler stores keep full, so the scalar
+    /// store waits in the store buffer for room.
+    const fn full_wcb(order: Order) -> Self {
+        Self { order, wcb_entries: 2, filler_stores: 6 }
+    }
+}
+
+/// `count` stores of `A4` to lines of their own past `OUT`.
+fn filler_stores(count: u64) -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    (0..count)
+        .flat_map(|n| {
+            let offset = (FILLERS + n * LINE_BYTES - SOURCE) as i32;
+            [i().addi(A3, A0, offset).build(), i().sd(A3, A4, 0).build()]
+        })
+        .collect()
+}
+
+/// The filler stores, the two stores to `DEST` in `order`, then `ld DEST`
+/// with its value stored to `OUT`.
+fn program(scenario: Scenario) -> Vec<u32> {
     let i = InstructionBuilder::new;
     let scalar = i().sd(A1, A4, 0).build();
     let vector = vse8(3, A1);
-    let stores = match order {
+    let stores = match scenario.order {
         Order::ScalarThenVector => [scalar, vector],
         Order::VectorThenScalar => [vector, scalar],
     };
@@ -61,6 +96,7 @@ fn program(order: Order) -> Vec<u32> {
         i().addi(A1, A0, (DEST - SOURCE) as i32).build(),
         i().addi(A4, X0, SCALAR_VALUE).build(),
     ];
+    program.extend(filler_stores(scenario.filler_stores));
     program.extend(stores);
     program.extend([
         i().ld(A5, A1, 0).build(),
@@ -74,13 +110,13 @@ fn program(order: Order) -> Vec<u32> {
 
 /// The value the load read, and `DEST`'s first eight bytes once every
 /// store has drained.
-fn run(order: Order, backend: BackendKind) -> (u64, u64) {
+fn run(scenario: Scenario, backend: BackendKind) -> (u64, u64) {
     let mut config = Config::minimal();
     config.pipeline.backend = backend;
-    config.cache.wcb_entries = WCB_ENTRIES;
+    config.cache.wcb_entries = scenario.wcb_entries;
     config.system.console = Console::Quiet;
     let mut ctx =
-        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program(order));
+        TestContext::with_fast_memory(&config).load_program(PROGRAM_BASE, &program(scenario));
     for byte in 0..BYTES {
         ctx.sim.probe_mem_store(PhysAddr::new(SOURCE + byte), byte + 1, ProbeWidth::B1);
     }
@@ -96,28 +132,43 @@ fn run(order: Order, backend: BackendKind) -> (u64, u64) {
 
 #[test]
 fn a_vector_store_after_a_scalar_store_leaves_its_data_o3() {
-    let (loaded, memory) = run(Order::ScalarThenVector, BackendKind::OutOfOrder);
+    let (loaded, memory) = run(Scenario::roomy(Order::ScalarThenVector), BackendKind::OutOfOrder);
 
     assert_eq!((loaded, memory), (VECTOR_BYTES, VECTOR_BYTES), "{loaded:#018x} {memory:#018x}");
 }
 
 #[test]
 fn a_vector_store_after_a_scalar_store_leaves_its_data_inorder() {
-    let (loaded, memory) = run(Order::ScalarThenVector, BackendKind::InOrder);
+    let (loaded, memory) = run(Scenario::roomy(Order::ScalarThenVector), BackendKind::InOrder);
 
     assert_eq!((loaded, memory), (VECTOR_BYTES, VECTOR_BYTES), "{loaded:#018x} {memory:#018x}");
 }
 
 #[test]
 fn a_scalar_store_after_a_vector_store_leaves_its_data_o3() {
-    let (loaded, memory) = run(Order::VectorThenScalar, BackendKind::OutOfOrder);
+    let (loaded, memory) = run(Scenario::roomy(Order::VectorThenScalar), BackendKind::OutOfOrder);
 
     assert_eq!((loaded, memory), (SCALAR_BYTES, SCALAR_BYTES), "{loaded:#018x} {memory:#018x}");
 }
 
 #[test]
 fn a_scalar_store_after_a_vector_store_leaves_its_data_inorder() {
-    let (loaded, memory) = run(Order::VectorThenScalar, BackendKind::InOrder);
+    let (loaded, memory) = run(Scenario::roomy(Order::VectorThenScalar), BackendKind::InOrder);
 
     assert_eq!((loaded, memory), (SCALAR_BYTES, SCALAR_BYTES), "{loaded:#018x} {memory:#018x}");
+}
+
+#[test]
+fn a_vector_store_after_a_scalar_store_waiting_for_the_wcb_leaves_its_data_o3() {
+    let (loaded, memory) =
+        run(Scenario::full_wcb(Order::ScalarThenVector), BackendKind::OutOfOrder);
+
+    assert_eq!((loaded, memory), (VECTOR_BYTES, VECTOR_BYTES), "{loaded:#018x} {memory:#018x}");
+}
+
+#[test]
+fn a_vector_store_after_a_scalar_store_waiting_for_the_wcb_leaves_its_data_inorder() {
+    let (loaded, memory) = run(Scenario::full_wcb(Order::ScalarThenVector), BackendKind::InOrder);
+
+    assert_eq!((loaded, memory), (VECTOR_BYTES, VECTOR_BYTES), "{loaded:#018x} {memory:#018x}");
 }
