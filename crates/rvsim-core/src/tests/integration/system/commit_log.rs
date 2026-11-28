@@ -7,10 +7,18 @@ use std::collections::HashMap;
 
 use crate::common::{PhysAddr, VirtAddr};
 use crate::config::{BackendKind, Config};
+use crate::exec::compute::vector::mem::ElementAccess;
+use crate::isa::op::{MemWidth, SystemOp};
+use crate::isa::privileged::Trap;
+use crate::isa::reg::RegIdx;
+use crate::isa::rvv::{ElemIdx, Sew};
 use crate::system::simulator::ProbeWidth;
 use crate::tests::support::builder::instruction::{ECALL, InstructionBuilder};
 use crate::tests::support::harness::{PROGRAM_BASE, TestContext};
-use crate::uarch::pipeline::commit_log::RESET_CSRS;
+use crate::uarch::pipeline::commit_log::{MemEffect, RESET_CSRS, VectorElementAccess};
+use crate::uarch::pipeline::latches::{
+    Mem1Mem2Entry, MicroOpIdx, VecMemAccess, VecMemSpan, VecMemTarget,
+};
 
 const DATA: u64 = PROGRAM_BASE + 0x1000;
 const HANDLER: u64 = PROGRAM_BASE + 0x50;
@@ -261,12 +269,10 @@ fn every_backend_logs_the_same_retirements() {
 }
 
 const MSTATUS_VS_INITIAL: i32 = 0x600;
-/// `vsetivli a5, 1, e64, m1, ta, ma`: one of VLEN 128's two elements.
-const VSETIVLI_ONE_E64_TA: u32 =
-    (0b11 << 30) | (0xd8 << 20) | (1 << 15) | (0b111 << 12) | (15 << 7) | 0x57;
-/// `vmv.v.i v1, 5`.
-const VMV_V_I_V1_5: u32 =
-    (0b01_0111 << 26) | (1 << 25) | (5 << 15) | (0b011 << 12) | (1 << 7) | 0x57;
+/// `vmv.v.i v<vd>, 5`.
+const fn vmv_v_i_5(vd: u32) -> u32 {
+    (0b01_0111 << 26) | (1 << 25) | (5 << 15) | (0b011 << 12) | (vd << 7) | 0x57
+}
 
 /// Enables V, sets vl = 1 with a tail-agnostic e64 vtype, writes 5 to v1's
 /// body, then spins.
@@ -275,8 +281,8 @@ fn vector_tail() -> Vec<u32> {
     vec![
         i().addi(X13, X0, MSTATUS_VS_INITIAL).build(),
         i().csrrs(X0, MSTATUS, X13).build(),
-        VSETIVLI_ONE_E64_TA,
-        VMV_V_I_V1_5,
+        vsetivli(1, VTYPE_E64_M1_TA_MA),
+        vmv_v_i_5(1),
         i().jal(X0, 0).build(),
     ]
 }
@@ -293,6 +299,132 @@ fn a_vector_write_logs_the_register_and_the_bits_it_filled_agnostically() {
         assert_eq!(
             effects[&(PROGRAM_BASE + 4 * 3)],
             format!("v1 {tail_ones_body_five} {tail_agnostic} vec"),
+            "{backend:?}"
+        );
+    }
+}
+
+const VECTOR_LOAD_OPCODE: u32 = 0x07;
+const VECTOR_STORE_OPCODE: u32 = 0x27;
+const FAULT_ONLY_FIRST: u32 = 0b1_0000 << 20;
+const UNMASKED: u32 = 1 << 25;
+const ELEMENT_BYTES: u64 = 8;
+const FIRST_ELEMENT: u64 = 0x11;
+const SECOND_ELEMENT: u64 = 0x22;
+const VECTOR_STORE_OFFSET: i32 = 0x100;
+
+/// The vtype of 64-bit elements, tail- and mask-agnostic, at LMUL 1 and 2.
+const VTYPE_E64_M1_TA_MA: u32 = 0xd8;
+const VTYPE_E64_M2_TA_MA: u32 = 0xd9;
+
+/// `vsetivli a5, vl, <vtype>`.
+const fn vsetivli(vl: u32, vtype: u32) -> u32 {
+    (0b11 << 30) | (vtype << 20) | (vl << 15) | (0b111 << 12) | (15 << 7) | 0x57
+}
+
+/// `vle64.v`/`vse64.v` of `v1` at the address in `base`, per `opcode`.
+const fn vector_move_e64(opcode: u32, base: RegIdx) -> u32 {
+    opcode | UNMASKED | (base.field() << 15) | (0b111 << 12) | (1 << 7)
+}
+
+fn vector_access(kind: &str, index: u64, address: u64, value: u64) -> String {
+    mem(kind, address + ELEMENT_BYTES * index, ELEMENT_BYTES, value)
+}
+
+/// Stores two elements at `DATA`, loads them into `v1` and stores `v1` at
+/// `DATA + VECTOR_STORE_OFFSET`, then spins.
+fn vector_copy() -> Vec<u32> {
+    let i = InstructionBuilder::new;
+    vec![
+        i().auipc(T0, 1).build(),
+        i().addi(T1, X0, FIRST_ELEMENT as i32).build(),
+        i().addi(X8, X0, SECOND_ELEMENT as i32).build(),
+        i().sd(T0, T1, 0).build(),
+        i().sd(T0, X8, ELEMENT_BYTES as i32).build(),
+        i().addi(X7, T0, VECTOR_STORE_OFFSET).build(),
+        vsetivli(2, VTYPE_E64_M1_TA_MA),
+        vector_move_e64(VECTOR_LOAD_OPCODE, T0),
+        vector_move_e64(VECTOR_STORE_OPCODE, X7),
+        i().jal(X0, 0).build(),
+    ]
+}
+
+#[test]
+fn a_vector_load_and_store_log_each_element_in_element_order() {
+    let target = DATA + VECTOR_STORE_OFFSET as u64;
+    let spin = PROGRAM_BASE + 4 * 9;
+    let loaded = format!(
+        "{} {}",
+        vector_access("vload", 0, DATA, FIRST_ELEMENT),
+        vector_access("vload", 1, DATA, SECOND_ELEMENT)
+    );
+    let stored = format!(
+        "{} {} vec",
+        vector_access("vstore", 0, target, FIRST_ELEMENT),
+        vector_access("vstore", 1, target, SECOND_ELEMENT)
+    );
+    let vector_value = format!("0x{SECOND_ELEMENT:016x}{FIRST_ELEMENT:016x} 0x{:032x}", 0);
+
+    for (backend, width) in [(BackendKind::InOrder, 1), (BackendKind::OutOfOrder, 4)] {
+        let effects = effects_by_pc(&logged_lines_until(&vector_copy(), spin, backend, width));
+
+        assert_eq!(
+            effects[&(PROGRAM_BASE + 4 * 7)],
+            format!("v1 {vector_value} {loaded} vec"),
+            "{backend:?} vle64.v"
+        );
+        assert_eq!(effects[&(PROGRAM_BASE + 4 * 8)], stored, "{backend:?} vse64.v");
+    }
+}
+
+/// Loads two elements fault-only-first from the last doubleword of RAM, so
+/// the second lies outside it.
+fn fault_only_first_at_the_end_of_ram() -> Vec<u32> {
+    let ram_pages = i32::try_from(Config::minimal().memory.ram_size >> 12).expect("small RAM");
+    let i = InstructionBuilder::new;
+    vec![
+        i().auipc(T0, ram_pages).build(),
+        i().addi(T0, T0, -(ELEMENT_BYTES as i32)).build(),
+        i().addi(T1, X0, FIRST_ELEMENT as i32).build(),
+        i().sd(T0, T1, 0).build(),
+        vsetivli(2, VTYPE_E64_M1_TA_MA),
+        vector_move_e64(VECTOR_LOAD_OPCODE, T0) | FAULT_ONLY_FIRST,
+        i().jal(X0, 0).build(),
+    ]
+}
+
+#[test]
+fn a_fault_only_first_load_logs_only_the_elements_before_the_fault() {
+    let last_element = PROGRAM_BASE + Config::minimal().memory.ram_size - ELEMENT_BYTES;
+    let load_pc = PROGRAM_BASE + 4 * 5;
+    let spin = PROGRAM_BASE + 4 * 6;
+    let first_load = vector_access("vload", 0, last_element, FIRST_ELEMENT);
+
+    for (backend, width) in [(BackendKind::InOrder, 1), (BackendKind::OutOfOrder, 4)] {
+        let lines = logged_lines_until(&fault_only_first_at_the_end_of_ram(), spin, backend, width);
+        let load = &effects_by_pc(&lines)[&load_pc];
+
+        assert!(load.ends_with(&format!("{first_load} vec")), "{backend:?} logged {load:?}");
+        assert_eq!(load.matches("vload").count(), 1, "{backend:?} logged {load:?}");
+    }
+}
+
+#[test]
+fn a_vector_group_write_logs_each_register_of_the_group() {
+    let program = [
+        vsetivli(4, VTYPE_E64_M2_TA_MA),
+        vmv_v_i_5(2),
+        InstructionBuilder::new().jal(X0, 0).build(),
+    ];
+    let spin = PROGRAM_BASE + 4 * 2;
+    let body_five = format!("0x{:016x}{:016x} 0x{:032x}", 5, 5, 0);
+
+    for (backend, width) in [(BackendKind::InOrder, 1), (BackendKind::OutOfOrder, 4)] {
+        let effects = effects_by_pc(&logged_lines_until(&program, spin, backend, width));
+
+        assert_eq!(
+            effects[&(PROGRAM_BASE + 4)],
+            format!("v2 {body_five} v3 {body_five} vec"),
             "{backend:?}"
         );
     }
@@ -323,4 +455,223 @@ fn memory_the_host_writes_is_logged_before_the_load_that_reads_it() {
         lines.iter().position(|line| *line == host_write).expect("the host write is logged");
     let load = lines.iter().position(|line| line.contains(" load ")).expect("the load is logged");
     assert!(written < load, "{lines:#?}");
+}
+
+const ACCESS_PADDR: u64 = 0x8000_2000;
+
+/// A doubleword load leaving memory2 with `VALUE` read from `DATA`.
+fn load_leaving_memory2() -> Mem1Mem2Entry {
+    let mut mem = Mem1Mem2Entry::default();
+    mem.op.ctrl.mem_read = true;
+    mem.op.ctrl.width = MemWidth::Double;
+    mem.vaddr = VirtAddr::new(DATA);
+    mem.paddr = PhysAddr::new(ACCESS_PADDR);
+    mem.load_data = VALUE;
+    mem
+}
+
+#[test]
+fn a_load_leaving_memory2_logs_the_value_it_read() {
+    let effect = MemEffect::of_memory2(&load_leaving_memory2());
+
+    assert_eq!(
+        effect,
+        Some(MemEffect::new(
+            VirtAddr::new(DATA),
+            PhysAddr::new(ACCESS_PADDR),
+            MemWidth::Double,
+            Some(VALUE),
+            None
+        ))
+    );
+}
+
+#[test]
+fn an_access_keeps_only_the_bytes_of_its_width() {
+    const ALL_ONES_BELOW_WIDTH: [(MemWidth, u64); 4] = [
+        (MemWidth::Byte, 0xff),
+        (MemWidth::Half, 0xffff),
+        (MemWidth::Word, 0xffff_ffff),
+        (MemWidth::Double, u64::MAX),
+    ];
+
+    for (width, kept) in ALL_ONES_BELOW_WIDTH {
+        let effect = MemEffect::new(
+            VirtAddr::new(DATA),
+            PhysAddr::new(ACCESS_PADDR),
+            width,
+            Some(u64::MAX),
+            Some(u64::MAX),
+        );
+
+        assert_eq!((effect.read, effect.write), (Some(kept), Some(kept)), "{width:?}");
+    }
+}
+
+#[test]
+fn a_faulting_load_has_no_memory_effect() {
+    let mut mem = load_leaving_memory2();
+    mem.op.trap = Some(Trap::LoadAccessFault(DATA));
+
+    assert_eq!(MemEffect::of_memory2(&mem), None);
+}
+
+#[test]
+fn a_vector_memory_micro_op_has_no_scalar_memory_effect() {
+    let mut mem = load_leaving_memory2();
+    mem.op.vec_mem = Some(VecMemAccess {
+        micro_op: MicroOpIdx::new(0),
+        is_store: false,
+        target: VecMemTarget::Element { elem_idx: ElemIdx::new(0), eew: Sew::E64, dest_slot: 0 },
+    });
+
+    assert_eq!(MemEffect::of_memory2(&mem), None);
+}
+
+#[test]
+fn a_cache_block_operation_has_no_memory_effect() {
+    let mut mem = load_leaving_memory2();
+    mem.op.ctrl.system_op = SystemOp::CboFlush;
+
+    assert_eq!(MemEffect::of_memory2(&mem), None);
+}
+
+const HALF_BYTES: u64 = 2;
+const FIRST_HALF: u64 = 0x1234;
+const SECOND_HALF: u64 = 0x5678;
+
+fn half_element(index: usize, store_data: u64) -> (MicroOpIdx, ElementAccess) {
+    let access = ElementAccess {
+        vaddr: VirtAddr::new(DATA + HALF_BYTES * index as u64),
+        store_data,
+        elem_idx: ElemIdx::new(index),
+        eew: Sew::E16,
+        dest_slot: 0,
+    };
+    (MicroOpIdx::new(index), access)
+}
+
+/// A memory2 entry for a vector micro-op over two halfword elements.
+fn span_leaving_memory2(is_store: bool, data: Option<Box<[u8]>>) -> Mem1Mem2Entry {
+    let span = VecMemSpan {
+        elements: vec![half_element(0, FIRST_HALF), half_element(1, SECOND_HALF)],
+        data,
+    };
+    let mut mem = Mem1Mem2Entry::default();
+    mem.op.vec_mem = Some(VecMemAccess {
+        micro_op: MicroOpIdx::new(0),
+        is_store,
+        target: VecMemTarget::Span(Box::new(span)),
+    });
+    mem.paddr = PhysAddr::new(ACCESS_PADDR);
+    mem
+}
+
+fn half_effect(index: u64, read: Option<u64>, write: Option<u64>) -> MemEffect {
+    MemEffect::new(
+        VirtAddr::new(DATA + HALF_BYTES * index),
+        PhysAddr::new(ACCESS_PADDR + HALF_BYTES * index),
+        MemWidth::Half,
+        read,
+        write,
+    )
+}
+
+#[test]
+fn a_vector_load_span_logs_each_element_it_read_in_memory_order() {
+    let bytes = [0x34, 0x12, 0x78, 0x56];
+    let mem = span_leaving_memory2(false, Some(Box::from(bytes)));
+
+    let accesses = VectorElementAccess::of_memory2(&mem);
+
+    assert_eq!(
+        accesses,
+        [
+            VectorElementAccess {
+                element: ElemIdx::new(0),
+                effect: half_effect(0, Some(FIRST_HALF), None)
+            },
+            VectorElementAccess {
+                element: ElemIdx::new(1),
+                effect: half_effect(1, Some(SECOND_HALF), None)
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_vector_store_span_logs_each_element_it_wrote() {
+    let mem = span_leaving_memory2(true, None);
+
+    let accesses = VectorElementAccess::of_memory2(&mem);
+
+    assert_eq!(
+        accesses.iter().map(|access| access.effect).collect::<Vec<_>>(),
+        [half_effect(0, None, Some(FIRST_HALF)), half_effect(1, None, Some(SECOND_HALF))]
+    );
+}
+
+#[test]
+fn a_single_vector_element_logs_the_value_its_micro_op_moved() {
+    let mut mem = load_leaving_memory2();
+    mem.op.vec_mem = Some(VecMemAccess {
+        micro_op: MicroOpIdx::new(0),
+        is_store: true,
+        target: VecMemTarget::Element { elem_idx: ElemIdx::new(3), eew: Sew::E64, dest_slot: 0 },
+    });
+    mem.store_data = SECOND_HALF;
+
+    let accesses = VectorElementAccess::of_memory2(&mem);
+
+    let effect = MemEffect::new(
+        VirtAddr::new(DATA),
+        PhysAddr::new(ACCESS_PADDR),
+        MemWidth::Double,
+        None,
+        Some(SECOND_HALF),
+    );
+    assert_eq!(accesses, [VectorElementAccess { element: ElemIdx::new(3), effect }]);
+}
+
+#[test]
+fn a_faulting_vector_element_logs_no_access() {
+    let mut mem = span_leaving_memory2(false, None);
+    mem.op.trap = Some(Trap::LoadAccessFault(DATA));
+
+    assert!(VectorElementAccess::of_memory2(&mem).is_empty());
+}
+
+const RESET_INT_REG: u8 = 5;
+const RESET_LAST_INT_REG: u8 = 31;
+const RESET_FP_REG: u8 = 3;
+const RESET_FIRST_FP_REG: u8 = 0;
+const RESET_VALUE: u64 = 0x1234_5678_9abc_def0;
+
+#[test]
+fn the_reset_lines_list_exactly_the_nonzero_registers() {
+    let log = tempfile::NamedTempFile::new().expect("temp file");
+    let path = log.path().to_str().expect("utf-8 path").to_owned();
+    let mut ctx = TestContext::with_fast_memory(&Config::minimal());
+    ctx.set_reg(RegIdx::new(RESET_INT_REG), RESET_VALUE);
+    ctx.set_reg(RegIdx::new(RESET_LAST_INT_REG), RESET_VALUE);
+    ctx.state_mut().harts[0].regs.write_f(RegIdx::new(RESET_FP_REG), RESET_VALUE);
+    ctx.state_mut().harts[0].regs.write_f(RegIdx::new(RESET_FIRST_FP_REG), RESET_VALUE);
+
+    ctx.sim.open_commit_log(&path).expect("open commit log");
+    drop(ctx);
+
+    let lines = std::fs::read_to_string(&path).expect("read commit log");
+    let registers: Vec<&str> = lines
+        .lines()
+        .filter(|line| {
+            line.starts_with("core   0: reset x") || line.starts_with("core   0: reset f")
+        })
+        .collect();
+    let expected = [
+        format!("core   0: reset x{RESET_INT_REG} 0x{RESET_VALUE:016x}"),
+        format!("core   0: reset x{RESET_LAST_INT_REG} 0x{RESET_VALUE:016x}"),
+        format!("core   0: reset f{RESET_FIRST_FP_REG} 0x{RESET_VALUE:016x}"),
+        format!("core   0: reset f{RESET_FP_REG} 0x{RESET_VALUE:016x}"),
+    ];
+    assert_eq!(registers, expected);
 }
