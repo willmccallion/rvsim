@@ -82,7 +82,8 @@ impl ScHistories {
 
 /// The most GEHL components: the global, backward, path, IMLI and IMLI
 /// history ones, and one per local history.
-const MAX_GEHLS: usize = 5 + MAX_LOCAL_HISTORIES;
+const MAX_GEHLS: usize = 9;
+const _: () = assert!(MAX_GEHLS == 5 + MAX_LOCAL_HISTORIES);
 
 /// What one component read for a prediction: the centred sum of its
 /// counters and whether its weight doubled that sum's vote. Training uses
